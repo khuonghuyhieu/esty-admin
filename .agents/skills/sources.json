@@ -1,0 +1,36 @@
+{
+  "installed_on": "2026-10-24",
+  "scope": "project",
+  "skills": [
+    {
+      "name": "frontend-design",
+      "repository": "https://github.com/anthropics/skills",
+      "ref": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+      "source_path": "skills/frontend-design",
+      "files": {
+        "LICENSE.txt": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594",
+        "SKILL.md": "d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3"
+      }
+    },
+    {
+      "name": "web-design-guidelines",
+      "repository": "https://github.com/vercel-labs/agent-skills",
+      "ref": "063bee94c3f4df8453406c830b0a7df0f2860278",
+      "source_path": "skills/web-design-guidelines",
+      "files": {
+        "SKILL.md": "f4647ca866a3accf763777f83e7682954f0187cd6bea7eea0399796652414e8f"
+      }
+    },
+    {
+      "name": "doodle",
+      "repository": "https://github.com/bergside/awesome-design-skills",
+      "ref": "f631a09b4fcc0166f2e2c1a8c81906ef680c57e8",
+      "source_path": "skills/doodle",
+      "files": {
+        "DESIGN.md": "edc6b45e083e43706b1386e30a9f6c52a6b8936090d6856a741d53baddaf5c22",
+        "LICENSE": "56e2dc0100744b958d87e5fc790f4e5ed2b5f483d6f2cbade4b6f7a0f5a03862",
+        "SKILL.md": "25b624dde85ac765b67e41e9e40dd6601c5087374a1af73913840cfaeff2382a"
+      }
+    }
+  ]
+}
