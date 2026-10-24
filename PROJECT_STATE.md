@@ -1,32 +1,27 @@
 # Current handoff
 
-Updated: 2026-10-25. Technical context: [ARCH-001](specs/architecture.md). Canonical checkout: `e-commerce/source/`.
+Updated: 2026-10-25. Technical context: [ARCH-001](specs/architecture.md). Intended repository root: `e-commerce/`.
 
-## Actual progress
+## Observed state
 
-- Current code: static developer site in `dist/`. No FE–BE runtime, DB migration or real Etsy integration has been implemented.
-- Cleanup: consolidated architecture, UI constraints and foundation acceptance into one spec. Retained three implementation/UI skills; added eight Spec Kit workflow skills on 2026-10-25. Previous roadmap, design notes and landing-specific skill are preserved under `../.workspace/context-before-specs/`.
-- Existing review branch: `docs/ecommerce-foundation-handoff`. Cleanup stays on this branch; no new checkout or tracker was created. Remote publication remains unverified.
-- Last observed publication attempts: shell DNS failure and GitHub connector 403. No PR or deployment is verified.
+- Code: static developer landing page at `dist/`; no FE–BE runtime, migrations or real Etsy integration exists.
+- GitHub review branch `docs/ecommerce-foundation-handoff` was directly verified at `f799a595dc5a7ae5680f6796f7191478aa062813` on 2026-10-25, matching local HEAD before the root/Markdown updates. This supersedes earlier reports that the branch had not been pushed. PR existence is not verified.
+- Root migration status: pending external execution because this session cannot move the protected outer `.git`. Until migration completes, the active checkout is still nested. The prepared migration script and backups are local-only in `.workspace/`; do not repeat the failed move or claim root promotion is complete.
+- Current work: prepare root layout and review Markdown ownership, paths and claims on the same review branch. No new runtime or stack decision is introduced.
 
-## Spec Kit setup
+## Context and skills
 
-- Project-local core skills/helpers from official github/spec-kit v1.2.3 are installed; 8 speckit skills coexist with the 3 UI skills. `.specify/upstream.json` records source blob hashes and the bootstrap limitation.
-- Constitution: `.specify/memory/constitution.md`. Active feature: `specs/001-connectivity-foundation/spec.md`; architecture remains cross-cutting. Ignored `.specify/feature.json` points to the feature; AGENTS records recovery if missing.
-- This is not a completed Specify CLI/init installation: shell DNS prevents CLI download. No extensions, CLI dispatcher, runtime events, Git/issue automation or global profile changes. Do not present CLI-only commands as working.
-- Verified in a scratch project: create feature → resolve plan/tasks templates → validate implementation prerequisites. Verified missing-plan failure, active-feature resolution, Bash syntax and upstream blob hashes for 6 helpers, rendered script references for 8 skills. Existing `dist/` is unchanged.
-- No technical plan/tasks were generated for the actual feature while FE/BE/DB remains unresolved. New skill discovery in a fresh running agent session is not yet observed.
+- `specs/architecture.md` owns cross-cutting technical decisions; `specs/001-connectivity-foundation/spec.md` owns current feature requirements. No completed feature plan/tasks exist while stack is unresolved.
+- `.specify/memory/constitution.md` owns governance. Project-local Spec Kit v1.2.3 core bootstrap provides 8 workflow skills and 6 Bash helpers alongside 3 UI skills. The full Specify CLI, extensions, dispatcher and events have not been installed.
+- All repository/PR artifacts are English; owner-facing conversation may remain Vietnamese. Functional Unicode fixtures and upstream licenses are preserved.
+- `.workspace/` is excluded local history/credentials/backups, not active implementation context. No additional sibling or nested code repository should be created.
 
-## Next action
+## Verification and next action
 
-Language decision (2026-10-25): all repository/PR artifacts are English; owner-facing chat may remain Vietnamese. AGENTS and the Spec Kit constitution enforce this for subsequent work. Current tracked text was reviewed; upstream English prose containing accents and functional Unicode locale probes are not Vietnamese content. The outer workspace README was translated; historical local archives remain excluded from the PR.
+Previously verified: official helper blob hashes, rendered skill references and scratch feature/template/prerequisite workflow. Current checks passed: active Markdown links, upstream skill/helper hashes, `.workspace/` ignore rule and unchanged `dist/`. A temporary-repository migration test verified root promotion, tracked-file hashes, commit ancestry, backups, archive exclusion, a clean index and the repeat-run guard; network push was omitted in that fixture. Actual root promotion remains pending the protected `.git` operation. No browser/runtime/API checks are implied.
 
-Supply the approved FE/BE/DB decision document or values, then execute F0 → F1 → F2 in ARCH-001. Foundation is already authorized; business modules are not. This is the only implementation blocker currently identified.
+Finish the prepared root migration outside this protected session, verify and push the existing branch. For implementation, the only identified blocker remains the approved FE/BE/DB document or explicit values; foundation authorization is already granted.
 
-## Verification
+## Tracking
 
-Passed: current local links resolve, three implementation/UI skills remain alongside the eight Spec Kit workflow skills, upstream hashes match sources.json, `git diff --check` passes, and `dist/` matches main. Archived originals exist outside source. Notion task/overview readback confirms ARCH-001 and preserved history. No runtime/browser/API test is claimed.
-
-## Task synchronization
-
-[C3-03](https://app.notion.com/p/3d256f555918814abd42efeec2ea5edb) was updated and read back: Doing for technical context cleanup, foundation awaiting stack; not Done or production Go. [Start Here](https://app.notion.com/p/3f056f55591881fda622e3284841e426) now shows the two current tracks and collapses previous planning into history. Existing business tasks and Drive source documents were not deleted or bulk reclassified. Source spec is local until pushed; do not present an unpushed GitHub file link as accessible.
+[Notion C3-03](https://app.notion.com/p/3d256f555918814abd42efeec2ea5edb) tracks technical design/foundation; [Start Here](https://app.notion.com/p/3f056f55591881fda622e3284841e426) holds the project overview. Their previous updates were verified, but they still describe the nested path until the migration status is synchronized. Business tasks and original Drive evidence are retained; C3 production Go is not implied by context cleanup.
