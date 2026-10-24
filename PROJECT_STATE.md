@@ -19,6 +19,8 @@ Updated: 2026-10-25. Technical context: [ARCH-001](specs/architecture.md). Canon
 
 ## Next action
 
+Language decision (2026-10-25): all repository/PR artifacts are English; owner-facing chat may remain Vietnamese. AGENTS and the Spec Kit constitution enforce this for subsequent work. Current tracked text was reviewed; upstream English prose containing accents and functional Unicode locale probes are not Vietnamese content. The outer workspace README was translated; historical local archives remain excluded from the PR.
+
 Supply the approved FE/BE/DB decision document or values, then execute F0 → F1 → F2 in ARCH-001. Foundation is already authorized; business modules are not. This is the only implementation blocker currently identified.
 
 ## Verification
