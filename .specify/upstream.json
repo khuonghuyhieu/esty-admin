@@ -1,0 +1,144 @@
+{
+  "repository": "https://github.com/github/spec-kit",
+  "ref": "v1.2.3",
+  "installation_method": "project-local core skills bootstrap via GitHub connector; not specify init",
+  "cli_installed": false,
+  "selected_commands": [
+    "specify",
+    "clarify",
+    "plan",
+    "tasks",
+    "analyze",
+    "implement",
+    "constitution",
+    "checklist"
+  ],
+  "excluded": [
+    "converge",
+    "taskstoissues",
+    "extensions",
+    "presets",
+    "runtime events",
+    "workflow CLI"
+  ],
+  "sources": [
+    {
+      "path": "templates/commands/specify.md",
+      "git_blob_sha": "52b2b2456500c68c6a9cfbac5de9d2df7bedf918"
+    },
+    {
+      "path": "templates/commands/clarify.md",
+      "git_blob_sha": "f48d8bd703d7eb3fe4eadf2d3d283ca508e6bb80"
+    },
+    {
+      "path": "templates/commands/plan.md",
+      "git_blob_sha": "d559e517ae59bb3e664b59b528372444baac4626"
+    },
+    {
+      "path": "templates/commands/tasks.md",
+      "git_blob_sha": "1b9c4255fe8d9cd76e8f3e5952ada7a17c62a87e"
+    },
+    {
+      "path": "templates/commands/analyze.md",
+      "git_blob_sha": "7de2d28f0da797998e5e30d6323b7316a74e60ff"
+    },
+    {
+      "path": "templates/commands/implement.md",
+      "git_blob_sha": "f98ba525de1bb29efdb520695a4fd3fa8499bbf6"
+    },
+    {
+      "path": "templates/commands/constitution.md",
+      "git_blob_sha": "f2c107a15865344ffb684d33c09cb3de7baf1bea"
+    },
+    {
+      "path": "templates/commands/checklist.md",
+      "git_blob_sha": "6e33f5d4225c539fa1c3860e5409f098a6a8d827"
+    },
+    {
+      "path": "scripts/bash/common.sh",
+      "git_blob_sha": "ff18cba4d9d06a04a33fea271631ae760e218b43"
+    },
+    {
+      "path": "scripts/bash/create-new-feature.sh",
+      "git_blob_sha": "3ce2f9011c12da25f33f3fd6ea6a950f36c5bda6"
+    },
+    {
+      "path": "scripts/bash/check-prerequisites.sh",
+      "git_blob_sha": "1eadd991b28980b5105dea14dc962a698e2ec45c"
+    },
+    {
+      "path": "scripts/bash/setup-plan.sh",
+      "git_blob_sha": "9c8d163409f8efcc75414b7b11fccb22cd3005ce"
+    },
+    {
+      "path": "scripts/bash/setup-tasks.sh",
+      "git_blob_sha": "a5a685cd0e3a8ba74bf36e5c104858e29c16e650"
+    },
+    {
+      "path": "templates/spec-template.md",
+      "git_blob_sha": "ceb28776215a098e977650ac090c785dcbf53651"
+    },
+    {
+      "path": "templates/plan-template.md",
+      "git_blob_sha": "36f2eab16880bac670fe43cbe7ef2b9bc8c3aa2f"
+    },
+    {
+      "path": "templates/tasks-template.md",
+      "git_blob_sha": "7fff087cc5a3c51a889d865fd9126607a032d233"
+    },
+    {
+      "path": "templates/checklist-template.md",
+      "git_blob_sha": "9d1e801c3e168869a04ab60c66ca0dae4a77614f"
+    },
+    {
+      "path": "templates/constitution-template.md",
+      "git_blob_sha": "a4670ff46919b276a4c9663b4ca51830108fcfc0"
+    },
+    {
+      "path": "LICENSE",
+      "git_blob_sha": "28a50fa22639e32febe14e4ffc7a732b0ba8c90a"
+    },
+    {
+      "path": "src/specify_cli/integrations/base.py",
+      "git_blob_sha": "95545b67a77187159c7bdfc84fc925368b6f8133"
+    },
+    {
+      "path": "src/specify_cli/integrations/codex/__init__.py",
+      "git_blob_sha": "d88628b3ff615a05f4e2269a6fe7edaa0f492ff5"
+    },
+    {
+      "path": "src/specify_cli/agents.py",
+      "git_blob_sha": "72966998a54a26127b01d33bb9849d904d5f4ecc"
+    },
+    {
+      "path": "scripts/bash/resolve-template.sh",
+      "git_blob_sha": "da05d2df6d014fcc4b7cada4ea0a0a05752f075e"
+    }
+  ],
+  "transformations": [
+    "Render command bodies with sh script variant, project-relative paths and dollar-prefixed Codex invocations.",
+    "Generate Codex SKILL.md frontmatter; full Specify CLI/integration registry is not installed.",
+    "Normalize generated skill/template EOF; official Bash helpers are preserved byte-for-byte."
+  ],
+  "installed_sha256": {
+    ".agents/skills/speckit-analyze/SKILL.md": "679cdc37dcd4319abe9ae0ee3bcf30282f71a12d567e0b0b96898120a75b0727",
+    ".agents/skills/speckit-checklist/SKILL.md": "09a5b411ac2e4b2c0db8f63e9c1ac277015bf97658a098061ca73bd580ebe898",
+    ".agents/skills/speckit-clarify/SKILL.md": "c6ac8fd42f4db49ae47186749bc9d32c64b19cfb01ba575b293815e44e16e02e",
+    ".agents/skills/speckit-constitution/SKILL.md": "9f1a9f0b4a4c04c5931a1ecb7ec51098773744ce933ab6c9122259bbab442fb7",
+    ".agents/skills/speckit-implement/SKILL.md": "906b98770dcd44d446742894e16b0a078243898ddbe5b45d1c58d12b4e0251f8",
+    ".agents/skills/speckit-plan/SKILL.md": "84901f53e76bcf557925d451376a32a8902730122c150daa9fc570bf3de991cc",
+    ".agents/skills/speckit-specify/SKILL.md": "eeedd5c9378d5fec4995252c4f0aaef7cb72a15c31dcea41c3ec6398e032a0e6",
+    ".agents/skills/speckit-tasks/SKILL.md": "daa8f5acc237eb5027e25fb2026dcb143be479201ad96452883e9c3e93e06174",
+    ".specify/scripts/bash/check-prerequisites.sh": "38f5e2c8150ee35ee62a5ae3aec66be8bdb15a9805ba20cc3974acdecb6c5e10",
+    ".specify/scripts/bash/common.sh": "53cb1c23e349db4586c272436ce35c6e2f36a9c0b5351a85e0b216d9887a26b7",
+    ".specify/scripts/bash/create-new-feature.sh": "972f03ed8ca5ee17b7baad6d56d821d46269d77abc337496beafb0fe85a725f2",
+    ".specify/scripts/bash/resolve-template.sh": "829e227096abc8bf0889889ec9f792f503ca5d395b7836a8a7eb739ee75214e7",
+    ".specify/scripts/bash/setup-plan.sh": "d378ec66ba20d2da01c71dad8935062c1c27f0bba890be9a6d3dda52ea056a4e",
+    ".specify/scripts/bash/setup-tasks.sh": "0f7d7e996ed4a26ab7bf09bf10540366ee402b930a4a9cbc0ee7bc6a8bd0013b",
+    ".specify/templates/checklist-template.md": "70bbc48e884fab372ffb09e83e78ff983e28b69caebf8cd9964a02b6836683ac",
+    ".specify/templates/constitution-template.md": "ce7549540fa45543cca797a150201d868e64495fdff39dc38246fb17bd4024b3",
+    ".specify/templates/plan-template.md": "a828ad6206526574ab3fc99be6d0154588cb1c9774c5919d71b81ab5b2dbffa0",
+    ".specify/templates/spec-template.md": "3945437fc35cd30a5b2bf7beea680337c3516826d3efa5a6b92c4a7eca1ba28e",
+    ".specify/templates/tasks-template.md": "b0f527d41e546af0c31903e04f9b20965b6b497b573792198f663a64ce128863"
+  }
+}
