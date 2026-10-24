@@ -1,0 +1,7 @@
+{
+  "ai": "codex",
+  "ai_skills": true,
+  "script": "sh",
+  "feature_numbering": "sequential",
+  "allow_symlinks": false
+}
