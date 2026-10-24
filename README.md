@@ -1,33 +1,23 @@
-# esty-admin — E-commerce workspace
+# E-commerce source
 
-Start here for the Etsy fulfillment project. Etsy API access is the first technical milestone; BurgerPrints is the single supplier pilot. The repository currently contains a static developer landing page and agent context. FE–BE foundation is authorized but awaits the actual approved FE/BE/DB stack decision.
-
-## Structure
+Implementation workspace for Etsy fulfillment with BurgerPrints as the single supplier pilot.
 
 ```text
-.
-├── README.md              # entrypoint and commands
-├── AGENTS.md              # instructions for agents
-├── PROJECT_STATE.md       # current decisions and next step
-├── dist/                  # editable landing page + privacy
-├── docs/                  # design direction + API-first roadmap
-└── .agents/skills/         # reusable UI and project workflows
+specs/architecture.md   architecture, stack decisions, scope and acceptance
+.agents/skills/         frontend implementation, Doodle tokens and UI review
+dist/                 preserved static developer landing page
 ```
 
-No separate checkout or PR folder belongs inside this source tree. Keep one branch per change; update the existing review PR rather than creating copies. Do not create empty frontend/backend folders before the stack is known.
+Read [the architecture spec](specs/architecture.md) for what to build, [PROJECT_STATE](PROJECT_STATE.md) for where work stands, and [AGENTS](AGENTS.md) for working rules. These files have distinct roles; there is no separate local task plan or roadmap.
 
-## Run the existing site
+FE–BE foundation is authorized but not implemented: the approved FE/BE/DB stack is still needed. No application setup/dev/test/build or migration commands exist yet. Future app folders are proposed in the spec, not scaffolded.
+
+To preview the existing landing page only:
 
 ```sh
 python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 ```
 
-Open http://127.0.0.1:8765. There is no install/build step for this static page. Application dev/lint/typecheck/test/build and migration commands do not exist yet.
+Open http://127.0.0.1:8765. The page has no build step; live deployment, Etsy registration and API access are not established by this preview.
 
-## Continue work
-
-Agents read `AGENTS.md` and `PROJECT_STATE.md`. For UI changes, use `docs/design.md` and the local skills; for API-first preparation, use `docs/roadmap.md`. Sources and upstream skill versions are recorded in `.agents/skills/sources.json`. The current site has not yet been restyled with Doodle.
-
-The roadmap records the intended own-shop and consenting-seller use case. No live Etsy integration, OAuth, order processing or deployment is verified. Confirm actual registration requirements and complete support/privacy details before publication.
-
-The earlier architecture reference belonged to Camp Ticket. Verified E-commerce decision sources and the missing stack input are recorded once in `PROJECT_STATE.md`; do not copy that other project's stack.
+Task status and decisions live in [Notion C3-03](https://app.notion.com/p/3d256f555918814abd42efeec2ea5edb); Drive retains original specifications/evidence. Superseded local planning is preserved outside this repo in `../.workspace/`, not loaded as current context.
