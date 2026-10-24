@@ -5,7 +5,7 @@ description: Create, refine or review this project's Fulfillment Workspace landi
 
 # Fulfillment Workspace landing page
 
-Find the project root containing `etsy-api-first.md` and `dist/`. Read its `AGENTS.md` and `PROJECT_STATE.md`, then `README.md` and the affected HTML. If invoked outside this project, locate the source with the user rather than assuming a path.
+Find the project root containing `docs/roadmap.md` and `dist/`. Read its `AGENTS.md` and `PROJECT_STATE.md`, then `README.md` and the affected HTML. If invoked outside this project, locate the source with the user rather than assuming a path.
 
 ## Content and scope
 
@@ -19,7 +19,7 @@ Find the project root containing `etsy-api-first.md` and `dist/`. Read its `AGEN
 ## Implementation
 
 - Edit `dist/index.html` and, as needed, `dist/privacy.html` directly. This site has no package manager or build pipeline. Preserve its lightweight static structure unless the owner requests a different stack.
-- Read root `DESIGN.md` for the selected Doodle direction and its skill routing. Use `.agents/skills/doodle/SKILL.md` for visual tokens and `.agents/skills/frontend-design/SKILL.md` for frontend craft. The historical cream/green design is superseded for future redesign work. Keep handwritten decoration compatible with readable body text and accessible controls.
+- Read root `docs/design.md` for the selected Doodle direction and its skill routing. Use `.agents/skills/doodle/SKILL.md` for visual tokens and `.agents/skills/frontend-design/SKILL.md` for frontend craft. The historical cream/green design is superseded for future redesign work. Keep handwritten decoration compatible with readable body text and accessible controls.
 - Make navigation, CTA and privacy links work from the deployed site root. Use semantic sections, visible keyboard focus, readable contrast, clear heading order and layouts that avoid horizontal overflow on small screens.
 - Keep internal planning, agent instructions and operational details out of public copy.
 

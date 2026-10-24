@@ -5,8 +5,8 @@
 - Read `PROJECT_STATE.md` at the start of a task, then only the files relevant to that task. Do not repeat a full workspace/account scan when a targeted read is enough.
 - Current deliverable: ONE English landing page introducing an application for the internal team, initially used as the project website for Etsy Developer registration/API access. `privacy.html` is a supporting page, not a second landing page.
 - For landing-page work, read `.agents/skills/ecommerce-landing-page/SKILL.md`. The editable site is `dist/`; there is no separate build source or build command.
-- For frontend design, read `DESIGN.md`. Use `.agents/skills/doodle/SKILL.md` for visual tokens, `.agents/skills/frontend-design/SKILL.md` for implementation/design decisions, and `.agents/skills/web-design-guidelines/SKILL.md` for a scoped quality review. Doodle is the chosen style; do not load competing visual templates by default.
-- For the technical roadmap, read `etsy-api-first.md`. Older workflow/Gantt snapshots live in the separate planning workspace and do not override the latest user direction.
+- For frontend design, read `docs/design.md`. Use `.agents/skills/doodle/SKILL.md` for visual tokens, `.agents/skills/frontend-design/SKILL.md` for implementation/design decisions, and `.agents/skills/web-design-guidelines/SKILL.md` for a scoped quality review. Doodle is the chosen style; do not load competing visual templates by default.
+- For the technical roadmap, read `docs/roadmap.md`. Older workflow/Gantt snapshots live in the separate planning workspace and do not override the latest user direction.
 
 ## Working agreements
 
@@ -25,5 +25,5 @@
 - Frontend routes are entrypoints; organize business UI by feature and separate reusable UI. Backend transport/controllers call application services; persistence and external integrations are adapters. Business logic must not depend on HTTP requests or generated transport types.
 - Use one API contract with stack-appropriate code generation. Do not hand-maintain duplicate FE/BE API types. Add migrations, validated environment configuration and secret-free `.env.example` files.
 - First executable path is a connectivity screen → API → DB, with health/readiness behavior and loading/error/empty states where applicable. Do not invent order, seller, supplier or OAuth behavior before its scope is approved. No microservices, gRPC, queues or shared-package scaffolding without a demonstrated approved need.
-- Apply `DESIGN.md` and the existing frontend, Doodle and UI review skills to admin UI; prioritize readable tables/forms. Keep the static developer landing page separate.
+- Apply `docs/design.md` and the existing frontend, Doodle and UI review skills to admin UI; prioritize readable tables/forms. Keep the static developer landing page separate.
 - Expose root setup/dev/lint/typecheck/test/build and migration commands as supported by the decided stack. Record actual checks, failures and unverified behavior in `PROJECT_STATE.md`; keep usage in README. A folder skeleton is not a completed foundation.
