@@ -1,13 +1,13 @@
 # Current handoff
 
-Updated: 2026-10-25. Technical context: [ARCH-001](specs/architecture.md). Intended repository root: `e-commerce/`.
+Updated: 2026-10-25. Technical context: [ARCH-001](specs/architecture.md). Local repository root: `e-commerce/esty-admin/`.
 
 ## Observed state
 
 - Code: static developer landing page at `dist/`; no FE–BE runtime, migrations or real Etsy integration exists.
-- GitHub review branch `docs/ecommerce-foundation-handoff` was directly verified at `f799a595dc5a7ae5680f6796f7191478aa062813` on 2026-10-25, matching local HEAD before the root/Markdown updates. This supersedes earlier reports that the branch had not been pushed. PR existence is not verified.
-- Root migration status: pending external execution because this session cannot move the protected outer `.git`. Until migration completes, the active checkout is still nested. The prepared migration script and backups are local-only in `.workspace/`; do not repeat the failed move or claim root promotion is complete.
-- Current work: prepare root layout and review Markdown ownership, paths and claims on the same review branch. No new runtime or stack decision is introduced.
+- GitHub review branch `docs/ecommerce-foundation-handoff` is at `501c7bf38736470cd52f0e7332c11774f337e51b`, matching the local checkout before the current documentation edits. PR #1 exists and is closed; merge status has not been verified.
+- The active checkout is `esty-admin/` inside the surrounding `e-commerce/` workspace. Open `esty-admin/` directly and run Git commands there. Its linked-worktree metadata currently lives under the ignored parent `.workspace/` directory; keep that directory in place while using this checkout.
+- Current work: make the renamed `esty-admin/` checkout the clear local entrypoint. No runtime or stack decision is introduced.
 
 ## Context and skills
 
@@ -18,9 +18,9 @@ Updated: 2026-10-25. Technical context: [ARCH-001](specs/architecture.md). Inten
 
 ## Verification and next action
 
-Previously verified: official helper blob hashes, rendered skill references and scratch feature/template/prerequisite workflow. Current checks passed: active Markdown links, upstream skill/helper hashes, `.workspace/` ignore rule and unchanged `dist/`. A temporary-repository migration test verified root promotion, tracked-file hashes, commit ancestry, backups, archive exclusion, a clean index and the repeat-run guard; network push was omitted in that fixture. Actual root promotion remains pending the protected `.git` operation. No browser/runtime/API checks are implied.
+Previously verified: official helper blob hashes, rendered skill references and scratch feature/template/prerequisite workflow. The local folder was renamed from `source/` to `esty-admin/`; Git's linked-worktree pointer was repaired and the branch remains clean at the previously pushed commit. No browser/runtime/API checks are implied.
 
-Finish the prepared root migration outside this protected session, verify and push the existing branch. For implementation, the only identified blocker remains the approved FE/BE/DB document or explicit values; foundation authorization is already granted.
+Continue from `esty-admin/` on the existing review branch. For implementation, the only identified blocker remains the approved FE/BE/DB document or explicit values; foundation authorization is already granted.
 
 ## Tracking
 

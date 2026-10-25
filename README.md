@@ -1,6 +1,6 @@
-# E-commerce
+# Etsy Admin
 
-This repository belongs directly at `e-commerce/`, with no nested `source/` repository. It contains the implementation workspace for Etsy fulfillment with BurgerPrints as the single supplier pilot.
+Open this `esty-admin/` directory as the project workspace. It is the local checkout of the `khuonghuyhieu/esty-admin` GitHub repository and contains the implementation workspace for Etsy fulfillment with BurgerPrints as the single supplier pilot.
 
 ```text
 specs/architecture.md   architecture, stack decisions, scope and acceptance
@@ -33,7 +33,7 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 
 Open http://127.0.0.1:8765. The page has no build step; live deployment, Etsy registration and API access are not established by this preview.
 
-Task status and decisions live in [Notion C3-03](https://app.notion.com/p/3d256f555918814abd42efeec2ea5edb); Drive retains original specifications/evidence. Superseded local planning, migration backups and local credentials are preserved in `.workspace/`. This directory is ignored by Git and must never be published or loaded as current implementation context.
+Task status and decisions live in [Notion C3-03](https://app.notion.com/p/3d256f555918814abd42efeec2ea5edb); Drive retains original specifications/evidence. Local history and credentials may exist in the parent workspace; they are outside this repository and must never be staged or published.
 
 ## Spec Kit in this source
 
