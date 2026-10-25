@@ -11,6 +11,8 @@
 
 ## Context boundaries
 
+- React/Next.js implementation and performance review also use `.agents/skills/vercel-react-best-practices/SKILL.md`. Read only relevant rule files. Apply rules to existing feature needs; examples do not authorize adding analytics, data fetching, caching libraries or backend features. Project governance and accessibility take precedence. When Next.js setup resumes, use documentation matching the installed framework version and preserve these project instructions when integrating generated agent guidance.
+
 - Start with this file → `PROJECT_STATE.md` → `specs/architecture.md`. For feature work, then read `.specify/memory/constitution.md` and the active feature's `spec.md`; read `plan.md` and `tasks.md` only when they exist. README owns runnable commands and navigation.
 - Owner decisions and project governance/scope constrain generic skill and template instructions. Surface unresolved conflicts instead of selecting a stack, expanding scope or treating sample tasks as approved work.
 - `.agents/skills/` contains reusable workflows; `.specify/templates/` contains generation scaffolds. Neither is a project plan or evidence of implementation. Preserve pinned upstream files; record project adaptations here and in the relevant spec.

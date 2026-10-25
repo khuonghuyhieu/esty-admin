@@ -46,3 +46,9 @@ Local `$speckit-specify`, `$speckit-clarify`, `$speckit-plan`, `$speckit-tasks`,
 The website spec/plan/tasks are compact review drafts; their presence does not mean implementation or a full workflow/CLI run completed. The owner has limited the current work to docs. The full Specify CLI, extensions, dispatcher/events and automatic Git/issue workflows are not installed by this bootstrap. Earlier CLI/network attempts failed on DNS; the current shell npm-registry read also failed on DNS. Helper/template checks do not prove application build or deployment.
 
 Existing frontend-design, Doodle and web-design-guidelines skills guide later website implementation/review. Templates are scaffolds, not approved business scope. Do not recreate this feature, another checkout or a separate landing-page repository to resume work.
+
+### React and Next.js guidance
+
+The project-local `vercel-react-best-practices` skill supplements the UI skills for React/Next.js implementation and performance review. Invoke `$vercel-react-best-practices` in agent chat, or request a React/Next.js review. Read only rules relevant to the change. The upstream commit and per-file SHA-256 hashes are recorded in `.agents/skills/sources.json`; upstream files are preserved unchanged.
+
+Next.js version-matched documentation will be integrated during application setup, preserving the existing project instructions. No framework runtime or dependencies were installed with this skill.
