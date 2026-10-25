@@ -1,2 +1,11 @@
 .DS_Store
 .openai/
+
+# Machine-local history, credentials and migration backups
+.workspace/
+
+# Real environment values stay local; sanitized examples can be shared
+.env
+.env.*
+!.env.example
+!.env.*.example
