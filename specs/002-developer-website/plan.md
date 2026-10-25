@@ -21,7 +21,7 @@ For React/Next.js implementation and review, also read [vercel-react-best-practi
 | Styling | Plain CSS/CSS Modules and semantic Doodle tokens; no component kit required | Existing UI direction |
 | Package layout | npm workspaces; one application `apps/web`; one root lockfile | Existing monorepo boundary adapted to a frontend-only first phase |
 | Data / external contracts | No persistence or business API in this feature | Feature scope |
-| Checks | ESLint, TypeScript and production build; manual route/responsive/keyboard review | Acceptance implementation |
+| Checks | ESLint, TypeScript, production build, functional acceptance and Playwright E2E; manual visual/accessibility review | Acceptance implementation and owner-requested feature testing |
 
 The version baseline is a technical proposal, not a historical owner choice or installed package claim. At implementation, recheck supported stable/security-patched versions and record changes before locking. The local shell currently reports Node 26; project development/deployment should use the planned Node 24 baseline consistently.
 
@@ -87,6 +87,10 @@ Exact domain/subdomain; confirmed app title, operator identity and support email
 
 After implementation, README must document `npm ci`, `npm run dev`, `npm run lint`, `npm run typecheck`, `npm run build` and `npm run start`, delegating to `@esty-admin/web`. They are not currently available. Generate the lockfile during the initial authorized install, then verify a fresh `npm ci`.
 
+Owner-requested verification flow: OMP implements and runs functional/E2E checks, then a read-only Codex reviewer using `gpt-6-luna` reviews the changed code and test evidence in one concise pass. Report model availability failures rather than switching models. OMP addresses confirmed findings and reruns affected checks.
+
+During implementation, add `@playwright/test`, `apps/web/playwright.config.ts` and browser tests under `apps/web/tests/e2e/`; expose a root `npm run test:e2e` command and document browser setup in README. This command is planned, not installed. Prefer running against the local production build. Cover home/privacy direct loads, cross-page navigation, `/privacy.html` redirect, unknown-route recovery, 360px/1440px overflow and keyboard access. Browser tests provide functional acceptance for these static pages without a duplicate component snapshot suite. Add focused tests for public configuration validation if it contains meaningful validation logic, including malformed values and missing release-required facts. Select the smallest suitable runner at setup; do not add a second framework for trivial code.
+
 Validate both routes in development and production mode; `/privacy.html` redirects to `/privacy`; unknown routes provide a way home. Check all navigation, 360px/1440px layout, zoom, keyboard focus and reduced motion. Verify metadata against the actual release host. No test suite or browser result is claimed by this plan; record each check only after it runs.
 
 Current environment limitation: an npm registry metadata request failed with `ENOTFOUND` before the owner asked to stop at docs. No package install, application source or lockfile was created. Restore registry access or use a verified compatible local cache when implementation resumes; do not report a successful build without running it.
@@ -97,5 +101,6 @@ Current environment limitation: an npm registry metadata request failed with `EN
 - [Next.js package release](https://registry.npmjs.org/next/latest) and [React package release](https://registry.npmjs.org/react/latest): baseline versions inspected on 2026-10-25.
 - [Next.js on Vercel](https://vercel.com/docs/frameworks/full-stack/nextjs) and [Vercel Node versions](https://vercel.com/docs/functions/runtimes/node-js/node-js-versions): framework deployment and Node 24 baseline.
 - [Vercel custom domains](https://vercel.com/docs/domains/working-with-domains/add-a-domain): use actual project DNS instructions.
+- [Next.js Playwright guide](https://nextjs.org/docs/app/guides/testing/playwright): browser-based acceptance/E2E and production-build testing.
 
 No migration, data-model or API-contract artifact is needed for this public informational website. Deferred feature 001 will own those decisions for connectivity.

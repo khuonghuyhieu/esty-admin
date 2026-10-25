@@ -30,8 +30,8 @@ For T001–T006, load `vercel-react-best-practices` when making React/Next.js im
 
 ## Local acceptance
 
-- [ ] T007 Verify fresh installation, lint, typecheck and production build from the root; document actual commands in `README.md` and outcomes in `PROJECT_STATE.md`. Covers FR-007, SC-003.
-- [ ] T008 Review actual home/privacy UI against the three installed UI skills and applicable `vercel-react-best-practices` rules; verify route responses, legacy redirect, 360px/1440px, keyboard/zoom/reduced motion and accurate copy/metadata. Record evidence/limitations in `PROJECT_STATE.md`. Covers FR-001–FR-006, SC-001–SC-004.
+- [ ] T007 Verify fresh installation, lint, typecheck and production build from the root; add/run focused functional tests for meaningful public configuration validation and document actual commands in `README.md` and outcomes in `PROJECT_STATE.md`. Covers FR-006, FR-007, SC-003.
+- [ ] T008 Add Playwright configuration and automated functional/E2E journeys under `apps/web/tests/e2e/`, expose root `test:e2e`, and run against the local production build. Cover direct home/privacy access, navigation, legacy redirect, unknown-route recovery, 360px/1440px overflow and keyboard access. Review UI against the three UI skills and applicable `vercel-react-best-practices` rules; manually check zoom/reduced motion and accurate copy/metadata. Obtain one concise read-only Codex review using `gpt-6-luna`; fix confirmed findings through OMP and rerun affected checks. Record actual evidence/limitations in `PROJECT_STATE.md`. Covers FR-001–FR-006, SC-001–SC-004.
 
 ## Story 3 — Public URL
 

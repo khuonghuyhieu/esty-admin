@@ -61,3 +61,17 @@ The project-local `vercel-react-best-practices` skill supplements the UI skills 
 AGENTS requires relevant React/Next.js work to use the skill without an explicit reminder. If it is absent from the session catalog, read [its local entrypoint](.agents/skills/vercel-react-best-practices/SKILL.md) directly. These guidelines supplement version-matched framework documentation. Apply only relevant rules; a static website does not need fetching or caching dependencies just because the skill includes examples.
 
 Next.js version-matched documentation will be integrated during application setup, preserving the existing project instructions. No framework runtime or dependencies were installed with this skill.
+
+### Implement through OMP in Herdr
+
+The owner-selected implementation harness is `omp`. When implementation is requested from a Herdr-managed Codex pane, the agent follows the installed Herdr skill to open a sibling pane in this repository, start OMP and send the approved task scope with explicit local instruction/skill paths. Codex remains the coordinator; OMP performs source edits and verification. See [AGENTS.md](AGENTS.md) for handoff and coordination rules.
+
+Example chat request: "Open OMP in a sibling Herdr pane and implement feature 002 tasks T001–T008. Apply the installed frontend skills, verify local acceptance and stop before deployment, commit or push."
+
+This is an agent workflow convention, not a shell alias or installed Spec Kit hook. Calling a skill alone does not create a pane. The handoff requires an active Herdr environment and an available `omp` command; no new checkout is needed.
+
+After implementation and test execution, use a read-only Codex reviewer with `gpt-6-luna` for one concise review of changed code and test gaps. This model name was found in the installed CLI's bundled catalog; live account availability must still be verified at reviewer startup. OMP fixes confirmed findings and reruns affected checks. No reviewer has been launched by documenting this convention.
+
+### Feature testing
+
+Application features that change user behavior include functional acceptance tests and an automated E2E journey. Reuse existing suites, test observable behavior and avoid redundant snapshots or tests of trivial scaffolding. Feature 002 plans Playwright tests against the local production build; see its [test design](specs/002-developer-website/plan.md) and [T007–T008](specs/002-developer-website/tasks.md). Testing dependencies, browsers and `test:e2e` are not installed yet; add runnable commands here when implementation verifies them. No dedicated testing skill is currently installed; these requirements apply through AGENTS and the feature plan regardless.
