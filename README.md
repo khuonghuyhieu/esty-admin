@@ -1,60 +1,48 @@
 # Etsy Admin
 
-Open this `esty-admin/` directory as the project workspace. It is the local checkout of the `khuonghuyhieu/esty-admin` GitHub repository and contains the implementation workspace for Etsy fulfillment with BurgerPrints as the single supplier pilot.
+Open this `esty-admin/` folder directly. It is the standalone repository for `khuonghuyhieu/esty-admin`; Git metadata lives in its own `.git/`.
 
-```text
-specs/architecture.md   architecture, stack decisions, scope and acceptance
-specs/001-connectivity-foundation/spec.md   current feature requirements
-.specify/              constitution, official helpers/templates and provenance
-.agents/skills/         frontend implementation, Doodle tokens and UI review
-dist/                 preserved static developer landing page
-```
+Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**, using the owner's existing GoDaddy domain when configured. NestJS/Cloud Run and Supabase remain the later backend/database direction. The owner has asked for documentation before application code.
 
-## Context ownership
+## Read the current work
 
-| File | Owns | Does not own |
-| --- | --- | --- |
-| [README](README.md) | Repository entrypoint, layout and commands | Task progress or architecture decisions |
-| [AGENTS](AGENTS.md) | Agent behavior, language and skill routing | A duplicate product roadmap |
-| [PROJECT_STATE](PROJECT_STATE.md) | Observed progress, blockers and next action | Full requirements or assumed completion |
-| [Architecture](specs/architecture.md) | Cross-cutting boundaries, stack decisions and evidence | Per-feature implementation status |
-| [Foundation spec](specs/001-connectivity-foundation/spec.md) | Feature requirements and acceptance | An invented implementation plan |
-| [Constitution](.specify/memory/constitution.md) | Stable governance principles | A second architecture specification |
+| File | Purpose |
+| --- | --- |
+| [AGENTS.md](AGENTS.md) | Agent rules and reading order |
+| [PROJECT_STATE.md](PROJECT_STATE.md) | Actual progress, verification and next action |
+| [ARCH-001](specs/architecture.md) | Shared decisions, sources and current delivery order |
+| [Website spec](specs/002-developer-website/spec.md) | What the website must do and how it is accepted |
+| [Website plan](specs/002-developer-website/plan.md) | Technical design, proposed source structure, environment/deployment and open inputs |
+| [Website tasks](specs/002-developer-website/tasks.md) | Proposed technical execution, all unchecked |
+| [Deferred connectivity spec](specs/001-connectivity-foundation/spec.md) | Later UI → API → DB scope |
+| [Constitution](.specify/memory/constitution.md) | Project governance and feature-specific acceptance |
 
-Read these files in that order when needed. Future `plan.md` and `tasks.md` belong only in the active feature directory after their prerequisites are resolved. Notion remains the execution/status tracker; there is no parallel local roadmap.
+Agents read AGENTS → PROJECT_STATE → architecture, then the constitution and active feature artifacts. Read only relevant skills/source after that. Notion owns milestone/status tracking; Drive retains original evidence. Feature tasks belong here, not in a duplicate project tracker.
 
-FE–BE foundation is authorized but not implemented: the approved FE/BE/DB stack is still needed. No application setup/dev/test/build or migration commands exist yet. Future app folders are proposed in the spec, not scaffolded.
+## Current files and commands
 
-To preview the existing landing page only:
+The repository has specs, 8 Spec Kit workflow skills, 3 UI skills and the old static website in `dist/`. There is no Next.js app, package manifest, dependency lockfile or application dev/build command yet. `apps/web/` exists only as a proposed path in the plan.
+
+To view the old static reference:
 
 ```sh
 python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 ```
 
-Open http://127.0.0.1:8765. The page has no build step; live deployment, Etsy registration and API access are not established by this preview.
+Open http://127.0.0.1:8765. This is not a Next.js preview or a verified deployed website. Legacy `.openai/hosting.json` stays local/ignored and is not Vercel configuration.
 
-Task status and decisions live in [Notion C3-03](https://app.notion.com/p/3d256f555918814abd42efeec2ea5edb); Drive retains original specifications/evidence. Local history and credentials may exist in the parent workspace; they are outside this repository and must never be staged or published.
+When implementation resumes, the website plan calls for npm workspaces, root setup/dev/lint/typecheck/build/start commands and Vercel root `apps/web`. Add working commands here only when implemented and checked. Keep hosting metadata, real environment values and credentials local.
 
-## Spec Kit in this source
+## Spec Kit
 
-Project-local core skills use official [GitHub Spec Kit v1.2.3](https://github.com/github/spec-kit/releases/tag/v1.2.3) templates, rendered for Codex's [skills integration](https://github.com/github/spec-kit/blob/v1.2.3/docs/integrations/codex.md). Invoke them in agent chat, not the shell:
-
-```text
-$speckit-clarify     clarify the current feature's missing decisions
-$speckit-plan        design implementation after stack is confirmed
-$speckit-tasks       break an agreed plan into executable steps
-$speckit-analyze     check spec/plan/tasks consistency
-$speckit-implement   implement the approved, actionable tasks
-```
-
-`$speckit-specify`, `$speckit-constitution` and `$speckit-checklist` are also installed. Existing frontend-design, Doodle and web-design-guidelines remain available. Newly installed skills should be discoverable on the next turn; open a fresh session from this source directory if they are absent.
-
-The active feature already exists; resume it rather than creating another spec. The database/runtime decision is unresolved, so no completed plan/tasks or runtime implementation is claimed. To inspect the feature without changing files:
+The active feature is `specs/002-developer-website/`; feature 001 is deferred. Its ignored local pointer can be restored using that path. Read-only path resolution:
 
 ```sh
-SPECIFY_FEATURE_DIRECTORY=specs/001-connectivity-foundation bash .specify/scripts/bash/check-prerequisites.sh --json --paths-only
+SPECIFY_FEATURE_DIRECTORY=specs/002-developer-website bash .specify/scripts/bash/check-prerequisites.sh --json --paths-only
 ```
 
-**Installation limit:** DNS prevents downloading/installing the Specify CLI here. This is a project-local core skills/helpers bootstrap, not a successful `specify init`. No CLI extensions, presets, workflow dispatcher, runtime events or automatic branch/issue creation are installed. Provenance and selected commands are in `.specify/upstream.json`. The current helpers use local templates without needing the CLI.
+Local `$speckit-specify`, `$speckit-clarify`, `$speckit-plan`, `$speckit-tasks`, `$speckit-analyze`, `$speckit-implement`, `$speckit-constitution` and `$speckit-checklist` files use pinned [Spec Kit v1.2.3](https://github.com/github/spec-kit/releases/tag/v1.2.3) sources. `.specify/upstream.json` records provenance. Skill discovery depends on the agent session; read the local `SKILL.md` directly if it is not listed.
 
-When network access is available, the optional official CLI can be invoked with `uvx --from git+https://github.com/github/spec-kit.git@v1.2.3 specify --version`. Review/back up project customization before any init/upgrade; do not force-initialize over the current source.
+The website spec/plan/tasks are compact review drafts; their presence does not mean implementation or a full workflow/CLI run completed. The owner has limited the current work to docs. The full Specify CLI, extensions, dispatcher/events and automatic Git/issue workflows are not installed by this bootstrap. Earlier CLI/network attempts failed on DNS; the current shell npm-registry read also failed on DNS. Helper/template checks do not prove application build or deployment.
+
+Existing frontend-design, Doodle and web-design-guidelines skills guide later website implementation/review. Templates are scaffolds, not approved business scope. Do not recreate this feature, another checkout or a separate landing-page repository to resume work.
