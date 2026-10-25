@@ -1,6 +1,6 @@
 # Architecture & implementation spec
 
-Spec: ARCH-001 · Updated: 2026-10-25 · Status: Next.js/Vercel website prioritized; documentation review in progress; connectivity deferred; implementation not started.
+Spec: ARCH-001 · Updated: 2026-10-25 · Status: Next.js/Vercel website prioritized; local T001–T008 implementation and external review complete; publication pending; connectivity deferred.
 
 ## Purpose and authority
 
@@ -59,11 +59,11 @@ Latest decisions on 2026-10-25 supersede the earlier foundation-first sequence:
 | W3 — Etsy access | Owner uses the verified website URL in the actual registration flow | Registration/access result recorded; OAuth/API proof requires separate implementation |
 | Later — Connectivity | Resume feature 001 with NestJS/Cloud Run and Supabase | Real UI → API → DB acceptance remains required for that feature |
 
-This turn prepares documentation only, following the owner's instruction to review docs before code. Do not infer runtime completion from specs or dependency-version research.
+On 2026-10-25 the owner resumed implementation for feature 002 T001–T008 on existing `main` at `70992fc`. After local completion and review, the owner requested Vercel deployment for a registration URL and explicitly authorized FE commit/push to `main`. This supersedes the local-only stop, while preserving the account/project and public-fact confirmation gates. DNS changes and actual Etsy registration remain subsequent work.
 
 ## Planned source organization
 
-One repository with one frontend. Create application paths only when implementation resumes:
+One repository with one frontend. Feature 002 implements these application paths:
 
 ```text
 apps/web/src/app/          Next.js route entrypoints and layouts
@@ -84,11 +84,11 @@ Doodle tokens: primary #49B6E5, secondary #263D5B, background #FFFFFF, text #111
 
 ## Feature acceptance
 
-[Feature 002](002-developer-website/spec.md) defines the current public website; its [draft plan](002-developer-website/plan.md) and [tasks](002-developer-website/tasks.md) guide later implementation. It needs no backend, database, authentication, supplier connection or Etsy credentials.
+[Feature 002](002-developer-website/spec.md) defines the current public website; its [plan](002-developer-website/plan.md) and [tasks](002-developer-website/tasks.md) guide implementation. It needs no backend, database, authentication, supplier connection or Etsy credentials. PROJECT_STATE owns actual local evidence; external review and publication remain separate gates.
 
 [Feature 001](001-connectivity-foundation/spec.md) remains deferred and unimplemented. Its later acceptance still requires validated environment configuration, migrations, a generated FE API client and the real UI → API → DB path, distinguishing process health from database readiness. The website does not satisfy those criteria.
 
-README owns actual commands once implemented. The website plan labels future commands and deployment steps as planned, not currently runnable.
+README owns runnable local commands. Deployment steps remain planned and unexecuted; a production build is not a published release.
 
 ## Integration work after the website
 

@@ -1,0 +1,20 @@
+{
+  "name": "esty-admin",
+  "private": true,
+  "workspaces": [
+    "apps/web"
+  ],
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace=@esty-admin/web",
+    "lint": "npm run lint --workspace=@esty-admin/web",
+    "typecheck": "npm run typecheck --workspace=@esty-admin/web",
+    "build": "npm run build --workspace=@esty-admin/web",
+    "start": "npm run start --workspace=@esty-admin/web",
+    "test": "npm run test --workspace=@esty-admin/web",
+    "test:e2e": "npm run test:e2e --workspace=@esty-admin/web",
+    "check:release": "npm run check:release --workspace=@esty-admin/web"
+  }
+}

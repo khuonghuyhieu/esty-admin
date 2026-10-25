@@ -1,8 +1,8 @@
 # Feature specification: Developer website
 
-Feature: 002-developer-website · Created: 2026-10-25 · Status: draft for review; documentation only.
+Feature: 002-developer-website · Created: 2026-10-25 · Status: local implementation and external review T001–T008 complete; publication pending.
 
-Source: the owner prioritizes a frontend website and public URL for Etsy developer registration, then asks for docs before code. [ARCH-001](../architecture.md) owns stack decisions. This is a distinct deliverable from deferred feature 001. Reuse the current review branch.
+Source: the owner prioritizes a frontend website and public URL for Etsy developer registration. On 2026-10-25 the owner resumed local implementation, superseding the earlier docs-only phase. [ARCH-001](../architecture.md) owns stack decisions. This is a distinct deliverable from deferred feature 001. Preserve existing `main`; no new branch/worktree.
 
 ## User scenarios and testing
 
@@ -73,8 +73,8 @@ As the owner, I can share a stable HTTPS website URL for the actual developer re
 - The owner has a domain at GoDaddy, but its exact name, DNS configuration and preferred root/subdomain are not supplied.
 - Publishing requires access to the selected hosting account/project. Contact/operator facts and the final privacy wording are required before calling the result submission-ready.
 - Current registration requirements must be checked on the actual Etsy flow when registration is performed; a website does not guarantee approval.
-- The current task ends at reviewable documentation. Implementation and publication are future tasks, not completed work.
+- The completed local increment covered T001–T008, including implementation, checks and external review. The owner's subsequent request authorizes FE commit/push to `main` and resumes T009–T010 Vercel deployment, subject to account/project access and confirmed publication facts. SC-004 human publication confirmation and SC-005 public HTTPS verification remain pending.
 
 ## Out of scope
 
-Login, operational admin, shop authorization, order APIs, supplier exports, forms/analytics, payments, backend/database setup, credentials collection and actual Etsy application submission in this documentation task.
+Login, operational admin, shop authorization, order APIs, supplier exports, forms/analytics, payments, backend/database setup, credentials collection and actual Etsy application submission. DNS changes remain optional T011 and are not included in the current Vercel deployment request.

@@ -2,7 +2,7 @@
 
 Open this `esty-admin/` folder directly. It is the standalone repository for `khuonghuyhieu/esty-admin`; Git metadata lives in its own `.git/`.
 
-Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**, using the owner's existing GoDaddy domain when configured. NestJS/Cloud Run and Supabase remain the later backend/database direction. The owner has asked for documentation before application code.
+Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**, using the owner's existing GoDaddy domain when configured. Feature 002 T001–T008 local implementation/testing and external review are complete. The owner has now requested Vercel deployment; account/project access and public release facts remain pending. NestJS/Cloud Run and Supabase remain later work.
 
 ## Read the current work
 
@@ -12,8 +12,8 @@ Current direction: **Next.js → Vercel HTTPS website → Etsy developer registr
 | [PROJECT_STATE.md](PROJECT_STATE.md) | Actual progress, verification and next action |
 | [ARCH-001](specs/architecture.md) | Shared decisions, sources and current delivery order |
 | [Website spec](specs/002-developer-website/spec.md) | What the website must do and how it is accepted |
-| [Website plan](specs/002-developer-website/plan.md) | Technical design, proposed source structure, environment/deployment and open inputs |
-| [Website tasks](specs/002-developer-website/tasks.md) | Proposed technical execution, all unchecked |
+| [Website plan](specs/002-developer-website/plan.md) | Technical design, configuration policy, verification and publication inputs |
+| [Website tasks](specs/002-developer-website/tasks.md) | T001–T008 complete; T009–T012 remain pending |
 | [Deferred connectivity spec](specs/001-connectivity-foundation/spec.md) | Later UI → API → DB scope |
 | [Constitution](.specify/memory/constitution.md) | Project governance and feature-specific acceptance |
 
@@ -21,7 +21,7 @@ Agents read AGENTS → PROJECT_STATE → architecture, then the constitution and
 
 ## Current files and commands
 
-The repository has specs, 8 Spec Kit workflow skills, 3 UI skills, the React/Next.js performance skill and the old static website in `dist/`. There is no Next.js app, package manifest, dependency lockfile or application dev/build command yet. `apps/web/` exists only as a proposed path in the plan.
+The npm workspace contains one Next.js application at `apps/web/`. The root lockfile pins dependencies; `dist/` is preserved as the legacy static reference, not the deployment root. No backend or database is required.
 
 To view the old static reference:
 
@@ -31,7 +31,67 @@ python3 -m http.server 8765 --bind 127.0.0.1 --directory dist
 
 Open http://127.0.0.1:8765. This is not a Next.js preview or a verified deployed website. Legacy `.openai/hosting.json` stays local/ignored and is not Vercel configuration.
 
-When implementation resumes, the website plan calls for npm workspaces, root setup/dev/lint/typecheck/build/start commands and Vercel root `apps/web`. Add working commands here only when implemented and checked. Keep hosting metadata, real environment values and credentials local.
+### Setup and local development
+
+Use Node **24.22.1** (`.nvmrc`; workspace engines require 24.x). With an existing nvm installation, run `nvm install && nvm use`. If the shell is on another Node version, the verified isolated alternative is:
+
+```sh
+npm exec --yes --package=node@24.22.1 -- node --version
+npm exec --yes --package=node@24.22.1 -- npm ci
+```
+
+Prefix the npm commands below with `npm exec --yes --package=node@24.22.1 --` when using that alternative. Do not run package installation and browser installation concurrently.
+
+```sh
+npm ci
+export NEXT_TELEMETRY_DISABLED=1
+npm run dev
+```
+
+Open http://127.0.0.1:3000 and `/privacy`. Stop the server with Ctrl+C. No environment file or owner facts are required for a local draft. `apps/web/.env.example` documents public build-time inputs; optional real values belong in ignored `apps/web/.env.local`, never in Git.
+
+### Verification
+
+```sh
+npm run lint
+npm run typecheck
+npm test
+npm run build
+npm run start
+```
+
+`npm test` runs Node's functional configuration tests. `typecheck` generates Next route types before checking TypeScript. `build` makes a production build, not a publication-ready release; `start` serves it on loopback port 3000. Rebuild after changing public configuration.
+
+Browser setup and automated acceptance:
+
+```sh
+npm exec --workspace=@esty-admin/web -- playwright install chromium
+npm run test:e2e
+```
+
+On a Linux CI machine, install Playwright's required system dependencies using its documented `install --with-deps chromium` command with appropriate permission. Do not bypass package or system approval prompts. Chromium downloads can take several minutes.
+
+`test:e2e` builds and starts **production**, not the dev server, on `127.0.0.1:3100`; it refuses to reuse an existing server and stops its own server afterward. Stop any other production server before running it because both use `.next/`. Two Chromium projects exercise 360px/1440px layouts, navigation, redirects, 404, keyboard/skip focus, metadata, text reflow and reduced motion. Local ignored reports: `apps/web/playwright-report/` and `apps/web/test-results/`. To inspect the HTML report:
+
+```sh
+npm exec --workspace=@esty-admin/web -- playwright show-report playwright-report
+```
+
+### Draft, preview and release gate
+
+Default draft and host-detected preview are `noindex, nofollow`, omit canonical links and show no invented contact. An explicit release requires `SITE_MODE=release`, valid `SITE_URL`, `APP_NAME`, `OPERATOR_NAME`, `SUPPORT_EMAIL` and owner-confirmed `PUBLICATION_CONFIRMED=true`. `VERCEL_ENV=preview` rejects release mode. See the [configuration policy](specs/002-developer-website/plan.md#environment-and-deployment).
+
+```sh
+npm run check:release
+```
+
+This command reads **exported environment variables**, forces release validation and is expected to fail while facts are missing. It does not load `.env.local` itself, deploy, verify ownership or confirm public HTTPS. Next builds load Next environment files and apply the same validation. Do not set the confirmation flag merely to pass the gate. SC-004 confirmation remains T009; a custom domain is optional. Hosting metadata and real environment values remain local/ignored.
+
+### Vercel deployment preparation
+
+Planned project settings: Next.js preset, repository root directory `apps/web`, Node 24.x, root npm workspace lockfile, app build script and framework-managed output. Verify workspace installation/build resolution on Vercel before calling these settings successful. The initial registration URL may use the project's actual stable `vercel.app` production domain; no domain is assumed or reserved yet.
+
+Prefer the Vercel plugin/MCP after the owner installs/connects it. Select the intended account/project explicitly and reuse a matching project. Preview builds keep draft/preview facts and indexing policy; set release facts only for production after owner confirmation. Verify public production-domain access without authentication rather than sharing a protected generated deployment URL. See the [deployment sequence](specs/002-developer-website/plan.md#deployment-sequence) for the current plan. No remote project or deployment exists based on these instructions alone.
 
 ## Spec Kit
 
@@ -43,9 +103,9 @@ SPECIFY_FEATURE_DIRECTORY=specs/002-developer-website bash .specify/scripts/bash
 
 Local `$speckit-specify`, `$speckit-clarify`, `$speckit-plan`, `$speckit-tasks`, `$speckit-analyze`, `$speckit-implement`, `$speckit-constitution` and `$speckit-checklist` files use pinned [Spec Kit v1.2.3](https://github.com/github/spec-kit/releases/tag/v1.2.3) sources. `.specify/upstream.json` records provenance. Skill discovery depends on the agent session; read the local `SKILL.md` directly if it is not listed.
 
-The website spec/plan/tasks are compact review drafts; their presence does not mean implementation or a full workflow/CLI run completed. The owner has limited the current work to docs. The full Specify CLI, extensions, dispatcher/events and automatic Git/issue workflows are not installed by this bootstrap. Earlier CLI/network attempts failed on DNS; the current shell npm-registry read also failed on DNS. Helper/template checks do not prove application build or deployment.
+The local implementation workflow uses the pinned prerequisite helper with `SPECIFY_FEATURE_DIRECTORY=specs/002-developer-website`; no spec/plan/task regeneration is needed. The full Specify CLI, extension dispatcher/events and automatic Git/issue workflows are not installed by this bootstrap. Vercel publication has now been requested, subject to the pending access and release facts above. Commit/push still requires applicable owner authorization.
 
-Existing frontend-design, Doodle and web-design-guidelines skills guide later website implementation/review. Templates are scaffolds, not approved business scope. Do not recreate this feature, another checkout or a separate landing-page repository to resume work.
+The frontend-design, Doodle and web-design-guidelines skills guide website implementation/review. Templates are scaffolds, not approved business scope. Do not recreate this feature, another checkout or a separate landing-page repository.
 
 ### React and Next.js guidance
 
@@ -60,7 +120,7 @@ The project-local `vercel-react-best-practices` skill supplements the UI skills 
 
 AGENTS requires relevant React/Next.js work to use the skill without an explicit reminder. If it is absent from the session catalog, read [its local entrypoint](.agents/skills/vercel-react-best-practices/SKILL.md) directly. These guidelines supplement version-matched framework documentation. Apply only relevant rules; a static website does not need fetching or caching dependencies just because the skill includes examples.
 
-Next.js version-matched documentation will be integrated during application setup, preserving the existing project instructions. No framework runtime or dependencies were installed with this skill.
+Framework API guidance is matched to installed Next.js 16.4.3 through its tagged source and bundled `node_modules/next/dist/docs/` metadata, redirects and Playwright guides. Existing project instructions and pinned skills are preserved.
 
 ### Implement through OMP in Herdr
 
@@ -70,8 +130,8 @@ Example chat request: "Open OMP in a sibling Herdr pane and implement feature 00
 
 This is an agent workflow convention, not a shell alias or installed Spec Kit hook. Calling a skill alone does not create a pane. The handoff requires an active Herdr environment and an available `omp` command; no new checkout is needed.
 
-After implementation and test execution, use a read-only Codex reviewer with `gpt-6-luna` for one concise review of changed code and test gaps. This model name was found in the installed CLI's bundled catalog; live account availability must still be verified at reviewer startup. OMP fixes confirmed findings and reruns affected checks. No reviewer has been launched by documenting this convention.
+After implementation and test execution, use a read-only Codex reviewer with `gpt-6-luna` for one concise review of changed code and test gaps. Verify live account availability at reviewer startup. OMP fixes confirmed findings and reruns affected checks. Feature 002's completed external review evidence is recorded in [PROJECT_STATE](PROJECT_STATE.md).
 
 ### Feature testing
 
-Application features that change user behavior include functional acceptance tests and an automated E2E journey. Reuse existing suites, test observable behavior and avoid redundant snapshots or tests of trivial scaffolding. Feature 002 plans Playwright tests against the local production build; see its [test design](specs/002-developer-website/plan.md) and [T007–T008](specs/002-developer-website/tasks.md). Testing dependencies, browsers and `test:e2e` are not installed yet; add runnable commands here when implementation verifies them. No dedicated testing skill is currently installed; these requirements apply through AGENTS and the feature plan regardless.
+Application features that change user behavior include functional acceptance tests and an automated E2E journey. Reuse existing suites, test observable behavior and avoid redundant snapshots or tests of trivial scaffolding. Feature 002 uses the production Playwright journeys and focused configuration tests described above. See [PROJECT_STATE](PROJECT_STATE.md) for actual results, completed external review and remaining limitations; T008 is complete, while publication confirmation and public HTTPS remain pending T009 onward. No dedicated testing skill is installed.
