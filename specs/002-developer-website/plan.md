@@ -8,6 +8,8 @@ Input: [spec.md](spec.md), [ARCH-001](../architecture.md) and the owner's Next.j
 
 Build one Next.js frontend with a public landing page and privacy page, then deploy it on Vercel to obtain a verified URL for Etsy registration. Backend/database connectivity is a later deliverable. Use the existing three UI skills and static content reference.
 
+For React/Next.js implementation and review, also read [vercel-react-best-practices](../../.agents/skills/vercel-react-best-practices/SKILL.md) and the relevant rules before changing components, pages/layouts, Server/Client boundaries, hydration or bundle loading. Consult fetching/caching rules only if the feature actually needs those behaviors. Use documentation matching the installed Next.js version for framework APIs; keep the public website scope unchanged.
+
 ## Technical context
 
 | Item | Planning decision | Authority |

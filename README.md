@@ -21,7 +21,7 @@ Agents read AGENTS → PROJECT_STATE → architecture, then the constitution and
 
 ## Current files and commands
 
-The repository has specs, 8 Spec Kit workflow skills, 3 UI skills and the old static website in `dist/`. There is no Next.js app, package manifest, dependency lockfile or application dev/build command yet. `apps/web/` exists only as a proposed path in the plan.
+The repository has specs, 8 Spec Kit workflow skills, 3 UI skills, the React/Next.js performance skill and the old static website in `dist/`. There is no Next.js app, package manifest, dependency lockfile or application dev/build command yet. `apps/web/` exists only as a proposed path in the plan.
 
 To view the old static reference:
 
@@ -50,5 +50,14 @@ Existing frontend-design, Doodle and web-design-guidelines skills guide later we
 ### React and Next.js guidance
 
 The project-local `vercel-react-best-practices` skill supplements the UI skills for React/Next.js implementation and performance review. Invoke `$vercel-react-best-practices` in agent chat, or request a React/Next.js review. Read only rules relevant to the change. The upstream commit and per-file SHA-256 hashes are recorded in `.agents/skills/sources.json`; upstream files are preserved unchanged.
+
+| Work | Guidance to use |
+| --- | --- |
+| Page layout, typography and visual hierarchy | `frontend-design` |
+| Palette, spacing and sketch accents | `doodle` |
+| React components, Next.js pages/layouts, Server/Client boundaries, data fetching, hydration and bundle loading | `vercel-react-best-practices` |
+| Accessibility, keyboard interaction and interface review | `web-design-guidelines` |
+
+AGENTS requires relevant React/Next.js work to use the skill without an explicit reminder. If it is absent from the session catalog, read [its local entrypoint](.agents/skills/vercel-react-best-practices/SKILL.md) directly. These guidelines supplement version-matched framework documentation. Apply only relevant rules; a static website does not need fetching or caching dependencies just because the skill includes examples.
 
 Next.js version-matched documentation will be integrated during application setup, preserving the existing project instructions. No framework runtime or dependencies were installed with this skill.

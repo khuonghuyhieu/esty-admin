@@ -13,6 +13,8 @@ Status: proposed implementation checklist; all work below is unstarted. The owne
 
 ## Setup
 
+For T001–T006, load `vercel-react-best-practices` when making React/Next.js implementation choices and read only applicable rules. Follow the plan's skill routing and version-matched framework documentation.
+
 - [ ] T001 Create root `package.json` npm workspace and `apps/web/package.json` with the planned scripts/Node baseline; install compatible pinned dependencies and generate root `package-lock.json`. Covers FR-007.
 - [ ] T002 Add Next.js/TypeScript/ESLint configuration under `apps/web/`, safe `.gitignore` entries and `apps/web/.env.example`; implement validated public configuration in `apps/web/src/lib/site-config.ts`. Covers FR-006, FR-007, FR-010.
 
@@ -29,7 +31,7 @@ Status: proposed implementation checklist; all work below is unstarted. The owne
 ## Local acceptance
 
 - [ ] T007 Verify fresh installation, lint, typecheck and production build from the root; document actual commands in `README.md` and outcomes in `PROJECT_STATE.md`. Covers FR-007, SC-003.
-- [ ] T008 Review actual home/privacy UI against the three installed UI skills; verify route responses, legacy redirect, 360px/1440px, keyboard/zoom/reduced motion and accurate copy/metadata. Record evidence/limitations in `PROJECT_STATE.md`. Covers FR-001–FR-006, SC-001–SC-004.
+- [ ] T008 Review actual home/privacy UI against the three installed UI skills and applicable `vercel-react-best-practices` rules; verify route responses, legacy redirect, 360px/1440px, keyboard/zoom/reduced motion and accurate copy/metadata. Record evidence/limitations in `PROJECT_STATE.md`. Covers FR-001–FR-006, SC-001–SC-004.
 
 ## Story 3 — Public URL
 

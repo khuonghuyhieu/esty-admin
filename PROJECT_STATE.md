@@ -32,6 +32,8 @@ No separate roadmap, duplicate checkout or new Notion tracker was created. Exist
 
 ## Next action
 
+Skill routing follow-up: AGENTS now lists concrete React/Next.js triggers and requires using the installed skill without an owner reminder, with a direct-path fallback when discovery omits it. README maps each frontend skill to its role; feature 002 plan/tasks apply the technical skill during implementation and T008 review. These documentation changes do not complete any implementation task.
+
 Owner-requested skill setup on 2026-10-25: installed project-local `vercel-react-best-practices` from `vercel-labs/agent-skills`, commit `063bee94c3f4df8453406c830b0a7df0f2860278`. Reviewed the skill entrypoint and file types, then verified all 76 installed files match the downloaded source byte-for-byte; `.agents/skills/sources.json` records SHA-256 hashes. Existing skills remain pinned. AGENTS and README explain scope and usage. This setup installs guidance only; Next.js version-matched documentation integration remains part of later application setup. No application dependencies, build or deployment occurred.
 
 Review the website spec, plan and short task sequence. Resume frontend implementation only after the documentation phase; keep every implementation task unchecked until executed. Publication inputs to obtain are the exact domain/subdomain, confirmed app title/operator/support contact, privacy wording and intended Vercel account/project access. These do not block preparing the frontend but do block a submission-ready publication claim.
