@@ -2,7 +2,7 @@
 
 Open this `esty-admin/` folder directly. It is the standalone repository for `khuonghuyhieu/esty-admin`; Git metadata lives in its own `.git/`.
 
-Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 are complete; current work plans a reference-based marketing/privacy correction (T013–T020) before source edits. Application screens are a later planning slice. NestJS/Cloud Run and Supabase remain later work.
+Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 and correction T013–T020 are complete, including external review and owner visual acceptance; the owner has authorized FE commit/push. A deployment result for the correction is not verified. Application screens remain outside this FE increment; independently coordinated backend work does not establish connectivity.
 
 ## Read the current work
 
@@ -13,7 +13,7 @@ Current direction: **Next.js → Vercel HTTPS website → Etsy developer registr
 | [ARCH-001](specs/architecture.md) | Shared decisions, sources and current delivery order |
 | [Website spec](specs/002-developer-website/spec.md) | What the website must do and how it is accepted |
 | [Website plan](specs/002-developer-website/plan.md) | Technical design, configuration policy, verification and publication inputs |
-| [Website tasks](specs/002-developer-website/tasks.md) | Original T001–T008 complete; publication tasks and T013–T020 correction remain open |
+| [Website tasks](specs/002-developer-website/tasks.md) | Original implementation and T013–T020 complete; release acceptance gates remain open |
 | [Deferred connectivity spec](specs/001-connectivity-foundation/spec.md) | Later UI → API → DB scope |
 | [Constitution](.specify/memory/constitution.md) | Project governance and feature-specific acceptance |
 
@@ -73,9 +73,32 @@ On a Linux CI machine, install Playwright's required system dependencies using i
 
 `test:e2e` builds and starts **production**, not the dev server, on `127.0.0.1:3100`; it refuses to reuse an existing server and stops its own server afterward. Stop any other production server before running it because both use `.next/`. Two Chromium projects exercise 360px/1440px layouts, navigation, redirects, 404, keyboard/skip focus, metadata, text reflow and reduced motion. Local ignored reports: `apps/web/playwright-report/` and `apps/web/test-results/`. To inspect the HTML report:
 
+For a correction acceptance run, use `lint`, `typecheck`, `test` and `test:e2e`; E2E already builds production, so do not run a redundant separate build. These root commands target `@esty-admin/web` only; do not run concurrent dependency installation or another server/build using `.next/`.
+
 ```sh
 npm exec --workspace=@esty-admin/web -- playwright show-report playwright-report
 ```
+
+### Local correction preview and comparison gallery
+
+After the passing E2E build, start the production preview without rebuilding:
+
+```sh
+npm exec --yes --package=node@24.22.1 -- npm run start
+```
+
+Open http://127.0.0.1:3000 and http://127.0.0.1:3000/privacy. Home navigation targets `/#workflow`, `/#scope` and `/privacy`; the contact-status link targets `/privacy#contact`. All actions are informational navigation, not application controls.
+
+In a separate terminal, serve only the ignored visual-evidence directory:
+
+```sh
+python3 -m http.server 8766 --bind 127.0.0.1 --directory apps/web/test-results/visual
+```
+
+Open http://127.0.0.1:8766/comparison.html. This local gallery pairs reference/implementation hero, feature and footer captures at 1440×1000 and 390×844; it also links privacy/360px/reflow evidence. It is not a new app route or a public artifact. Screenshots are retained after the last E2E run because another run can clear `test-results/`; recapture affected evidence after source fixes. Stop each server with Ctrl+C before another production E2E run or handoff.
+
+Both fonts are self-hosted through `next/font/local`; source/license/hash details are in the [feature plan](specs/002-developer-website/plan.md#verified-font-provenance-and-implementation-choices). T019 review and T020 explicit owner acceptance remain separate from passing checks. Do not commit/push the redesign to production-linked `main` merely to share a preview.
+
 
 ### Draft, preview and release gate
 

@@ -1,6 +1,6 @@
 # Implementation plan: Developer website
 
-Date: 2026-10-25 · Revised: 2026-10-26 · Branch: existing `main` (planning baseline `262877f`) · Status: reference-based public UI correction planned; no redesign source work started.
+Date: 2026-10-25 · Revised: 2026-10-26 · Branch: existing `main` (correction handoff baseline `128cfc8`) · Status: T013–T020 complete, including external review and owner visual acceptance; FE commit/push authorized.
 
 Input: [spec.md](spec.md), [ARCH-001](../architecture.md) and the owner's Next.js/Vercel/GoDaddy decisions. This compact plan keeps technical research and validation here because this feature has no persistent entities or external API contracts. It does not claim a full Spec Kit CLI run.
 
@@ -8,7 +8,7 @@ Input: [spec.md](spec.md), [ARCH-001](../architecture.md) and the owner's Next.j
 
 Build one Next.js frontend with a public landing page and privacy page, then deploy it on Vercel to obtain a verified URL for Etsy registration. Backend/database connectivity is a later deliverable. Use the existing three UI skills and static content reference.
 
-Current increment: correct the already-deployed public UI against the owner's marketing reference, align content with internal team/own-shop use and define visual acceptance before code changes. Preserve T001–T008 as historical completion; add T013–T020 for the correction. Application-screen implementation, backend/OAuth and deferred domain setup are outside this increment. The current request is planning only; later implementation follows the OMP handoff below.
+Current increment: correct the public UI against the owner's marketing reference and align content with internal team/own-shop use. The owner explicitly authorized T013–T019 implementation after planning, then accepted the local preview/comparisons under T020 and requested FE commit/push. Preserve T001–T008 as historical completion. Application-screen implementation, backend/OAuth and deferred domain setup are outside this FE increment; separately coordinated BE work is excluded from the FE commit. No manual deployment or DNS action is included.
 
 For React/Next.js implementation and review, also read [vercel-react-best-practices](../../.agents/skills/vercel-react-best-practices/SKILL.md) and the relevant rules before changing components, pages/layouts, Server/Client boundaries, hydration or bundle loading. Consult fetching/caching rules only if the feature actually needs those behaviors. Use documentation matching the installed Next.js version for framework APIs; keep the public website scope unchanged.
 
@@ -112,7 +112,23 @@ Public page composition and content mapping:
 
 Privacy remains a document with a constrained reading column (about 65–75 characters), readable body type and consistent paper/heading/notice styling. Preserve factual current-site handling, hosting-log caveats, unresolved operator/contact status and return navigation. Apply the public shell to not-found recovery without inventing another page layout.
 
-Affected source surfaces for later implementation: `apps/web/src/app/globals.css`, `layout.tsx`, `page.tsx`, `privacy/page.tsx`, `not-found.tsx`, `src/components/site/header.tsx`, `footer.tsx`, `src/features/landing/landing.tsx` and `src/features/privacy/privacy.tsx`. Add licensed font assets under `apps/web/src/app/fonts/` only when sourced and verified. Reuse existing components; create a shared sketch primitive only when genuinely reused. Keep routes, Server Component behavior and site configuration policy intact; no new UI kit or runtime service is needed.
+Implemented surfaces: `apps/web/src/app/globals.css`, `layout.tsx`, `page.tsx`, `privacy/page.tsx`, `not-found.tsx`, `src/components/site/header.tsx`, `footer.tsx`, `src/features/landing/landing.tsx` and `src/features/privacy/privacy.tsx`. Licensed font assets and unmodified OFL notices are under `apps/web/src/app/fonts/`. Routes, Server Components and configuration policy remain intact; no new UI kit, dependency or runtime service was needed.
+
+#### Verified font provenance and implementation choices
+
+Assets were downloaded directly on 2026-10-26, without npm changes, from the official [Google Fonts Delius Swash Caps directory](https://github.com/google/fonts/tree/main/ofl/deliusswashcaps) and [Vercel Geist repository](https://github.com/vercel/geist-font/tree/main/fonts/Geist/webfonts). Downloaded bytes matched the API-reported Git blob IDs. Both fonts are distributed under SIL Open Font License 1.1; adjacent `DeliusSwashCaps-OFL.txt` and `Geist-OFL.txt` preserve the complete upstream notices.
+
+| Local asset | Upstream Git blob | SHA-256 |
+| --- | --- | --- |
+| `DeliusSwashCaps-Regular.ttf` (63,052 bytes) | `1dc6c3a7eba87506b25382877c3811059a12364d` | `04c102448007265b8a0672590900919d35dfd26c624e543c8c3bfbab9535b642` |
+| `Geist-Variable.woff2` (69,760 bytes) | `71dab8bedba3bfef5dccd7875ed05cac44c7345d` | `2ffebe993e969069a9789d15164b7715d42491b5835516c5e3b935d5f81b05f1` |
+
+Module-level `next/font/local` declarations follow the installed Next.js 16.4.3 font documentation, using swap/preload and CSS variables. Chromium platform-font inspection confirmed actual Delius Swash Caps and Geist glyph rendering, not just computed fallback names. All observed production font requests were same-origin.
+
+Display-stroke correction: live reference inspection confirms H1, section headings, buttons and brand all compute to weight 600 while rendering the actual `DeliusSwashCaps-Regular` face (declared 400), with font synthesis enabled. The first local pass at weight 400 was visibly too light. Match the observed reference with weight 600 and narrowly scoped `font-synthesis: weight` on display headings/buttons/brand; Geist body type keeps synthesis disabled. This is a measured fidelity correction, not a new font or dependency.
+
+Intentional adaptations: keep body text at 16px and mobile leads at 20px; darken muted text to `#535963`; keep mobile navigation visible and non-sticky for keyboard/reflow; retain the truthful draft banner. The three feature panels replace both sample logos and product features; numbered workflow denotes actual sequence only. Privacy uses a 760px maximum reading column without dotted text background. These differences do not claim pixel identity or owner acceptance.
+
 
 ### Application design boundary — next planning slice
 
@@ -135,7 +151,7 @@ After implementation, use the root commands in README under Node 24.22.1: lint, 
 
 Retain final comparison screenshots under the existing ignored `apps/web/test-results/visual/` after the last E2E run (Playwright may clear test results). Compare the hero, one feature/workflow section, navigation/footer and privacy adaptation. In PROJECT_STATE record a compact matrix for typography, surfaces/texture, palette, outlines/shadows, spacing/hierarchy and responsive behavior: pass, unresolved mismatch or intentional adaptation with reason. Record unavailable references/fonts and never substitute screenshots from an earlier build as final proof. Baseline images from the earlier investigation are session evidence only and must be recaptured for the implementation handoff.
 
-Future source implementation uses OMP as the sole writer under the existing Herdr convention. Handoff the active spec/plan/tasks, the two URLs, T013–T020 boundaries and mandatory visual/functional checks. After checks, obtain one concise read-only Codex review using `gpt-6-luna`; OMP fixes confirmed findings and reruns affected checks. Present the local preview and final comparison evidence to the owner; record pending or explicit visual acceptance. Implementation completion does not authorize deployment or infer publication facts. Do not commit/push source to the production-linked `main` during the redesign without a publication request; use local preview for review.
+OMP was the sole FE implementation writer. The coordinator completed the separate read-only `gpt-6-luna` review with no actionable findings; T019 evidence is recorded in PROJECT_STATE. The owner accepted the local preview and final comparisons under T020, then explicitly authorized FE commit/push to existing `main`. Publishing to production-linked `main` may trigger the hosting provider's configured automation; no successful deployment is inferred from a Git push. Parallel BE work uses separately leased paths and remains excluded from this FE publication.
 
 Use semantic links/buttons, skip navigation, visible focus, heading order, decorative SVG hiding and reduced motion. Preserve planned-versus-working wording. Fetch the current web-design-guidelines when reviewing the implemented UI.
 
@@ -180,7 +196,7 @@ README owns executable commands for installation, browser setup, development, li
 
 Owner-requested verification flow: OMP implements and runs functional/E2E checks, then a read-only Codex reviewer using `gpt-6-luna` reviews the changed code and test evidence in one concise pass. Report model availability failures rather than switching models. OMP addresses confirmed findings and reruns affected checks.
 
-Use Node's built-in test runner for configuration boundaries: missing/blank release facts, HTTPS origin validation, malformed email/control characters, mode precedence, preview protection, confirmation and draft/preview metadata/contact policy. Browser tests in `apps/web/tests/e2e/` provide functional/E2E acceptance without a duplicate component suite. The two Chromium projects use 360px and 1440px viewports; they cover direct routes, the home/privacy/home journey, workflow anchor, 308 legacy redirect with query preservation, 404 recovery, keyboard order/visible focus/skip target, metadata, honest capability/contact status, overflow, 200% text reflow and reduced-motion preference.
+Use Node's built-in test runner for configuration boundaries: missing/blank release facts, HTTPS origin validation, malformed email/control characters, mode precedence, preview protection, confirmation and draft/preview metadata/contact policy. Browser tests in `apps/web/tests/e2e/` provide functional/E2E acceptance without a duplicate component suite. The two Chromium projects use 360px and 1440px viewports; the corrected suite covers direct routes, every link/CTA and section destination, home/privacy/home journey, 308/query preservation, real 404, keyboard order/skip target and computed focus contrast, own-shop metadata/content, draft contact gates, overflow, 200% text reflow/link bounds and reduced motion. Actual result: 25/25 functional and 22/22 E2E checks; final visual evidence follows the last E2E run in PROJECT_STATE.
 
 Visual review uses actual production browser screenshots at desktop/mobile, keyboard focus, accessibility-tree inspection and 200% CSS zoom as a reflow approximation. Record limitations separately: automated text enlargement/CSS zoom is not OS/browser-toolbar zoom or a physical-device/screen-reader audit. No live Etsy/supplier or production-host request is part of this scope.
 

@@ -1,17 +1,32 @@
 import { expect, test } from "@playwright/test";
 
+function contrastRatio(first: string, second: string) {
+  const luminance = (color: string) => {
+    const channels = color.match(/[\d.]+/g)!.slice(0, 3).map(Number).map(value => {
+      const channel = value / 255;
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
+    });
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+  };
+  const values = [luminance(first), luminance(second)].sort((a, b) => b - a);
+  return (values[0] + 0.05) / (values[1] + 0.05);
+}
+
 for (const route of ["/", "/privacy"]) {
   test(`direct ${route} access has honest content, metadata and no overflow`, async ({ page }) => {
     const response = await page.goto(route);
     expect(response?.status()).toBe(200);
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
-    await expect(page).toHaveTitle(route === "/" ? "Planned order workflow | Fulfillment Workspace" : "Privacy overview | Fulfillment Workspace");
-    await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /.+/);
+    await expect(page).toHaveTitle(route === "/" ? "Internal own-shop workflow | Fulfillment Workspace" : "Privacy overview | Fulfillment Workspace");
+    await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /internal.*own.*shop/i);
     await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
     await expect(page.locator('link[rel="canonical"]')).toHaveCount(0);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
     await expect(page.getByRole("main")).toContainText(route === "/" ? "Integrations not active" : "not submission-ready");
     await expect(page.locator('form, input, a[href^="mailto:"]')).toHaveCount(0);
+    await expect(page.getByRole("main")).toContainText("own Etsy shop");
+    await expect(page.getByRole("main")).toContainText("not offered to external sellers");
+    await page.evaluate(() => document.fonts.ready);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     if (route === "/privacy") {
       await expect(page.getByRole("main")).toContainText("no login, forms, analytics or advertising trackers");
@@ -19,7 +34,7 @@ for (const route of ["/", "/privacy"]) {
       await expect(page.getByRole("main")).toContainText("hosting provider may process technical request information");
     } else {
       await expect(page.getByRole("main")).toContainText("BurgerPrints is the only supplier");
-      await expect(page.getByRole("main")).toContainText("consenting sellers");
+      await expect(page.getByRole("main")).toContainText("not live order data");
     }
   });
 
@@ -39,17 +54,47 @@ for (const route of ["/", "/privacy"]) {
       await expect(links.nth(i)).toBeInViewport();
       const focus = await links.nth(i).evaluate(element => {
         const style = getComputedStyle(element);
-        return { width: parseFloat(style.outlineWidth), style: style.outlineStyle, color: style.outlineColor };
+        let ancestor = element.parentElement;
+        while (ancestor && getComputedStyle(ancestor).backgroundColor === "rgba(0, 0, 0, 0)") {
+          ancestor = ancestor.parentElement;
+        }
+        return {
+          width: parseFloat(style.outlineWidth),
+          style: style.outlineStyle,
+          color: style.outlineColor,
+          background: getComputedStyle(ancestor ?? document.documentElement).backgroundColor,
+        };
       });
       expect(focus.width).toBeGreaterThanOrEqual(3);
       expect(focus.style).toBe("solid");
-      expect(focus.color).toBe("rgb(38, 61, 91)");
+      expect(contrastRatio(focus.color, focus.background)).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  test(`${route} every navigation link and CTA reaches its real destination`, async ({ page }) => {
+    await page.goto(route);
+    const links = await page.getByRole("link").evaluateAll(elements => elements.map(element => ({
+      name: element.textContent,
+      href: (element as HTMLAnchorElement).href,
+    })));
+    for (const [index, link] of links.entries()) {
+      await page.goto(route);
+      if (index === 0) await page.getByRole("link").nth(index).focus();
+      await page.getByRole("link").nth(index).click();
+      await expect(page, link.name ?? link.href).toHaveURL(link.href);
+      const destination = new URL(link.href);
+      if (destination.hash) {
+        await expect(page.locator(destination.hash)).toBeInViewport();
+      } else {
+        await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+      }
     }
   });
 
   test(`${route} reflows at 200% text size and honors reduced motion`, async ({ page }) => {
     await page.emulateMedia({ reducedMotion: "reduce" });
     await page.goto(route);
+    await page.evaluate(() => document.fonts.ready);
     await page.evaluate(() => { document.documentElement.style.fontSize = "200%"; });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     expect(await page.evaluate(() => matchMedia("(prefers-reduced-motion: reduce)").matches)).toBe(true);
@@ -59,12 +104,20 @@ for (const route of ["/", "/privacy"]) {
     }).length);
     expect(moving).toBe(0);
     await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+    for (const link of await page.getByRole("link").all()) {
+      if (await link.textContent() === "Skip to content") continue;
+      await link.focus();
+      await expect(link).toBeInViewport();
+      const bounds = await link.boundingBox();
+      expect(bounds!.x).toBeGreaterThanOrEqual(0);
+      expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(page.viewportSize()!.width);
+    }
   });
 }
 
 test("home to privacy to home is a working visitor journey", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("link", { name: "Explore the planned workflow" }).click();
+  await page.getByRole("link", { name: "Explore the workflow" }).click();
   await expect(page).toHaveURL(/#workflow$/);
   await expect(page.getByRole("heading", { name: "The planned path" })).toBeInViewport();
   await page.getByRole("link", { name: "Read the privacy overview" }).click();

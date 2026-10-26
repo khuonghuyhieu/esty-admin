@@ -1,6 +1,6 @@
 # Feature specification: Developer website
 
-Feature: 002-developer-website · Created: 2026-10-25 · Revised: 2026-10-26 · Status: original T001–T008 complete; reference-based UI correction planned, not implemented; publication acceptance remains incomplete.
+Feature: 002-developer-website · Created: 2026-10-25 · Revised: 2026-10-26 · Status: original T001–T008 and reference-based correction T013–T020 complete; owner visual acceptance recorded and FE commit/push authorized; release acceptance remains incomplete.
 
 Source: the owner prioritizes a frontend website and public URL for Etsy developer registration. On 2026-10-25 the owner resumed local implementation, superseding the earlier docs-only phase. [ARCH-001](../architecture.md) owns stack decisions. This is a distinct deliverable from deferred feature 001. Preserve existing `main`; no new branch/worktree.
 
@@ -96,7 +96,7 @@ As the owner, I can compare the public website with the supplied marketing refer
 - Publishing requires access to the selected hosting account/project. Contact/operator facts and the final privacy wording are required before calling the result submission-ready.
 - Current registration requirements must be checked on the actual Etsy flow when registration is performed; a website does not guarantee approval.
 - The completed local increment covered T001–T008, including implementation, checks and external review. The owner's subsequent request authorizes FE commit/push to `main` and resumes T009–T010 Vercel deployment, subject to account/project access and confirmed publication facts. SC-004 human publication confirmation and SC-005 public HTTPS verification remain pending.
-- The current request authorizes documentation planning before UI source changes. The owner reports a successful Vercel deployment, but this does not pass the remaining release facts, route verification or redesigned UI acceptance. The original completed task history is retained; T013 onward tracks the correction.
+- The correction T013–T020 is implemented, verified, reviewed and visually accepted by the owner; FE commit/push is authorized. The owner-reported earlier Vercel deployment does not verify this correction's deployment or satisfy remaining release facts and route checks. The original completed task history is retained; BE work is excluded from this FE publication.
 
 ## Out of scope
 
