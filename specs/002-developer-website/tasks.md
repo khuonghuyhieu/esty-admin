@@ -41,6 +41,8 @@ T008 evidence: 18/18 production Chromium E2E checks passed after fixing mobile 2
 - [ ] T010 [US3] Deploy `apps/web` to Vercel and verify home/privacy HTTPS access without sign-in; record the real URL, build and rollback reference in `PROJECT_STATE.md`. Covers FR-008, SC-005. Depends on T007–T009 and resumed publication work.
 - [ ] T011 [US3] When the owner supplies the GoDaddy hostname and DNS access, add the domain in the verified Vercel project, apply only its required DNS records and verify TLS/navigation/canonical host; record evidence in `PROJECT_STATE.md`. Covers FR-009. Optional after T010; does not block the initial Vercel URL.
 
+Owner decision: T011 is explicitly deferred. The supplied domain is `lovora.us`; the preferred hostname is `app.lovora.us`. Continue with `https://esty-admin.vercel.app/` while domain setup remains open. No DNS change has been made.
+
 ## Handoff
 
 - [ ] T012 Link the verified website evidence from `PROJECT_STATE.md` to existing Notion C2-01; record remaining registration requirements. Actual Etsy form submission, OAuth and API proof are follow-up work. Covers FR-010.

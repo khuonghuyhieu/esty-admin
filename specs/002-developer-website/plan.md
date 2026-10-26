@@ -58,6 +58,33 @@ Keep route entrypoints thin and compose feature UI. Add a shared component only 
 
 ## UI and content design
 
+### Owner-supplied reference review (2026-10-26)
+
+The owner identified two separate visual references after reviewing the deployed UI:
+
+- Marketing: https://doodle-typeui-9fa2feab.vercel.app/marketing
+- Application: https://doodle-typeui-9fa2feab.vercel.app/application
+
+Both pages were opened with Playwright and captured at 1440px and 390px. Their rendered appearance differs from the generic blue/white tokens in the installed Doodle skill and the earlier plan below. For the requested redesign, use these concrete references as the visual direction; do not claim fidelity merely because the skill is loaded. Preserve pinned upstream skill files.
+
+Observed shared treatment: warm paper `#f9f6f0`, alternate surface `#efebe1`, dotted canvas texture, dark sketch outlines (`3px solid #111827` tokens), asymmetric corner radii, offset solid shadows and muted peach accents. Marketing uses Delius Swash Caps for display headings and Geist for main body text. Application uses system sans-serif for its headings, controls and data; it does not use handwriting throughout the dashboard.
+
+The marketing reference supplies public-page composition and styling: horizontal navigation, split hero/product illustration, grouped feature sections and closing CTA/footer. Adapt these to truthful internal-team Etsy content. Its whiteboard product, customer logos, testimonials, metrics and paid plans are sample content, not approved product facts.
+
+The application reference supplies an operational shell: left sidebar, top workspace/search/profile controls, summary cards, chart/activity panels and a searchable/filterable data table with status badges and row actions. The website implementation currently has none of these. This reference does not turn operational application behavior into completed or approved feature 002 tasks; agree the relevant Etsy screens and interactions before generating their implementation tasks. Mock data must remain explicitly identified.
+
+Reference fidelity needs a separate visual comparison alongside functional/E2E acceptance, using the same viewport for reference and implementation. The application reference itself overflows horizontally at 390px (`scrollWidth=845`); adapt navigation and tables for narrow screens rather than reproducing that defect.
+
+For the redesign, require these visual acceptance steps before reporting completion:
+
+1. Capture the relevant reference and implemented page at matching desktop/mobile viewports; retain review screenshots and record any unavailable reference as a limitation.
+2. Compare typography, paper/dotted backgrounds, palette, outline/radius/shadow treatment, spacing and section or application-shell hierarchy. Fix material deviations and document intentional differences for Etsy content, accessibility and responsive behavior.
+3. Show the owner the implemented preview with the comparison evidence for visual acceptance. Passing functional tests or a code review alone does not establish owner acceptance of the design. Do not promise identical screenshots where content or responsive adaptations differ.
+
+The following paragraphs document the earlier implemented design and are superseded as the target visual direction by the reference review above; source has not yet been redesigned.
+
+TypeUI capability check (2026-10-26): current [account terms](https://www.typeui.sh/terms) place copying/downloading, MCP access and design-system creation behind Creative, All-access or eligible Lifetime access. The [current package documentation](https://www.typeui.sh/docs/overview/getting-started) describes separate color, typography, layout and component files. The installed GitHub Doodle snapshot contains `SKILL.md`, `DESIGN.md` and its MIT `LICENSE`; it is general guidance rather than that detailed package. This does not prove that a paid package would match these specific previews. The owner authorizes using the two supplied previews as the fallback visual reference; continue with project-authored implementation and explicit visual comparison. No subscription purchase, paid-resource download or TypeUI MCP setup is needed for the chosen workflow.
+
 White background, dark ink `#111827`, navy `#263D5B`, blue accent `#49B6E5` and the 4/8/12/16/24/32 spacing scale. Use blue for accents with dark readable labels; navy for buttons with light text. Readable system body type; handwriting/sketch accents are optional around the workflow illustration.
 
 Home composition: compact header → purpose/development status and workflow illustration → authorized-seller workflow → BurgerPrints pilot scope → privacy/contact links. Use the user's actual content, no invented metrics, testimonials, legal identity or working connect-shop CTA. Privacy is a readable document, not a decorative dashboard. Verify the actual final palette contrast and typography during UI implementation.
