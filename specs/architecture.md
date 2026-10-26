@@ -4,7 +4,7 @@ Spec: ARCH-001 · Updated: 2026-10-25 · Status: Next.js/Vercel website prioriti
 
 ## Purpose and authority
 
-Build an internal Etsy fulfillment workspace; BurgerPrints (SUP-05) is the only supplier pilot. Own-shop and consenting-seller use are the intended product scope. Etsy API access is the first integration milestone, not an implemented capability.
+Build an internal Etsy fulfillment workspace; BurgerPrints (SUP-05) is the only supplier pilot. The current public website correction describes internal-team/own-shop use, following the owner's registration direction. Broader consenting-seller use remains historical product context, not availability claimed by this correction. Etsy API access is the first integration milestone, not an implemented capability.
 
 This file is the current technical implementation context. README only explains navigation/commands; AGENTS defines working rules; PROJECT_STATE records observed progress. Notion tracks project milestones/status and decisions; feature `tasks.md` records technical execution after a resolved plan exists. Drive retains source requirements/evidence. Link these artifacts instead of creating duplicate roadmaps or task trackers.
 
@@ -80,7 +80,7 @@ Use npm workspaces and root dev/check/build commands when implementing. Configur
 
 Use the existing local skills: frontend-design for layout/implementation, doodle for selected visual tokens, web-design-guidelines for review. No new framework is implied by these skills.
 
-Doodle tokens: primary #49B6E5, secondary #263D5B, background #FFFFFF, text #111827; spacing 4/8/12/16/24/32. Prefer readable body text, visible focus and accessible contrast. Handwritten accents are optional around dense controls; tables/forms prioritize scanning and operation. Do not put white small text on the blue accent without a contrast check. Decorative graphics must be hidden from assistive technology. Respect reduced motion and narrow screens.
+The owner-supplied marketing/application references supersede the generic blue/white Doodle styling for the requested UI correction (2026-10-26). Feature 002's plan owns measured visual tokens, font roles, public-page composition and screenshot acceptance; preserve pinned upstream skills. Application tables/forms use readable sans-serif type and prioritize scanning and operation. Decorative graphics must be hidden from assistive technology. Respect contrast, reduced motion and narrow screens rather than copying reference defects. Reference application screens do not authorize operational feature implementation.
 
 ## Feature acceptance
 

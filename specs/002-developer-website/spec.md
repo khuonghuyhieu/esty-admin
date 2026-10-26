@@ -1,6 +1,6 @@
 # Feature specification: Developer website
 
-Feature: 002-developer-website · Created: 2026-10-25 · Status: local implementation and external review T001–T008 complete; publication pending.
+Feature: 002-developer-website · Created: 2026-10-25 · Revised: 2026-10-26 · Status: original T001–T008 complete; reference-based UI correction planned, not implemented; publication acceptance remains incomplete.
 
 Source: the owner prioritizes a frontend website and public URL for Etsy developer registration. On 2026-10-25 the owner resumed local implementation, superseding the earlier docs-only phase. [ARCH-001](../architecture.md) owns stack decisions. This is a distinct deliverable from deferred feature 001. Preserve existing `main`; no new branch/worktree.
 
@@ -8,7 +8,7 @@ Source: the owner prioritizes a frontend website and public URL for Etsy develop
 
 ### Story 1 — Understand the application (P1)
 
-As an Etsy reviewer or prospective seller, I can understand the proposed application, intended audience and fulfillment workflow without signing in.
+As an Etsy reviewer or internal team member, I can understand the proposed application, intended audience and fulfillment workflow without signing in.
 
 **Independent check:** open the home page and find purpose, audience, planned workflow, supplier pilot and development status.
 
@@ -36,6 +36,17 @@ As the owner, I can share a stable HTTPS website URL for the actual developer re
 2. Given the existing domain is not configured yet, when a verified host-provided URL is available, then domain setup does not block obtaining the initial website URL.
 3. Given domain configuration is performed later, when the final hostname is tested, then navigation/canonical links use the intended host and unrelated DNS services remain intact.
 
+### Story 4 — Recognize the selected design (P1)
+
+As the owner, I can compare the public website with the supplied marketing reference and recognize its paper/sketch visual system while reading content about our internal Etsy workspace.
+
+**Independent check:** compare reference and implementation screenshots at identical desktop/mobile viewports, then navigate home → workflow → privacy → home by pointer and keyboard.
+
+1. Given the supplied marketing reference, when the redesigned website is reviewed, then paper surfaces, dotted texture, handwritten display headings, readable body type, sketch outlines and offset shadows are visibly consistent with it.
+2. Given the reference describes a whiteboard product, when content is adapted, then the website describes only our internal team/own-shop use and planned capabilities, with no copied customer claims, prices, metrics or inactive product actions.
+3. Given privacy and not-found pages share the public shell, when opened directly, then their appearance is coherent and their content and recovery links remain readable and functional.
+4. Given automated checks pass, when completion is reported, then desktop/mobile comparison evidence and intentional deviations are presented separately; owner visual acceptance is not inferred from tests or code review.
+
 ### Edge cases
 
 - A direct privacy link works without first opening the home page; old privacy links resolve to the new page.
@@ -44,11 +55,13 @@ As the owner, I can share a stable HTTPS website URL for the actual developer re
 - Long text wraps on mobile; zoom and keyboard focus remain usable.
 - Failed deployment, sign-in protection or unverified TLS/DNS prevents a successful-publication claim.
 - Website availability is not evidence of app approval, authorization or a successful order-data request.
+- A missing display font or unreachable reference is recorded as a visual-verification limitation, not silently accepted as a matching design.
+- A reference's narrow-screen overflow must not be copied into the implementation.
 
 ## Requirements
 
 - FR-001: Provide an English home page describing purpose, audience, planned workflow and the BurgerPrints-only pilot.
-- FR-002: Explain that own-shop and consenting-seller use is intended and external integrations are not yet active.
+- FR-002: Describe the current application as an internal tool for the owner's team and own Etsy shop, with external integrations not yet active. This supersedes the earlier public wording about availability to consenting external sellers; broader seller access is outside this correction.
 - FR-003: Provide an English privacy page with truthful current-site data handling and confirmed contact/operator information before submission-ready publication.
 - FR-004: Keep home/privacy navigation and direct links functional; preserve compatibility with previous privacy links.
 - FR-005: Support readable layouts at 360px and 1440px, visible keyboard focus, a skip link, semantic headings and reduced-motion preferences.
@@ -57,6 +70,11 @@ As the owner, I can share a stable HTTPS website URL for the actual developer re
 - FR-008: Publish home/privacy over HTTPS and verify unauthenticated access before reporting a usable registration URL.
 - FR-009: Connect the existing domain only after the actual hostname, project and required DNS records are identified; preserve unrelated records.
 - FR-010: Record verification and remaining dependencies in PROJECT_STATE; keep credentials outside public content and the repository.
+- FR-011: Use `https://doodle-typeui-9fa2feab.vercel.app/marketing` as the public website's concrete visual reference. Reference appearance takes precedence over conflicting generic skill tokens; keep upstream skills unchanged.
+- FR-012: Apply the reference's paper/dotted surfaces, sketch outline/radius/shadow treatment, display/body typography roles and page hierarchy to the landing page and shared public shell. Keep privacy as a readable document in the same visual system.
+- FR-013: Keep public routes `/` and `/privacy`, legacy redirects and not-found recovery. Sample `/marketing` and `/application` URLs are reference locations, not required new product routes. All visible CTAs must have a working in-scope destination.
+- FR-014: Record same-viewport reference/implementation visual comparisons, intentional content/accessibility/responsive differences and owner acceptance status separately from functional/E2E results.
+- FR-015: Treat `https://doodle-typeui-9fa2feab.vercel.app/application` as the later application's visual reference. Capture proposed screen boundaries in the existing plan, but do not implement operational application screens, mock dashboards or integrations as part of the public UI correction.
 
 ## Success criteria
 
@@ -65,15 +83,20 @@ As the owner, I can share a stable HTTPS website URL for the actual developer re
 - SC-003: A fresh setup follows documented steps to start/build the website, with actual check results recorded.
 - SC-004: Before submission-ready publication, the application name, operator/contact facts and privacy text have been confirmed; no invented facts or unimplemented action buttons remain.
 - SC-005: The shared URL loads both pages over valid HTTPS without authentication, and its hostname matches the recorded deployment evidence.
+- SC-006: Desktop (1440px) and mobile (390px) comparison evidence covers the landing hero, representative section, shared navigation/footer and privacy styling. The visual review records each material mismatch and its resolution or explicit outstanding status.
+- SC-007: The corrected website passes existing navigation, redirect, 404, metadata, keyboard, reduced-motion and 200% text-reflow acceptance at 360px/1440px, plus a 390px visual/reflow review. Neither document has page-level horizontal overflow.
+- SC-008: Home, privacy and metadata consistently describe internal own-shop use, retain truthful development/publication status and have no nonfunctional sign-in/connect/shop actions or fabricated public facts.
+- SC-009: Owner visual acceptance is explicitly recorded after showing the implemented preview/comparisons. Until then, report technical verification and visual acceptance as separate statuses.
 
 ## Assumptions and dependencies
 
 - The existing site is a content reference; Fulfillment Workspace remains a working title until the owner confirms it.
 - Website development does not require shop credentials, business data, supplier submission or completed backend/database connectivity.
-- The owner has a domain at GoDaddy, but its exact name, DNS configuration and preferred root/subdomain are not supplied.
+- The owner supplied `lovora.us` and prefers `app.lovora.us`; domain setup is explicitly deferred. The current Vercel hostname is `https://esty-admin.vercel.app/`.
 - Publishing requires access to the selected hosting account/project. Contact/operator facts and the final privacy wording are required before calling the result submission-ready.
 - Current registration requirements must be checked on the actual Etsy flow when registration is performed; a website does not guarantee approval.
 - The completed local increment covered T001–T008, including implementation, checks and external review. The owner's subsequent request authorizes FE commit/push to `main` and resumes T009–T010 Vercel deployment, subject to account/project access and confirmed publication facts. SC-004 human publication confirmation and SC-005 public HTTPS verification remain pending.
+- The current request authorizes documentation planning before UI source changes. The owner reports a successful Vercel deployment, but this does not pass the remaining release facts, route verification or redesigned UI acceptance. The original completed task history is retained; T013 onward tracks the correction.
 
 ## Out of scope
 

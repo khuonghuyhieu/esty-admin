@@ -1,12 +1,14 @@
 # Implementation plan: Developer website
 
-Date: 2026-10-25 · Branch: `main` (starting commit `70992fc`) · Status: T001–T008 local implementation and external review complete; publication excluded.
+Date: 2026-10-25 · Revised: 2026-10-26 · Branch: existing `main` (planning baseline `262877f`) · Status: reference-based public UI correction planned; no redesign source work started.
 
 Input: [spec.md](spec.md), [ARCH-001](../architecture.md) and the owner's Next.js/Vercel/GoDaddy decisions. This compact plan keeps technical research and validation here because this feature has no persistent entities or external API contracts. It does not claim a full Spec Kit CLI run.
 
 ## Summary
 
 Build one Next.js frontend with a public landing page and privacy page, then deploy it on Vercel to obtain a verified URL for Etsy registration. Backend/database connectivity is a later deliverable. Use the existing three UI skills and static content reference.
+
+Current increment: correct the already-deployed public UI against the owner's marketing reference, align content with internal team/own-shop use and define visual acceptance before code changes. Preserve T001–T008 as historical completion; add T013–T020 for the correction. Application-screen implementation, backend/OAuth and deferred domain setup are outside this increment. The current request is planning only; later implementation follows the OMP handoff below.
 
 For React/Next.js implementation and review, also read [vercel-react-best-practices](../../.agents/skills/vercel-react-best-practices/SKILL.md) and the relevant rules before changing components, pages/layouts, Server/Client boundaries, hydration or bundle loading. Consult fetching/caching rules only if the feature actually needs those behaviors. Use documentation matching the installed Next.js version for framework APIs; keep the public website scope unchanged.
 
@@ -15,10 +17,10 @@ For React/Next.js implementation and review, also read [vercel-react-best-practi
 | Item | Planning decision | Authority |
 | --- | --- | --- |
 | Framework / hosting | Next.js on Vercel | Owner decision |
-| Domain | Existing GoDaddy domain; exact hostname pending | Owner statement |
+| Domain | `lovora.us`, preferred `app.lovora.us`; setup deferred; current host `esty-admin.vercel.app` | Owner statement |
 | Routing / language | App Router, TypeScript; mostly server components and static pages | Implementation design |
 | Version baseline | Next.js 16.4.3, React/React DOM 19.3.1; Node.js 24.22.1 | Registry versions/peer ranges verified; exact direct pins and root lockfile installed |
-| Styling | Plain CSS/CSS Modules and semantic Doodle tokens; no component kit required | Existing UI direction |
+| Styling | Plain CSS/CSS Modules with project tokens derived from the supplied rendered references; preserve upstream Doodle files | Owner's concrete reference direction supersedes generic blue/white styling |
 | Package layout | npm workspaces; one application `apps/web`; one root lockfile | Existing monorepo boundary adapted to a frontend-only first phase |
 | Data / external contracts | No persistence or business API in this feature | Feature scope |
 | Checks | ESLint, TypeScript, production build, functional acceptance and Playwright E2E; manual visual/accessibility review | Acceptance implementation and owner-requested feature testing |
@@ -81,13 +83,59 @@ For the redesign, require these visual acceptance steps before reporting complet
 2. Compare typography, paper/dotted backgrounds, palette, outline/radius/shadow treatment, spacing and section or application-shell hierarchy. Fix material deviations and document intentional differences for Etsy content, accessibility and responsive behavior.
 3. Show the owner the implemented preview with the comparison evidence for visual acceptance. Passing functional tests or a code review alone does not establish owner acceptance of the design. Do not promise identical screenshots where content or responsive adaptations differ.
 
-The following paragraphs document the earlier implemented design and are superseded as the target visual direction by the reference review above; source has not yet been redesigned.
-
 TypeUI capability check (2026-10-26): current [account terms](https://www.typeui.sh/terms) place copying/downloading, MCP access and design-system creation behind Creative, All-access or eligible Lifetime access. The [current package documentation](https://www.typeui.sh/docs/overview/getting-started) describes separate color, typography, layout and component files. The installed GitHub Doodle snapshot contains `SKILL.md`, `DESIGN.md` and its MIT `LICENSE`; it is general guidance rather than that detailed package. This does not prove that a paid package would match these specific previews. The owner authorizes using the two supplied previews as the fallback visual reference; continue with project-authored implementation and explicit visual comparison. No subscription purchase, paid-resource download or TypeUI MCP setup is needed for the chosen workflow.
 
-White background, dark ink `#111827`, navy `#263D5B`, blue accent `#49B6E5` and the 4/8/12/16/24/32 spacing scale. Use blue for accents with dark readable labels; navy for buttons with light text. Readable system body type; handwriting/sketch accents are optional around the workflow illustration.
+### Resolved public redesign
 
-Home composition: compact header → purpose/development status and workflow illustration → authorized-seller workflow → BurgerPrints pilot scope → privacy/contact links. Use the user's actual content, no invented metrics, testimonials, legal identity or working connect-shop CTA. Privacy is a readable document, not a decorative dashboard. Verify the actual final palette contrast and typography during UI implementation.
+Design intent: a paper-and-sketch public website that visibly follows the selected marketing reference while explaining the internal Etsy workspace truthfully.
+
+| Foundation | Implementation direction | Acceptance |
+| --- | --- | --- |
+| Surfaces | Paper `#f9f6f0`, alternate paper `#efebe1`; subtle dotted texture on marketing sections | Match the reference's warm page/section rhythm; decorative texture must not impair reading |
+| Ink / accent | Dark sketch ink `#111827`, peach surface accent starting from observed `#eacdc2`; use darker readable text on accents | Verify text contrast at least 4.5:1 for normal text and 3:1 for large text; controls/focus remain distinguishable |
+| Typography | Delius Swash Caps for marketing display headings/brand accents; Geist for body/navigation; system sans fallback | Verify the actual fonts load before visual review; do not silently accept the previous Avenir/system display treatment |
+| Fonts / assets | Prefer licensed self-hosted font assets with their notices, loaded using the installed framework's supported local-font mechanism | Verify official asset source/license during implementation; keep marketing free of third-party runtime font requests; record unavailable assets as a limitation |
+| Outline / shadow | Approximately 3px dark outlines, asymmetric elliptical corners and solid offset shadows, tuned against the actual reference | Apply consistently to buttons, illustration and feature panels; avoid transforming text or entire dense content areas |
+| Spacing / width | Reuse 4/8/12/16/24/32 spacing; desktop max-width about 1248px, 24–32px desktop gutters and 20–24px mobile gutters | Compare section density at 1440px; preserve legible line lengths and no page overflow at 360px/390px |
+| Public components | Shared paper navigation/footer, sketch button and panel treatment, text links and status note | Visible hover, active and keyboard focus; semantic links for navigation; no menu/control that has no implemented behavior |
+
+Exact reference treatment is the target; measured accessibility or responsive changes must be documented rather than silently introducing another aesthetic. Retain blue only where an observed illustration/status treatment warrants it, not as the dominant site palette.
+
+Public page composition and content mapping:
+
+1. Header: working app name, `Workflow`, `Scope` and `Privacy` links; links target existing page sections or `/privacy`. Preserve the skip link and truthful draft/preview status.
+2. Split hero: handwritten display heading and concise internal-team purpose on the left; a sketch panel depicting order review/preparation on the right. Primary CTA scrolls to `#workflow`; secondary CTA opens privacy. The illustration is explicitly conceptual, with no invented live order totals or status.
+3. Feature group: readable sketch panels for checking order details, organizing preparation and keeping team review clear. Describe capabilities as planned. Use this section in place of the reference's customer-logo strip and whiteboard feature copy.
+4. Workflow section (`#workflow`): review details → prepare fulfillment information → team checks before handoff. Explain separately that Etsy access and supplier integration are not active; BurgerPrints remains the only proposed pilot, without claiming supplier submission works.
+5. Scope section (`#scope`) and closing CTA: internal team/own Etsy shop, current development status and working privacy link. Omit pricing, external seller signup, customer metrics, testimonials and sales/demo actions.
+6. Shared footer: real navigation and existing Etsy disclaimer. Keep public identity/contact handling under the existing configuration gate.
+
+Privacy remains a document with a constrained reading column (about 65–75 characters), readable body type and consistent paper/heading/notice styling. Preserve factual current-site handling, hosting-log caveats, unresolved operator/contact status and return navigation. Apply the public shell to not-found recovery without inventing another page layout.
+
+Affected source surfaces for later implementation: `apps/web/src/app/globals.css`, `layout.tsx`, `page.tsx`, `privacy/page.tsx`, `not-found.tsx`, `src/components/site/header.tsx`, `footer.tsx`, `src/features/landing/landing.tsx` and `src/features/privacy/privacy.tsx`. Add licensed font assets under `apps/web/src/app/fonts/` only when sourced and verified. Reuse existing components; create a shared sketch primitive only when genuinely reused. Keep routes, Server Component behavior and site configuration policy intact; no new UI kit or runtime service is needed.
+
+### Application design boundary — next planning slice
+
+Use the application reference for its sidebar, top bar, compact readable type, summary panels, activity layout and data-table controls. The reference's whiteboard concepts are not our application model. The following is a proposal for later owner confirmation, not an executable implementation scope:
+
+| Candidate screen | Internal Etsy purpose | Decision needed before implementation |
+| --- | --- | --- |
+| Overview | Team work summary and recent processing activity | Which counts/statuses are meaningful and backed by available data? |
+| Orders | Search/filter a list and open an order | Required fields, statuses, filters, sorting and permitted actions |
+| Order detail | Review product, variation, artwork and shipping information | Editable fields, validation and whether saving is part of the first slice |
+| Connections | View/connect the team's Etsy shop | User access, OAuth/backend ownership and real API readiness |
+
+Do not add sidebar destinations such as billing/team/settings merely because they appear in the reference. Decide whether the first application deliverable is an explicitly labeled UI prototype or a working connected feature before specifying its tasks. App route placement (for example `/app`), authentication, empty/loading/error states and data contract belong to that follow-up decision. Do not build a public mock admin or empty routes during T013–T020. Feature 001 retains connectivity ownership; a future application feature must link to it rather than duplicate its backend scope. No new application spec, tracker or source skeleton is created by this planning increment.
+
+### Verification, comparison and implementation handoff
+
+Extend `apps/web/tests/e2e/website.spec.ts`, retaining the existing production journey and configuration suite. Replace the old exact navy focus-color assertion with meaningful focus visibility/contrast acceptance for the new palette. Replace external-seller wording assertions with internal own-shop wording; update heading/link expectations only when approved copy changes their accessible names. Test each new anchor/CTA destination rather than adding tests that merely mirror CSS properties. Keep redirect/query preservation, real 404, truthful draft metadata, contact handling, keyboard order, 200% text reflow and reduced motion coverage. Do not loosen these checks simply to fit the redesign.
+
+After implementation, use the root commands in README under Node 24.22.1: lint, typecheck, functional tests and production E2E (which already builds production). A separate repeated build is unnecessary unless debugging requires it. Review computed text/focus contrast and screenshot both public pages at 1440×1000, 390×844 and 360×800; the latter complements the two existing E2E widths. At 1440×1000 and 390×844, recapture the marketing reference with loaded fonts and use the same browser, zoom and viewport for the implementation comparison. Do not use full-page pixel equality across different product copy or page lengths as acceptance.
+
+Retain final comparison screenshots under the existing ignored `apps/web/test-results/visual/` after the last E2E run (Playwright may clear test results). Compare the hero, one feature/workflow section, navigation/footer and privacy adaptation. In PROJECT_STATE record a compact matrix for typography, surfaces/texture, palette, outlines/shadows, spacing/hierarchy and responsive behavior: pass, unresolved mismatch or intentional adaptation with reason. Record unavailable references/fonts and never substitute screenshots from an earlier build as final proof. Baseline images from the earlier investigation are session evidence only and must be recaptured for the implementation handoff.
+
+Future source implementation uses OMP as the sole writer under the existing Herdr convention. Handoff the active spec/plan/tasks, the two URLs, T013–T020 boundaries and mandatory visual/functional checks. After checks, obtain one concise read-only Codex review using `gpt-6-luna`; OMP fixes confirmed findings and reruns affected checks. Present the local preview and final comparison evidence to the owner; record pending or explicit visual acceptance. Implementation completion does not authorize deployment or infer publication facts. Do not commit/push source to the production-linked `main` during the redesign without a publication request; use local preview for review.
 
 Use semantic links/buttons, skip navigation, visible focus, heading order, decorative SVG hiding and reduced motion. Preserve planned-versus-working wording. Fetch the current web-design-guidelines when reviewing the implemented UI.
 
@@ -136,7 +184,7 @@ Use Node's built-in test runner for configuration boundaries: missing/blank rele
 
 Visual review uses actual production browser screenshots at desktop/mobile, keyboard focus, accessibility-tree inspection and 200% CSS zoom as a reflow approximation. Record limitations separately: automated text enlargement/CSS zoom is not OS/browser-toolbar zoom or a physical-device/screen-reader audit. No live Etsy/supplier or production-host request is part of this scope.
 
-All page/feature/shell components are Server Components, with direct imports, no client state, fetching/cache layers, component kit, external fonts or image requests. Doodle uses a single sketched order-preparation sheet, white/blue/navy tokens, readable system type, visible navy focus and no animation. Privacy remains a plain readable document. Existing pinned skills and `dist/` stay unchanged.
+The original implementation used Server Components, direct imports, a single sketched order-preparation sheet, white/blue/navy tokens and system type. The correction replaces that visual treatment and introduces verified local fonts as described above, retaining static composition without unnecessary client state or fetching/cache layers. Existing pinned skills and `dist/` stay unchanged.
 
 Registry access recovered during implementation. Fresh-install/build/test results and dependency warnings belong to PROJECT_STATE, not inferred from this plan.
 

@@ -2,7 +2,7 @@
 
 Open this `esty-admin/` folder directly. It is the standalone repository for `khuonghuyhieu/esty-admin`; Git metadata lives in its own `.git/`.
 
-Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**, using the owner's existing GoDaddy domain when configured. Feature 002 T001–T008 local implementation/testing and external review are complete. The owner has now requested Vercel deployment; account/project access and public release facts remain pending. NestJS/Cloud Run and Supabase remain later work.
+Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 are complete; current work plans a reference-based marketing/privacy correction (T013–T020) before source edits. Application screens are a later planning slice. NestJS/Cloud Run and Supabase remain later work.
 
 ## Read the current work
 
@@ -13,7 +13,7 @@ Current direction: **Next.js → Vercel HTTPS website → Etsy developer registr
 | [ARCH-001](specs/architecture.md) | Shared decisions, sources and current delivery order |
 | [Website spec](specs/002-developer-website/spec.md) | What the website must do and how it is accepted |
 | [Website plan](specs/002-developer-website/plan.md) | Technical design, configuration policy, verification and publication inputs |
-| [Website tasks](specs/002-developer-website/tasks.md) | T001–T008 complete; T009–T012 remain pending |
+| [Website tasks](specs/002-developer-website/tasks.md) | Original T001–T008 complete; publication tasks and T013–T020 correction remain open |
 | [Deferred connectivity spec](specs/001-connectivity-foundation/spec.md) | Later UI → API → DB scope |
 | [Constitution](.specify/memory/constitution.md) | Project governance and feature-specific acceptance |
 
@@ -103,7 +103,7 @@ SPECIFY_FEATURE_DIRECTORY=specs/002-developer-website bash .specify/scripts/bash
 
 Local `$speckit-specify`, `$speckit-clarify`, `$speckit-plan`, `$speckit-tasks`, `$speckit-analyze`, `$speckit-implement`, `$speckit-constitution` and `$speckit-checklist` files use pinned [Spec Kit v1.2.3](https://github.com/github/spec-kit/releases/tag/v1.2.3) sources. `.specify/upstream.json` records provenance. Skill discovery depends on the agent session; read the local `SKILL.md` directly if it is not listed.
 
-The local implementation workflow uses the pinned prerequisite helper with `SPECIFY_FEATURE_DIRECTORY=specs/002-developer-website`; no spec/plan/task regeneration is needed. The full Specify CLI, extension dispatcher/events and automatic Git/issue workflows are not installed by this bootstrap. Vercel publication has now been requested, subject to the pending access and release facts above. Commit/push still requires applicable owner authorization.
+The local implementation workflow uses the pinned prerequisite helper with `SPECIFY_FEATURE_DIRECTORY=specs/002-developer-website`. Update the existing feature documents for the current correction rather than recreating them. The full Specify CLI, extension dispatcher/events and automatic Git/issue workflows are not installed by this bootstrap. Current planning does not authorize redesigned source publication; commit/push and deployment follow applicable owner requests.
 
 The frontend-design, Doodle and web-design-guidelines skills guide website implementation/review. Templates are scaffolds, not approved business scope. Do not recreate this feature, another checkout or a separate landing-page repository.
 
@@ -126,7 +126,7 @@ Framework API guidance is matched to installed Next.js 16.4.3 through its tagged
 
 The owner-selected implementation harness is `omp`. When implementation is requested from a Herdr-managed Codex pane, the agent follows the installed Herdr skill to open a sibling pane in this repository, start OMP and send the approved task scope with explicit local instruction/skill paths. Codex remains the coordinator; OMP performs source edits and verification. See [AGENTS.md](AGENTS.md) for handoff and coordination rules.
 
-Example chat request: "Open OMP in a sibling Herdr pane and implement feature 002 tasks T001–T008. Apply the installed frontend skills, verify local acceptance and stop before deployment, commit or push."
+After the correction plan is accepted, an example chat request is: "Open OMP in a sibling Herdr pane and implement feature 002 tasks T013–T019. Follow the linked marketing reference, preserve the application planning boundary, run functional/E2E checks and collect matching-viewport visual comparisons. Present the local preview for T020 owner acceptance and stop before deployment, commit or push."
 
 This is an agent workflow convention, not a shell alias or installed Spec Kit hook. Calling a skill alone does not create a pane. The handoff requires an active Herdr environment and an available `omp` command; no new checkout is needed.
 
