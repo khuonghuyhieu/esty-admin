@@ -2,7 +2,8 @@
   "name": "esty-admin",
   "private": true,
   "workspaces": [
-    "apps/web"
+    "apps/web",
+    "apps/api"
   ],
   "engines": {
     "node": "24.x"
@@ -15,6 +16,18 @@
     "start": "npm run start --workspace=@esty-admin/web",
     "test": "npm run test --workspace=@esty-admin/web",
     "test:e2e": "npm run test:e2e --workspace=@esty-admin/web",
-    "check:release": "npm run check:release --workspace=@esty-admin/web"
+    "check:release": "npm run check:release --workspace=@esty-admin/web",
+    "api:dev": "npm run dev --workspace=@esty-admin/api",
+    "api:build": "npm run build --workspace=@esty-admin/api",
+    "api:start": "npm run start --workspace=@esty-admin/api",
+    "api:typecheck": "npm run typecheck --workspace=@esty-admin/api",
+    "api:test": "npm run test --workspace=@esty-admin/api",
+    "api:test:integration": "npm run test:integration --workspace=@esty-admin/api",
+    "api:check": "npm run check --workspace=@esty-admin/api",
+    "api:codegen": "npm run codegen --workspace=@esty-admin/api",
+    "api:codegen:check": "npm run codegen:check --workspace=@esty-admin/api",
+    "db:up": "npm run db:up --workspace=@esty-admin/api",
+    "db:stop": "npm run db:stop --workspace=@esty-admin/api",
+    "db:migrate": "npm run db:migrate --workspace=@esty-admin/api"
   }
 }

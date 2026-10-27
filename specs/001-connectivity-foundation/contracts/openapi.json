@@ -1,0 +1,115 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Local connectivity foundation",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health/live": {
+      "get": {
+        "operationId": "getLiveness",
+        "responses": {
+          "200": {
+            "description": "Liveness",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Liveness"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "operationId": "getReadiness",
+        "responses": {
+          "200": {
+            "description": "Ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Ready"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Degraded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Degraded"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Liveness": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok"
+          }
+        }
+      },
+      "Ready": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "database",
+          "migrations"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ready"
+          },
+          "database": {
+            "type": "string",
+            "const": "up"
+          },
+          "migrations": {
+            "type": "string",
+            "const": "current"
+          }
+        }
+      },
+      "Degraded": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "status",
+          "reason"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "degraded"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "database_unavailable",
+              "database_timeout",
+              "migrations_pending"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

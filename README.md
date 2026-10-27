@@ -2,7 +2,7 @@
 
 Open this `esty-admin/` folder directly. It is the standalone repository for `khuonghuyhieu/esty-admin`; Git metadata lives in its own `.git/`.
 
-Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 and correction T013–T020 are complete, including external review and owner visual acceptance; the owner has authorized FE commit/push. A deployment result for the correction is not verified. Application screens remain outside this FE increment; independently coordinated backend work does not establish connectivity.
+Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 and correction T013–T020 are complete, including external review and owner visual acceptance. The coordinator confirms the owner-approved FE-only push of 20 files to `main@6c64eaa`; a deployment result for that correction is not verified. The local BE foundation is verified and separately reviewed; the owner has now authorized its source-only commit/push. Hosted acceptance remains pending. Application screens and full UI → API → DB acceptance remain outside the completed increments.
 
 ## Read the current work
 
@@ -14,14 +14,16 @@ Current direction: **Next.js → Vercel HTTPS website → Etsy developer registr
 | [Website spec](specs/002-developer-website/spec.md) | What the website must do and how it is accepted |
 | [Website plan](specs/002-developer-website/plan.md) | Technical design, configuration policy, verification and publication inputs |
 | [Website tasks](specs/002-developer-website/tasks.md) | Original implementation and T013–T020 complete; release acceptance gates remain open |
-| [Deferred connectivity spec](specs/001-connectivity-foundation/spec.md) | Later UI → API → DB scope |
+| [Connectivity spec](specs/001-connectivity-foundation/spec.md) | Resumed local BE foundation; full UI → API → DB acceptance remains pending |
 | [Constitution](.specify/memory/constitution.md) | Project governance and feature-specific acceptance |
 
 Agents read AGENTS → PROJECT_STATE → architecture, then the constitution and active feature artifacts. Read only relevant skills/source after that. Notion owns milestone/status tracking; Drive retains original evidence. Feature tasks belong here, not in a duplicate project tracker.
 
 ## Current files and commands
 
-The npm workspace contains one Next.js application at `apps/web/`. The root lockfile pins dependencies; `dist/` is preserved as the legacy static reference, not the deployment root. No backend or database is required.
+The npm workspace contains the Next.js application at `apps/web/` and the independent local backend at `apps/api/`. The root lockfile pins dependencies; `dist/` is preserved as the legacy static reference, not the deployment root. The public website requires no backend or database.
+
+The independently authorized local backend is `apps/api/` (NestJS 12, Node 24, PostgreSQL 17.11). The website still does not depend on it. Backend-only HTTP/database checks do not implement a connectivity screen or establish hosted Supabase/Cloud Run access.
 
 To view the old static reference:
 
@@ -118,15 +120,17 @@ Prefer the Vercel plugin/MCP after the owner installs/connects it. Select the in
 
 ## Spec Kit
 
-The active feature is `specs/002-developer-website/`; feature 001 is deferred. Its ignored local pointer can be restored using that path. Read-only path resolution:
+Feature 002 owns the public website; feature 001 owns the locally verified backend foundation, with its FE connectivity work still pending. Preserve the ignored shared feature pointer; select the relevant directory per command. Read-only website path resolution:
 
 ```sh
 SPECIFY_FEATURE_DIRECTORY=specs/002-developer-website bash .specify/scripts/bash/check-prerequisites.sh --json --paths-only
 ```
 
+For backend workflows, use `SPECIFY_FEATURE_DIRECTORY=specs/001-connectivity-foundation` with the same helper. Do not switch the shared pointer between parallel lanes.
+
 Local `$speckit-specify`, `$speckit-clarify`, `$speckit-plan`, `$speckit-tasks`, `$speckit-analyze`, `$speckit-implement`, `$speckit-constitution` and `$speckit-checklist` files use pinned [Spec Kit v1.2.3](https://github.com/github/spec-kit/releases/tag/v1.2.3) sources. `.specify/upstream.json` records provenance. Skill discovery depends on the agent session; read the local `SKILL.md` directly if it is not listed.
 
-The local implementation workflow uses the pinned prerequisite helper with `SPECIFY_FEATURE_DIRECTORY=specs/002-developer-website`. Update the existing feature documents for the current correction rather than recreating them. The full Specify CLI, extension dispatcher/events and automatic Git/issue workflows are not installed by this bootstrap. Current planning does not authorize redesigned source publication; commit/push and deployment follow applicable owner requests.
+The local implementation workflow uses the pinned prerequisite helper with a command-local `SPECIFY_FEATURE_DIRECTORY`. Update the relevant existing feature documents rather than recreating them. The full Specify CLI, extension dispatcher/events and automatic Git/issue workflows are not installed by this bootstrap. The owner separately authorized BE source-only commit/push after local verification and review; remote database operations, deployment and integrations remain deferred.
 
 The frontend-design, Doodle and web-design-guidelines skills guide website implementation/review. Templates are scaffolds, not approved business scope. Do not recreate this feature, another checkout or a separate landing-page repository.
 
@@ -158,6 +162,109 @@ After implementation and test execution, use a read-only Codex reviewer with `gp
 ### Feature testing
 
 Application features that change user behavior include functional acceptance tests and an automated E2E journey. Reuse existing suites, test observable behavior and avoid redundant snapshots or tests of trivial scaffolding. Feature 002 uses the production Playwright journeys and focused configuration tests described above. See [PROJECT_STATE](PROJECT_STATE.md) for actual results, completed external review and remaining limitations; T008 is complete, while publication confirmation and public HTTPS remain pending T009 onward. No dedicated testing skill is installed.
+
+## Local backend foundation
+
+Use Node **24.22.1** and Docker with Compose. Existing root FE commands remain unchanged. Dependency operations must be serialized with the other lane; the approved additive install was `npm install --workspace=@esty-admin/api --ignore-scripts`. Do not run another install, `ci` or prune while an agent holds the dependency lease.
+
+The isolated Compose project is `esty-admin-be`; PostgreSQL binds only `127.0.0.1:55432`. Credentials below are synthetic local fixtures. Exported values take precedence over optional `apps/api/.env`; its secret-free example is `apps/api/.env.example`. Default `API_RUNTIME=local` rejects remote database hosts and URL options. Explicit hosted mode requires the approved target/TLS settings below and never loads a local env file.
+
+From the repository root:
+
+```sh
+export DATABASE_URL=postgresql://foundation_local:local_fixture_only@127.0.0.1:55432/foundation_local
+npm run db:up
+npm run api:codegen:check
+npm run db:migrate
+npm run db:migrate
+npm run api:dev
+```
+
+Open `http://127.0.0.1:3001/health/live` and `/health/ready`. `api:dev` compiles first and watches emitted JavaScript; rerun `api:build` after TypeScript edits. For a built application use `api:start`. API defaults: loopback host, port 3001, exact browser origin `http://127.0.0.1:3000`; CORS is not authentication. No `.env` file is required when values are exported.
+
+Liveness is 200 independently of the database. Readiness is 200 only after a fresh DB query, the foundation schema and the complete ordered migration history match the current application release. Missing/failed/pending migration, unavailable DB or timeout returns a safe 503; startup never auto-migrates. Saturation fails immediately rather than queuing probes. Admitted connection timeout is 1 second, SQL statement timeout 1 second, client query timeout 1.5 seconds and overall readiness deadline 3 seconds; failed or abandoned clients are destroyed. The next request rechecks current state.
+
+```sh
+npm run api:build
+npm run api:typecheck
+npm run api:test
+npm run api:check
+TEST_DATABASE_URL=postgresql://foundation_local:local_fixture_only@127.0.0.1:55432/foundation_local npm run api:test:integration
+```
+
+`api:check` runs OpenAPI/migration-manifest drift detection, typecheck, build and config/real-HTTP tests. The integration command requires the healthy exact fixture, stages the operator artifact and creates/drops only randomized `foundation_test_*` databases. It covers real HTTP → PostgreSQL, migration repeatability/rollback/later failures, timeout/pressure/recovery, trusted/untrusted/wrong-host TLS using disposable local certificates, hosted pool cleanup, and staged CLI/API execution outside repo cwd. OpenSSL must be available for the synthetic TLS fixture. No cloud/management API or live Supabase host is used.
+
+The authoritative contract is `specs/001-connectivity-foundation/contracts/openapi.json`. After an intentional contract edit, run `npm run api:codegen`, then `npm run api:codegen:check`. Migrations are ordered 13-digit timestamp `.mjs` files in `apps/api/migrations/`. The web API imports a generated ordered name/hash manifest rather than scanning runtime files; the separate operator validates the actual assets against that manifest before DDL. After an approved new migration, run `npm run migrations:generate --workspace=@esty-admin/api` and rebuild/restart. Do not rewrite applied migrations or add a second Supabase migration engine. Publication is separately authorized.
+
+Stop only the local database with `npm run db:stop`; its volume is preserved. `npm run db:up` restarts it. Do not use `down -v`, reset a database or target host PostgreSQL. Stop the local API with Ctrl+C. The original foundation review is historical; the code-first prototype T026 review is now complete with no confirmed actionable findings. Source remains uncommitted; local checks are not production approval.
+
+## Isolated cloud CLI access
+
+The owner initially uses one existing Supabase project; environment separation is deferred. Machine-local launchers were prepared under ignored `.openai/cloud-tools/` with private state under `.openai/cloud-auth/`. They are not checked-in tooling and are not available automatically in a fresh checkout. The Supabase binary is pinned to official [CLI 2.122.0](https://github.com/supabase/cli/releases/tag/v2.122.0); no npm or global install was used.
+
+Use these launchers from this repository root rather than bare CLI commands, which may select company configuration. The Google launcher uses a separate `CLOUDSDK_CONFIG`; the Supabase launcher uses a separate state directory, unique credential profile and fixed project ref. Inherited provider credential overrides are cleared. No shell profile or global active configuration was changed.
+
+Read-only identity/target checks:
+
+```sh
+.openai/cloud-tools/gcloud config get-value account
+.openai/cloud-tools/gcloud config get-value project
+.openai/cloud-tools/gcloud billing projects describe esty-admin --format='value(billingEnabled)'
+.openai/cloud-tools/gcloud services list --enabled --project=esty-admin --format='value(config.name)'
+.openai/cloud-tools/supabase whoami --output-format json
+.openai/cloud-tools/supabase projects list --output-format json
+```
+
+If a login expires, use the same isolated launchers and select the personal E-commerce account in the official browser flow:
+
+```sh
+.openai/cloud-tools/gcloud auth login --brief
+.openai/cloud-tools/supabase login --name esty-admin-cli --output-format text --agent no
+```
+
+macOS Keychain/browser/network access may require explicit sandbox permission; token values must not be copied into documentation or Git. Observed targets are Google Cloud `esty-admin` and Supabase **Esty Fulfillments** (`eotmpaliqcxxcotrcols`, Seoul). Google billing/APIs remain disabled, but Cloud Run/container work is now deferred rather than a prototype prerequisite. CLI authentication/project metadata do not prove SQL connectivity or deployment. Do not use Supabase migration commands as a second history: the foundation uses node-pg-migrate.
+
+## Backend prototype — local code verified, external setup pending
+
+Only `/health/live` and `/health/ready` are implemented. Keep one Supabase project and a separate BE Vercel project rooted at `apps/api`; no new auth/business modules, operational DB roles or Cloud Run/AWS/Azure infrastructure. [Feature001 plan/evidence](specs/001-connectivity-foundation/plan.md) records the actual checks; [operator acceptance guide](specs/001-connectivity-foundation/quickstart.md) details the future gates.
+
+Node24 local checks passed: `api:check` **11/11**, `api:test:integration` **11/11 reported checks**, plus separate staged-process HTTP/migration/failure/recovery smoke. Native Vercel compatibility is **not yet verified**: isolated CLI65.4.0 with empty auth/config and denied networking returned `project_settings_required`. No project linkage, pull, remote SQL or deployment ran. Do not substitute tsc success for native artifact proof.
+
+### Build and move the operator artifact
+
+```sh
+npm run migrations:check --workspace=@esty-admin/api
+npm run stage:operator --workspace=@esty-admin/api
+```
+
+The complete `apps/api/build/operator/` contains compiled API/operator files, approved migrations and runtime dependencies, but no env file or credentials. Keep its layout intact when copying it. Its `apps/api/build/scripts/migrate.js` and `apps/api/build/src/main.js` run with Node24 from any cwd. Builds only compile/package; they never execute DDL.
+
+### Owner-supplied settings — later, not needed for local checks
+
+From the existing Supabase project's **Connect → Session pooler**, copy the exact host, username, database, project ref and port5432. Do not guess a hostname/index from the region. Review a password-redacted string only; deliver the actual password privately and percent-encode it in URLs. Use the placeholders/comments in `apps/api/.env.example`, not its local fixture URL, for hosted setup.
+
+| Setting | Scope |
+| --- | --- |
+| `API_RUNTIME=vercel` | Required hosted mode; Vercel supplies `VERCEL` and `PORT`. Omit local `API_HOST`/`API_PORT` |
+| `SUPABASE_PROJECT_REF` | Required approved 20-letter project ref |
+| `SUPABASE_SESSION_HOST` | Required exact Connect AWS shared-pooler hostname; no arbitrary host or wildcard |
+| `SUPABASE_DATABASE_NAME`, `SUPABASE_DATABASE_USER` | Required exact database/user; user includes the matching `.project-ref` suffix |
+| `DATABASE_URL` | API secret; must match the whole approved tuple on5432, with no query options/fragments |
+| `DATABASE_CA_PEM` | Optional verified CA as actual multiline PEM, not a path/literal `\\n`; otherwise system roots. Certificate/hostname verification always stays enabled |
+| `BROWSER_ORIGIN` | Required exact HTTPS browser origin; CORS is not access control |
+| `MIGRATION_DATABASE_URL`, `MIGRATION_CONFIRM_PROJECT_REF` | Operator-only URL and explicit matching project confirmation; never set in the API function |
+
+No Supabase anon/service-role/management API key is needed for this pg API. Vercel project/org IDs and login/token belong only to future deployment tooling, not runtime. A CLI token is not required for owner-interactive login; optional CI tokens need separate approval. No real secret is requested now. An approved existing DB credential may be used; record its privilege exposure rather than silently creating roles/grants.
+
+### Future external execution — separate approvals required
+
+1. Approve the actual tuple/secret and read-only database preflight. Check identity, schema/history collisions and privileges. Never reset/adopt/drop shared objects.
+2. Approve the exact migration set/checksums. With operator settings supplied privately, run the staged `migrate.js --hosted` or `npm run db:migrate:hosted --workspace=@esty-admin/api`; the command selects `MIGRATION_TARGET=supabase` and still requires explicit project confirmation. Rerun to prove zero new applications. Use Session5432, never transaction6543 or Supabase migration commands.
+3. Verify the personal Vercel scope and eligible use, then create/link a **separate BE project**, Root Directory `apps/api`, native NestJS preset and Node24.x with root workspace-lock resolution. Preserve the FE project. Existing Hobby metadata is not commercial-use approval. Verify platform protection admits the intended testers and denies anonymous access; do not implement app auth for this prototype.
+4. Provision only API variables for the approved preview environment. Obtain permission to retrieve genuine project settings and run native build; verify ESM/decorator bootstrap, manifest packaging and cancellation before claiming compatibility.
+5. Obtain preview-deploy approval, verify exact project/target and deploy without production promotion, domain changes or FE redeploy. Check protected HTTPS health, failure/recovery and connection cleanup. Never disrupt the shared database to simulate failure.
+
+Use the existing isolated CLI launcher only during that authorized external phase; its local tools/auth state is not a fresh-checkout dependency and was not used for code-first checks. Hosted pool max2 is per warm instance (local max4); multiple instances multiply sessions. Validate the real connection budget/TLS/timeouts later. The 3000ms readiness deadline starts inside the handler, not at the network/cold-start boundary. T026 is complete: separate gpt-6-luna read-only review session `01a17c65-9fda-7fd1-8e74-344facca83c2` found no confirmed actionable findings. The reviewer did not edit files or rerun checks; no source fix or redundant suite rerun was needed. T020, native T025 and T027–T030 external acceptance remain open.
 
 ## Application UI planning
 

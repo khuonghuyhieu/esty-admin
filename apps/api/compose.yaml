@@ -1,0 +1,19 @@
+name: esty-admin-be
+services:
+  postgres:
+    image: postgres:17.11
+    environment:
+      POSTGRES_USER: foundation_local
+      POSTGRES_PASSWORD: local_fixture_only
+      POSTGRES_DB: foundation_local
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - foundation-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U foundation_local -d foundation_local"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+volumes:
+  foundation-data:

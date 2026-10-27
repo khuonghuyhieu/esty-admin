@@ -17,3 +17,6 @@ coverage/
 .vercel/
 playwright-report/
 test-results/
+
+# Compiled backend only; preserve the tracked legacy root dist/
+apps/api/build/

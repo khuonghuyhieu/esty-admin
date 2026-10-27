@@ -1,12 +1,25 @@
 # Architecture & implementation spec
 
-Spec: ARCH-001 · Updated: 2026-10-25 · Status: Next.js/Vercel website prioritized; local T001–T008 implementation and external review complete; publication pending; connectivity deferred.
+Spec: ARCH-001 · Updated: 2026-10-27 · Status: prototype backend code/local verification and separate read-only review complete; native Vercel and hosted/full connectivity acceptance pending. PROJECT_STATE owns current website evidence.
 
 ## Purpose and authority
 
 Build an internal Etsy fulfillment workspace; BurgerPrints (SUP-05) is the only supplier pilot. The current public website correction describes internal-team/own-shop use, following the owner's registration direction. Broader consenting-seller use remains historical product context, not availability claimed by this correction. Etsy API access is the first integration milestone, not an implemented capability.
 
 This file is the current technical implementation context. README only explains navigation/commands; AGENTS defines working rules; PROJECT_STATE records observed progress. Notion tracks project milestones/status and decisions; feature `tasks.md` records technical execution after a resolved plan exists. Drive retains source requirements/evidence. Link these artifacts instead of creating duplicate roadmaps or task trackers.
+
+### Scoped local backend resumption — 2026-10-26
+
+The owner authorized parallel disjoint FE/BE work on existing `main@128cfc8`. Feature 001 now owns the local NestJS/PostgreSQL foundation, migration-aware health/readiness, contract generation and HTTP/integration verification in `apps/api/`. Its [plan](001-connectivity-foundation/plan.md) and [research](001-connectivity-foundation/research.md) resolve local tool versions and design. Older deferred/unimplemented wording below is historical for this scoped lane, not a prohibition on the authorized BE source.
+
+The website remains independent. The local authorization did not include hosted connectivity, auth, Etsy/supplier integration or full UI → API → DB acceptance. Subsequent source/dependency/database/documentation leases and actual results are recorded in PROJECT_STATE; no historic lease is an ongoing deployment authorization.
+
+### Internal backend prototype decision — 2026-10-27
+
+The owner prioritizes a quickly deployable internal prototype: native Vercel NestJS in a separate BE project, the existing one Supabase project and only existing health/readiness endpoints. Cloud Run/AWS/Azure, containers and Google billing setup remain deferred. Platform access controls replace new auth/business modules; no new operational DB role is required. Feature001 code/local checks now cover project-bound Session configuration, verified TLS, generated migration metadata, portable operator packaging and bounded hosted pool lifecycle. Actual target values remain future owner inputs, not compiled guesses; local evidence is not hosted proof.
+
+The owner subsequently authorized code-first feature001 source/local verification and an owner setup guide, followed by a coordinator-run review. External project/credential/endpoint setup is deferred, not a source prerequisite. Preserve one node-pg-migrate history and separately approve all remote SQL/migration/deployment. CLI authentication evidence belongs to the coordinator; source work must not inspect cached credentials or call cloud APIs. Offline native-build limitations and actual local results belong in feature001's plan; full hosted proof remains pending.
+
 
 ## Architecture boundaries
 
@@ -26,16 +39,16 @@ Owner-designated source: [Cloud Cost & Handover Control](https://docs.google.com
 | --- | --- | --- |
 | Frontend framework | Owner chose Next.js on 2026-10-25; use App Router/TypeScript as the implementation plan | Website stack is resolved; precise dependency pins are technical planning details |
 | Frontend hosting | Owner chose Vercel on 2026-10-25 | Supersedes the workbook's Cloudflare Pages selection; no Vercel project/deployment is verified |
-| Backend | NestJS business API; `Service Register!B7` | Exact NestJS and runtime versions are not recorded |
-| Backend hosting | Google Cloud Run marked Selected; `Service Register!A7:N7` | Initial Singapore, min instances 0/max 1; concurrency, project ownership, billing and rollback configuration remain unverified |
-| Database | Supabase PostgreSQL; `Service Register!A11:M11`, `Scale & Cost Roadmap!A19:B19` | PostgreSQL version, local development setup and connection mode are not recorded |
+| Backend | NestJS modular API; `Service Register!B7` | Local foundation uses NestJS12.2.0 / Node24.22.1; preserve portable layers |
+| Backend hosting | Native Vercel NestJS is the 2026-10-27 prototype candidate | Separate BE project, personal identity, eligible plan and protected tester access require verification; workbook Cloud Run is deferred |
+| Database | Existing one Supabase PostgreSQL project; local PostgreSQL17.11 verified | Prototype uses verified-TLS Session pooler5432; exact Connect metadata/secret and remote SQL proof remain execution prerequisites |
 | Authentication | Supabase Auth marked Selected; `Service Register!A12:M12` | Service selection does not authorize adding production auth to the connectivity feature |
 | Small-file storage | Supabase Storage marked Selected; `Service Register!A13:M13` | Bucket policies/retention are not recorded; no foundation business-file feature is implied |
-| Build / image registry | Google Cloud Build + Artifact Registry marked Selected; `Service Register!A8:M9` | Pipeline configuration remains to implement; image-retention direction is current + 2 rollback images |
+| Build / image registry | Google Cloud Build + Artifact Registry were selected in the workbook | Deferred with Cloud Run; neither is a prototype prerequisite |
 | Domain | Owner reports an existing GoDaddy domain on 2026-10-25 | Exact domain/subdomain and DNS state remain unknown; use a verified Vercel URL first if domain setup is pending |
 | Monitoring / email | Sentry + Resend marked Planned/Recommended; `Service Register!A14:M15` | Not mandatory foundation dependencies and not shown active |
 | Scheduled jobs / large artwork | Cloud Scheduler optional/later; AWS S3 disabled; `Service Register!A10:M10`, `A16:N16` | No scheduler, queue or S3 activation in the current connectivity feature; S3/R2 are later roadmap options |
-| Migration / API codegen tooling | Not named in the inspected sources | Resolve for deferred feature 001; no database/client scaffolding in the website phase |
+| Migration / API codegen tooling | Local node-pg-migrate9 and OpenAPI/openapi-typescript verified in feature001 | Retain one history/contract; FE client and full browser journey remain pending |
 
 The earlier handoff missed this workbook and incorrectly described BE/DB/hosting as entirely missing. Retain recovered backend/database selections, with the later owner decisions taking precedence for Next.js, Vercel and the existing GoDaddy domain. The workbook remains historical evidence and has not been edited to reflect this override.
 
@@ -49,7 +62,7 @@ Do not use architecture document ID `1UjQckJz9NH4ZNgViYEBEyy8lmiIh5A01bl_hD9Cnok
 
 ## Owner-confirmed delivery order
 
-Latest decisions on 2026-10-25 supersede the earlier foundation-first sequence:
+The 2026-10-25 website sequence remains independent; the 2026-10-27 backend prototype decision above supersedes Cloud Run as its immediate hosting candidate:
 
 | Milestone | Deliverable | Exit evidence |
 | --- | --- | --- |
@@ -57,7 +70,7 @@ Latest decisions on 2026-10-25 supersede the earlier foundation-first sequence:
 | W1 — Frontend | Next.js landing page and privacy page using existing UI skills | Local startup, lint/typecheck/build and responsive/keyboard review |
 | W2 — Public URL | Vercel deployment; connect the existing GoDaddy domain when ready | Public HTTPS routes load without reviewer sign-in; final URL/contact/content verified |
 | W3 — Etsy access | Owner uses the verified website URL in the actual registration flow | Registration/access result recorded; OAuth/API proof requires separate implementation |
-| Later — Connectivity | Resume feature 001 with NestJS/Cloud Run and Supabase | Real UI → API → DB acceptance remains required for that feature |
+| Separate — Connectivity | Verified local BE; plan native Vercel/Supabase health-only prototype | Hosted prototype proof does not complete the later real UI → API → DB journey |
 
 On 2026-10-25 the owner resumed implementation for feature 002 T001–T008 on existing `main` at `70992fc`. After local completion and review, the owner requested Vercel deployment for a registration URL and explicitly authorized FE commit/push to `main`. This supersedes the local-only stop, while preserving the account/project and public-fact confirmation gates. DNS changes and actual Etsy registration remain subsequent work.
 
@@ -72,7 +85,7 @@ apps/web/src/components/   genuinely reusable website UI
 apps/web/src/lib/          validated public site configuration
 ```
 
-Use npm workspaces and root dev/check/build commands when implementing. Configure Vercel's root as `apps/web`; the root lockfile owns dependencies. `apps/api` is reserved for later connectivity work and must not be created empty now. No shared packages are required.
+Use npm workspaces and root commands. The frontend Vercel root is `apps/web`; the separate planned BE project root is `apps/api`, whose local foundation now exists. The root lockfile owns dependencies and needs a serial lease for changes. No shared packages are required.
 
 `dist/` is the existing static content reference, not the new deployment root. Retain it until migration is verified. Public pages and the future admin share the frontend but have distinct routes/features. The landing page is not an OAuth callback.
 
@@ -86,7 +99,7 @@ The owner-supplied marketing/application references supersede the generic blue/w
 
 [Feature 002](002-developer-website/spec.md) defines the current public website; its [plan](002-developer-website/plan.md) and [tasks](002-developer-website/tasks.md) guide implementation. It needs no backend, database, authentication, supplier connection or Etsy credentials. PROJECT_STATE owns actual local evidence; external review and publication remain separate gates.
 
-[Feature 001](001-connectivity-foundation/spec.md) remains deferred and unimplemented. Its later acceptance still requires validated environment configuration, migrations, a generated FE API client and the real UI → API → DB path, distinguishing process health from database readiness. The website does not satisfy those criteria.
+[Feature 001](001-connectivity-foundation/spec.md) has verified local foundation and code-first prototype behavior, with its separate read-only review complete and native/hosted proof pending. Full acceptance still requires the FE-generated client and real UI → API → DB path. Neither the public website nor backend-only checks satisfy those criteria.
 
 README owns runnable local commands. Deployment steps remain planned and unexecuted; a production build is not a published release.
 

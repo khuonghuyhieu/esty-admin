@@ -1,0 +1,41 @@
+{
+  "name": "@esty-admin/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "24.x" },
+  "scripts": {
+    "dev": "npm run build && node --watch build/src/main.js",
+    "build": "npm run migrations:check && node scripts/clean-build.mjs && tsc -p tsconfig.json",
+    "start": "node build/src/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "npm run build && node --test build/tests/config.test.js build/tests/http.test.js",
+    "test:integration": "npm run stage:operator && node --test build/tests/integration.test.js",
+    "check": "npm run codegen:check && npm run typecheck && npm test",
+    "codegen": "node scripts/codegen.mjs",
+    "codegen:check": "node scripts/codegen.mjs --check && npm run migrations:check",
+    "migrations:generate": "node scripts/migration-manifest.mjs",
+    "migrations:check": "node scripts/migration-manifest.mjs --check",
+    "stage:operator": "npm run build && node scripts/stage-operator.mjs",
+    "db:migrate:hosted": "npm run build && node build/scripts/migrate.js --hosted",
+    "db:up": "docker compose -f compose.yaml up -d --wait",
+    "db:stop": "docker compose -f compose.yaml stop",
+    "db:migrate": "npm run build && node build/scripts/migrate.js"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.2.0",
+    "@nestjs/core": "12.2.0",
+    "@nestjs/platform-express": "12.2.0",
+    "@vercel/functions": "3.10.4",
+    "node-pg-migrate": "9.0.0",
+    "pg": "8.23.1",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.1",
+    "@types/pg": "8.23.1",
+    "openapi-typescript": "7.13.0",
+    "typescript": "5.9.3"
+  }
+}
