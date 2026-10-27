@@ -158,3 +158,7 @@ After implementation and test execution, use a read-only Codex reviewer with `gp
 ### Feature testing
 
 Application features that change user behavior include functional acceptance tests and an automated E2E journey. Reuse existing suites, test observable behavior and avoid redundant snapshots or tests of trivial scaffolding. Feature 002 uses the production Playwright journeys and focused configuration tests described above. See [PROJECT_STATE](PROJECT_STATE.md) for actual results, completed external review and remaining limitations; T008 is complete, while publication confirmation and public HTTPS remain pending T009 onward. No dedicated testing skill is installed.
+
+## Application UI planning
+
+[Feature 003](specs/003-application-shell/spec.md) drafts the complete reference Application frame. Review its [plan and component inventory](specs/003-application-shell/plan.md), [interaction contract](specs/003-application-shell/contracts/ui.md) and [tasks](specs/003-application-shell/tasks.md) before implementation. This preview is planned, not runnable yet. Use `SPECIFY_FEATURE_DIRECTORY=specs/003-application-shell SPECIFY_FEATURE_NO_PERSIST=1` for this feature's local Spec Kit helpers; keep feature 001 connectivity and feature 002 publication tasks separate. Owner approval, documentation push and the To do FE OMP implementation handoff are distinct steps. No branch switch or shared pointer change is needed.
