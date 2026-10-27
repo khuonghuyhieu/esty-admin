@@ -46,3 +46,7 @@
 - Adapt generic examples to the approved framework and feature scope. Preserve tracked root `dist/` and shareable `.env.example` files when configuring ignores. Use README for canonical commands; generated `quickstart.md` may reference them for feature validation. Commit, branch, issue and deployment examples do not authorize those actions.
 
 This is a standalone repository with its own `.git/`; no parent archive is required. Keep hosting metadata and credentials local. Never stage parent directories or publish local metadata/backups.
+
+## Application frame planning scope — 2026-10-27
+
+The owner's latest UI request is the complete reference frame at `https://doodle-typeui-9fa2feab.vercel.app/application`, documented in `specs/003-application-shell/`. For that task, use its spec/plan/tasks and `SPECIFY_FEATURE_DIRECTORY=specs/003-application-shell SPECIFY_FEATURE_NO_PERSIST=1`; this overrides older active-feature-002 routing only for Application frame work. Current scope is documentation for owner review, not source implementation. Preserve feature 001 BE work and feature 002 public routes. Do not substitute operational Orders/Connections screens for the reference inventory. Review route/sample-content/disabled-action defaults before starting OMP. Functional/E2E and owner visual acceptance remain separate gates; no commit/push/deploy/DNS is implied.
