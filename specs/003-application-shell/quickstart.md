@@ -1,8 +1,8 @@
 # Validation guide: Application frame
 
-Status: Planned, not executed. Use [README](../../README.md) for canonical Node setup, frontend startup/check/test commands. No new install, environment variables, API server, database or cloud credentials are required by this feature. If existing dependencies are unavailable, record the blocker and coordinate any install first.
+Status: Local functional and production-browser validation passed; the coordinator's separate read-only `gpt-6-luna` review completed with no actionable findings. Owner visual acceptance remains pending. Use [README](../../README.md) for canonical Node setup, frontend startup/check/test commands and the local comparison gallery. No new install, environment variables, API server, database or cloud credentials are required by this feature. If existing dependencies are unavailable, record the blocker and coordinate any install first.
 
-1. After owner plan approval and implementation, start the existing web app and open `/application`; home/privacy remain unchanged.
+1. Start the verified production build with the existing README command and open `/application`; home/privacy remain separate and unchanged.
 2. Check C01–C10 from [plan.md](plan.md#component-inventory), including all controls below the fold and the sample-data banner.
 3. Search by title/owner, combine a status, sort each supported column and verify visible rows/count/strokes. Search for no match; reset restores five projects and 17,540 strokes.
 4. Open a row menu, inspect all four disabled actions, then dismiss by Escape/outside click. Inspect explanations for other disabled controls.

@@ -62,7 +62,7 @@ npm run build
 npm run start
 ```
 
-`npm test` runs Node's functional configuration tests. `typecheck` generates Next route types before checking TypeScript. `build` makes a production build, not a publication-ready release; `start` serves it on loopback port 3000. Rebuild after changing public configuration.
+`npm test` runs Node's functional site-configuration and application-table tests. `typecheck` generates Next route types before checking TypeScript. `build` makes a production build, not a publication-ready release; `start` serves it on loopback port 3000. Rebuild after changing public configuration.
 
 Browser setup and automated acceptance:
 
@@ -73,7 +73,7 @@ npm run test:e2e
 
 On a Linux CI machine, install Playwright's required system dependencies using its documented `install --with-deps chromium` command with appropriate permission. Do not bypass package or system approval prompts. Chromium downloads can take several minutes.
 
-`test:e2e` builds and starts **production**, not the dev server, on `127.0.0.1:3100`; it refuses to reuse an existing server and stops its own server afterward. Stop any other production server before running it because both use `.next/`. Two Chromium projects exercise 360px/1440px layouts, navigation, redirects, 404, keyboard/skip focus, metadata, text reflow and reduced motion. Local ignored reports: `apps/web/playwright-report/` and `apps/web/test-results/`. To inspect the HTML report:
+`test:e2e` builds and starts **production**, not the dev server, on `127.0.0.1:3100`; it refuses to reuse an existing server and stops its own server afterward. Stop any other production server before running it because both use `.next/`. Chromium projects exercise public routes and `/application` at 360px/1440px, plus application acceptance at 390px. Coverage includes navigation, redirects, 404, table search/filter/sort/reset, disabled actions, drawer/menu focus, chart data, noindex, text reflow and reduced motion. Local ignored reports: `apps/web/playwright-report/` and `apps/web/test-results/`. To inspect the HTML report:
 
 For a correction acceptance run, use `lint`, `typecheck`, `test` and `test:e2e`; E2E already builds production, so do not run a redundant separate build. These root commands target `@esty-admin/web` only; do not run concurrent dependency installation or another server/build using `.next/`.
 
@@ -266,6 +266,16 @@ No Supabase anon/service-role/management API key is needed for this pg API. Verc
 
 Use the existing isolated CLI launcher only during that authorized external phase; its local tools/auth state is not a fresh-checkout dependency and was not used for code-first checks. Hosted pool max2 is per warm instance (local max4); multiple instances multiply sessions. Validate the real connection budget/TLS/timeouts later. The 3000ms readiness deadline starts inside the handler, not at the network/cold-start boundary. T026 is complete: separate gpt-6-luna read-only review session `01a17c65-9fda-7fd1-8e74-344facca83c2` found no confirmed actionable findings. The reviewer did not edit files or rerun checks; no source fix or redundant suite rerun was needed. T020, native T025 and T027–T030 external acceptance remain open.
 
-## Application UI planning
+## Application UI preview
 
-[Feature 003](specs/003-application-shell/spec.md) drafts the complete reference Application frame. Review its [plan and component inventory](specs/003-application-shell/plan.md), [interaction contract](specs/003-application-shell/contracts/ui.md) and [tasks](specs/003-application-shell/tasks.md) before implementation. This preview is planned, not runnable yet. Use `SPECIFY_FEATURE_DIRECTORY=specs/003-application-shell SPECIFY_FEATURE_NO_PERSIST=1` for this feature's local Spec Kit helpers; keep feature 001 connectivity and feature 002 publication tasks separate. Owner approval, documentation push and the To do FE OMP implementation handoff are distinct steps. No branch switch or shared pointer change is needed.
+[Feature 003](specs/003-application-shell/spec.md) implements the complete reference Application frame locally at **http://127.0.0.1:3000/application**. Use the existing Node 24.22.1 startup and verification commands above. It contains explicitly labeled sample data, synchronized header/table search, AND status filters, numeric/date sorting, reset, a keyboard-accessible drawer/menu and chart data disclosure. Unsupported actions remain disabled with explanations; no API, authentication or persistence is connected. Public home/privacy navigation is unchanged and does not advertise this preview.
+
+After the production E2E run, `npm run start` serves the verified build. The retained comparison gallery is `apps/web/test-results/visual/application/comparison.html`; serve only that ignored directory in another terminal:
+
+```sh
+python3 -m http.server 8767 --bind 127.0.0.1 --directory apps/web/test-results/visual/application
+```
+
+Open **http://127.0.0.1:8767/comparison.html** for matching 1440×1000, 390×844 and 360×800 reference/implementation captures, full pages, row menus and mobile drawers. E2E clears `test-results`, so recapture evidence after a later run. Stop either server with Ctrl+C.
+
+See the [component inventory and design](specs/003-application-shell/plan.md), [interaction contract](specs/003-application-shell/contracts/ui.md), [tasks](specs/003-application-shell/tasks.md) and [actual evidence](PROJECT_STATE.md#application-shell-local-implementation--feature-003). T001–T012 are complete, including the coordinator's separate read-only `gpt-6-luna` review with no actionable findings; T013 still awaits explicit owner visual acceptance. No commit/push/deploy/DNS is implied. Use command-local `SPECIFY_FEATURE_DIRECTORY=specs/003-application-shell SPECIFY_FEATURE_NO_PERSIST=1`; keep feature 001 connectivity and feature 002 publication separate.

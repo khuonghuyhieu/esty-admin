@@ -1,7 +1,5 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
-import { Header } from "@/components/site/header";
-import { Footer } from "@/components/site/footer";
 import { readSiteConfig } from "@/lib/site-config";
 import "./globals.css";
 
@@ -29,10 +27,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className={`${displayFont.variable} ${bodyFont.variable}`}><body>
       <a className="skip-link" href="#main-content">Skip to content</a>
-      <Header appName={site.appName} />
-      {site.mode !== "release" ? <div className="draft-banner"><div className="wrap">{site.mode === "preview" ? "Preview" : "Draft"} website. Working title; publication details are not yet confirmed.</div></div> : null}
-      <main id="main-content" tabIndex={-1}>{children}</main>
-      <Footer />
+      {children}
     </body></html>
   );
 }

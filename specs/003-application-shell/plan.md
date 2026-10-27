@@ -1,13 +1,13 @@
 # Implementation plan: Reference Application shell
 
-Date: 2026-10-27 · Actual branch: `docs/application-shell-plan` · Status: Draft, awaiting owner review.
+Date: 2026-10-27 · Authorized baseline: `main@b370578` · Status: T001–T012 implementation, local verification and separate review complete; owner visual acceptance pending.
 Input: [spec.md](spec.md). Spec Kit helpers report logical feature `003-application-shell`; they do not switch Git branches. Use `SPECIFY_FEATURE_DIRECTORY=specs/003-application-shell SPECIFY_FEATURE_NO_PERSIST=1` per invocation; preserve other sessions' feature context.
 
 ## Summary and review decisions
 
 Reproduce the complete visual frame at https://doodle-typeui-9fa2feab.vercel.app/application before adapting it to Etsy workflows. This is a local sample-data UI preview in the existing frontend, not an operational dashboard. Review defaults are `/application` for the preview and retained sample whiteboard labels. The owner can change these defaults during plan review; do not replace the inventory with Orders/Connections screens.
 
-Implementation resumes only after owner approval in To do FE. Documentation publication is a separate requested step. No new checkout, branch, install, source implementation, deployment or DNS action in this planning increment.
+The owner approved `/application`, retained sample labels and the disabled-action contract for local implementation. FE owns `apps/web/**` and this feature; README/PROJECT_STATE have a scoped FE lease. Preserve BE/root changes. No new checkout, branch, dependency change, commit/push, deployment or DNS action. FE held all checks/start during BE's exclusive install window, then resumed after the owner-approved direct BE handback. BE's subsequent short docs lease was also explicitly returned.
 
 ## Technical context
 
@@ -110,10 +110,24 @@ Capture fresh reference/implementation screenshots at identical viewports with f
 
 ## Delivery and handoff
 
-1. Owner reviews this draft, especially preview route, retained sample labels and disabled-action policy.
-2. On explicit request, publish only approved planning changes, preserving uncommitted BE work. Do not stage the entire working tree.
-3. In To do FE, implementation uses OMP under current AGENTS harness rules after checking real ownership/pane state. No OMP or reviewer is started by creating this plan.
+1. Approved scope: complete reference frame at `/application`, retained synthetic sample labels and explained disabled actions.
+2. OMP is the sole FE source writer on existing `main@b370578`; preserve concurrent BE work and serial dependency ownership.
+3. The coordinator starts the separate reviewer after the implementation handoff; do not launch a duplicate implementation or reviewer.
 4. Implement T001–T012; obtain one scoped read-only `gpt-6-luna` code review and fix confirmed findings through OMP.
 5. Present preview/comparisons for T013 owner acceptance. Stop before commit/push/deploy/DNS unless separately requested.
 
 BE source, feature 001, shared dependency files and cloud configuration remain outside this lane. Request a serial dependency lease only if an actual need emerges. Feature 001 connectivity tasks stay separate; this preview cannot mark them done. Root domain/API setup is independent of this UI work.
+
+### Implementation reference recapture
+
+Before source edits, managed Chromium loaded the live Application at 1440×1000, 390×844 and 360×800, light mode and DPR 1, with fonts ready. Captures include the four-item row menu and mobile drawer in ignored `apps/web/test-results/visual/application/`. Desktop sidebar measures 280px; main padding is 32px, paired panels 536px wide with 24px padding, 3px outlines and 3px/4px ink shadows. Reference headings are system sans (28px page, 18px panels), not Delius. Both narrow captures retain the reference's 845px document overflow; the local table-only scroll adaptation is intentional. Sample data and component inventory are unchanged.
+
+### Implemented boundaries and validation
+
+Root layout retains shared local fonts, metadata defaults and the skip link. `PublicShell` now composes the unchanged header/banner/main/footer only for home, privacy and 404; the application owns its own single main landmark. Its route metadata unconditionally sets `noindex,nofollow`, independent of public site mode. The production browser suite exercises draft mode; no fake public release facts or hosted publication were used.
+
+Metric/chart/activity panels remain server-composed children of the interactive shell. Only local search/filter/sort/menu/drawer state is client-owned. The seven pure table scenarios run in the existing Node harness, now including `tests/functional/*.test.ts`; no dependencies or root lockfile changed in this FE lane. Disabled native buttons reference adjacent explanations; disabled menu items use `aria-disabled` and remain arrow-key focusable under the menu keyboard model.
+
+Final application styling uses the observed 20px dot grid and 1px neutral dots, 28px/20px desktop/mobile page title, 18px panel headings, 280px sidebar, 3px panel borders and 3px/4px ink shadows. Geist replaces reference system sans intentionally; darker text/chart colors preserve contrast. Static SVG polylines replace the animated smooth chart, and local SVG project icons replace reference emoji glyphs. The sample banner, disabled-action explanations, retained mobile header search/profile label, chart disclosure and 44px mobile targets intentionally change some spacing. At 200% text the chart data columns wrap rather than expanding the page.
+
+Actual results, the C01–C10 visual matrix, deviations and exact independent review evidence are recorded in PROJECT_STATE. Final evidence is retained after E2E in the ignored application comparison directory. T012 is complete after the coordinator's separate read-only `gpt-6-luna` review with no actionable findings; no source fix or test rerun was needed. T013 remains open for owner visual acceptance.

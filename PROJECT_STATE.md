@@ -216,3 +216,68 @@ Owner-reported domain update: `app.lovora.us` now works after manual GoDaddy/Ver
 Planning validation passed: feature 003 prerequisite/setup-plan/setup-tasks helpers resolved the intended directory; final prerequisite check included tasks. Eight feature Markdown files have balanced fences and resolving local file links; T001–T013 are sequential and unchecked, and C01–C10 are inventoried. `git diff --check` passed. No extension hook file exists. At planning validation, the actual branch was `main`; no application tests were run for these documentation edits. No Notion tracker or task status was changed.
 
 The owner subsequently authorized a separate documentation branch and push. Current branch: `docs/application-shell-plan`; publication scope is the eight feature 003 documents plus Application-only additions to AGENTS/README/PROJECT_STATE. Existing BE/root/cloud edits remain unstaged and outside this commit; no source implementation or deployment is included.
+
+## Application shell local implementation — feature 003
+
+The owner authorized T001–T012 at `main@b370578`, superseding the planning-only statements above for this FE scope. OMP owns `apps/web/**` and feature 003; README/PROJECT_STATE have a scoped FE lease. BE/root changes, AGENTS and architecture remain outside this lane. No dependency operation, Git publication, deployment or DNS is authorized. T012's coordinator-owned separate read-only `gpt-6-luna` review is complete, as recorded below; T013 remains unchecked until explicit owner visual acceptance.
+
+Prerequisites resolved feature 003 using command-local `SPECIFY_FEATURE_DIRECTORY=specs/003-application-shell SPECIFY_FEATURE_NO_PERSIST=1`; the ten requirements checklist items are checked and no extension hook configuration exists. Before source edits, live reference captures at 1440×1000, 390×844 and 360×800, plus row-menu/drawer states, confirmed C01–C10. Screenshots use light mode, DPR 1 and loaded fonts. The observed narrow reference overflows to 845px; only the implementation table will scroll horizontally. Current interface guidelines were fetched from the upstream Vercel source.
+
+T001–T011 are locally verified. The owner approved receiving the dependency-window handback directly from OMP BE after the coordinator could not process messages. BE explicitly reported its one install complete, no remaining dependency operation and ownership released; only then did FE checks/start resume. FE ran no install/ci/prune, changed no dependency versions and did not mutate the root lockfile. README/PROJECT_STATE were briefly returned to BE for its verified setup guide, then explicitly handed back before this FE evidence update.
+
+### Application implementation and actual verification
+
+`/application` now contains all C01–C10 groups, five synthetic projects totaling **17,540 strokes**, the sample-data banner and explained disabled controls. Header/table search share the same query; trimmed case-insensitive title/owner search combines with status using AND. Numeric/timestamp sorting starts ascending, toggles and uses stable-id ties. Empty-state reset restores initial row order and totals. Native modal drawer and edge-aware row menus provide keyboard dismissal/focus behavior. The static SVG chart and readable disclosure share the fourteen-point fixture.
+
+The shared root keeps local fonts/metadata defaults/skip link; `PublicShell` owns the unchanged public header/banner/main/footer on home/privacy/404. Application styling is scoped, uses Geist throughout and sets `noindex,nofollow` unconditionally in route metadata. Production E2E verifies the draft build; preview/release modes were not separately built with invented publication facts. No public navigation CTA, auth, external API, storage/persistence or integration was added.
+
+All npm checks below used the cached **Node v24.22.1** binary through `env PATH="/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin:$PATH"`; E2E also set `NEXT_TELEMETRY_DISABLED=1`.
+
+| Executed check | Actual result |
+| --- | --- |
+| `node --experimental-strip-types --test apps/web/tests/functional/application-table.test.ts` before implementing table-state.ts | Failed with `ERR_MODULE_NOT_FOUND` for the intentionally not-yet-created module. This was the initial red run, not an assertion-failure claim. |
+| `npm test` after implementation | **32/32 passed**: 25 existing configuration scenarios plus 7 table behavior scenarios. |
+| `npm run lint` | Passed with zero warnings; final run includes the menu/reflow fixes. |
+| `npm run typecheck` | Next route type generation and TypeScript passed; final run includes all source/test changes. |
+| `npm run test:e2e` | Final production build and **43/43 passed in 14.7s**, zero retries: 22 public-route regressions and 21 application journeys over 1440×1000, 390×844 and 360×800. No redundant standalone build. |
+
+Initial production E2E exposed menu dismissal/focus races and an absolutely positioned hidden table label expanding mobile document width. The fixes distinguish actual anchor movement from queued scroll events, restore focus after outside click default behavior and anchor clipped labels at the origin. A brittle generated-font-family string assertion was removed rather than re-pinned; Chromium's actual platform-font inspection confirmed **Geist / Geist-SemiBold**, versus the reference's system **SF sans**. A subsequent browser smoke found 8px overflow with chart data open at 200% text/360px; fixed-layout wrapping data columns resolved it and the existing enlargement scenario now covers the open disclosure.
+
+Production coverage includes synchronized search, AND filters, both numeric/date directions, reset/totals, initial unset sort, disabled effects/no downloads/print/network/persistence, menu arrows/Home/End/typeahead/Escape/outside/Tab/scroll dismissal, drawer containment/Escape/backdrop/focus return, chart values, table-column reachability, no page overflow, reduced motion and 200% text. Public home/privacy direct access and navigation, legacy privacy 308 with query preservation, real404 recovery and keyboard/skip behavior still pass.
+
+Separate managed-browser smoke exercised the actual mobile search → Active filter (1 project / 4,280 strokes) → reset → ascending strokes → no matches (0 / 0) → reset (5 / 17,540). Final open chart data at 200% text measured document width **360px at a 360px viewport**. The final built app was also opened independently of Playwright for full-page, drawer and menu captures. Harmless inherited NO_COLOR/FORCE_COLOR warnings were left unsuppressed.
+
+### Application visual matrix and retained evidence
+
+Fresh reference and implementation captures were retained **after the final E2E run**, at matching viewports, light mode, DPR1 and loaded fonts; reference animation/drawer transitions were allowed to settle. Local gallery: `apps/web/test-results/visual/application/comparison.html`, with **23 successfully loaded images**, full pages, viewport frames, menus at all three sizes, drawers at both mobile sizes and enlarged chart data. `measurements.json` retains dimensions, actual font inspection and contrast calculations. README owns reproduction commands. The local production preview is `http://127.0.0.1:3000/application`; gallery is `http://127.0.0.1:8767/comparison.html`.
+
+| Group | Observed visual coverage | Intentional adaptation / deviation |
+| --- | --- | --- |
+| C01 Sidebar | 280px frame, SketchPad mark, five entries, selected Dashboard and badges | Darker readable text; explicit unavailable-section note; native modal close/focus behavior |
+| C02 Storage | Title/icon, 6.8/10 GB, 142 boards, 28,400 strokes, progress and 68% | Semantic labeled progress; local SVG icon |
+| C03 Header | Title/subtitle, workspace/Team, search, notifications3 and JK/profile | Sample banner and disabled-action note; mobile keeps search and full profile label |
+| C04 Metrics | Four cards, correct values/trends, icon discs and sketch hierarchy | Geist/local SVG instead of system/emoji rendering; darker text |
+| C05 Chart | Two inset metrics, fourteen points, axes and grid | Static angular polylines instead of animated smooth curves; darker series, unclipped labels and shared-fixture data disclosure |
+| C06 Activity | Four counters, five events, colored dots and separators | Readable colors; compact counters reflow into two columns on narrow screens |
+| C07 Toolbar | Title, List view/Export, search, Filters, settings and New board retained | Disabled-action explanation; wraps instead of overflowing |
+| C08 Filters | All/Active/In review/Archived radio group | Functional AND filtering; visible reset when changed |
+| C09 Table/menu | All seven columns, five initial rows, statuses, sortable headers and four menu labels | Only the table scrolls; larger 240px menu with 44px rows/explanation; stable initial order with no active sort |
+| C10 Footer | Both totals and Print/Duplicate/Export CSV | Correct filtered totals, en-US `17,540` instead of reference `17.540`; unsupported actions disabled |
+
+Palette/surface/outline review: paper `#f9f6f0`, inset `#efebe1`, peach `#eacdc2`, 20px neutral dot grid, asymmetric 3px borders and 3px/4px ink shadows retain the reference treatment. Desktop/mobile page headings are 28px/20px; panel headings 18px. Solid-surface contrast calculations: ink/paper **16.45:1**, muted/paper **6.54:1**, muted/inset **5.93:1**, muted/peach **4.71:1**; chart strokes/paper **4.18:1**, sessions/paper **4.98:1**. Color is not the sole status/series explanation.
+
+Measured viewport/document widths: implementation **1440/1440, 390/390, 360/360**; reference **1440/1440, 390/845, 360/845**. Desktop document height is 1,860px versus reference 1,727px because preview/explanation content and accessible controls add spacing. Mobile heights are 3,583px/3,679px versus reference 3,546px/3,672px. Full-page reference images retain its 845px overflow; paired viewport captures provide equal-sized screen comparisons. These are disclosed differences, not a pixel-identity or owner-acceptance claim.
+
+T012 is **complete** following the coordinator's separate read-only review below; no reviewer was launched by this OMP pane. T013 remains **unchecked** pending explicit owner visual acceptance. No commit, push, merge, deployment, DNS, Etsy/API operation or feature001 connectivity completion occurred. Existing Notion tasks were not updated from this pane; no duplicate tracker was created.
+
+### Application independent review closeout
+
+The coordinator verified the actual **`gpt-6-luna`** runtime with a probe returning **`REVIEW_MODEL_READY`**, then completed separate review session **`01a17c62-4422-7ee3-967f-ca2597b1e315`** in a **read-only sandbox**. Result file: `/private/tmp/esty-feature003-luna-review.txt`. OMP read that result during this docs-only closeout: **no actionable correctness, regression, security or meaningful test-gap findings in the scoped feature003 code and tests**.
+
+The reviewer read the actual changes and retained evidence, did not run tests/build and did not mutate files. The coordinator separately reports `.last-run` passed, scoped diff-check passed, paired desktop/mobile screenshots inspected, and HTTP200 for both `http://127.0.0.1:3000/application` and `http://127.0.0.1:8767/comparison.html`. These coordinator checks were not repeated by OMP. No source fix or full-suite rerun was needed; the previously recorded 32 functional and 43 production E2E passes remain the runtime evidence.
+
+This closeout changes documentation only. Source, build outputs, dependencies, root configuration and preview/gallery processes are preserved. Retained gallery capture-time review labels predate this completed review; this section and tasks.md record the current status. T013/SC-006 still require explicit owner visual acceptance, including the disclosed visual differences. Review is not publication approval and establishes no hosted/API/Etsy/auth/persistence capability. No tests, build, install, Git, cloud or deployment command ran during this closeout.
+
+## Owner publication request — 2026-10-27
+
+The owner now authorizes committing and pushing all remaining reviewed Application source/tests/docs plus the existing feature001 external-preparation evidence to main. This supersedes the earlier local-only publication stop; it does not supply feature003 T013 visual acceptance or hosted BE proof. Existing recorded validation remains 32 functional / 43 production E2E passes and the separate no-actionable-findings Luna review; the saved Playwright last-run reports passed. No application code changed in this publication pass, so those suites were not redundantly rerun. External setup/deployment, secrets, migrations and domain operations are not performed by this publication.

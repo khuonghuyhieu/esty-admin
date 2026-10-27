@@ -1,6 +1,6 @@
 # Feature specification: Reference Application shell
 
-Created: 2026-10-27 · Status: Draft for owner review · Actual Git branch: `docs/application-shell-plan`.
+Created: 2026-10-27 · Status: T001–T012 implementation, local verification and separate review complete; owner visual acceptance pending · Authorized baseline: `main@b370578`.
 
 Owner request: first build the complete UI frame visible at https://doodle-typeui-9fa2feab.vercel.app/application. Identify its components before planning; review this plan before publication and implementation in the To do FE session. This feature supersedes the earlier suggestion to start with operational Orders/Order detail screens. [ARCH-001](../architecture.md) retains stack authority.
 
@@ -75,4 +75,6 @@ Sample workspace/profile, metric, chart point, activity event, project row and t
 
 ## Assumptions and scope
 
-Proposed review default: preserve the sample's whiteboard terminology and synthetic values for visual calibration. Adaptation to Etsy labels, operational screens, authentication, API calls, notification services, persistence, CSV/print actions and destructive operations are later decisions. The reference's other sidebar destinations are not evidence of full screens. This feature does not complete feature 001 T014–T016. No source work, installs, commit/push, deployment or DNS change is authorized by this draft.
+Preserve the sample's whiteboard terminology and synthetic values for visual calibration. Adaptation to Etsy labels, operational screens, authentication, API calls, notification services, persistence, CSV/print actions and destructive operations are later decisions. The reference's other sidebar destinations are not evidence of full screens. This feature does not complete feature 001 T014–T016. The owner authorized local T001–T012 implementation; T012 is complete following the coordinator's separate read-only review with no actionable findings. T013 remains open for explicit owner visual acceptance. No dependency install, commit/push, deployment or DNS change is authorized.
+
+Latest owner authorization (2026-10-27): commit/push the existing reviewed source/tests/docs to main. Earlier publication restrictions above are superseded for this request; visual acceptance, deployment and business integrations remain separate.
