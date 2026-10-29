@@ -36,6 +36,10 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        Unauthorized: {
+            /** @constant */
+            status: "unauthorized";
+        };
         Liveness: {
             /** @constant */
             status: "ok";
@@ -55,7 +59,17 @@ export interface components {
             reason: "database_unavailable" | "database_timeout" | "migrations_pending";
         };
     };
-    responses: never;
+    responses: {
+        /** @description Generic Vercel denial before database work. */
+        Unauthorized: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["Unauthorized"];
+            };
+        };
+    };
     parameters: never;
     requestBodies: never;
     headers: never;
@@ -81,6 +95,7 @@ export interface operations {
                     "application/json": components["schemas"]["Liveness"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
         };
     };
     getReadiness: {
@@ -101,6 +116,7 @@ export interface operations {
                     "application/json": components["schemas"]["Ready"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
             /** @description Degraded */
             503: {
                 headers: {

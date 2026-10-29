@@ -14,7 +14,8 @@ try {
   const targetApp = join(staging, 'apps/api');
   await mkdir(join(targetApp, 'build/scripts'), { recursive: true });
   await cp(join(appRoot, 'build/src'), join(targetApp, 'build/src'), { recursive: true });
-  for (const name of ['migrate.js', 'migrations.js', 'migration-files.mjs']) {
+  await cp(join(appRoot, 'build/config'), join(targetApp, 'build/config'), { recursive: true });
+  for (const name of ['migrate.js', 'migrations.js', 'migration-files.mjs', 'migration-status.js', 'migration-report.js', 'private-files.mjs', 'bounded.js']) {
     await cp(join(appRoot, 'build/scripts', name), join(targetApp, 'build/scripts', name));
   }
   await mkdir(join(targetApp, 'migrations'));

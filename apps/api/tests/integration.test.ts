@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -16,6 +16,11 @@ import { PostgresProbe } from '../src/connectivity/adapters/postgres.js';
 import { expectedMigrations, migrationManifest } from '../src/generated/migrations.js';
 import { migrate, migrationsDirectory } from '../scripts/migrations.js';
 import { migrationFiles } from '../scripts/migration-files.mjs';
+import { migrationStatus, runMigrations } from '../scripts/migrations.js';
+import { saveMigrationReport } from '../scripts/migration-report.js';
+import { manifestDigest } from '../scripts/migrations.js';
+import { runRelease } from '../scripts/release-core.js';
+import type { Deployment } from '../scripts/release-core.js';
 import { assertContract, get, startApi } from './helpers.js';
 import { tlsPostgres } from './tls.js';
 
@@ -326,12 +331,19 @@ test('portable operator and compiled HTTP entrypoint work outside the repository
   const cli = join(appRoot, 'build/scripts/migrate.js');
   const env = { PATH: process.env.PATH, HOME: directory, DATABASE_URL: fixture.url, API_RUNTIME: 'local' };
   const run = () => spawnSync(process.execPath, [cli], { cwd: tmpdir(), env, encoding: 'utf8', timeout: 15000 });
+  const statusCli = join(appRoot, 'build/scripts/migration-status.js');
+  const statusBefore = spawnSync(process.execPath, [statusCli], { cwd: tmpdir(), env, encoding: 'utf8', timeout: 15000 });
+  assert.equal(statusBefore.status, 0, statusBefore.stderr);
+  assert.equal(JSON.parse(statusBefore.stdout).initialized, false);
   const first = run();
   assert.equal(first.status, 0, first.stderr);
   assert.match(first.stdout, /1 applied/);
   const second = run();
   assert.equal(second.status, 0, second.stderr);
   assert.match(second.stdout, /0 applied/);
+  const statusAfter = spawnSync(process.execPath, [statusCli], { cwd: tmpdir(), env, encoding: 'utf8', timeout: 15000 });
+  assert.equal(statusAfter.status, 0, statusAfter.stderr);
+  assert.deepEqual(JSON.parse(statusAfter.stdout).applied, expectedMigrations);
   const migrationPath = join(appRoot, 'migrations', `${migrationManifest[0].name}.mjs`);
   await writeFile(migrationPath, (await readFile(migrationPath, 'utf8')) + '\nexport const changed = true;\n');
   const drift = run();
@@ -377,4 +389,229 @@ test('portable operator and compiled HTTP entrypoint work outside the repository
       child.once('exit', () => { clearTimeout(deadline); resolve(); });
     });
   }
+});
+
+test('read-only status never initializes history; action and SQL failures identify the exact rolled-back version', async t => {
+  for (const failure of ['action', 'sql']) {
+    await t.test(failure, async t => {
+      const fixture = await databaseFixture(t);
+      const directory = await mkdtemp(join(tmpdir(), 'esty-report-fixture-'));
+      t.after(() => rm(directory, { recursive: true, force: true }));
+      await cp(migrationsDirectory, directory, { recursive: true });
+      const version = '1792972800001-failed-version';
+      await writeFile(join(directory, `${version}.mjs`), failure === 'action'
+        ? "export function up() { throw new Error('synthetic-password-do-not-log'); }\n"
+        : "export function up(pgm) { pgm.sql(\"SELECT 'synthetic-password-do-not-log'::integer\"); }\n");
+      const status = await migrationStatus(fixture.database, directory);
+      assert.equal(status.initialized, false);
+      assert.deepEqual(status.pending, ['1792972800000-foundation', version]);
+      assert.equal((await fixture.client.query("SELECT to_regclass('public.foundation_migrations') AS name")).rows[0].name, null);
+      const report = await runMigrations(fixture.database, { directory });
+      assert.equal(report.result, 'failed');
+      assert.equal(report.stage, 'migration');
+      assert.equal(report.failed_version, version);
+      assert.equal(report.database_outcome, 'rolled_back');
+      assert.deepEqual(report.before, []);
+      assert.deepEqual(report.after, []);
+      assert.deepEqual(report.attempted.map(item => [item.name, item.outcome]),
+        [['1792972800000-foundation', 'rolled_back'], [version, 'rolled_back']]);
+      assert.doesNotMatch(JSON.stringify(report), /synthetic-password|SELECT|postgresql| at /);
+      assert.equal((await fixture.client.query("SELECT to_regnamespace('foundation') AS name")).rows[0].name, null);
+    });
+  }
+});
+
+test('report-write failure preserves committed outcome and unexpected history blocks subsequent DDL', async t => {
+  const fixture = await databaseFixture(t);
+  const report = await runMigrations(fixture.database);
+  assert.equal(report.database_outcome, 'committed');
+  const directory = await mkdtemp(join(tmpdir(), 'esty-report-output-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const occupied = join(directory, 'file');
+  await writeFile(occupied, 'keep');
+  assert.equal(saveMigrationReport(report, occupied), false);
+  assert.equal(report.reporting, 'failed');
+  assert.equal(report.database_outcome, 'committed');
+  assert.deepEqual((await migrationStatus(fixture.database)).applied, expectedMigrations);
+  await fixture.client.query("INSERT INTO public.foundation_migrations(name, run_on) VALUES ('1792972800002-unexpected', now())");
+  const failed = await runMigrations(fixture.database);
+  assert.equal(failed.result, 'failed');
+  assert.equal(failed.stage, 'lock/order');
+  assert.equal(failed.database_outcome, 'not_started');
+  assert.deepEqual(failed.attempted, []);
+});
+
+test('release serialization, failure boundaries and exact deployment identity use only disposable fixture databases', { timeout: 30000 }, async t => {
+  for (const mode of ['migration-failure', 'deploy-failure', 'queued', 'wrong-commit', 'wrong-project', 'changed-id', 'domain-failure', 'provider-canceled', 'cancelled', 'timeout', 'success', 'locked']) {
+    await t.test(mode, async t => {
+      const fixture = await databaseFixture(t);
+      const directory = await realpath(await mkdtemp(join(tmpdir(), 'esty-release-fixture-')));
+      t.after(() => rm(directory, { recursive: true, force: true }));
+      const migrations = join(directory, 'migrations');
+      await cp(migrationsDirectory, migrations, { recursive: true });
+      if (mode === 'migration-failure') await writeFile(join(migrations, '1792972800001-failure.mjs'),
+        "export function up() { throw new Error('synthetic-provider-secret'); }\n");
+      const revision = 'a'.repeat(40);
+      const controller = new AbortController();
+      let deployCalls = 0;
+      let smokeCalls = 0;
+      let unlock!: () => void;
+      let entered!: () => void;
+      const enteredPromise = new Promise<void>(resolve => { entered = resolve; });
+      const blocked = new Promise<void>(resolve => { unlock = resolve; });
+      const identity = { provider: 'vercel', project: 'prj_synthetic', owner: 'team_synthetic', target: 'production' };
+      const deployment: Deployment = {
+        identity,
+        async preflight() {},
+        async trigger() {
+          deployCalls++;
+          if (mode === 'cancelled') { controller.abort(); return new Promise(() => {}); }
+          if (mode === 'locked') { entered(); await blocked; }
+          return { ...identity, id: 'dpl_synthetic', revision: mode === 'wrong-commit' ? 'b'.repeat(40) : revision,
+            project: mode === 'wrong-project' ? 'prj_other' : identity.project,
+            status: mode === 'deploy-failure' ? 'failed' : mode === 'provider-canceled' ? 'canceled' : 'building' };
+        },
+        async inspect() { return { ...identity, id: mode === 'changed-id' ? 'dpl_other' : 'dpl_synthetic', revision,
+          status: ['timeout', 'queued'].includes(mode) ? 'building' : 'ready' }; },
+        async smoke() { smokeCalls++; if (mode === 'domain-failure') throw new Error('synthetic-provider-secret'); },
+      };
+      const input = { revision, digest: manifestDigest(migrationFiles(migrations)), target: 'local', database: fixture.database,
+        directory: migrations, reportDirectory: join(directory, 'reports'), deployment, pollMs: 1, timeoutMs: ['timeout', 'queued'].includes(mode) ? 1000 : 5000,
+        signal: controller.signal, verifySource: async () => {}, prepare: async () => {} };
+      const pending = runRelease(input);
+      if (mode === 'locked') {
+        await enteredPromise;
+        const concurrent = await runRelease(input);
+        assert.equal(concurrent.result, 'failed');
+        assert.equal(concurrent.deployment, 'not_started');
+        assert.equal(deployCalls, 1);
+        unlock();
+      }
+      const completed = await pending;
+      const result = JSON.parse(await readFile(join(input.reportDirectory, `${completed.run_id}.json`), 'utf8')) as typeof completed;
+      const lockPresent = await readFile(join(input.reportDirectory, 'operator.lock')).then(() => true, error => {
+        assert.equal(error.code, 'ENOENT');
+        return false;
+      });
+      assert.equal(lockPresent, result.lock_retained);
+      assert.doesNotMatch(JSON.stringify(result), /synthetic-provider-secret|postgresql|SELECT|local_fixture_only/);
+      if (mode === 'migration-failure') {
+        assert.equal(deployCalls, 0);
+        assert.equal(result.migration?.database_outcome, 'rolled_back');
+      } else {
+        assert.equal(result.migration?.database_outcome, 'committed');
+        assert.deepEqual((await migrationStatus(fixture.database)).applied, expectedMigrations);
+      }
+      assert.equal(result.result, ['success', 'locked'].includes(mode) ? 'success' : 'failed');
+      assert.equal(smokeCalls, ['success', 'locked', 'domain-failure'].includes(mode) ? 1 : 0);
+      assert.equal(result.lock_retained, ['queued', 'wrong-commit', 'wrong-project', 'changed-id', 'domain-failure', 'provider-canceled', 'cancelled', 'timeout'].includes(mode));
+      assert.equal(result.reporting, 'written');
+    });
+  }
+});
+
+test('compiled Vercel-mode package protects routes and verifies loopback TLS outside repository cwd; not native artifact proof', { timeout: 20000 }, async t => {
+  const fixture = await databaseFixture(t);
+  await migrate(fixture.database);
+  const hostname = 'aws-0-ap-northeast-2.pooler.supabase.com';
+  const peer = await tlsPostgres(t, hostname);
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'esty-vercel-mode-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  await cp(new URL('../operator/', import.meta.url), directory, { recursive: true });
+  // Test-only transport/DB identity remapping. The copied main/config/guard/TLS
+  // code remains unchanged; no DNS or connection can reach the cloud tuple.
+  const preload = join(directory, 'synthetic-transport.mjs');
+  await writeFile(preload, `import {Client} from 'pg';
+import net from 'node:net';
+const socketConnect = net.Socket.prototype.connect;
+net.Socket.prototype.connect = function(...args) {
+  const host = typeof args[0] === 'number' ? args[1] : args[0]?.host;
+  if (host !== '127.0.0.1') throw new Error('Non-loopback test connection blocked');
+  return socketConnect.apply(this, args);
+};
+const original=Client.prototype.connect;
+Client.prototype.connect=function(...args) {
+  if(this.connectionParameters.host!==${JSON.stringify(hostname)} || this.connectionParameters.port!==5432) throw new Error('Unapproved test transport');
+  const transport = ${JSON.stringify({ host: '127.0.0.1', port: peer.port, user: fixture.database.user, password: fixture.database.password, database: fixture.name })};
+  Object.assign(this.connectionParameters, transport);
+  Object.assign(this, transport);
+  return original.apply(this,args);
+};\n`);
+  const reservation = createServer();
+  await new Promise<void>(resolve => reservation.listen(0, '127.0.0.1', resolve));
+  const address = reservation.address();
+  assert.ok(address && typeof address !== 'string');
+  const port = address.port;
+  await new Promise<void>(resolve => reservation.close(() => resolve()));
+  const key = 'a'.repeat(64);
+  const nodeArgs = ['--import', preload, join(directory, 'apps/api/build/src/main.js')];
+  const executable = process.platform === 'darwin' ? '/usr/bin/sandbox-exec' : process.execPath;
+  const childArgs = process.platform === 'darwin' ? ['-p', '(version 1)(allow default)(deny network-outbound)(allow network-outbound (remote ip \"localhost:*\"))', process.execPath, ...nodeArgs] : nodeArgs;
+  const child = spawn(executable, childArgs, {
+    cwd: tmpdir(), env: { PATH: process.env.PATH, API_RUNTIME: 'vercel', VERCEL: '1', PORT: String(port),
+      BROWSER_ORIGIN: 'https://app.lovora.us', PREVIEW_ACCESS_KEY: key, DATABASE_CA_PEM: peer.ca,
+      SUPABASE_PROJECT_REF: 'eotmpaliqcxxcotrcols', SUPABASE_SESSION_HOST: hostname,
+      SUPABASE_DATABASE_NAME: 'postgres', SUPABASE_DATABASE_USER: 'postgres.eotmpaliqcxxcotrcols',
+      DATABASE_URL: `postgresql://postgres.eotmpaliqcxxcotrcols:synthetic-only@${hostname}:5432/postgres`,
+    }, stdio: ['ignore', 'pipe', 'pipe'],
+  });
+  let output = '';
+  child.stdout.on('data', chunk => { output += chunk; });
+  child.stderr.on('data', chunk => { output += chunk; });
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Vercel-mode package startup timed out.')), 5000);
+      child.stdout.on('data', chunk => { if (chunk.toString().includes('API is listening')) { clearTimeout(timer); resolve(); } });
+      child.once('exit', () => { clearTimeout(timer); reject(new Error('Vercel-mode package exited before startup.')); });
+    });
+    const origin = `http://127.0.0.1:${port}`;
+    assert.equal((await get(origin, '/health/ready')).status, 401);
+    assert.equal(peer.connections, 0);
+    const headers = { Authorization: `Bearer ${key}` };
+    for (const [path, status] of [['/health/live', 200], ['/health/ready', 200], ['/unknown', 404]] as const) {
+      const response = await fetch(origin + path, { headers, signal: AbortSignal.timeout(4500) });
+      assert.equal(response.status, status);
+      await response.arrayBuffer();
+    }
+    assert.ok(peer.connections > 0);
+    assert.doesNotMatch(output, /synthetic-only|postgresql|BEGIN CERTIFICATE/);
+  } finally {
+    child.kill('SIGTERM');
+    await new Promise<void>((resolve, reject) => {
+      if (child.exitCode !== null) { resolve(); return; }
+      const timer = setTimeout(() => { child.kill('SIGKILL'); reject(new Error('Vercel-mode process shutdown timed out.')); }, 4000);
+      child.once('exit', () => { clearTimeout(timer); resolve(); });
+    });
+  }
+});
+
+test('cancelled migration reports unknown safely; CLI report-write failure does not relabel a committed database', async t => {
+  const fixture = await databaseFixture(t);
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'esty-cancel-report-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const migrations = join(directory, 'migrations');
+  await cp(migrationsDirectory, migrations, { recursive: true });
+  const event = `esty-migration-${randomUUID()}`;
+  const controller = new AbortController();
+  const cancel = () => controller.abort();
+  process.once(event, cancel);
+  t.after(() => process.removeListener(event, cancel));
+  await writeFile(join(migrations, '1792972800001-cancelled.mjs'),
+    `export async function up() { process.emit(${JSON.stringify(event)}); await new Promise(() => {}); }\n`);
+  const report = await runMigrations(fixture.database, { directory: migrations, signal: controller.signal });
+  assert.equal(report.result, 'failed');
+  assert.equal(report.stage, 'migration');
+  assert.equal(report.failed_version, '1792972800001-cancelled');
+  assert.equal(report.database_outcome, 'unknown');
+  assert.ok(report.attempted.every(item => item.outcome === 'unknown'));
+  const occupied = join(directory, 'not-a-directory');
+  await writeFile(occupied, 'preserve');
+  const cli = new URL('../scripts/migrate.js', import.meta.url);
+  const result = spawnSync(process.execPath, [cli.pathname, '--report-dir', occupied], {
+    cwd: tmpdir(), env: { PATH: process.env.PATH, DATABASE_URL: fixture.url }, encoding: 'utf8', timeout: 15000,
+  });
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /database=committed; report=failed/);
+  assert.doesNotMatch(result.stdout + result.stderr, /postgresql|local_fixture_only|SELECT/);
+  assert.deepEqual((await migrationStatus(fixture.database)).applied, expectedMigrations);
 });

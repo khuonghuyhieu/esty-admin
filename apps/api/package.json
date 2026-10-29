@@ -9,7 +9,7 @@
     "build": "npm run migrations:check && node scripts/clean-build.mjs && tsc -p tsconfig.json",
     "start": "node build/src/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test build/tests/config.test.js build/tests/http.test.js",
+    "test": "npm run build && node --test build/tests/config.test.js build/tests/http.test.js build/tests/release.test.js tests/hosted-config.test.mjs",
     "test:integration": "npm run stage:operator && node --test build/tests/integration.test.js",
     "check": "npm run codegen:check && npm run typecheck && npm test",
     "codegen": "node scripts/codegen.mjs",
@@ -20,7 +20,15 @@
     "db:migrate:hosted": "npm run build && node build/scripts/migrate.js --hosted",
     "db:up": "docker compose -f compose.yaml up -d --wait",
     "db:stop": "docker compose -f compose.yaml stop",
-    "db:migrate": "npm run build && node build/scripts/migrate.js"
+    "db:migrate": "npm run build && node build/scripts/migrate.js",
+    "db:status": "npm run build && node build/scripts/migration-status.js",
+    "supabase:start": "node scripts/supabase-local.mjs start",
+    "supabase:status": "node scripts/supabase-local.mjs status",
+    "supabase:stop": "node scripts/supabase-local.mjs stop",
+    "test:supabase-local": "npm run build && node --test build/tests/supabase-local.test.js",
+    "config:prepare": "node scripts/prepare-vercel-config.mjs",
+    "test:offline": "node --test tests/hosted-config.test.mjs",
+    "release:approved": "node build/scripts/release.js"
   },
   "dependencies": {
     "@nestjs/common": "12.2.0",

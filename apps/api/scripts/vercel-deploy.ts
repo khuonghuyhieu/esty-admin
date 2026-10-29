@@ -1,0 +1,145 @@
+import type { Deployment, DeployState } from './release-core.js';
+
+const projectId = 'prj_uITHKLUGGE98VxrEcs5FoktBbcls';
+const scope = 'khuonghuyhieu0705s-projects';
+export interface DeployConfig {
+  VERCEL_TOKEN: string; VERCEL_PROJECT_ID: string; VERCEL_SCOPE: string; VERCEL_TEAM_ID: string;
+  REPOSITORY: string; DEPLOYMENT_TARGET: 'production'; PREVIEW_ACCESS_KEY: string; API_ORIGIN: string; BROWSER_ORIGIN: string;
+}
+function isObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype);
+}
+function object(value: unknown): Record<string, unknown> {
+  if (!isObject(value)) throw new Error('Invalid response object.');
+  return value;
+}
+function string(value: unknown): string {
+  if (typeof value !== 'string') throw new Error('Invalid string field.');
+  return value;
+}
+export function parseDeployConfig(value: unknown): DeployConfig {
+  const keys = ['VERCEL_TOKEN', 'VERCEL_PROJECT_ID', 'VERCEL_SCOPE', 'VERCEL_TEAM_ID', 'REPOSITORY', 'DEPLOYMENT_TARGET', 'PREVIEW_ACCESS_KEY', 'API_ORIGIN', 'BROWSER_ORIGIN'];
+  const raw = object(value);
+  if (Object.keys(raw).length !== keys.length || keys.some(key => typeof raw[key] !== 'string')) throw new Error('Invalid private deploy configuration.');
+  const config = {
+    VERCEL_TOKEN: string(raw.VERCEL_TOKEN), VERCEL_PROJECT_ID: string(raw.VERCEL_PROJECT_ID),
+    VERCEL_SCOPE: string(raw.VERCEL_SCOPE), VERCEL_TEAM_ID: string(raw.VERCEL_TEAM_ID),
+    REPOSITORY: string(raw.REPOSITORY), DEPLOYMENT_TARGET: string(raw.DEPLOYMENT_TARGET),
+    PREVIEW_ACCESS_KEY: string(raw.PREVIEW_ACCESS_KEY), API_ORIGIN: string(raw.API_ORIGIN), BROWSER_ORIGIN: string(raw.BROWSER_ORIGIN),
+  };
+  if (!/^[\x21-\x7e]{16,512}$/.test(config.VERCEL_TOKEN) || config.VERCEL_PROJECT_ID !== projectId || config.VERCEL_SCOPE !== scope
+    || !/^team_[A-Za-z0-9]+$/.test(config.VERCEL_TEAM_ID) || config.DEPLOYMENT_TARGET !== 'production'
+    || !/^https:\/\/github\.com\/[A-Za-z0-9_-]+\/[A-Za-z0-9_.-]+$/.test(config.REPOSITORY) || config.REPOSITORY.endsWith('.git')
+    || !/^[a-f0-9]{64}$/.test(config.PREVIEW_ACCESS_KEY) || config.API_ORIGIN !== 'https://api.lovora.us'
+    || config.BROWSER_ORIGIN !== 'https://app.lovora.us') throw new Error('Invalid private deploy configuration.');
+  return Object.freeze({ ...config, DEPLOYMENT_TARGET: 'production' });
+}
+async function json(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (text.length > 65536) throw new Error('Unexpected response size.');
+  return object(JSON.parse(text));
+}
+export function vercelDeployment(input: DeployConfig, transport: typeof fetch = fetch): Deployment {
+  const config = parseDeployConfig(input);
+  const identity = Object.freeze({ provider: 'vercel', project: projectId, owner: config.VERCEL_TEAM_ID, target: config.DEPLOYMENT_TARGET });
+  const [org, repo] = config.REPOSITORY.slice('https://github.com/'.length).split('/');
+  let repositoryId: string | undefined;
+  const request = (url: string, signal: AbortSignal, init: RequestInit = {}) => transport(url, {
+    ...init, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
+  });
+  async function provider(path: string, signal: AbortSignal, init: RequestInit = {}) {
+    const url = new URL(path, 'https://api.vercel.com');
+    if (url.origin !== 'https://api.vercel.com') throw new Error('Invalid provider endpoint.');
+    url.searchParams.set('teamId', config.VERCEL_TEAM_ID); url.searchParams.set('slug', scope);
+    const response = await request(url.href, signal, { ...init, headers: { Authorization: `Bearer ${config.VERCEL_TOKEN}`, 'Content-Type': 'application/json' } });
+    if (response.status !== 200 || response.redirected) { await response.body?.cancel(); throw new Error('Provider response not confirmed.'); }
+    return json(response);
+  }
+  function state(value: Record<string, unknown>): DeployState {
+    const source = object(value.gitSource);
+    const states: Record<string, DeployState['status']> = { QUEUED: 'queued', INITIALIZING: 'building', BUILDING: 'building', READY: 'ready', ERROR: 'failed', BLOCKED: 'failed', CANCELED: 'canceled' };
+    const status = typeof value.readyState === 'string' && Object.hasOwn(states, value.readyState) ? states[value.readyState] : undefined;
+    if (!repositoryId || typeof value.id !== 'string' || !/^dpl_[A-Za-z0-9]+$/.test(value.id) || value.projectId !== projectId
+      || value.ownerId !== identity.owner || value.target !== identity.target || !status
+      || source.type !== 'github' || typeof source.sha !== 'string' || !/^[a-f0-9]{40}$/.test(source.sha)
+      || (source.ref !== undefined && source.ref !== null && source.ref !== 'main')
+      || (source.repoId !== undefined ? String(source.repoId) !== repositoryId : source.org !== org || source.repo !== repo)
+      || (source.org !== undefined && source.org !== org) || (source.repo !== undefined && source.repo !== repo)) throw new Error('Unverified deployment identity.');
+    return { ...identity, id: value.id, revision: source.sha, status };
+  }
+  async function inspect(id: string, signal: AbortSignal) {
+    if (!/^dpl_[A-Za-z0-9]+$/.test(id)) throw new Error('Invalid deployment identity.');
+    const result = state(await provider(`/v13/deployments/${id}?withGitRepoInfo=true`, signal));
+    if (result.id !== id) throw new Error('Deployment identity changed.');
+    return result;
+  }
+  async function domain(signal: AbortSignal) {
+    const value = await provider(`/v9/projects/${projectId}/domains/api.lovora.us`, signal);
+    if (value?.name !== 'api.lovora.us' || value.projectId !== projectId || value.verified !== true
+      || value.redirect || value.gitBranch || value.customEnvironmentId) throw new Error('Unverified project domain.');
+  }
+  async function binding(expected: DeployState, signal: AbortSignal) {
+    await domain(signal);
+    const alias = await provider(`/v4/aliases/api.lovora.us?projectId=${projectId}`, signal);
+    if (alias?.alias !== 'api.lovora.us' || alias.projectId !== projectId || alias.deploymentId !== expected.id
+      || (alias.deployment != null && object(alias.deployment).id !== expected.id) || alias.deletedAt || alias.redirect || alias.microfrontends) throw new Error('Domain does not bind the approved deployment.');
+    const actual = await inspect(expected.id, signal);
+    if (actual.revision !== expected.revision || actual.status !== 'ready') throw new Error('Deployment changed during verification.');
+  }
+  return {
+    identity,
+    async preflight(signal) {
+      repositoryId = undefined;
+      const project = await provider(`/v9/projects/${projectId}`, signal);
+      const link = object(project.link);
+      if (project?.id !== projectId || project.name !== 'esty-admin-api' || project.accountId !== identity.owner
+        || project.rootDirectory !== 'apps/api' || project.framework !== 'nestjs' || project.nodeVersion !== '24.x'
+        || project.commandForIgnoringBuildStep || link?.type !== 'github' || link.org !== org || link.repo !== repo
+        || link.productionBranch !== 'main' || typeof link.repoId !== 'number' || !Number.isSafeInteger(link.repoId) || link.repoId <= 0
+        || !Array.isArray(link.deployHooks) || link.deployHooks.length !== 0) throw new Error('Project settings differ from approval.');
+      await domain(signal);
+      repositoryId = String(link.repoId);
+    },
+    async trigger(revision, signal) {
+      if (!repositoryId || !/^[a-f0-9]{40}$/.test(revision)) throw new Error('Release preflight required.');
+      const response = await provider('/v13/deployments', signal, { method: 'POST', body: JSON.stringify({
+        name: 'esty-admin-api', project: projectId, target: config.DEPLOYMENT_TARGET,
+        gitSource: { type: 'github', repoId: repositoryId, ref: 'main', sha: revision },
+      }) });
+      const result = await inspect(string(response.id), signal);
+      if (result.revision !== revision) throw new Error('Provider source differs from approval.');
+      return result;
+    },
+    inspect,
+    async smoke(expected, signal) {
+      if ((['provider', 'project', 'owner', 'target'] as const).some(key => expected[key] !== identity[key]) || expected.status !== 'ready') throw new Error('Unverified smoke identity.');
+      await binding(expected, signal);
+      const authorization = { Authorization: `Bearer ${config.PREVIEW_ACCESS_KEY}` };
+      for (const [path, expectedBody] of [
+        ['/health/live', { status: 'ok' }], ['/health/ready', { status: 'ready', database: 'up', migrations: 'current' }],
+      ] as const) {
+        const response = await request(config.API_ORIGIN + path, signal, { headers: authorization });
+        const body = await json(response);
+        if (response.status !== 200 || response.redirected || !body || Object.keys(body).length !== Object.keys(expectedBody).length
+          || Object.entries(expectedBody).some(([key, value]) => body[key] !== value)) throw new Error('Hosted application smoke failed.');
+      }
+      for (const key of [undefined, 'malformed', '0'.repeat(64) === config.PREVIEW_ACCESS_KEY ? '1'.repeat(64) : '0'.repeat(64)]) {
+        const response = await request(`${config.API_ORIGIN}/health/ready`, signal, { headers: key ? { Authorization: `Bearer ${key}` } : {} });
+        const body = await json(response);
+        if (response.status !== 401 || response.redirected || body?.status !== 'unauthorized' || Object.keys(body).length !== 1) throw new Error('Hosted access check failed.');
+      }
+      const unknown = await request(`${config.API_ORIGIN}/__release_unknown_route`, signal, { headers: authorization });
+      await unknown.body?.cancel();
+      if (unknown.status !== 404 || unknown.redirected) throw new Error('Hosted route check failed.');
+      for (const origin of [config.BROWSER_ORIGIN, 'https://untrusted.example']) {
+        const response = await request(`${config.API_ORIGIN}/health/ready`, signal, { method: 'OPTIONS', headers: {
+          Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization',
+        } });
+        await response.body?.cancel();
+        if (response.redirected || response.status !== (origin === config.BROWSER_ORIGIN ? 204 : 401)
+          || (origin === config.BROWSER_ORIGIN && response.headers.get('access-control-allow-origin') !== origin)) throw new Error('Hosted origin check failed.');
+      }
+      await binding(expected, signal);
+    },
+  };
+}

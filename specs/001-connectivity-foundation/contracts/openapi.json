@@ -1,14 +1,19 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Local connectivity foundation",
-    "version": "0.1.0"
+    "title": "Connectivity foundation",
+    "version": "0.3.0",
+    "description": "Local health remains unauthenticated. Vercel requires the private bearer key on every non-preflight request, including custom domains. Never expose that shared key in browser code."
   },
+  "security": [{}, { "PreviewAccess": [] }],
   "paths": {
     "/health/live": {
       "get": {
         "operationId": "getLiveness",
         "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
           "200": {
             "description": "Liveness",
             "content": {
@@ -26,6 +31,9 @@
       "get": {
         "operationId": "getReadiness",
         "responses": {
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
           "200": {
             "description": "Ready",
             "content": {
@@ -51,7 +59,30 @@
     }
   },
   "components": {
+    "securitySchemes": {
+      "PreviewAccess": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Vercel only: a separate private 64-character lowercase hex key."
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Generic Vercel denial before database work.",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Unauthorized" }
+          }
+        }
+      }
+    },
     "schemas": {
+      "Unauthorized": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["status"],
+        "properties": { "status": { "type": "string", "const": "unauthorized" } }
+      },
       "Liveness": {
         "type": "object",
         "additionalProperties": false,

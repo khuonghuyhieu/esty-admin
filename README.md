@@ -4,6 +4,11 @@ Open this `esty-admin/` folder directly. It is the standalone repository for `kh
 
 Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 and correction T013–T020 are complete, including external review and owner visual acceptance. The coordinator confirms the owner-approved FE-only push of 20 files to `main@6c64eaa`; a deployment result for that correction is not verified. The local BE foundation is verified and separately reviewed; the owner has now authorized its source-only commit/push. Hosted acceptance remains pending. Application screens and full UI → API → DB acceptance remain outside the completed increments.
 
+
+## Current hosting direction — Vercel
+
+The Vercel adaptation authorized on2026-10-29 is locally checked and independently reviewed with no confirmed actionable findings, reusing existing esty-admin-api (prj_uITHKLUGGE98VxrEcs5FoktBbcls, scope khuonghuyhieu0705s-projects, apps/api/Node24). No Render onboarding. Current work is docs-only closeout; source publication needs a separate request. The Vercel-only checklist below retains genuine native/settings/private-input/hosted gates and unresolved Hobby intended-use eligibility; no paid upgrade/trial or provider switch is assumed. Existing local migrations/stacks and dated evidence remain intact.
+
 ## Read the current work
 
 | File | Purpose |
@@ -192,7 +197,7 @@ npm run api:check
 TEST_DATABASE_URL=postgresql://foundation_local:local_fixture_only@127.0.0.1:55432/foundation_local npm run api:test:integration
 ```
 
-`api:check` runs OpenAPI/migration-manifest drift detection, typecheck, build and config/real-HTTP tests. The integration command requires the healthy exact fixture, stages the operator artifact and creates/drops only randomized `foundation_test_*` databases. It covers real HTTP → PostgreSQL, migration repeatability/rollback/later failures, timeout/pressure/recovery, trusted/untrusted/wrong-host TLS using disposable local certificates, hosted pool cleanup, and staged CLI/API execution outside repo cwd. OpenSSL must be available for the synthetic TLS fixture. No cloud/management API or live Supabase host is used.
+`api:check` runs OpenAPI/migration-manifest drift detection, typecheck, build and config/real-HTTP/offline-helper/release-boundary tests. The integration command requires the healthy exact fixture, stages the operator artifact and creates/drops only randomized `foundation_test_*` databases. It covers actual PostgreSQL migration/status/report failures, TLS, request lifecycle, copied artifacts and synthetic release transitions. OpenSSL and Python3 (for the real PTY input check) must be available. The Render artifact test redirects only its synthetic transport to the fixture and rejects non-loopback sockets; on macOS its child also runs under an outbound sandbox.
 
 The authoritative contract is `specs/001-connectivity-foundation/contracts/openapi.json`. After an intentional contract edit, run `npm run api:codegen`, then `npm run api:codegen:check`. Migrations are ordered 13-digit timestamp `.mjs` files in `apps/api/migrations/`. The web API imports a generated ordered name/hash manifest rather than scanning runtime files; the separate operator validates the actual assets against that manifest before DDL. After an approved new migration, run `npm run migrations:generate --workspace=@esty-admin/api` and rebuild/restart. Do not rewrite applied migrations or add a second Supabase migration engine. Publication is separately authorized.
 
@@ -224,7 +229,9 @@ If a login expires, use the same isolated launchers and select the personal E-co
 
 macOS Keychain/browser/network access may require explicit sandbox permission; token values must not be copied into documentation or Git. Observed targets are Google Cloud `esty-admin` and Supabase **Esty Fulfillments** (`eotmpaliqcxxcotrcols`, Seoul). Google billing/APIs remain disabled, but Cloud Run/container work is now deferred rather than a prototype prerequisite. CLI authentication/project metadata do not prove SQL connectivity or deployment. Do not use Supabase migration commands as a second history: the foundation uses node-pg-migrate.
 
-## Backend prototype — local code verified, external setup pending
+## Backend prototype — existing code and historical Vercel guide
+
+This section preserves earlier local/vercel evidence and operator packaging. Current Vercel adaptation and the single remaining owner checklist below supersede old setup assumptions; do not create another BE project or infer api.lovora.us protection from historical platform settings. Existing local commands retain their meaning.
 
 Only `/health/live` and `/health/ready` are implemented. Keep one Supabase project and a separate BE Vercel project rooted at `apps/api`; no new auth/business modules, operational DB roles or Cloud Run/AWS/Azure infrastructure. [Feature001 plan/evidence](specs/001-connectivity-foundation/plan.md) records the actual checks; [operator acceptance guide](specs/001-connectivity-foundation/quickstart.md) details the future gates.
 
@@ -237,7 +244,7 @@ npm run migrations:check --workspace=@esty-admin/api
 npm run stage:operator --workspace=@esty-admin/api
 ```
 
-The complete `apps/api/build/operator/` contains compiled API/operator files, approved migrations and runtime dependencies, but no env file or credentials. Keep its layout intact when copying it. Its `apps/api/build/scripts/migrate.js` and `apps/api/build/src/main.js` run with Node24 from any cwd. Builds only compile/package; they never execute DDL.
+The complete `apps/api/build/operator/` contains compiled API/operator files, public target metadata, approved migrations and runtime dependencies, but no env file or credentials. Keep its layout intact when copying it. Its `apps/api/build/scripts/migrate.js`, `migration-status.js` and `apps/api/build/src/main.js` run with Node24 from any cwd. Builds only compile/package; they never execute DDL. Release orchestration runs from the approved repository, not a detached operator copy.
 
 ### Owner-supplied settings — later, not needed for local checks
 
@@ -252,17 +259,14 @@ From the existing Supabase project's **Connect → Session pooler**, copy the ex
 | `DATABASE_URL` | API secret; must match the whole approved tuple on5432, with no query options/fragments |
 | `DATABASE_CA_PEM` | Optional verified CA as actual multiline PEM, not a path/literal `\\n`; otherwise system roots. Certificate/hostname verification always stays enabled |
 | `BROWSER_ORIGIN` | Required exact HTTPS browser origin; CORS is not access control |
+| `PREVIEW_ACCESS_KEY` | Required private64hex application bearer key for Vercel, including custom domains; never browser-public |
 | `MIGRATION_DATABASE_URL`, `MIGRATION_CONFIRM_PROJECT_REF` | Operator-only URL and explicit matching project confirmation; never set in the API function |
 
 No Supabase anon/service-role/management API key is needed for this pg API. Vercel project/org IDs and login/token belong only to future deployment tooling, not runtime. A CLI token is not required for owner-interactive login; optional CI tokens need separate approval. No real secret is requested now. An approved existing DB credential may be used; record its privilege exposure rather than silently creating roles/grants.
 
-### Future external execution — separate approvals required
+### Historical external guide — replaced by the current owner checklist
 
-1. Approve the actual tuple/secret and read-only database preflight. Check identity, schema/history collisions and privileges. Never reset/adopt/drop shared objects.
-2. Approve the exact migration set/checksums. With operator settings supplied privately, run the staged `migrate.js --hosted` or `npm run db:migrate:hosted --workspace=@esty-admin/api`; the command selects `MIGRATION_TARGET=supabase` and still requires explicit project confirmation. Rerun to prove zero new applications. Use Session5432, never transaction6543 or Supabase migration commands.
-3. Verify the personal Vercel scope and eligible use, then create/link a **separate BE project**, Root Directory `apps/api`, native NestJS preset and Node24.x with root workspace-lock resolution. Preserve the FE project. Existing Hobby metadata is not commercial-use approval. Verify platform protection admits the intended testers and denies anonymous access; do not implement app auth for this prototype.
-4. Provision only API variables for the approved preview environment. Obtain permission to retrieve genuine project settings and run native build; verify ESM/decorator bootstrap, manifest packaging and cancellation before claiming compatibility.
-5. Obtain preview-deploy approval, verify exact project/target and deploy without production promotion, domain changes or FE redeploy. Check protected HTTPS health, failure/recovery and connection cleanup. Never disrupt the shared database to simulate failure.
+Use only the Vercel-only remaining-manual-actions list below for future execution. The existing BE project is reused, native artifact remains pending and application bearer access is required even on production domains. No historical project-create/deploy permission or platform-protection setting is inherited.
 
 Use the existing isolated CLI launcher only during that authorized external phase; its local tools/auth state is not a fresh-checkout dependency and was not used for code-first checks. Hosted pool max2 is per warm instance (local max4); multiple instances multiply sessions. Validate the real connection budget/TLS/timeouts later. The 3000ms readiness deadline starts inside the handler, not at the network/cold-start boundary. T026 is complete: separate gpt-6-luna read-only review session `01a17c65-9fda-7fd1-8e74-344facca83c2` found no confirmed actionable findings. The reviewer did not edit files or rerun checks; no source fix or redundant suite rerun was needed. T020, native T025 and T027–T030 external acceptance remain open.
 
@@ -279,3 +283,78 @@ python3 -m http.server 8767 --bind 127.0.0.1 --directory apps/web/test-results/v
 Open **http://127.0.0.1:8767/comparison.html** for matching 1440×1000, 390×844 and 360×800 reference/implementation captures, full pages, row menus and mobile drawers. E2E clears `test-results`, so recapture evidence after a later run. Stop either server with Ctrl+C.
 
 See the [component inventory and design](specs/003-application-shell/plan.md), [interaction contract](specs/003-application-shell/contracts/ui.md), [tasks](specs/003-application-shell/tasks.md) and [actual evidence](PROJECT_STATE.md#application-shell-local-implementation--feature-003). T001–T012 are complete, including the coordinator's separate read-only `gpt-6-luna` review with no actionable findings; T013 still awaits explicit owner visual acceptance. No commit/push/deploy/DNS is implied. Use command-local `SPECIFY_FEATURE_DIRECTORY=specs/003-application-shell SPECIFY_FEATURE_NO_PERSIST=1`; keep feature 001 connectivity and feature 002 publication separate.
+
+## Current BE source/local commands — hosted acceptance pending
+
+<details>
+<summary>Historical A+C source/local review — 2026-10-28; not Vercel-adaptation acceptance</summary>
+
+
+The owner authorized increments A and C on `main@d286335`; source/local checks and the completed independent combined review are recorded in [feature001 evidence](specs/001-connectivity-foundation/plan.md#source-local-execution--2026-10-28). The gpt-6-luna review found no confirmed actionable findings; no source fix or test/build rerun was needed. Status is READY_FOR_OWNER_MANUAL_ACTIONS. FE T014–T016 remains a separate handoff; public/sample routes and FE003 acceptance are unchanged. No source publication, real cloud credential, Render operation or DNS change is part of this increment.
+
+</details>
+
+### Supabase-local development
+
+Use Node24.22.1, Docker and the already installed `.openai/cloud-tools/supabase-2.122.0/supabase`. The local wrapper clears provider/profile overrides and invokes only start/status/stop in `apps/api`. It never uses the authenticated cloud launcher. Initial start may download the pinned Docker image.
+
+```sh
+npm run supabase:start --workspace=@esty-admin/api
+npm run supabase:status --workspace=@esty-admin/api
+export API_RUNTIME=local
+export DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres
+npm run db:status --workspace=@esty-admin/api
+npm run db:migrate --workspace=@esty-admin/api
+npm run db:migrate --workspace=@esty-admin/api
+npm run api:dev
+```
+
+These are synthetic local values; no actual `.env` is overwritten. The minimum supported stack is PostgreSQL-only (`esty-admin-local`, image17.11.0.006), published at127.0.0.1:54322 through its dedicated loopback Docker network. Gateway54321 and optional Studio54323 are disabled, not verified running services. CLI system bootstrap is not application DDL; seed/replay are disabled and no Supabase application migration directory is used.
+
+```sh
+SUPABASE_LOCAL_TEST_URL=postgresql://postgres:postgres@127.0.0.1:54322/postgres npm run test:supabase-local --workspace=@esty-admin/api
+npm run supabase:stop --workspace=@esty-admin/api
+npm run supabase:start --workspace=@esty-admin/api
+```
+
+Stop/start targets only this local project and preserves its data volumes/history. Do not use reset, `--no-backup`, `--all` or `down -v`. Existing `db:up`/`db:stop` and the strict destructive `TEST_DATABASE_URL` keep their original standalone fixture55432 meaning. Never run that suite against Supabase main/cloud.
+
+### Migration status and reports
+
+`db:status` reads applied/pending/unexpected ordered versions without initializing history. `db:migrate` keeps node-pg-migrate9 advisory locking and one batch transaction. Sanitized JSON reports live at `.openai/reports/migrations/<run_id>.json`; an explicit operator-copy destination uses `node <artifact>/apps/api/build/scripts/migrate.js --report-dir <private-absolute-directory>`. Paths must have no symlink ancestors; owner-only output directories/files use0700/0600 and existing reports are never overwritten.
+
+Reports include source/target/manifest, stage, attributable failed version, attempted outcomes and committed before/after history. A lost commit/rollback acknowledgement remains `unknown`; do not infer rollback. A report-write failure exits nonzero while preserving a known committed DB outcome. Manifest hashes validate reviewed assets, not historic DB-stored checksums. Never rewrite an applied migration; create a new version and regenerate/review the manifest. Older API readiness may degrade after a newer full history is applied; no automatic database rollback is provided.
+
+### Vercel owner conversion and release — source/local checks and review complete
+
+```sh
+npm run config:prepare --workspace=@esty-admin/api
+npm run test:offline --workspace=@esty-admin/api
+npm run stage:operator --workspace=@esty-admin/api
+npm run release:approved --workspace=@esty-admin/api
+```
+
+Verified default preparation prints `OWNER_INPUT_PENDING` before any private read/write; default release prints `RELEASE_APPROVAL_REQUIRED` without Git/provider/SQL. The **owner only**, in a later manual action, may invoke `npm run config:prepare --workspace=@esty-admin/api -- --convert-to-vercel` in their own TTY and enter the hidden confirmation CONVERT. It reads original runtime.json/operator.json and writes separate runtime.vercel.json/operator.vercel.json under `.openai/private/backend/`,0700/0600/no-overwrite/no-symlink. Originals/credentials remain intact; only partial new outputs are cleaned. Synthetic fixtures/real PTY passed; the agent never read real inputs. Outputs never autoload/upload/start services and omit migration confirmations.
+
+Future Vercel release invocation, only after genuine native proof, separately requested source publication and concrete target/write/production-target deployment authorization; the new source review is complete:
+
+```sh
+npm run release:approved --workspace=@esty-admin/api -- --approve-release \
+  --commit <approved-full-40hex-commit> --manifest <approved-64hex-manifest-digest> \
+  --operator-file <absolute-private-operator.vercel.json> --deploy-file <absolute-private-deploy.vercel.json>
+```
+
+Do not invoke an approved release during source/local preparation. The driver validates exact clean main/repository/manifest and git.deploymentEnabled=false, fixed BE project/account/root/Node/repository/target, read-only status, versioned migration/report, provider-returned same-commit identity, same-deployment api.lovora.us binding and safe TLS/HTTP smoke. POST200 or READY/provider URL alone is not success. One `.openai/reports/releases/operator.lock` covers the sequence; uncertain identity/state/domain/cancellation/timeouts retain it for owner reconciliation. Never clear blindly. Committed DB plus failed deployment stays distinct; no automatic rollback/reset or raw-provider/secret logs. Only synthetic provider/disposable loopback results are verified so far; see the dated [Vercel evidence](specs/001-connectivity-foundation/plan.md#vercel-adaptation-execution--2026-10-29).
+
+### Remaining manual actions — one owner checklist
+
+1. **Review complete; owner-authorized source publication:** the owner requested commit/push on2026-10-29; see Git history for the publication commit. Coordinator confirmed REVIEW_MODEL_READY and one new gpt-6-luna read-only T055 review, session01a186d0-f5ff-7a80-9210-aaf9cb2a8d40, exit0, no confirmed actionable findings. Existing checks/review are reused; no new source fix or full-suite rerun. Historical A+C review is not substituted. Publication does not execute native build, migrations or deployment. Continue with item2 after push confirmation. FE T014–T016/hosted caller auth remain separate; no shared-key browser bundle or bypass proxy.
+2. **Owner-private conversion/credentials:** run the explicit owner TTY conversion above only as a later owner action; no secrets to agent/chat/argv/env. Preserve original runtime.json/operator.json. Privately review runtime.vercel.json/operator.vercel.json; add operator MIGRATION_TARGET=supabase and matching MIGRATION_CONFIRM_PROJECT_REF only after exact write approval. Create separate0700-parent/0600 deploy.vercel.json with VERCEL_TOKEN, fixed VERCEL_PROJECT_ID above, VERCEL_SCOPE=khuonghuyhieu0705s-projects, genuine VERCEL_TEAM_ID, exact HTTPS GitHub REPOSITORY without .git, DEPLOYMENT_TARGET=production, PREVIEW_ACCESS_KEY, API_ORIGIN=https://api.lovora.us and BROWSER_ORIGIN=https://app.lovora.us. No deploy/operator credential in runtime.
+3. **Existing Vercel project/native proof/eligibility:** verify actual scope/account/project, apps/api root/nestjs/Node24.x, genuine settings/native ESM/decorator/manifest/cancellation proof and intended-use/Hobby eligibility. No paid upgrade/payment/trial. Runtime gets API_RUNTIME=vercel, platform VERCEL/PORT, exact Session tuple/DATABASE_URL, separate bearer key/origin/optional verified CA; no Render/local binding/operator/deploy keys. Disable automatic Git deployment using reviewed git.deploymentEnabled=false; no deploy hooks/dashboard bypass. all_except_custom_domains is not custom-domain denial evidence. Setup/publication requires separate approval.
+4. **Vercel-provided api-only GoDaddy setup:** under setup approval add api.lovora.us to existing BE, obtain exact DNS requirements and verify project-domain ownership before first domain-bound release. No invented CNAME/IP or copied FE records; preserve root/app/mail/nameservers/unrelated records. Initial verified domain can precede deployment; actual alias→approved deployment/TLS acceptance must follow the next step, not a generic provider URL.
+5. **Actual Supabase preflight/migration/release:** after project/native/domain prerequisites, obtain scoped read-only target/schema/history/TLS/privilege/budget proof, then exact migration checksums/write approval. No reset/adopt/drop/grants. Approve explicit Vercel production target for this protected test API; serialize migration/report before same-commit deployment and unchanged migration rerun0. Verify domain alias/TLS and real returned identity, never user metadata as deployed SHA.
+6. **Real domain checks:** through https://api.lovora.us verify authorized live200/ready200 using Supabase cloud, missing/malformed/wrong401, authorized unknown404 and exact-origin OPTIONS. Recheck alias/source before/after smoke and app.lovora.us unchanged. No destructive/failure/load cloud suite or automatic protection bypass. T020/T027–T031/T048/T054 stay pending until genuine evidence exists.
+
+## Required BE endpoint — api.lovora.us
+
+Required final BE is **https://api.lovora.us** on existing Vercel esty-admin-api backed by Supabase cloud. [Domain acceptance](specs/001-connectivity-foundation/plan.md#hosted-custom-domain-setup-and-acceptance--t048) requires exact provider DNS, verified same-deployment alias/TLS and actual safe HTTP. Local/copied/provider-only proof is incomplete. Dated2026-10-28 lookup was NXDOMAIN, not a current DNS check. No actual provider/domain/SQL operation is authorized by these docs.

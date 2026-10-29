@@ -1,6 +1,16 @@
 # Architecture & implementation spec
 
-Spec: ARCH-001 · Updated: 2026-10-27 · Status: prototype backend code/local verification and separate read-only review complete; native Vercel and hosted/full connectivity acceptance pending. PROJECT_STATE owns current website evidence.
+Spec: ARCH-001 · Updated: 2026-10-27 · Status: local backend verified; local testing prioritized, existing cloud unchanged; hosted/full connectivity acceptance pending. PROJECT_STATE owns current website evidence.
+
+
+## Latest owner hosting preference — Vercel, 2026-10-29
+
+FE and BE use their existing separate Vercel projects. Feature001's scoped runtime bearer, private conversion and serialized release identity/domain adaptation is locally verified; its new independent coordinator-run gpt-6-luna review completed with no confirmed actionable findings. See feature001 plan for exact evidence. Reuse esty-admin-api metadata (prj_uITHKLUGGE98VxrEcs5FoktBbcls, personal scope khuonghuyhieu0705s-projects, root apps/api, Node24) without account reads. No Render onboarding. Current work is documentation-only closeout; source publication and all actual external execution require separate approval. Dated A+C/Render results remain historical, not genuine native Vercel proof.
+
+A personal account does not by itself establish non-commercial use. Official Vercel fair-use guidance defines commercial use by intended financial gain; using an internal tool for one's own shop may still fall within that definition. No provider classification/enforcement method or project-specific eligibility is known, and no paid upgrade/payment method/trial is authorized. Document this unresolved eligibility limit without forcing a new provider or presenting it as verified compliance.
+
+The owner reports existing private runtime/operator files. Agents never read or overwrite them; the synthetic-tested explicit owner TTY conversion produces separate Vercel files only on later owner invocation. Preserve all current source, root dependencies/ignore/pointer, FE and local volumes. Hosted tests through api.lovora.us and genuine native T054 remain required and unverified. No account/private-input/remote SQL/deployment/DNS/Git action, install, runtime or test operation is authorized during this docs-only closeout.
+
 
 ## Purpose and authority
 
@@ -14,12 +24,18 @@ The owner authorized parallel disjoint FE/BE work on existing `main@128cfc8`. Fe
 
 The website remains independent. The local authorization did not include hosted connectivity, auth, Etsy/supplier integration or full UI → API → DB acceptance. Subsequent source/dependency/database/documentation leases and actual results are recorded in PROJECT_STATE; no historic lease is an ongoing deployment authorization.
 
-### Internal backend prototype decision — 2026-10-27
+### Historical internal backend prototype decision — 2026-10-27
 
 The owner prioritizes a quickly deployable internal prototype: native Vercel NestJS in a separate BE project, the existing one Supabase project and only existing health/readiness endpoints. Cloud Run/AWS/Azure, containers and Google billing setup remain deferred. Platform access controls replace new auth/business modules; no new operational DB role is required. Feature001 code/local checks now cover project-bound Session configuration, verified TLS, generated migration metadata, portable operator packaging and bounded hosted pool lifecycle. Actual target values remain future owner inputs, not compiled guesses; local evidence is not hosted proof.
 
 The owner subsequently authorized code-first feature001 source/local verification and an owner setup guide, followed by a coordinator-run review. External project/credential/endpoint setup is deferred, not a source prerequisite. Preserve one node-pg-migrate history and separately approve all remote SQL/migration/deployment. CLI authentication evidence belongs to the coordinator; source work must not inspect cached credentials or call cloud APIs. Offline native-build limitations and actual local results belong in feature001's plan; full hosted proof remains pending.
 
+
+### Required hosted BE test endpoint — 2026-10-28
+
+The owner explicitly requires setup and actual testing of BE at https://api.lovora.us. Supabase local on Docker and existing NestJS are development/pre-release environments only; hosted API uses the existing Supabase-cloud project, not a public tunnel to local Docker. Keep the strict standalone destructive-test fixture and one node-pg-migrate application history. Versioned migration reporting and automated release ordering remain required.
+
+The active plan uses the existing Vercel BE project, validated private inputs, real DB preflight/versioned migration, same-commit deployment, exact Vercel-provided GoDaddy api-only DNS, TLS and actual safe functional checks. Require the API's own bearer boundary even when Vercel Standard Protection excludes production domains. Preserve app.lovora.us/root/mail/unrelated resources and all previous local evidence. No paid upgrade/payment method/trial is authorized; account eligibility, native artifact and actual domain association remain gates. Local/provider-only success is not hosted acceptance.
 
 ## Architecture boundaries
 
@@ -40,7 +56,7 @@ Owner-designated source: [Cloud Cost & Handover Control](https://docs.google.com
 | Frontend framework | Owner chose Next.js on 2026-10-25; use App Router/TypeScript as the implementation plan | Website stack is resolved; precise dependency pins are technical planning details |
 | Frontend hosting | Owner chose Vercel on 2026-10-25 | Supersedes the workbook's Cloudflare Pages selection; no Vercel project/deployment is verified |
 | Backend | NestJS modular API; `Service Register!B7` | Local foundation uses NestJS12.2.0 / Node24.22.1; preserve portable layers |
-| Backend hosting | Native Vercel NestJS is the 2026-10-27 prototype candidate | Separate BE project, personal identity, eligible plan and protected tester access require verification; workbook Cloud Run is deferred |
+| Backend hosting | Existing separate esty-admin-api Vercel project + existing Supabase cloud; final api.lovora.us | Adaptation source/local authorized; actual native/settings/access/source/domain/TLS proof and Hobby eligibility remain unverified |
 | Database | Existing one Supabase PostgreSQL project; local PostgreSQL17.11 verified | Prototype uses verified-TLS Session pooler5432; exact Connect metadata/secret and remote SQL proof remain execution prerequisites |
 | Authentication | Supabase Auth marked Selected; `Service Register!A12:M12` | Service selection does not authorize adding production auth to the connectivity feature |
 | Small-file storage | Supabase Storage marked Selected; `Service Register!A13:M13` | Bucket policies/retention are not recorded; no foundation business-file feature is implied |
@@ -85,7 +101,7 @@ apps/web/src/components/   genuinely reusable website UI
 apps/web/src/lib/          validated public site configuration
 ```
 
-Use npm workspaces and root commands. The frontend Vercel root is `apps/web`; the separate planned BE project root is `apps/api`, whose local foundation now exists. The root lockfile owns dependencies and needs a serial lease for changes. No shared packages are required.
+Use npm workspaces and root commands. The frontend Vercel root is `apps/web`; the BE workspace is `apps/api`, whose local foundation now exists. Future provider build/start settings must preserve root workspace-lock resolution. The root lockfile owns dependencies and needs a serial lease for changes. No shared packages are required.
 
 `dist/` is the existing static content reference, not the new deployment root. Retain it until migration is verified. Public pages and the future admin share the frontend but have distinct routes/features. The landing page is not an OAuth callback.
 

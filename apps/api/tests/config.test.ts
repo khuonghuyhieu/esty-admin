@@ -50,7 +50,7 @@ test('HTTP binding and origin boundaries reject unsafe or ambiguous input', () =
 
 test('invalid startup exits before accepting work and prints only safe diagnostics', () => {
   const result = spawnSync(process.execPath, [new URL('../src/main.js', import.meta.url).pathname], {
-    env: { API_RUNTIME: 'vercel', VERCEL: '1', BROWSER_ORIGIN: 'https://test.example',
+    env: { ...hosted,
       DATABASE_URL: 'private-password-with-secret' }, encoding: 'utf8', timeout: 5000,
   });
   assert.equal(result.status, 1);
@@ -60,12 +60,13 @@ test('invalid startup exits before accepting work and prints only safe diagnosti
 
 const hosted = {
   API_RUNTIME: 'vercel', VERCEL: '1', PORT: '3000',
-  SUPABASE_PROJECT_REF: 'abcdefghijklmnopqrst',
+  SUPABASE_PROJECT_REF: 'eotmpaliqcxxcotrcols',
   SUPABASE_SESSION_HOST: 'aws-0-ap-northeast-2.pooler.supabase.com',
   SUPABASE_DATABASE_NAME: 'postgres',
-  SUPABASE_DATABASE_USER: 'postgres.abcdefghijklmnopqrst',
-  DATABASE_URL: 'postgresql://postgres.abcdefghijklmnopqrst:synthetic-only@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres',
+  SUPABASE_DATABASE_USER: 'postgres.eotmpaliqcxxcotrcols',
+  DATABASE_URL: 'postgresql://postgres.eotmpaliqcxxcotrcols:synthetic-only@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres',
   BROWSER_ORIGIN: 'https://preview.example',
+  PREVIEW_ACCESS_KEY: 'a'.repeat(64),
 };
 
 test('hosted startup requires explicit mode, platform binding and exact approved session target', () => {
@@ -145,6 +146,7 @@ test('hosted loading ignores local env files and local package loading is cwd-in
   await mkdir(join(directory, 'build/src/config'), { recursive: true });
   await writeFile(join(directory, 'package.json'), '{"name":"@esty-admin/api","type":"module"}');
   await cp(new URL('../src/config/config.js', import.meta.url), join(directory, 'build/src/config/config.js'));
+  await cp(new URL('../config/', import.meta.url), join(directory, 'build/config'), { recursive: true });
   await writeFile(join(directory, '.env'), `DATABASE_URL=${valid.DATABASE_URL}\nAPI_PORT=3210\nSUPABASE_SESSION_HOST=${hosted.SUPABASE_SESSION_HOST}\n`);
   const moduleUrl = pathToFileURL(join(directory, 'build/src/config/config.js')).href;
   const program = `import {loadConfig} from ${JSON.stringify(moduleUrl)}; try {console.log(loadConfig().port)} catch(e) {console.error(e.message); process.exitCode=1}`;
@@ -159,4 +161,19 @@ test('hosted loading ignores local env files and local package loading is cwd-in
   assert.equal(remote.status, 1);
   assert.match(remote.stderr, /^SUPABASE_SESSION_HOST:/);
   assert.doesNotMatch(remote.stderr, /synthetic-only|secret%40value/);
+});
+
+test('Vercel rejects retired modes and runtime/operator credential confusion', () => {
+  assert.deepEqual(parseConfig(hosted).database.ssl, { rejectUnauthorized: true, servername: hosted.SUPABASE_SESSION_HOST });
+  for (const changes of [
+    { API_RUNTIME: 'render' }, { RENDER: 'true' }, { RENDER: 'false' }, { RENDER_SERVICE_ID: 'synthetic' },
+    { PREVIEW_ACCESS_KEY: undefined }, { PREVIEW_ACCESS_KEY: 'wrong' },
+    { MIGRATION_DATABASE_URL: 'synthetic-secret' }, { RENDER_API_KEY: 'synthetic-secret' },
+    { VERCEL_TOKEN: 'synthetic-secret' }, { VERCEL_API_TOKEN: 'synthetic-secret' },
+  ]) assert.throws(() => parseConfig({ ...hosted, ...changes }), (error: Error) => {
+    assert.doesNotMatch(error.message, /synthetic-secret|synthetic-only|postgresql:\/\//);
+    return true;
+  });
+  assert.throws(() => parseMigrationConfig({ ...valid, VERCEL: '1' }), /separately/);
+  assert.throws(() => parseConfig({ ...valid, PREVIEW_ACCESS_KEY: 'a'.repeat(64) }), /Vercel/);
 });

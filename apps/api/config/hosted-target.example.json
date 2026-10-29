@@ -1,0 +1,9 @@
+{
+  "SUPABASE_PROJECT_REF": "eotmpaliqcxxcotrcols",
+  "SUPABASE_SESSION_HOST": "aws-0-ap-northeast-2.pooler.supabase.com",
+  "SUPABASE_DATABASE_NAME": "postgres",
+  "SUPABASE_DATABASE_USER": "postgres.eotmpaliqcxxcotrcols",
+  "port": 5432,
+  "browser_origin": null,
+  "tester_access": "pending"
+}

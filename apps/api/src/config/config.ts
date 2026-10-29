@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { X509Certificate } from 'node:crypto';
 import { parseEnv } from 'node:util';
 import type { ClientConfig } from 'pg';
+import approvedTarget from '../../config/hosted-target.example.json' with { type: 'json' };
 
 export class ConfigurationError extends Error {
   constructor(field: string, remedy: string) {
@@ -16,6 +17,7 @@ export interface ApiConfig {
   port: number;
   browserOrigin: string;
   database: ClientConfig;
+  previewAccessKey?: string;
 }
 
 const loopback = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -79,15 +81,30 @@ function databaseConfig(env: NodeJS.ProcessEnv, hosted: boolean, field: string):
 
 export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
   const runtime = env.API_RUNTIME ?? 'local';
-  if (!['local', 'vercel'].includes(runtime) || (runtime === 'local' && env.VERCEL === '1')) {
-    throw new ConfigurationError('API_RUNTIME', 'select local, or explicitly select vercel on Vercel.');
+  if (!['local', 'vercel'].includes(runtime)
+    || (env.VERCEL === '1' && runtime !== 'vercel')
+    || Object.keys(env).some(key => (key === 'RENDER' || key.startsWith('RENDER_')) && env[key] !== undefined)) {
+    throw new ConfigurationError('API_RUNTIME', 'select explicit local or vercel mode; retired provider fields are forbidden.');
   }
-  const hosted = runtime === 'vercel';
-  if (hosted && env.VERCEL !== '1') {
+  const hosted = runtime !== 'local';
+  if (runtime === 'vercel' && env.VERCEL !== '1') {
     throw new ConfigurationError('VERCEL', 'hosted API mode requires the Vercel runtime marker.');
   }
+  if (runtime === 'vercel') {
+    if (!/^[a-f0-9]{64}$/.test(env.PREVIEW_ACCESS_KEY ?? '')) throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'supply a separate private 32-byte lowercase hex key.');
+    for (const key of Object.keys(env)) {
+      if (env[key] !== undefined && (key.startsWith('MIGRATION_') || ['VERCEL_TOKEN', 'VERCEL_API_TOKEN', 'DEPLOYMENT_TARGET'].includes(key))) {
+        throw new ConfigurationError('operator/deploy context', 'never put operator or deployment credentials in the API runtime.');
+      }
+    }
+    for (const [key, value] of Object.entries(approvedTarget)) {
+      if (key.startsWith('SUPABASE_') && env[key] !== value) throw new ConfigurationError(key, 'use the exact reviewed Session target.');
+    }
+  } else if (env.PREVIEW_ACCESS_KEY !== undefined) {
+    throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'preview access is supported only in Vercel mode.');
+  }
   if (hosted && (env.API_HOST !== undefined || env.API_PORT !== undefined)) {
-    throw new ConfigurationError('API_HOST/API_PORT', 'omit local binding settings in Vercel mode; the platform supplies PORT.');
+    throw new ConfigurationError('API_HOST/API_PORT', 'omit local binding settings in hosted mode; the platform supplies PORT.');
   }
   const portField = hosted ? 'PORT' : 'API_PORT';
   const port = env[portField] ?? (hosted ? '3000' : '3001');
@@ -106,8 +123,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
   } catch {
     throw new ConfigurationError('BROWSER_ORIGIN', 'use one exact origin without credentials, path, query or fragment; hosted origins require HTTPS.');
   }
-  return { runtime: hosted ? 'vercel' : 'local', host, port: Number(port), browserOrigin,
-    database: databaseConfig(env, hosted, 'DATABASE_URL') };
+  return { runtime: runtime as ApiConfig['runtime'], host, port: Number(port), browserOrigin,
+    database: databaseConfig(env, hosted, 'DATABASE_URL'),
+    ...(runtime === 'vercel' ? { previewAccessKey: env.PREVIEW_ACCESS_KEY } : {}) };
 }
 
 export function parseMigrationConfig(env: NodeJS.ProcessEnv): ClientConfig {
@@ -115,8 +133,8 @@ export function parseMigrationConfig(env: NodeJS.ProcessEnv): ClientConfig {
   if (!['local', 'supabase'].includes(target)) {
     throw new ConfigurationError('MIGRATION_TARGET', 'select local or supabase for a separately authorized migration.');
   }
-  if (env.VERCEL === '1') {
-    throw new ConfigurationError('MIGRATION_TARGET', 'run migrations separately from the Vercel function.');
+  if (env.VERCEL === '1' || env.RENDER === 'true') {
+    throw new ConfigurationError('MIGRATION_TARGET', 'run migrations separately from the hosted API.');
   }
   if (target === 'supabase') {
     const project = required(env, 'SUPABASE_PROJECT_REF', /^[a-z]{20}$/);
@@ -155,11 +173,11 @@ function localEnvironment(): NodeJS.ProcessEnv {
 }
 
 export function loadConfig(): ApiConfig {
-  return parseConfig(process.env.API_RUNTIME === 'vercel' || process.env.VERCEL === '1'
+  return parseConfig((process.env.API_RUNTIME !== undefined && process.env.API_RUNTIME !== 'local') || process.env.VERCEL === '1' || Object.keys(process.env).some(key => key === 'RENDER' || key.startsWith('RENDER_'))
     ? process.env : localEnvironment());
 }
 
 export function loadMigrationConfig(): ClientConfig {
-  return parseMigrationConfig(process.env.MIGRATION_TARGET === 'supabase' || process.env.VERCEL === '1'
+  return parseMigrationConfig(process.env.MIGRATION_TARGET === 'supabase' || process.env.VERCEL === '1' || process.env.RENDER === 'true'
     ? process.env : localEnvironment());
 }
