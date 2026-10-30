@@ -106,7 +106,21 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
         seen.add(path);
       }
     }
-    walk(JSON.parse(text), '');
+    // GETv6 separates uploaded source evidence from provider-generated output.
+    const roots: unknown = JSON.parse(text);
+    if (!Array.isArray(roots) || roots.length !== 2) throw new Error('Unsupported provider file envelope.');
+    const source = object(roots.find(entry => isObject(entry) && entry.name === 'src'));
+    const output = object(roots.find(entry => isObject(entry) && entry.name === 'out'));
+    if (source.type !== 'directory' || output.type !== 'directory'
+      || fileMode(source.mode) !== 0o40555 || fileMode(output.mode) !== 0o40555
+      || !Array.isArray(output.children) || output.children.length !== 1) throw new Error('Provider file namespaces differ.');
+    const runtime = object(output.children[0]);
+    if (runtime.name !== 'index' || runtime.type !== 'lambda' || fileMode(runtime.mode) !== 0o140666
+      || (runtime.children !== undefined && (!Array.isArray(runtime.children) || runtime.children.length !== 0))) {
+      throw new Error('Provider output differs from the single approved function.');
+    }
+    // Lambda metadata never replaces the complete source path/uid/full-mode proof.
+    walk(source.children, '');
     if (seen.size !== uploads.length) throw new Error('Provider artifact evidence is incomplete.');
   }
   async function domain(signal: AbortSignal) {

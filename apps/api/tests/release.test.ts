@@ -12,7 +12,7 @@ let artifact: VerifiedArtifact;
 let dispose: () => Promise<void>;
 before(async () => { const fixture = await artifactFixture(); artifact = fixture.artifact; dispose = fixture.dispose; });
 after(async () => { await dispose?.(); });
-function fileTree(current: VerifiedArtifact, decimalModes = false) {
+function fileTree(current: VerifiedArtifact, decimalModes = false): any[] {
   const root: any[] = [];
   for (const file of current.manifest.files.filter(file => file.path.startsWith('.vercel/output/'))) {
     const parts = file.path.split('/'); let children = root;
@@ -24,7 +24,10 @@ function fileTree(current: VerifiedArtifact, decimalModes = false) {
     const mode = 0o100000 | file.mode;
     children.push({ name: parts.at(-1), type: 'file', mode: decimalModes ? String(mode) : mode, uid: file.sha1 });
   }
-  return root;
+  return [
+    { name: 'src', type: 'directory', mode: 0o40555, children: root },
+    { name: 'out', type: 'directory', mode: 0o40555, children: [{ name: 'index', type: 'lambda', mode: 0o140666 }] },
+  ];
 }
 
 const revision = 'a'.repeat(40);
@@ -196,7 +199,7 @@ test('provider mode normalization rejects coercion, overflow and changed full PO
 });
 test('decimal modes do not excuse changed file identity, root or duplicate evidence', async t => {
   for (const name of ['uid', 'type', 'root', 'path', 'duplicate', 'missing', 'extra']) await t.test(name, async () => {
-    const files = fileTree(artifact, true), directory = files[0].children[0];
+    const files = fileTree(artifact, true), directory = files[0].children[0].children[0];
     const file = directory.children.find((entry: any) => entry.type === 'file');
     if (name === 'uid') file.uid = '0'.repeat(40);
     if (name === 'type') file.type = 'symlink';
@@ -205,6 +208,30 @@ test('decimal modes do not excuse changed file identity, root or duplicate evide
     if (name === 'duplicate') directory.children.push({ ...file });
     if (name === 'missing') directory.children.splice(directory.children.indexOf(file), 1);
     if (name === 'extra') directory.children.push({ ...file, name: 'unapproved.json' });
+    const current = synthetic({ files }); await current.adapter.preflight(signal());
+    await assert.rejects(current.adapter.trigger(revision, signal()));
+    assert.equal(current.bindings(), 0);
+  });
+});
+test('provider envelope requires exact source namespace and single generated output', async t => {
+  for (const name of ['bare tree', 'missing source', 'duplicate source', 'extra namespace', 'wrong source type',
+    'wrong directory mode', 'missing output', 'extra function', 'wrong function name', 'wrong output type',
+    'wrong output mode', 'nested output', 'rebased source contents']) await t.test(name, async () => {
+    let files: any[] = fileTree(artifact);
+    const source = files[0], output = files[1], runtime = output.children[0];
+    if (name === 'bare tree') files = source.children;
+    if (name === 'missing source') files = [output];
+    if (name === 'duplicate source') files = [source, source];
+    if (name === 'extra namespace') files.push({ name: 'other', type: 'directory', mode: 0o40555, children: [] });
+    if (name === 'wrong source type') source.type = 'file';
+    if (name === 'wrong directory mode') source.mode = 0o40755;
+    if (name === 'missing output') output.children = [];
+    if (name === 'extra function') output.children.push({ ...runtime, name: 'unapproved' });
+    if (name === 'wrong function name') runtime.name = 'other';
+    if (name === 'wrong output type') runtime.type = 'file';
+    if (name === 'wrong output mode') runtime.mode = 0o100666;
+    if (name === 'nested output') runtime.children = [{ name: 'unapproved', type: 'file' }];
+    if (name === 'rebased source contents') source.children = source.children[0].children;
     const current = synthetic({ files }); await current.adapter.preflight(signal());
     await assert.rejects(current.adapter.trigger(revision, signal()));
     assert.equal(current.bindings(), 0);
