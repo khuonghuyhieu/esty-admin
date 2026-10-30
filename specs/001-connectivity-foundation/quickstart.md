@@ -1,11 +1,11 @@
 # Connectivity foundation validation guide
 
-Updated:2026-10-29. T049–T053 source/local adaptation, new independent T055 review and T056 docs-only closeout are complete. READY_FOR_OWNER_MANUAL_ACTIONS; STOP WRITES. README owns the one Vercel-only owner checklist. Genuine native T054/live settings/hosted/domain/FE gates remain pending; dated A+C results are historical, not new Vercel acceptance.
+Updated:2026-10-30. READY_FOR_OWNER_MANUAL_ACTIONS; STOP WRITES. T059 resolved by coordinator read-only acceptance after OMP's fix/affected checks; original Luna review retains one P2, with no unresolved confirmed findings after resolution. T060 docs-only closeout/checks complete; plan.md records preserved historical fragment-link limits. [P2 evidence](plan.md#t059-p2-fix-verification--2026-10-30) preserves finding, regression failures/results, negative smoke, source-map differences and provenance. No new independent review/runtime/build/test; earlier HTTP proof is historical. P2-fix01 remains development-only and sealed07 stale. [README's single owner checklist](../../README.md#remaining-manual-actions--one-owner-checklist) owns later authorized actions; reported conversion/Production-env/api-DNS setup must not be automatically repeated or secrets disclosed.
 
 
 ## Latest owner hosting preference — Vercel, 2026-10-29
 
-Use existing Vercel BE metadata only: esty-admin-api/prj_uITHKLUGGE98VxrEcs5FoktBbcls, scope khuonghuyhieu0705s-projects, apps/api/Node24. No Render onboarding. Plan-first source/local checks and the new independent review are complete; no confirmed fix or rerun is needed. Old Render startup/review does not satisfy genuine native Vercel acceptance.
+Use existing Vercel BE metadata only: esty-admin-api/prj_uITHKLUGGE98VxrEcs5FoktBbcls, scope khuonghuyhieu0705s-projects, apps/api/Node24. No Render onboarding. The prior source/local review is complete, but it does not cover the new native-build blocker. Do not deploy the no-functions diagnostic output or treat old Render startup/review as genuine native Vercel acceptance.
 
 A personal account does not by itself establish non-commercial use. Official Vercel fair-use guidance defines commercial use by intended financial gain; using an internal tool for one's own shop may still fall within that definition. No provider classification/enforcement method or project-specific eligibility is known, and no paid upgrade/payment method/trial is authorized. Document this unresolved eligibility limit without forcing a new provider or presenting it as verified compliance.
 
@@ -14,6 +14,17 @@ Owner-prepared runtime/operator files are forbidden agent input. Later owner TTY
 Current [Vercel execution evidence](plan.md#vercel-adaptation-execution--2026-10-29) records initial API26/27 and its synthetic counter correction, corrected provider/offline14/14, isolated release/package14/14, safe CLI defaults and independent protected HTTP200→503→200 smoke. Initial smoke-history assumption and script syntax failures are disclosed. Copied Vercel-mode package is not native proof; T054 still needs genuine settings and later authorization.
 
 The coordinator verified REVIEW_MODEL_READY and completed one new read-only gpt-6-luna review, session01a186d0-f5ff-7a80-9210-aaf9cb2a8d40, exit0: no confirmed actionable findings. The reviewer made no edits and ran no tests/build/provider calls. This closeout preserves current source and does not repeat affected/full suites; real settings/native/Supabase-cloud/api.lovora.us binding remain unverified.
+
+## Expanded native artifact validation
+
+1. Run feature001 prerequisites before existing-plan/task setup with command-local feature/no-persist values; preserve templates/pointer and all60 prior task checkboxes. Read-only consistency must cover FR-017–020 and SC-010–012 before code.
+2. Use cached Node24.22.1 and pinned public CLI/builders in a new public temp source/work directory, empty auth/HOME/npm configuration and zero-byte production env. No install in the repository or --yes/pull/env pull. Build source is a declared development overlay until the future exact clean published revision is approved.
+3. Run the application-owned artifact build entrypoint (commands belong in README). Preserve raw upstream output separately; inspect the final single function/handler/routes, duration10/cancellation, generated migration metadata, operator assets, dependency closure and sealed file/tool/source/target provenance.
+4. Boot the final emitted handler from outside source/dependency roots under fail-closed loopback-only networking. Exercise real guard/live/unknown/preflight/readiness, silent-peer timeout/disconnect, graceful shutdown and test-owned55432 disposable DB recovery. No shared stack stop/reset or cloud/Supabase-local-main destructive suite.
+5. Run focused packaging/integrity and existing release tests: missing/extra/tampered/stale/private/path/symlink/config/tool/platform inputs, mutation during consumption, exact prebuilt files/no gitSource, migration-before-upload/create, queued/failed/cancelled/uncertain identity/domain outcomes and retained locks. Synthetic transport never falls through to real fetch.
+6. Record distinct commands/failures/results and clean only owned scaffolds/processes/disposable DBs. Raw build success or local disconnect does not prove a Vercel worker abort/10-second enforcement. Do not invoke real release/upload or mark T054/external gates complete.
+7. Pause source at actual passing native/functional/packaging/release evidence and send READY_FOR_REVIEW. Coordinator alone starts one new available Luna review; confirmed fixes get affected rechecks, then separately authorized docs-only closeout and lease return.
+
 
 
 ## Historical A+C evidence — 2026-10-28
@@ -44,7 +55,7 @@ Offline helper defaults to OWNER_INPUT_PENDING without creating real private fil
 
 Use exact Session5432 tuple/Vercel contexts in the [active cloud matrix](plan.md#active-cloud-configuration-packet--vercel). Actual native T054, private inputs and setup/read/write/release scope remain prerequisites. Read-only preflight proves identity/TLS/history/privileges/capacity; only separately approved versioned migrations follow. No second application history/reset/role/grants.
 
-Reuse esty-admin-api, exact scope/team/root/nestjs/Node24 and runtime-only keys. Validate private conversion synthetically before later owner input. Disable automatic Git deploy; migrate before same-commit Vercel deploy. Provider gitSource/project/owner/target and alias→same-deployment identity surround actual safe api.lovora.us HTTP/TLS checks. Standard Protection excludes production domains; API bearer is required. README owns the single manual checklist, initial DNS/native setup and unresolved Hobby eligibility.
+Reuse esty-admin-api, exact scope/team/root/nestjs/Node24 and runtime-only keys. Disable automatic Git deploy. After explicit external approval, verify exact clean published source and independently approved immutable artifact, then migrate before consuming that same artifact through prebuilt upload/create, never a Git rebuild. Provider identity/file evidence and alias→same-deployment identity surround actual safe api.lovora.us HTTP/TLS checks. Standard Protection excludes production domains; API bearer is required. README owns the single manual checklist, settings/attestation/enforcement and unresolved Hobby eligibility.
 
 ## Hosted FE access — not part of local handoff
 

@@ -4,14 +4,14 @@ import { randomUUID } from 'node:crypto';
 import { setTimeout as delay } from 'node:timers/promises';
 import type { ClientConfig } from 'pg';
 import { privateDirectory, writePrivate } from './private-files.mjs';
-import { manifestDigest, migrationStatus, migrationsDirectory, runMigrations } from './migrations.js';
+import { manifestDigest, migrationStatus, runMigrations } from './migrations.js';
 import type { MigrationReport } from './migrations.js';
 import { migrationFiles } from './migration-files.mjs';
 import { saveMigrationReport } from './migration-report.js';
 import { bounded } from './bounded.js';
 
 export interface DeployIdentity { provider: string; project: string; owner: string; target: string }
-export interface DeployState extends DeployIdentity { id: string; revision: string; status: 'queued' | 'building' | 'ready' | 'failed' | 'canceled' }
+export interface DeployState extends DeployIdentity { id: string; revision: string; artifactDigest: string; status: 'queued' | 'building' | 'ready' | 'failed' | 'canceled' }
 export interface Deployment {
   identity: DeployIdentity;
   preflight(signal: AbortSignal): Promise<void>;
@@ -24,37 +24,42 @@ export function assertSourceApproval(actual: { revision: string; dirty: boolean;
     || actual.dirty || actual.revision !== revision || actual.digest !== digest) throw new Error('Release requires the exact clean approved commit and manifest.');
 }
 export interface ReleaseReport {
-  run_id: string; revision: string; manifest_digest: string; target: string;
+  run_id: string; revision: string; manifest_digest: string; artifact_digest: string; target: string;
   result: 'failed' | 'success'; stage: string;
   migration: MigrationReport | null;
   deployment: 'not_started' | 'unknown' | 'queued' | 'failed' | 'ready';
   deploy_id: string | null; lock_retained: boolean; reporting: 'written' | 'failed';
 }
+export interface PreparedRelease { directory: string; deployment: Deployment; dispose(): Promise<void> }
 export async function runRelease(input: {
-  revision: string; digest: string; target: string; database: ClientConfig;
-  reportDirectory: string; directory?: string; deployment: Deployment;
-  verifySource(): Promise<void>; prepare(): Promise<void>;
+  revision: string; digest: string; artifactDigest: string; target: string; database: ClientConfig;
+  reportDirectory: string;
+  verifySource(): Promise<void>;
+  prepare(): Promise<PreparedRelease>;
   signal?: AbortSignal; timeoutMs?: number; pollMs?: number;
 }): Promise<ReleaseReport> {
   const report: ReleaseReport = { run_id: randomUUID(), revision: /^[a-f0-9]{40}$/.test(input.revision) ? input.revision : '',
+    artifact_digest: /^[a-f0-9]{64}$/.test(input.artifactDigest) ? input.artifactDigest : '',
     manifest_digest: /^[a-f0-9]{64}$/.test(input.digest) ? input.digest : '', target: /^(local|supabase:[a-z]{20})$/.test(input.target) ? input.target : '',
     result: 'failed', stage: 'config', migration: null, deployment: 'not_started', deploy_id: null, lock_retained: false, reporting: 'written' };
   const signal = AbortSignal.any([input.signal ?? new AbortController().signal, AbortSignal.timeout(input.timeoutMs ?? 900000)]);
   let lock: string | undefined;
+  let prepared: PreparedRelease | undefined;
   try {
-    if (!report.revision || !report.manifest_digest || !report.target) throw new Error();
+    if (!report.revision || !report.manifest_digest || !report.artifact_digest || !report.target) throw new Error();
     const output = privateDirectory(input.reportDirectory);
     const path = join(output, 'operator.lock');
     writePrivate(path, { run_id: report.run_id, revision: report.revision });
     lock = path;
     report.stage = 'source';
     await bounded(input.verifySource(), signal);
-    await bounded(input.prepare(), signal);
+    prepared = await input.prepare();
+    signal.throwIfAborted();
     await bounded(input.verifySource(), signal);
-    const directory = input.directory ?? migrationsDirectory;
+    const { directory, deployment } = prepared;
     if (manifestDigest(migrationFiles(directory)) !== input.digest) throw new Error();
     report.stage = 'provider_preflight';
-    await bounded(input.deployment.preflight(signal), signal);
+    await bounded(deployment.preflight(signal), signal);
     report.stage = 'status';
     const before = await bounded(migrationStatus(input.database, directory), signal);
     if (!before.ordered || before.unexpected.length) throw new Error();
@@ -70,10 +75,10 @@ export async function runRelease(input: {
     // Once a request might reach the provider, failure means unknown until a
     // terminal deploy state is observed. Keep the run lock for manual reconciliation.
     report.deployment = 'unknown';
-    let state = await bounded(input.deployment.trigger(input.revision, signal), signal);
+    let state = await bounded(deployment.trigger(input.revision, signal), signal);
     while (true) {
-      if (!/^[A-Za-z0-9_-]{1,128}$/.test(state.id) || state.revision !== input.revision
-        || (['provider', 'project', 'owner', 'target'] as const).some(key => !state[key] || state[key] !== input.deployment.identity[key])) throw new Error();
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(state.id) || state.revision !== input.revision || state.artifactDigest !== input.artifactDigest
+        || (['provider', 'project', 'owner', 'target'] as const).some(key => !state[key] || state[key] !== deployment.identity[key])) throw new Error();
       if (report.deploy_id && state.id !== report.deploy_id) throw new Error();
       report.deploy_id = state.id;
       if (state.status === 'ready') { report.deployment = 'ready'; break; }
@@ -81,10 +86,10 @@ export async function runRelease(input: {
       if (!['queued', 'building'].includes(state.status)) throw new Error();
       report.deployment = 'queued';
       await delay(input.pollMs ?? 2000, undefined, { signal });
-      state = await bounded(input.deployment.inspect(state.id, signal), signal);
+      state = await bounded(deployment.inspect(state.id, signal), signal);
     }
     report.stage = 'smoke';
-    await bounded(input.deployment.smoke(state, signal), signal);
+    await bounded(deployment.smoke(state, signal), signal);
     await bounded(input.verifySource(), signal);
     report.result = 'success';
     report.stage = 'complete';
@@ -96,6 +101,7 @@ export async function runRelease(input: {
     if (lock && !report.lock_retained) {
       try { unlinkSync(lock); } catch { report.lock_retained = true; report.result = 'failed'; }
     }
+    try { await prepared?.dispose(); } catch { report.result = 'failed'; }
     try { writePrivate(join(input.reportDirectory, `${report.run_id}.json`), report); }
     catch { report.reporting = 'failed'; report.result = 'failed'; }
   }

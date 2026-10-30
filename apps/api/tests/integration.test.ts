@@ -10,7 +10,6 @@ import { request } from 'node:http';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { Client } from 'pg';
-import { createApplication } from '../src/app.js';
 import { parseConfig } from '../src/config/config.js';
 import { PostgresProbe } from '../src/connectivity/adapters/postgres.js';
 import { expectedMigrations, migrationManifest } from '../src/generated/migrations.js';
@@ -21,8 +20,9 @@ import { saveMigrationReport } from '../scripts/migration-report.js';
 import { manifestDigest } from '../scripts/migrations.js';
 import { runRelease } from '../scripts/release-core.js';
 import type { Deployment } from '../scripts/release-core.js';
-import { assertContract, get, startApi } from './helpers.js';
+import { assertContract, createApplication, get, startApi } from './helpers.js';
 import { tlsPostgres } from './tls.js';
+import { snapshotArtifact, verifyArtifact } from '../scripts/artifact.js';
 
 // Destructive operations are limited to newly created, randomly named databases
 // on the exact synthetic Compose fixture. Never accept an arbitrary database URL.
@@ -245,11 +245,12 @@ test('hosted TLS verifies trust and hostname; warm pool pressure, timeout, abort
   const peer = await tlsPostgres(t, hostname);
   const wrongHost = await tlsPostgres(t, 'wrong-host.example');
   const env = {
-    API_RUNTIME: 'vercel', VERCEL: '1', BROWSER_ORIGIN: 'https://test.example',
-    SUPABASE_PROJECT_REF: 'abcdefghijklmnopqrst', SUPABASE_SESSION_HOST: hostname,
-    SUPABASE_DATABASE_NAME: 'postgres', SUPABASE_DATABASE_USER: 'postgres.abcdefghijklmnopqrst',
-    DATABASE_URL: `postgresql://postgres.abcdefghijklmnopqrst:synthetic-secret@${hostname}:5432/postgres`,
+    API_RUNTIME: 'vercel', VERCEL: '1', BROWSER_ORIGIN: 'https://test.example', PREVIEW_ACCESS_KEY: 'a'.repeat(64),
+    SUPABASE_PROJECT_REF: 'eotmpaliqcxxcotrcols', SUPABASE_SESSION_HOST: hostname,
+    SUPABASE_DATABASE_NAME: 'postgres', SUPABASE_DATABASE_USER: 'postgres.eotmpaliqcxxcotrcols',
+    DATABASE_URL: `postgresql://postgres.eotmpaliqcxxcotrcols:synthetic-secret@${hostname}:5432/postgres`,
   };
+  const headers = { Authorization: `Bearer ${env.PREVIEW_ACCESS_KEY}` };
   for (const [label, server, ca, expected] of [
     ['trusted', peer, peer.ca, 200],
     ['untrusted', peer, undefined, 503],
@@ -267,10 +268,10 @@ test('hosted TLS verifies trust and hostname; warm pool pressure, timeout, abort
       const probe = app.get(PostgresProbe);
       try {
         const began = performance.now();
-        const result = await get(origin, '/health/ready');
+        const result = await get(origin, '/health/ready', headers);
         assert.equal(result.status, expected);
         assert.ok(performance.now() - began < 4000);
-        assert.equal((await get(origin, '/health/live')).status, 200);
+        assert.equal((await get(origin, '/health/live', headers)).status, 200);
         assert.doesNotMatch(JSON.stringify(result.body), /synthetic-secret|pooler|certificate|SELECT/);
         if (expected === 503) {
           assertContract(result.body, 'Degraded');
@@ -280,11 +281,11 @@ test('hosted TLS verifies trust and hostname; warm pool pressure, timeout, abort
         }
         assertContract(result.body, 'Ready');
         const initialConnections = server.connections;
-        assert.equal((await get(origin, '/health/ready')).status, 200);
+        assert.equal((await get(origin, '/health/ready', headers)).status, 200);
         assert.equal(server.connections, initialConnections, 'warm requests reuse the same TLS connection');
         const held = await Promise.all([probe.pool.connect(), probe.pool.connect()]);
         try {
-          const saturated = await get(origin, '/health/ready');
+          const saturated = await get(origin, '/health/ready', headers);
           assert.equal(saturated.status, 503);
           assertContract(saturated.body, 'Degraded');
           assert.equal(saturated.body.reason, 'database_unavailable');
@@ -295,13 +296,13 @@ test('hosted TLS verifies trust and hostname; warm pool pressure, timeout, abort
         await fixture.client.query('LOCK TABLE public.foundation_migrations IN ACCESS EXCLUSIVE MODE');
         try {
           const began = performance.now();
-          const blocked = await get(origin, '/health/ready');
+          const blocked = await get(origin, '/health/ready', headers);
           assert.equal(blocked.status, 503);
           assertContract(blocked.body, 'Degraded');
           assert.equal(blocked.body.reason, 'database_timeout');
           assert.ok(performance.now() - began < 4000);
           const acquired = once(probe.pool, 'acquire');
-          const pending = request(origin + '/health/ready');
+          const pending = request(origin + '/health/ready', { headers });
           pending.on('error', () => {});
           pending.end();
           await acquired;
@@ -311,11 +312,11 @@ test('hosted TLS verifies trust and hostname; warm pool pressure, timeout, abort
           assert.equal(probe.pool.totalCount - probe.pool.idleCount, 0);
           assert.equal(probe.pool.waitingCount, 0);
         } finally { await fixture.client.query('ROLLBACK'); }
-        assert.equal((await get(origin, '/health/ready')).status, 200);
+        assert.equal((await get(origin, '/health/ready', headers)).status, 200);
         // Exercise the real pg idle timer with live sockets; await removal, not a guessed sleep.
         while (probe.pool.totalCount > 0) await once(probe.pool, 'remove');
         assert.equal(probe.pool.totalCount, 0, 'idle hosted sessions drain without process shutdown');
-        assert.equal((await get(origin, '/health/ready')).status, 200);
+        assert.equal((await get(origin, '/health/ready', headers)).status, 200);
       } finally { await app.close(); }
       assert.equal(probe.pool.totalCount, 0);
     });
@@ -452,6 +453,7 @@ test('release serialization, failure boundaries and exact deployment identity us
       if (mode === 'migration-failure') await writeFile(join(migrations, '1792972800001-failure.mjs'),
         "export function up() { throw new Error('synthetic-provider-secret'); }\n");
       const revision = 'a'.repeat(40);
+      const artifactDigest = 'c'.repeat(64);
       const controller = new AbortController();
       let deployCalls = 0;
       let smokeCalls = 0;
@@ -464,20 +466,26 @@ test('release serialization, failure boundaries and exact deployment identity us
         identity,
         async preflight() {},
         async trigger() {
+          const beforeUpload = await migrationStatus(fixture.database, migrations);
+          assert.equal(beforeUpload.ordered, true);
+          assert.deepEqual(beforeUpload.pending, []);
+          assert.deepEqual(beforeUpload.unexpected, []);
           deployCalls++;
           if (mode === 'cancelled') { controller.abort(); return new Promise(() => {}); }
           if (mode === 'locked') { entered(); await blocked; }
           return { ...identity, id: 'dpl_synthetic', revision: mode === 'wrong-commit' ? 'b'.repeat(40) : revision,
+            artifactDigest,
             project: mode === 'wrong-project' ? 'prj_other' : identity.project,
             status: mode === 'deploy-failure' ? 'failed' : mode === 'provider-canceled' ? 'canceled' : 'building' };
         },
-        async inspect() { return { ...identity, id: mode === 'changed-id' ? 'dpl_other' : 'dpl_synthetic', revision,
+        async inspect() { return { ...identity, id: mode === 'changed-id' ? 'dpl_other' : 'dpl_synthetic', revision, artifactDigest,
           status: ['timeout', 'queued'].includes(mode) ? 'building' : 'ready' }; },
         async smoke() { smokeCalls++; if (mode === 'domain-failure') throw new Error('synthetic-provider-secret'); },
       };
-      const input = { revision, digest: manifestDigest(migrationFiles(migrations)), target: 'local', database: fixture.database,
-        directory: migrations, reportDirectory: join(directory, 'reports'), deployment, pollMs: 1, timeoutMs: ['timeout', 'queued'].includes(mode) ? 1000 : 5000,
-        signal: controller.signal, verifySource: async () => {}, prepare: async () => {} };
+      const input = { revision, digest: manifestDigest(migrationFiles(migrations)), artifactDigest, target: 'local', database: fixture.database,
+        reportDirectory: join(directory, 'reports'), pollMs: 1, timeoutMs: ['timeout', 'queued'].includes(mode) ? 1000 : 5000,
+        signal: controller.signal, verifySource: async () => {},
+        prepare: async () => ({ directory: migrations, deployment, dispose: async () => {} }) };
       const pending = runRelease(input);
       if (mode === 'locked') {
         await enteredPromise;
@@ -518,10 +526,19 @@ test('compiled Vercel-mode package protects routes and verifies loopback TLS out
   const directory = await realpath(await mkdtemp(join(tmpdir(), 'esty-vercel-mode-')));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await cp(new URL('../operator/', import.meta.url), directory, { recursive: true });
+  let runtime = directory, entry = join(directory, 'apps/api/build/src/main.js');
+  if (process.env.NATIVE_ARTIFACT) {
+    const artifact = await snapshotArtifact(verifyArtifact(process.env.NATIVE_ARTIFACT, process.env.NATIVE_ARTIFACT_SHA256!));
+    t.after(artifact.dispose);
+    runtime = join(artifact.root, '.vercel/output/functions/index.func');
+    entry = join(runtime, 'apps/api/src/main.js');
+    t.diagnostic(`Exercising sealed native handler: ${artifact.digest}`);
+  }
   // Test-only transport/DB identity remapping. The copied main/config/guard/TLS
   // code remains unchanged; no DNS or connection can reach the cloud tuple.
   const preload = join(directory, 'synthetic-transport.mjs');
-  await writeFile(preload, `import {Client} from 'pg';
+  await writeFile(preload, `import {createRequire} from 'node:module';
+const {Client}=createRequire(${JSON.stringify(join(runtime, 'apps/api/package.json'))})('pg');
 import net from 'node:net';
 const socketConnect = net.Socket.prototype.connect;
 net.Socket.prototype.connect = function(...args) {
@@ -544,7 +561,7 @@ Client.prototype.connect=function(...args) {
   const port = address.port;
   await new Promise<void>(resolve => reservation.close(() => resolve()));
   const key = 'a'.repeat(64);
-  const nodeArgs = ['--import', preload, join(directory, 'apps/api/build/src/main.js')];
+  const nodeArgs = ['--import', preload, entry];
   const executable = process.platform === 'darwin' ? '/usr/bin/sandbox-exec' : process.execPath;
   const childArgs = process.platform === 'darwin' ? ['-p', '(version 1)(allow default)(deny network-outbound)(allow network-outbound (remote ip \"localhost:*\"))', process.execPath, ...nodeArgs] : nodeArgs;
   const child = spawn(executable, childArgs, {
@@ -566,6 +583,16 @@ Client.prototype.connect=function(...args) {
     });
     const origin = `http://127.0.0.1:${port}`;
     assert.equal((await get(origin, '/health/ready')).status, 401);
+    for (const token of ['malformed', 'b'.repeat(64)]) {
+      assert.equal((await get(origin, '/health/ready', { Authorization: `Bearer ${token}` })).status, 401);
+    }
+    for (const [browserOrigin, status] of [['https://app.lovora.us', 204], ['https://untrusted.example', 401]] as const) {
+      const response = await fetch(origin + '/health/ready', { method: 'OPTIONS',
+        headers: { Origin: browserOrigin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization' } });
+      assert.equal(response.status, status);
+      if (status === 204) assert.equal(response.headers.get('access-control-allow-origin'), browserOrigin);
+      await response.arrayBuffer();
+    }
     assert.equal(peer.connections, 0);
     const headers = { Authorization: `Bearer ${key}` };
     for (const [path, status] of [['/health/live', 200], ['/health/ready', 200], ['/unknown', 404]] as const) {
@@ -574,6 +601,36 @@ Client.prototype.connect=function(...args) {
       await response.arrayBuffer();
     }
     assert.ok(peer.connections > 0);
+    await fixture.admin.query(`ALTER DATABASE "${fixture.name}" ALLOW_CONNECTIONS false`);
+    await fixture.admin.query('SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname=$1 AND application_name=$2', [fixture.name, 'esty-admin-foundation']);
+    try {
+      assert.equal((await fetch(origin + '/health/live', { headers })).status, 200);
+      assert.equal((await fetch(origin + '/health/ready', { headers })).status, 503);
+    } finally { await fixture.admin.query(`ALTER DATABASE "${fixture.name}" ALLOW_CONNECTIONS true`); }
+    assert.equal((await fetch(origin + '/health/ready', { headers })).status, 200);
+    await fixture.client.query('BEGIN; LOCK TABLE public.foundation_migrations IN ACCESS EXCLUSIVE MODE');
+    try {
+      const controller = new AbortController();
+      const pending = fetch(origin + '/health/ready', { headers, signal: controller.signal }).catch(() => undefined);
+      const deadline = Date.now() + 3000;
+      let waiting = false;
+      while (Date.now() < deadline) {
+        const active = await fixture.client.query("SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND application_name='esty-admin-foundation' AND wait_event_type='Lock'", [fixture.name]);
+        if (active.rowCount) { waiting = true; break; }
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert.equal(waiting, true);
+      controller.abort(); await pending;
+      let active = 1;
+      while (Date.now() < deadline) {
+        const result = await fixture.client.query("SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND application_name='esty-admin-foundation' AND state='active'", [fixture.name]);
+        active = result.rowCount ?? 0;
+        if (!active) break;
+        await new Promise(resolve => setTimeout(resolve, 20));
+      }
+      assert.equal(active, 0);
+    } finally { await fixture.client.query('ROLLBACK'); }
+    assert.equal((await fetch(origin + '/health/ready', { headers })).status, 200);
     assert.doesNotMatch(output, /synthetic-only|postgresql|BEGIN CERTIFICATE/);
   } finally {
     child.kill('SIGTERM');

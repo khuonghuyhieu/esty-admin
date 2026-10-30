@@ -9,6 +9,8 @@ import { assertSourceApproval, runRelease } from './release-core.js';
 import { parseDeployConfig, vercelDeployment } from './vercel-deploy.js';
 import { manifestDigest } from './migrations.js';
 import { migrationFiles } from './migration-files.mjs';
+import { assertSourceFiles, snapshotArtifact, verifyArtifact } from './artifact.js';
+import type { VerifiedArtifact } from './artifact.js';
 
 const root = fileURLToPath(new URL('../../../../', import.meta.url));
 async function command(binary: string, args: string[], signal: AbortSignal): Promise<string> {
@@ -35,7 +37,7 @@ async function command(binary: string, args: string[], signal: AbortSignal): Pro
 }
 const args = process.argv.slice(2);
 if (args.length === 0) {
-  console.info('RELEASE_APPROVAL_REQUIRED: use --approve-release --commit <40hex> --manifest <64hex> --operator-file <private-json> --deploy-file <separate-private-json>. Requires exact clean source, native proof, approved target/write/deploy scope and existing Vercel project with automatic Git deployment disabled. No operation performed.');
+  console.info('RELEASE_APPROVAL_REQUIRED: --approve-release --commit <40hex> --manifest <64hex> --artifact <sealed-directory> --artifact-sha256 <64hex> --operator-file <private-json> --deploy-file <separate-private-json>. Requires exact clean published source and Linux/x64 native artifact. No operation performed.');
 } else {
   const abort = new AbortController();
   const cancel = () => abort.abort();
@@ -47,12 +49,15 @@ if (args.length === 0) {
     for (let i = 0; i < args.length; i++) {
       const key = args[i]!;
       if (key === '--approve-release' && !approved) { approved = true; continue; }
-      if (!['--commit', '--manifest', '--operator-file', '--deploy-file'].includes(key) || values.has(key) || !args[i + 1]) throw new Error();
+      if (!['--commit', '--manifest', '--artifact', '--artifact-sha256', '--operator-file', '--deploy-file'].includes(key) || values.has(key) || !args[i + 1]) throw new Error();
       values.set(key, args[++i]!);
     }
-    if (!approved || values.size !== 4 || process.versions.node !== '24.22.1') throw new Error();
+    if (!approved || values.size !== 6 || process.versions.node !== '24.22.1') throw new Error();
     const revision = values.get('--commit')!;
     const digest = values.get('--manifest')!;
+    const artifact = verifyArtifact(resolve(values.get('--artifact')!), values.get('--artifact-sha256')!);
+    if (artifact.manifest.source.mode !== 'release') throw new Error();
+    let snapshot: VerifiedArtifact | undefined;
     const operatorPath = resolve(values.get('--operator-file')!);
     const deployPath = resolve(values.get('--deploy-file')!);
     if (operatorPath === deployPath) throw new Error();
@@ -64,23 +69,32 @@ if (args.length === 0) {
     const database = parseMigrationConfig(operator);
     const deploy = parseDeployConfig(readPrivate(deployPath));
     const verifySource = async () => {
+      verifyArtifact(artifact.root, artifact.digest, { revision, migrationDigest: digest, repository: deploy.REPOSITORY, release: true });
+      if (snapshot) verifyArtifact(snapshot.root, artifact.digest);
+      assertSourceFiles(root, artifact.manifest.source);
       const actual = await command('git', ['rev-parse', 'HEAD'], signal);
       const dirty = await command('git', ['status', '--porcelain', '--untracked-files=all'], signal);
       assertSourceApproval({ revision: actual, dirty: dirty.length > 0, digest: manifestDigest(migrationFiles(join(root, 'apps/api/migrations'))) }, revision, digest);
       const remote = (await command('git', ['remote', 'get-url', 'origin'], signal)).replace(/^git@github\.com:/, 'https://github.com/').replace(/\.git$/, '');
       if (remote !== deploy.REPOSITORY || await command('git', ['branch', '--show-current'], signal) !== 'main') throw new Error();
+      if (await command('git', ['rev-parse', 'HEAD^{tree}'], signal) !== artifact.manifest.source.tree
+        || await command('git', ['rev-parse', 'refs/remotes/origin/main'], signal) !== revision) throw new Error();
       const config: unknown = JSON.parse(readFileSync(join(root, 'apps/api/vercel.json'), 'utf8'));
       if (!config || typeof config !== 'object' || !('framework' in config) || config.framework !== 'nestjs'
         || !('git' in config) || !config.git || typeof config.git !== 'object'
         || !('deploymentEnabled' in config.git) || config.git.deploymentEnabled !== false
         || Object.keys(config).some(key => !['$schema', 'framework', 'functions', 'git'].includes(key))) throw new Error();
     };
-    const report = await runRelease({ revision, digest, target: `supabase:${approvedTarget.SUPABASE_PROJECT_REF}`, database,
+    const report = await runRelease({ revision, digest, artifactDigest: artifact.digest, target: `supabase:${approvedTarget.SUPABASE_PROJECT_REF}`, database,
       reportDirectory: join(root, '.openai/reports/releases'), signal,
       verifySource, prepare: async () => {
-        await command('npm', ['run', 'check', '--workspace=@esty-admin/api'], signal);
-        await command('npm', ['run', 'stage:operator', '--workspace=@esty-admin/api'], signal);
-      }, deployment: vercelDeployment(deploy) });
+        const captured = await snapshotArtifact(artifact);
+        snapshot = captured;
+        try {
+          return { directory: join(captured.root, 'operator/apps/api/migrations'),
+            deployment: vercelDeployment(deploy, captured), dispose: captured.dispose };
+        } catch (error) { await captured.dispose(); throw error; }
+      } });
     console.info(JSON.stringify(report));
     if (report.result !== 'success') process.exitCode = 1;
   } catch {

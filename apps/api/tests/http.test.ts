@@ -3,8 +3,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { request } from 'node:http';
 import test from 'node:test';
 import { PostgresProbe } from '../src/connectivity/adapters/postgres.js';
-import { assertContract, get, silentPeer, startApi } from './helpers.js';
-import { createApplication } from '../src/app.js';
+import { assertContract, createApplication, get, silentPeer, startApi } from './helpers.js';
 import { parseConfig } from '../src/config/config.js';
 
 function url(port: number) {

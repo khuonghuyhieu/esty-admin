@@ -1,6 +1,44 @@
 # Current handoff
 
-Updated: 2026-10-29. Architecture: [ARCH-001](specs/architecture.md). Repository: `e-commerce/esty-admin/`.
+Updated: 2026-10-30. Architecture: [ARCH-001](specs/architecture.md). Repository: `e-commerce/esty-admin/`.
+
+## Owner-authorized expanded BE source publication — 2026-10-30
+
+The owner requested commit/push of the completed expanded native-artifact source and documentation after the original review's P2 correction and coordinator fix-only acceptance. This supersedes the publication stop below only for the reviewed apps/api, feature001 and required BE governance/documentation changes. A fresh FE no-writer/pause receipt covers this serial Git and BE shared-document publication window; FE source/sections and root dependencies remain preserved. Existing actual checks/review are reused, without runtime or suite reruns. No development artifact, private configuration, Linux release build, provider upload, hosted SQL/migration, deployment or DNS operation is included. The publication commit is recorded in Git history; the next preparation item is a clean published Linux/x64 release-artifact build, with external gates still pending.
+
+## READY_FOR_OWNER_MANUAL_ACTIONS — STOP WRITES
+
+Original gpt-6-luna review exit0/session01a18a7c-b31c-7121-ae83-7b4e5ea90b9b found one P2: installed package verification allowed unpublished extra files. OMP fixed the inventory gap and ran affected checks. The coordinator accepted THIS FIX ONLY through read-only inspection of verifier/caller/tests/safe primitives, without a new independent review or test/build run. No unresolved confirmed findings remain in that scoped review; the original review is not rewritten as no-findings. T059/T060 are closed following docs-only checks under the existing unreturned FE lease. Writes stopped; coordinator alone returns the lease/final pT receipt.
+
+Affected checks only: compilation exit0; regression before fix6 pass/9 fail, corrected artifact/package checks31/31; actual driver rejected an extra synthetic executable module before invocation/provenance, and its copied-package temp tree was removed. A fresh public isolated native build/seal passed; no config/HTTP/integration/release/full-suite repeat and no SQL. A failed raw-digest equality assumption was resolved to9 source maps' absolute work-directory prefixes only; the other1002 raw file records match07.
+
+Current development artifact `/private/tmp/esty-artifact-sealed-p2-fix-01`: SHA-256 `daa5921286a680a878b7101589e206075ef2e60d6744f89cc8c3ab89d84234af`; source digest `25d4b12be69144f0cb8f369e170135f55be845cbb49b93e058a8baa6ca025702`. Native/sealed verification and current-source matching passed with duration10/cancellation retained. Node24.22.1/Darwin/arm64 overlay on main@fea68e8, not a clean Linux release artifact. Previous sealed07/SHA `9ff6b2ad0ec34b3404c8a3d6c4db1f02a725c38801f77992c5d8006e1d5fc4af` is explicitly stale for corrected-source approval, preserved only as historical evidence. [P2 resolution and commands](specs/001-connectivity-foundation/plan.md#t059-p2-fix-verification--2026-10-30).
+
+Owner reports conversion, BE Production variables and api DNS already configured; later authorized verification does not require redoing setup, reading private files or disclosing secrets. [README's single owner checklist](README.md#remaining-manual-actions--one-owner-checklist) separates new-source publication approval, clean published Linux exact-artifact build/approval, provider gates, actual Supabase migration/release and alias/TLS/safe HTTP. T054/historical unfulfilled native, hosted and FE gates remain open; no runtime/build/test/install/private/provider/Git action is part of this closeout.
+
+Closeout:9 documents updated/10 checked; data-model unchanged. All68 task IDs retained,55 complete/13 pending; only T059/T060 states changed and the other66 rows match the before-closeout bytes. All55 local file-link targets exist;19 scoped fragments checked,16 resolve and3 pre-existing historical `#source-local-execution--2026-10-28` mismatches remain in README/PROJECT_STATE/quickstart. Initial strict check flagged them; baseline confirmed they predate this closeout, so they are disclosed rather than altering preserved history. No new fragment defect; fences/new whitespace/merge markers and protected historical/FE blocks pass. The single seven-item owner checklist is README.md:399. No source/runtime/build/test/install/private/provider/Git action or new reviewer occurred.
+
+### Prior T061–T068 verification — historical, not rerun for P2
+
+Actual checks: initial focused40/40; expanded artifact/release/HTTP30/30; corrected hosted TLS4/4; final upload-wire/settings10/10 and serialized disposable-fixture release13/13; final native handler1/1. Native HTTP covered missing/malformed/wrong bearer and allowed/denied preflight before DB, live/ready/unknown, DB200→503→200, disconnect cleanup and SIGTERM. Codegen/manifest drift and safe CLI defaults passed. Initial full integration26/30 exposed stale TLS test inputs; only the corrected failures/changed scenarios were rerun, not a claimed full-suite rerun. All native/config/compile/path/network failures and fixes are recorded in [feature001 evidence](specs/001-connectivity-foundation/plan.md#expanded-implementation-evidence--ready_for_review).
+
+The isolated npm install reported6 high-severity dependency advisories; no dependency upgrade was authorized or performed. Real Vercel prebuilt/file attestation/settings/worker enforcement, Linux release artifact, Hobby eligibility, Supabase-cloud migration, api.lovora.us alias/TLS/HTTP and FE caller auth remain gated. No provider upload/deployment, real cloud SQL, private/auth input read, Git mutation/publication, root install or FE edit occurred.
+
+Fresh FE pause covered only BE shared-doc hunks; coordinator returns the lease after review/authorized closeout. Protected baseline hashes and existing FE/history documentation blocks matched. Shared pointer was not written. Owned test resources were cleaned; public raw/final evidence is retained, and shared services/volumes plus previous failed diagnostics are preserved.
+
+
+## T054 native investigation — BLOCKED, 2026-10-29
+
+The renewed sole-writer investigation on published main@fea68e80aeebcf59e87bdb8937d6fdfdb03db43b is blocked; source writes paused, not READY_FOR_REVIEW. Scope used a fresh FE pause for BE-only shared documentation. T057–T060 were added before the env correction; all original56 IDs/checkmarks remain. No Git mutation, reviewer, private input/read, real SQL, deployment, DNS or billing action.
+
+CLI65.4.0's actual apps/api/NestJS build rejects functions.src/main.ts before install (coordinator attempt); isolated catch-all also exits1. Diagnostic removal only in `/private/tmp/esty-api-native-fix-7nyjm23o/source` exits0 after193 public package installs/API build, but native .vc-config.json lacks duration/cancellation and selects apps/api/src/app.js. Guarded emitted-handler smoke exits1 with zero listeners. Public65.7.0 tarball source retains the validator gap; it was not installed/executed. No native fix/acceptance is claimed; repository vercel.json/runtime/dependencies stay unchanged.
+
+Reachable correction: apps/api/.env.example active Render block is now truthful Vercel Production instructions. Synthetic parser smoke exits0, with verified TLS/Session/bearer/origin retained and no connection. Isolated Node24 config9/9 + HTTP4/4 pass under exact-loopback socket guard/macOS sandbox; no real DB/SQL. Initial sandbox profile exits65 before tests because macOS requires localhost rather than literal127.0.0.1 in the filter; corrected profile passes. Exact attempts, commands, native failure and metadata limits: [T054 evidence](specs/001-connectivity-foundation/plan.md#t054-investigation-results--blocked-not-native-acceptance).
+
+The public temp copy manually recreates coordinator-verified relevant settings, not a full genuine pull; its production env is zero bytes and HOME/auth/npm configs are empty. Owner reports conversion/Production vars and domain configured, but no production deployment; not SQL/domain HTTP proof. Hobby eligibility, genuine settings/native and external gates stay open. A supported controls-preserving builder path or explicitly reviewed alternative is required before source repair/new T059 review/later T060 docs closeout. No dummy function, dropped cancellation, framework switch, cached dependency patch or experimental flag was committed.
+
+Public diagnostic logs/output retained for coordinator inspection; throwaway smoke/guard scripts removed after evidence capture, no owned process/socket/DB remains. Protected root package/lock/ignore/pointer and repository vercel.json match the pre-investigation bytes. All existing dated failure/review and FE003/T013/preview/gallery sections below are preserved.
+
 
 ## Owner-authorized BE source publication — 2026-10-29
 

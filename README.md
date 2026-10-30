@@ -325,7 +325,41 @@ Stop/start targets only this local project and preserves its data volumes/histor
 
 Reports include source/target/manifest, stage, attributable failed version, attempted outcomes and committed before/after history. A lost commit/rollback acknowledgement remains `unknown`; do not infer rollback. A report-write failure exits nonzero while preserving a known committed DB outcome. Manifest hashes validate reviewed assets, not historic DB-stored checksums. Never rewrite an applied migration; create a new version and regenerate/review the manifest. Older API readiness may degrade after a newer full history is applied; no automatic database rollback is provided.
 
-### Vercel owner conversion and release — source/local checks and review complete
+### Application-owned native artifact — source/local work only
+
+Use Node24.22.1 and the unchanged public CLI65.4.0 package. The build driver copies only enumerated public API build inputs into a new directory outside this repository. It uses empty HOME/auth and separate empty npm user/global configurations, a zero-byte production env, disabled telemetry and a locked API-workspace `npm ci` in that public copy. No repository install, private input, provider upload or deployment occurs. The copied project metadata is a relevant subset, not a full settings pull.
+
+```sh
+npm run build --workspace=@esty-admin/api
+npm run artifact:build --workspace=@esty-admin/api -- \
+  --repository "$REPOSITORY_ROOT" --work "$NEW_PUBLIC_WORK_DIRECTORY" \
+  --destination "$NEW_ARTIFACT_DIRECTORY" --cli "$PUBLIC_CLI_DIST_VC_JS" \
+  --mode development
+```
+
+The output records an independently approvable SHA-256 of `provenance.json`, source/tree/overlay and public tool integrity, raw runtime inventory, normalized final file modes/content, migration assets and exact project/target. Raw output stays under the work directory; only the validated sealed output has duration10/cancellation. Development artifacts are explicitly non-releasable. Future `--mode release` requires clean published main on Linux/x64; neither a manifest nor a local build authorizes publication or deployment.
+
+For the separately authorized standalone fixture only, exercise the sealed emitted handler using the existing integration journey:
+
+```sh
+npm run stage:operator --workspace=@esty-admin/api
+TEST_DATABASE_URL=postgresql://foundation_local:local_fixture_only@127.0.0.1:55432/foundation_local \
+  NATIVE_ARTIFACT="$SEALED_ARTIFACT" NATIVE_ARTIFACT_SHA256="$APPROVED_ARTIFACT_SHA256" \
+  node --test apps/api/build/tests/integration.test.js
+```
+
+The harness reports the exact artifact digest and remaps only synthetic Session/TLS transport to test-owned databases on loopback55432. Never substitute Supabase-local main or cloud. Local disconnect/shutdown and emitted controls do not prove Vercel worker cancellation or duration enforcement.
+
+READY_FOR_OWNER_MANUAL_ACTIONS; STOP WRITES. T059 is resolved: original Luna review session01a18a7c-b31c-7121-ae83-7b4e5ea90b9b reported one P2; OMP fixed it and ran affected checks, then the coordinator accepted THIS FIX ONLY through read-only inspection. No unresolved confirmed findings remain in that scoped review; no new independent reviewer or coordinator test/build run. T060 docs-only checks/closeout are complete, with historical fragment-link limits recorded in plan.md. Current development artifact `/private/tmp/esty-artifact-sealed-p2-fix-01` has SHA-256 `daa5921286a680a878b7101589e206075ef2e60d6744f89cc8c3ab89d84234af`, source digest `25d4b12be69144f0cb8f369e170135f55be845cbb49b93e058a8baa6ca025702`, Darwin/arm64; it is not a clean published Linux release candidate. Previous sealed07/SHA `9ff6b2ad0ec34b3404c8a3d6c4db1f02a725c38801f77992c5d8006e1d5fc4af` retains historical native HTTP proof but is stale for corrected source. [P2 finding, resolution, checks and limits](specs/001-connectivity-foundation/plan.md#t059-p2-fix-verification--2026-10-30) retain9 source-map work-path-only differences and all earlier failures. Earlier npm reported6 high-severity advisories; no dependency upgrade occurred.
+
+For the affected package/artifact checks only, using Node24.22.1:
+
+```sh
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+node --test apps/api/build/tests/artifact.test.js
+```
+
+### Vercel owner conversion and exact-artifact release
 
 ```sh
 npm run config:prepare --workspace=@esty-admin/api
@@ -334,26 +368,43 @@ npm run stage:operator --workspace=@esty-admin/api
 npm run release:approved --workspace=@esty-admin/api
 ```
 
-Verified default preparation prints `OWNER_INPUT_PENDING` before any private read/write; default release prints `RELEASE_APPROVAL_REQUIRED` without Git/provider/SQL. The **owner only**, in a later manual action, may invoke `npm run config:prepare --workspace=@esty-admin/api -- --convert-to-vercel` in their own TTY and enter the hidden confirmation CONVERT. It reads original runtime.json/operator.json and writes separate runtime.vercel.json/operator.vercel.json under `.openai/private/backend/`,0700/0600/no-overwrite/no-symlink. Originals/credentials remain intact; only partial new outputs are cleaned. Synthetic fixtures/real PTY passed; the agent never read real inputs. Outputs never autoload/upload/start services and omit migration confirmations.
+Historical verified defaults: preparation prints `OWNER_INPUT_PENDING` before any private read/write; release prints `RELEASE_APPROVAL_REQUIRED` without Git/provider/SQL. The owner reports conversion and BE Production variables already completed; conversion is not an outstanding step and must not be automatically rerun. For reference only, explicit owner TTY `--convert-to-vercel`/CONVERT writes separate runtime.vercel.json/operator.vercel.json under `.openai/private/backend/` with0700/0600, no-overwrite/no-symlink and partial-new-output cleanup. Originals remain untouched; no secret is sent to chat or an agent, and agents do not inspect real files/values. Synthetic fixtures/PTY evidence remains historical. Outputs never autoload/upload/start services and omit migration confirmations; later authorized verification concerns the intended configuration/target, not repeating conversion.
 
-Future Vercel release invocation, only after genuine native proof, separately requested source publication and concrete target/write/production-target deployment authorization; the new source review is complete:
+Future release requires separate new-source publication approval, independently approved clean published source and a sealed Linux/x64 release artifact, plus provider compatibility/attestation/settings/enforcement/eligibility gates and concrete target/write/production-target deployment authorization. T059 covers the current corrected source; later source changes require their own applicable review. This reference invocation is not authorized by docs closeout:
 
 ```sh
 npm run release:approved --workspace=@esty-admin/api -- --approve-release \
   --commit <approved-full-40hex-commit> --manifest <approved-64hex-manifest-digest> \
+  --artifact <absolute-sealed-artifact-directory> --artifact-sha256 <approved-64hex-artifact-digest> \
   --operator-file <absolute-private-operator.vercel.json> --deploy-file <absolute-private-deploy.vercel.json>
 ```
 
-Do not invoke an approved release during source/local preparation. The driver validates exact clean main/repository/manifest and git.deploymentEnabled=false, fixed BE project/account/root/Node/repository/target, read-only status, versioned migration/report, provider-returned same-commit identity, same-deployment api.lovora.us binding and safe TLS/HTTP smoke. POST200 or READY/provider URL alone is not success. One `.openai/reports/releases/operator.lock` covers the sequence; uncertain identity/state/domain/cancellation/timeouts retain it for owner reconciliation. Never clear blindly. Committed DB plus failed deployment stays distinct; no automatic rollback/reset or raw-provider/secret logs. Only synthetic provider/disposable loopback results are verified so far; see the dated [Vercel evidence](specs/001-connectivity-foundation/plan.md#vercel-adaptation-execution--2026-10-29).
+Do not invoke an approved release during source/local preparation. Under one `.openai/reports/releases/operator.lock`, the driver verifies exact clean published main/tree/public source/manifest/artifact and freezes a verified private snapshot, then runs read-only status, migration/report and exact prebuilt upload/create. No Git rebuild, npm check/build/install or deployment fallback runs during release. Provider-returned deployment/project/owner/target plus full file-tree evidence must match this invocation's uploaded content; arbitrary meta is not proof. Same-deployment api.lovora.us binding and safe TLS/HTTP must hold before and after smoke. POST200/READY/provider URL alone is insufficient. Unknown identity/file evidence/state/domain/cancellation retains the lock for manual reconciliation; committed DB plus failed deploy never triggers automatic rollback. Provider attestation compatibility remains an external fail-closed gate, not locally proven behavior.
+
+### T054 native-build investigation — BLOCKED, 2026-10-29
+
+The new repair is not READY_FOR_REVIEW. CLI65.4.0 targets apps/api/NestJS correctly but rejects function settings before installation; a catch-all glob fails too. Removing functions in an isolated diagnostic copy builds successfully but loses duration10/cancellation and emits the non-bootstrapping `src/app.js` factory. Its emitted-handler smoke fails with zero listeners. Do not deploy that output or remove security/runtime controls to obtain a green build. Public65.7.0 validator inspection shows the same missing dedicated-NestJS exemption; that version was not executed.
+
+The only API-file correction is the active Vercel block in `apps/api/.env.example`. Synthetic env-parser smoke passed; isolated sandboxed config9/9 + HTTP4/4 passed with loopback-only silent peers and no real SQL. Exact commands, first sandbox-profile failure, metadata fidelity and retained public logs are in [T054 evidence](specs/001-connectivity-foundation/plan.md#t054-investigation-results--blocked-not-native-acceptance).
+
+For a separately authorized isolated reproduction only (never the working tree/private runtime), use cached Node24 and CLI with a freshly empty HOME/auth/npm configuration and zero-byte production env file:
+
+```sh
+"$NODE24" "$PUBLIC_CLI" build --prod --non-interactive \
+  --cwd "$PUBLIC_SOURCE_COPY" --global-config "$EMPTY_AUTH_DIRECTORY"
+```
+
+The recorded invocation used `/private/tmp/esty-api-native-fix-7nyjm23o/source` and its sibling `empty-auth`. Relevant verified settings were manually copied, not obtained by a full genuine pull. No --yes, pull/env pull, authenticated launcher, deployment or actual hosted acceptance. T057/T058 remain partial/blocked; coordinator must resolve a controls-preserving supported builder path before the source repair, new T059 review and later T060 docs-only closeout.
 
 ### Remaining manual actions — one owner checklist
 
-1. **Review complete; owner-authorized source publication:** the owner requested commit/push on2026-10-29; see Git history for the publication commit. Coordinator confirmed REVIEW_MODEL_READY and one new gpt-6-luna read-only T055 review, session01a186d0-f5ff-7a80-9210-aaf9cb2a8d40, exit0, no confirmed actionable findings. Existing checks/review are reused; no new source fix or full-suite rerun. Historical A+C review is not substituted. Publication does not execute native build, migrations or deployment. Continue with item2 after push confirmation. FE T014–T016/hosted caller auth remain separate; no shared-key browser bundle or bypass proxy.
-2. **Owner-private conversion/credentials:** run the explicit owner TTY conversion above only as a later owner action; no secrets to agent/chat/argv/env. Preserve original runtime.json/operator.json. Privately review runtime.vercel.json/operator.vercel.json; add operator MIGRATION_TARGET=supabase and matching MIGRATION_CONFIRM_PROJECT_REF only after exact write approval. Create separate0700-parent/0600 deploy.vercel.json with VERCEL_TOKEN, fixed VERCEL_PROJECT_ID above, VERCEL_SCOPE=khuonghuyhieu0705s-projects, genuine VERCEL_TEAM_ID, exact HTTPS GitHub REPOSITORY without .git, DEPLOYMENT_TARGET=production, PREVIEW_ACCESS_KEY, API_ORIGIN=https://api.lovora.us and BROWSER_ORIGIN=https://app.lovora.us. No deploy/operator credential in runtime.
-3. **Existing Vercel project/native proof/eligibility:** verify actual scope/account/project, apps/api root/nestjs/Node24.x, genuine settings/native ESM/decorator/manifest/cancellation proof and intended-use/Hobby eligibility. No paid upgrade/payment/trial. Runtime gets API_RUNTIME=vercel, platform VERCEL/PORT, exact Session tuple/DATABASE_URL, separate bearer key/origin/optional verified CA; no Render/local binding/operator/deploy keys. Disable automatic Git deployment using reviewed git.deploymentEnabled=false; no deploy hooks/dashboard bypass. all_except_custom_domains is not custom-domain denial evidence. Setup/publication requires separate approval.
-4. **Vercel-provided api-only GoDaddy setup:** under setup approval add api.lovora.us to existing BE, obtain exact DNS requirements and verify project-domain ownership before first domain-bound release. No invented CNAME/IP or copied FE records; preserve root/app/mail/nameservers/unrelated records. Initial verified domain can precede deployment; actual alias→approved deployment/TLS acceptance must follow the next step, not a generic provider URL.
-5. **Actual Supabase preflight/migration/release:** after project/native/domain prerequisites, obtain scoped read-only target/schema/history/TLS/privilege/budget proof, then exact migration checksums/write approval. No reset/adopt/drop/grants. Approve explicit Vercel production target for this protected test API; serialize migration/report before same-commit deployment and unchanged migration rerun0. Verify domain alias/TLS and real returned identity, never user metadata as deployed SHA.
-6. **Real domain checks:** through https://api.lovora.us verify authorized live200/ready200 using Supabase cloud, missing/malformed/wrong401, authorized unknown404 and exact-origin OPTIONS. Recheck alias/source before/after smoke and app.lovora.us unchanged. No destructive/failure/load cloud suite or automatic protection bypass. T020/T027–T031/T048/T054 stay pending until genuine evidence exists.
+1. **Owner-authorized new-source publication:** the owner requested commit/push of the corrected BE source/docs on2026-10-30; see Git history for the publication commit. T059's original one-P2 review is resolved through OMP fix/affected checks plus coordinator fix-only acceptance. This new request supersedes the earlier publication stop only for that reviewed scope. Preserve FE changes and historical evidence. After push confirmation, continue with item2; publication does not build a Linux artifact or deploy.
+2. **Linux clean exact-artifact build and approval:** after approved publication, separately authorize the unchanged pinned pipeline on clean published main/Linux/x64. Bind exact commit/tree/source/migration checksums and approve the immutable release-artifact digest. Current Darwin/arm64 p2-fix01 is development-only; sealed07 is stale for corrected source. Neither may substitute for this release candidate.
+3. **Owner-reported conversion and Production environment — verify, do not redo:** owner reports these complete. During later authorized preparation, owner verifies intended target/mode/variable configuration without disclosing values; agents do not read real private/auth files and no secrets go to chat. Preserve originals and separate0700/0600 operator/deploy context. Operator migration confirmations and credentials stay out of runtime; no automatic reconversion, secret overwrite or variable re-entry.
+4. **Provider prebuilt/settings/attestation/enforcement/eligibility gates:** retain coordinator-observed NestJS/apps/api/Node24.x and null build/install/output settings as dated evidence. The public-copy build is not a genuine full settings pull. Before release, separately verify required current settings, prebuilt compatibility, provider file evidence and supported platform execution; real worker cancellation/duration10 enforcement and intended-use/Hobby eligibility remain unverified. Never silently relax a failing gate or claim local/synthetic proof is provider acceptance. No paid upgrade/payment/trial or automatic deployment.
+5. **Owner-reported api DNS setup — verify, do not recreate:** owner reports api.lovora.us records added and Vercel configured. This does not prove an approved deployment alias/TLS/HTTP. Later authorized verification checks existing api-only records against exact Vercel requirements; no automatic DNS mutation. Preserve root/app/mail/nameservers/unrelated records and do not ask the owner to redo reported setup.
+6. **Separately approved Supabase preflight, migration and exact-artifact release:** obtain scoped read-only target/schema/history/TLS/privilege/budget evidence, then exact migration checksum/write approval and explicit Vercel production-target deployment approval. No reset/adopt/drop/grants. Serialize status→migration/report→verified prebuilt upload/create→provider identity/file attestation; confirm unchanged migration rerun0. Unknown or mismatched evidence stops the release; no Git rebuild or bypass fallback.
+7. **Real api.lovora.us alias/TLS/safe HTTP acceptance:** after an explicitly approved deployment, verify alias→same approved deployment and valid TLS before/after safe authorized live200/ready200 on Supabase cloud, missing/malformed/wrong401, authorized unknown404 and exact-origin OPTIONS. Recheck source/artifact binding and app.lovora.us unchanged. No destructive/failure/load cloud suite or automatic protection bypass. T020/T027–T031/T048/T054, historical unfulfilled native gates and FE T014–T016/caller-auth acceptance remain pending; no browser shared key or public bypass proxy.
 
 ## Required BE endpoint — api.lovora.us
 

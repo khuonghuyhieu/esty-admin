@@ -3,8 +3,11 @@ import { readFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import type { Socket } from 'node:net';
 import { once } from 'node:events';
-import { createApplication } from '../src/app.js';
+import { NestFactory } from '@nestjs/core';
+import { configureApplication, createApplicationModule } from '../src/app.js';
 import { parseConfig } from '../src/config/config.js';
+import type { ApiConfig } from '../src/config/config.js';
+import { expectedMigrations } from '../src/generated/migrations.js';
 import type { components } from '../src/generated/api.js';
 
 const contract = JSON.parse(readFileSync(new URL('../../../../specs/001-connectivity-foundation/contracts/openapi.json', import.meta.url), 'utf8'));
@@ -19,6 +22,12 @@ export function assertContract<S extends keyof components['schemas']>(body: unkn
     if ('const' in property) assert.equal(value, property.const);
     if ('enum' in property) assert.ok(property.enum.includes(value));
   }
+}
+
+export async function createApplication(config: ApiConfig, requiredMigrations = expectedMigrations) {
+  const app = await NestFactory.create(createApplicationModule(config, requiredMigrations), { logger: false, abortOnError: false });
+  configureApplication(app, config);
+  return app;
 }
 
 export async function startApi(databaseUrl: string) {
@@ -53,7 +62,7 @@ export async function silentPeer() {
   };
 }
 
-export async function get(origin: string, path: string) {
-  const response = await fetch(origin + path, { signal: AbortSignal.timeout(4500) });
+export async function get(origin: string, path: string, headers?: Record<string, string>) {
+  const response = await fetch(origin + path, { headers, signal: AbortSignal.timeout(4500) });
   return { status: response.status, body: await response.json() };
 }

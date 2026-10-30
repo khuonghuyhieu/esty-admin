@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { Module } from '@nestjs/common';
-import { NestFactory } from '@nestjs/core';
+import type { INestApplication } from '@nestjs/common';
 import type { ApiConfig } from './config/config.js';
 import { PostgresProbe } from './connectivity/adapters/postgres.js';
 import { expectedMigrations } from './generated/migrations.js';
@@ -9,7 +9,7 @@ import { ReadinessService } from './connectivity/application/readiness.js';
 import { HealthController } from './connectivity/transport/health.controller.js';
 import { previewAccess } from './platform/preview-access.js';
 
-export async function createApplication(config: ApiConfig, requiredMigrations = expectedMigrations) {
+export function createApplicationModule(config: ApiConfig, requiredMigrations = expectedMigrations) {
   @Module({
     controllers: [HealthController],
     providers: [
@@ -22,8 +22,10 @@ export async function createApplication(config: ApiConfig, requiredMigrations = 
     ],
   })
   class FoundationModule {}
-  const app = await NestFactory.create(FoundationModule, { logger: false, abortOnError: false });
+  return FoundationModule;
+}
+
+export function configureApplication(app: INestApplication, config: ApiConfig): void {
   if (config.runtime === 'vercel') app.use(previewAccess(config.previewAccessKey!, config.browserOrigin));
   app.enableCors({ origin: config.browserOrigin, methods: ['GET'], credentials: false });
-  return app;
 }

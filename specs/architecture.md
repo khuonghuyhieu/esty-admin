@@ -1,6 +1,19 @@
 # Architecture & implementation spec
 
-Spec: ARCH-001 · Updated: 2026-10-27 · Status: local backend verified; local testing prioritized, existing cloud unchanged; hosted/full connectivity acceptance pending. PROJECT_STATE owns current website evidence.
+Spec: ARCH-001 · Updated: 2026-10-30 · Status: scoped BE source review resolved after its confirmed P2 fix; docs-only owner handoff, hosted/full connectivity acceptance pending. PROJECT_STATE owns current website evidence.
+
+## Current BE review resolution and handoff — 2026-10-30
+
+T059's original independent gpt-6-luna review session01a18a7c-b31c-7121-ae83-7b4e5ea90b9b found one P2, not no findings. OMP corrected complete own-package inventory verification and ran only affected checks. The coordinator accepted the correction through read-only inspection of that fix and existing evidence, with no new reviewer or test/build run. No unresolved confirmed findings remain in that scoped review. T059/T060 are closed after scoped documentation checks, with preserved legacy fragment-link limits recorded in feature001. READY_FOR_OWNER_MANUAL_ACTIONS; STOP WRITES. Coordinator returns the existing FE lease/final pT receipt.
+
+The current p2-fix01 artifact is a Darwin/arm64 development overlay; sealed07 is stale for corrected-source approval. Native failures and the9 source-map work-path-only differences remain recorded in feature001. Neither artifact proves clean Linux published release, real provider attestation/settings/worker enforcement, eligibility or cloud/domain/FE acceptance. Owner-reported conversion/Production-env/api-DNS setup is not repeated or treated as verified runtime success; owner secrets/originals remain untouched. [README's single owner checklist](../README.md#remaining-manual-actions--one-owner-checklist) separates publication approval, Linux exact-artifact build/approval and separately approved provider/Supabase/domain operations. The dated sections below preserve earlier decisions/reviews, not current execution authority.
+
+## Expanded native artifact decision — 2026-10-29
+
+The owner approved feature001 T061–T068 plan-first source/local work: unchanged supported upstream NestJS/Node builders feed an application-owned validated Build Output API v3 artifact with a canonical listening bootstrap, explicit duration10/cancellation, exact source/tree/tool/config/migration/file provenance and prebuilt release consumption. The recorded dedicated-builder/functions and factory-entrypoint failures remain evidence; raw upstream output is not final acceptance. The previous Git-source deployment trigger is retired for this mode rather than rebuilding unsupported config.
+
+One portable NestJS modular API/contract/history remains. Development overlays are non-releasable; future release requires exact clean approved published source and an independently approved immutable artifact. Synthetic transport verifies upload/identity/file/domain sequencing locally; real provider attestation, settings/duration/termination enforcement, Hobby eligibility and api.lovora.us+Supabase-cloud acceptance remain external. No framework switch, upstream patch, new service/dependency, FE change, actual provider upload/deploy/remote SQL/DNS or Git mutation/publication is authorized. Feature001 owns the detailed design/tasks/evidence. Current scope supersedes the historical docs-only stop below; the fresh forwarded FE pause grants BE-only shared documentation until coordinator return.
+
 
 
 ## Latest owner hosting preference — Vercel, 2026-10-29

@@ -1,22 +1,47 @@
 import assert from 'node:assert/strict';
-import test from 'node:test';
+import test, { before, after } from 'node:test';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
+import { artifactFixture } from './artifact-fixture.js';
+import { artifactTarget } from '../scripts/artifact.js';
+import type { VerifiedArtifact } from '../scripts/artifact.js';
+import { chmod, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { createHash } from 'node:crypto';
+let artifact: VerifiedArtifact;
+let dispose: () => Promise<void>;
+before(async () => { const fixture = await artifactFixture(); artifact = fixture.artifact; dispose = fixture.dispose; });
+after(async () => { await dispose?.(); });
+function fileTree(current: VerifiedArtifact) {
+  const root: any[] = [];
+  for (const file of current.manifest.files.filter(file => file.path.startsWith('.vercel/output/'))) {
+    const parts = file.path.split('/'); let children = root;
+    for (const name of parts.slice(0, -1)) {
+      let directory = children.find(entry => entry.name === name);
+      if (!directory) { directory = { name, type: 'directory', children: [] }; children.push(directory); }
+      children = directory.children;
+    }
+    children.push({ name: parts.at(-1), type: 'file', mode: 0o100000 | file.mode, uid: file.sha1 });
+  }
+  return root;
+}
 
 const revision = 'a'.repeat(40);
 const digest = 'b'.repeat(64);
 const deploy = parseDeployConfig({ VERCEL_TOKEN: 'synthetic-provider-token', VERCEL_PROJECT_ID: 'prj_uITHKLUGGE98VxrEcs5FoktBbcls',
-  VERCEL_SCOPE: 'khuonghuyhieu0705s-projects', VERCEL_TEAM_ID: 'team_synthetic', REPOSITORY: 'https://github.com/synthetic/repository',
+  VERCEL_SCOPE: 'khuonghuyhieu0705s-projects', VERCEL_TEAM_ID: artifactTarget.owner, REPOSITORY: 'https://github.com/synthetic/repository',
   DEPLOYMENT_TARGET: 'production', PREVIEW_ACCESS_KEY: 'c'.repeat(64), API_ORIGIN: 'https://api.lovora.us', BROWSER_ORIGIN: 'https://app.lovora.us' });
 const project = { id: deploy.VERCEL_PROJECT_ID, name: 'esty-admin-api', accountId: deploy.VERCEL_TEAM_ID,
-  rootDirectory: 'apps/api', framework: 'nestjs', nodeVersion: '24.x',
+  rootDirectory: 'apps/api', framework: 'nestjs', nodeVersion: '24.x', buildCommand: null, installCommand: null, outputDirectory: null,
   link: { type: 'github', org: 'synthetic', repo: 'repository', repoId: 123, productionBranch: 'main', deployHooks: [] } };
-const deployment = { id: 'dpl_synthetic', projectId: deploy.VERCEL_PROJECT_ID, ownerId: deploy.VERCEL_TEAM_ID, target: 'production', readyState: 'READY',
-  gitSource: { type: 'github', repoId: '123', ref: 'main', sha: revision } };
+const deployment = { id: 'dpl_synthetic', projectId: deploy.VERCEL_PROJECT_ID, ownerId: deploy.VERCEL_TEAM_ID, target: 'production', readyState: 'READY' };
 const domain = { name: 'api.lovora.us', projectId: deploy.VERCEL_PROJECT_ID, verified: true };
 const alias = { alias: 'api.lovora.us', projectId: deploy.VERCEL_PROJECT_ID, deploymentId: deployment.id, deployment: { id: deployment.id } };
-function synthetic(options: { project?: unknown; domain?: unknown; deployment?: unknown; alias?: (count: number) => unknown; smoke?: () => Response; postStatus?: number } = {}) {
+function synthetic(options: { project?: unknown; domain?: unknown; deployment?: unknown; alias?: (count: number) => unknown; smoke?: () => Response; postStatus?: number; files?: unknown; onUpload?: () => Promise<void>; artifact?: VerifiedArtifact } = {}) {
   let bindings = 0, requests = 0;
+  const selected = options.artifact ?? artifact;
+  let uploads = 0, creates = 0;
+  const received = new Map<string, Uint8Array>();
   const transport: typeof fetch = async (input, init) => {
     requests++;
     const url = new URL(String(input));
@@ -28,14 +53,30 @@ function synthetic(options: { project?: unknown; domain?: unknown; deployment?: 
       assert.equal(url.searchParams.get('slug'), deploy.VERCEL_SCOPE);
       if (url.pathname === `/v9/projects/${deploy.VERCEL_PROJECT_ID}`) return Response.json(options.project ?? project);
       if (url.pathname.endsWith('/domains/api.lovora.us')) return Response.json(options.domain ?? domain);
+      if (url.pathname === '/v2/files') {
+        uploads++;
+        assert.equal(init?.method, 'POST'); assert.equal(headers.get('content-type'), 'application/octet-stream');
+        assert.ok(init?.body instanceof Uint8Array);
+        const bytes = init.body;
+        const digest = createHash('sha1').update(bytes).digest('hex');
+        assert.equal(headers.get('x-now-digest'), digest);
+        assert.equal(Number(headers.get('x-now-size')), bytes.byteLength);
+        assert.equal(Number(headers.get('content-length')), bytes.byteLength);
+        received.set(digest, bytes);
+        await options.onUpload?.();
+        return new Response(null, { status: 200 });
+      }
+      if (url.pathname === `/v6/deployments/${deployment.id}/files`) return Response.json(options.files ?? fileTree(selected));
       if (url.pathname === '/v13/deployments' && init?.method === 'POST') {
         const body = JSON.parse(String(init.body));
-        assert.deepEqual(body.gitSource, { type: 'github', repoId: '123', ref: 'main', sha: revision });
+        creates++;
+        assert.equal(url.searchParams.get('prebuilt'), '1'); assert.equal(body.gitSource, undefined);
+        assert.deepEqual(body.files, selected.manifest.files.filter(file => file.path.startsWith('.vercel/output/')).map(file => ({ file: file.path, sha: file.sha1, size: file.size, mode: 0o100000 | file.mode })));
+        for (const file of body.files) assert.equal(received.get(file.sha)?.byteLength, file.size);
         assert.equal(body.project, deploy.VERCEL_PROJECT_ID); assert.equal(body.target, 'production');
         return Response.json({ id: deployment.id, meta: { githubCommitSha: revision } }, { status: options.postStatus ?? 200 });
       }
       if (url.pathname === `/v13/deployments/${deployment.id}`) {
-        assert.equal(url.searchParams.get('withGitRepoInfo'), 'true');
         return Response.json(options.deployment ?? deployment);
       }
       if (url.pathname === '/v4/aliases/api.lovora.us') { bindings++; return Response.json(options.alias?.(bindings) ?? alias); }
@@ -52,7 +93,7 @@ function synthetic(options: { project?: unknown; domain?: unknown; deployment?: 
     if (url.pathname === '/__release_unknown_route') return new Response(null, { status: 404 });
     throw new Error('Unexpected synthetic application route; no network fallback.');
   };
-  return { adapter: vercelDeployment(deploy, transport), bindings: () => bindings, requests: () => requests };
+  return { adapter: vercelDeployment(deploy, selected, transport), bindings: () => bindings, requests: () => requests, uploads: () => uploads, creates: () => creates };
 }
 const signal = () => AbortSignal.timeout(5000);
 test('source approval rejects dirty, mismatched revision and changed manifest', () => {
@@ -70,6 +111,7 @@ test('deploy context rejects retired, mixed, wrong project, implicit target and 
 test('project and verified domain mismatches block deployment', async () => {
   for (const changes of [{ id: 'prj_other' }, { accountId: 'team_other' }, { rootDirectory: 'apps/web' }, { framework: 'nextjs' },
     { nodeVersion: '22.x' }, { commandForIgnoringBuildStep: 'exit 0' }, { link: { ...project.link, productionBranch: 'other' } },
+    { buildCommand: 'unapproved-build' }, { installCommand: 'unapproved-install' }, { outputDirectory: 'other' },
     { link: { ...project.link, deployHooks: [{}] } }, { link: { ...project.link, repoId: undefined } }]) {
     const { adapter } = synthetic({ project: { ...project, ...changes } });
     await assert.rejects(adapter.preflight(signal())); await assert.rejects(adapter.trigger(revision, signal()));
@@ -78,9 +120,8 @@ test('project and verified domain mismatches block deployment', async () => {
     await assert.rejects(synthetic({ domain: { ...domain, ...changes } }).adapter.preflight(signal()));
   }
 });
-test('provider source, project, owner and target must be returned rather than echoed metadata', async () => {
-  for (const changes of [{ gitSource: undefined, meta: { githubCommitSha: revision } }, { gitSource: { ...deployment.gitSource, sha: 'b'.repeat(40) } },
-    { gitSource: { ...deployment.gitSource, repoId: '456' } }, { id: 'dpl_other' }, { projectId: 'prj_other' },
+test('provider identity must match the created prebuilt invocation, not source metadata', async () => {
+  for (const changes of [{ gitSource: { sha: revision } }, { id: 'dpl_other' }, { projectId: 'prj_other' },
     { ownerId: 'team_other' }, { target: 'preview' }, { readyState: 'UNKNOWN' }]) {
     const { adapter } = synthetic({ deployment: { ...deployment, ...changes } });
     await adapter.preflight(signal()); await assert.rejects(adapter.trigger(revision, signal()));
@@ -103,11 +144,35 @@ test('same-deployment domain binding and safe HTTP must both hold before and aft
   for (const changes of [{ deploymentId: 'dpl_old' }, { projectId: 'prj_other' }, { deployment: { id: 'dpl_old' } },
     { deletedAt: 1 }, { redirect: 'https://other.example' }, { microfrontends: {} }]) {
     const current = synthetic({ alias: () => ({ ...alias, ...changes }) });
-    await current.adapter.preflight(signal()); await assert.rejects(current.adapter.smoke(state, signal()));
+    await current.adapter.preflight(signal()); const currentState = await current.adapter.trigger(revision, signal());
+    await assert.rejects(current.adapter.smoke(currentState, signal()));
   }
   const changed = synthetic({ alias: count => count === 1 ? alias : { ...alias, deploymentId: 'dpl_old' } });
-  await changed.adapter.preflight(signal()); await assert.rejects(changed.adapter.smoke(state, signal())); assert.equal(changed.bindings(), 2);
+  await changed.adapter.preflight(signal()); const changedState = await changed.adapter.trigger(revision, signal());
+  await assert.rejects(changed.adapter.smoke(changedState, signal())); assert.equal(changed.bindings(), 2);
   for (const smoke of [() => new Response('<html>Loading</html>'), () => Response.json({ status: 'ready' }), () => new Response(null, { status: 302 })]) {
-    const current = synthetic({ smoke }); await current.adapter.preflight(signal()); await assert.rejects(current.adapter.smoke(state, signal()));
+    const current = synthetic({ smoke }); await current.adapter.preflight(signal()); const currentState = await current.adapter.trigger(revision, signal());
+    await assert.rejects(current.adapter.smoke(currentState, signal()));
   }
+});
+test('missing or altered provider file attestation cannot become ready', async () => {
+  for (const files of [[], [{ name: '.vercel', type: 'directory', children: [] }], [{ name: '../secret', type: 'file' }]]) {
+    const current = synthetic({ files }); await current.adapter.preflight(signal());
+    await assert.rejects(current.adapter.trigger(revision, signal()));
+  }
+});
+test('mutation during upload and cancellation never create a deployment or retry', async t => {
+  for (const mode of ['mutate', 'cancel']) await t.test(mode, async t => {
+    const fixture = await artifactFixture(); t.after(fixture.dispose);
+    const controller = new AbortController();
+    const current = synthetic({ artifact: fixture.artifact, onUpload: async () => {
+      if (mode === 'cancel') { controller.abort(); return; }
+      const path = join(fixture.artifact.root, '.vercel/output/functions/index.func/apps/api/src/main.js');
+      await chmod(path, 0o600); await writeFile(path, 'tampered');
+    } });
+    await current.adapter.preflight(signal());
+    await assert.rejects(current.adapter.trigger(revision, controller.signal));
+    assert.equal(current.creates(), 0);
+    if (mode === 'cancel') assert.equal(current.uploads(), 1);
+  });
 });

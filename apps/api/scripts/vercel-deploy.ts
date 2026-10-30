@@ -1,4 +1,6 @@
 import type { Deployment, DeployState } from './release-core.js';
+import { artifactTarget, readArtifactFile, safePath, verifyArtifact } from './artifact.js';
+import type { VerifiedArtifact } from './artifact.js';
 
 const projectId = 'prj_uITHKLUGGE98VxrEcs5FoktBbcls';
 const scope = 'khuonghuyhieu0705s-projects';
@@ -39,39 +41,66 @@ async function json(response: Response): Promise<Record<string, unknown>> {
   if (text.length > 65536) throw new Error('Unexpected response size.');
   return object(JSON.parse(text));
 }
-export function vercelDeployment(input: DeployConfig, transport: typeof fetch = fetch): Deployment {
+export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact, transport: typeof fetch = fetch): Deployment {
   const config = parseDeployConfig(input);
   const identity = Object.freeze({ provider: 'vercel', project: projectId, owner: config.VERCEL_TEAM_ID, target: config.DEPLOYMENT_TARGET });
   const [org, repo] = config.REPOSITORY.slice('https://github.com/'.length).split('/');
   let repositoryId: string | undefined;
+  let createdId: string | undefined;
+  const verify = () => verifyArtifact(artifact.root, artifact.digest, { revision: artifact.manifest.source.revision,
+    migrationDigest: artifact.manifest.migrationDigest, repository: config.REPOSITORY, release: true });
+  const uploads = artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/'));
+  if (config.VERCEL_TEAM_ID !== artifactTarget.owner || !uploads.length) throw new Error('Artifact target differs.');
   const request = (url: string, signal: AbortSignal, init: RequestInit = {}) => transport(url, {
     ...init, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
   });
-  async function provider(path: string, signal: AbortSignal, init: RequestInit = {}) {
+  async function provider(path: string, signal: AbortSignal, init: RequestInit = {}, expectsJson = true) {
     const url = new URL(path, 'https://api.vercel.com');
     if (url.origin !== 'https://api.vercel.com') throw new Error('Invalid provider endpoint.');
     url.searchParams.set('teamId', config.VERCEL_TEAM_ID); url.searchParams.set('slug', scope);
-    const response = await request(url.href, signal, { ...init, headers: { Authorization: `Bearer ${config.VERCEL_TOKEN}`, 'Content-Type': 'application/json' } });
+    const response = await request(url.href, signal, { ...init, headers: { Authorization: `Bearer ${config.VERCEL_TOKEN}`, 'Content-Type': 'application/json', ...init.headers } });
     if (response.status !== 200 || response.redirected) { await response.body?.cancel(); throw new Error('Provider response not confirmed.'); }
+    if (!expectsJson) { await response.body?.cancel(); return {}; }
     return json(response);
   }
   function state(value: Record<string, unknown>): DeployState {
-    const source = object(value.gitSource);
     const states: Record<string, DeployState['status']> = { QUEUED: 'queued', INITIALIZING: 'building', BUILDING: 'building', READY: 'ready', ERROR: 'failed', BLOCKED: 'failed', CANCELED: 'canceled' };
     const status = typeof value.readyState === 'string' && Object.hasOwn(states, value.readyState) ? states[value.readyState] : undefined;
-    if (!repositoryId || typeof value.id !== 'string' || !/^dpl_[A-Za-z0-9]+$/.test(value.id) || value.projectId !== projectId
-      || value.ownerId !== identity.owner || value.target !== identity.target || !status
-      || source.type !== 'github' || typeof source.sha !== 'string' || !/^[a-f0-9]{40}$/.test(source.sha)
-      || (source.ref !== undefined && source.ref !== null && source.ref !== 'main')
-      || (source.repoId !== undefined ? String(source.repoId) !== repositoryId : source.org !== org || source.repo !== repo)
-      || (source.org !== undefined && source.org !== org) || (source.repo !== undefined && source.repo !== repo)) throw new Error('Unverified deployment identity.');
-    return { ...identity, id: value.id, revision: source.sha, status };
+    if (!createdId || typeof value.id !== 'string' || value.id !== createdId || value.projectId !== projectId
+      || value.ownerId !== identity.owner || value.target !== identity.target || !status || value.gitSource) throw new Error('Unverified deployment identity.');
+    return { ...identity, id: value.id, revision: artifact.manifest.source.revision, artifactDigest: artifact.digest, status };
   }
   async function inspect(id: string, signal: AbortSignal) {
     if (!/^dpl_[A-Za-z0-9]+$/.test(id)) throw new Error('Invalid deployment identity.');
-    const result = state(await provider(`/v13/deployments/${id}?withGitRepoInfo=true`, signal));
+    const result = state(await provider(`/v13/deployments/${id}`, signal));
     if (result.id !== id) throw new Error('Deployment identity changed.');
+    if (result.status === 'ready') await attest(id, signal);
     return result;
+  }
+  async function attest(id: string, signal: AbortSignal) {
+    verify();
+    const url = new URL(`/v6/deployments/${id}/files`, 'https://api.vercel.com');
+    url.searchParams.set('teamId', config.VERCEL_TEAM_ID); url.searchParams.set('slug', scope);
+    const response = await request(url.href, signal, { headers: { Authorization: `Bearer ${config.VERCEL_TOKEN}` } });
+    if (response.status !== 200 || response.redirected) throw new Error('Artifact attestation unavailable.');
+    const text = await response.text();
+    if (text.length > 8 * 1024 * 1024) throw new Error('Artifact attestation exceeds bounds.');
+    const seen = new Set<string>();
+    function walk(entries: unknown, prefix: string) {
+      if (!Array.isArray(entries)) throw new Error('Unsupported provider file evidence.');
+      for (const raw of entries) {
+        const entry = object(raw), name = string(entry.name);
+        if (name.includes('/')) throw new Error('Ambiguous provider path.');
+        const path = prefix + name; safePath(path);
+        if (entry.type === 'directory') { walk(entry.children, path + '/'); continue; }
+        const expected = uploads.find(file => file.path === path);
+        if (!expected || seen.has(path) || entry.type !== 'file' || entry.uid !== expected.sha1
+          || entry.mode !== (0o100000 | expected.mode)) throw new Error('Provider artifact evidence differs.');
+        seen.add(path);
+      }
+    }
+    walk(JSON.parse(text), '');
+    if (seen.size !== uploads.length) throw new Error('Provider artifact evidence is incomplete.');
   }
   async function domain(signal: AbortSignal) {
     const value = await provider(`/v9/projects/${projectId}/domains/api.lovora.us`, signal);
@@ -90,10 +119,12 @@ export function vercelDeployment(input: DeployConfig, transport: typeof fetch = 
     identity,
     async preflight(signal) {
       repositoryId = undefined;
+      verify();
       const project = await provider(`/v9/projects/${projectId}`, signal);
       const link = object(project.link);
       if (project?.id !== projectId || project.name !== 'esty-admin-api' || project.accountId !== identity.owner
         || project.rootDirectory !== 'apps/api' || project.framework !== 'nestjs' || project.nodeVersion !== '24.x'
+        || project.buildCommand !== null || project.installCommand !== null || project.outputDirectory !== null
         || project.commandForIgnoringBuildStep || link?.type !== 'github' || link.org !== org || link.repo !== repo
         || link.productionBranch !== 'main' || typeof link.repoId !== 'number' || !Number.isSafeInteger(link.repoId) || link.repoId <= 0
         || !Array.isArray(link.deployHooks) || link.deployHooks.length !== 0) throw new Error('Project settings differ from approval.');
@@ -101,18 +132,27 @@ export function vercelDeployment(input: DeployConfig, transport: typeof fetch = 
       repositoryId = String(link.repoId);
     },
     async trigger(revision, signal) {
-      if (!repositoryId || !/^[a-f0-9]{40}$/.test(revision)) throw new Error('Release preflight required.');
-      const response = await provider('/v13/deployments', signal, { method: 'POST', body: JSON.stringify({
+      verify();
+      if (!repositoryId || createdId || revision !== artifact.manifest.source.revision) throw new Error('Exact-artifact preflight required.');
+      for (const file of uploads) {
+        signal.throwIfAborted();
+        const bytes = readArtifactFile(artifact.root, file.path, file);
+        await provider('/v2/files', signal, { method: 'POST', headers: { 'Content-Type': 'application/octet-stream',
+          'Content-Length': String(file.size), 'x-now-digest': file.sha1, 'x-now-size': String(file.size) },
+          body: new Uint8Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength) }, false);
+      }
+      verify(); signal.throwIfAborted();
+      const response = await provider('/v13/deployments?prebuilt=1', signal, { method: 'POST', body: JSON.stringify({
         name: 'esty-admin-api', project: projectId, target: config.DEPLOYMENT_TARGET,
-        gitSource: { type: 'github', repoId: repositoryId, ref: 'main', sha: revision },
+        files: uploads.map(file => ({ file: file.path, sha: file.sha1, size: file.size, mode: 0o100000 | file.mode })),
       }) });
-      const result = await inspect(string(response.id), signal);
-      if (result.revision !== revision) throw new Error('Provider source differs from approval.');
-      return result;
+      createdId = string(response.id);
+      return inspect(createdId, signal);
     },
     inspect,
     async smoke(expected, signal) {
-      if ((['provider', 'project', 'owner', 'target'] as const).some(key => expected[key] !== identity[key]) || expected.status !== 'ready') throw new Error('Unverified smoke identity.');
+      if ((['provider', 'project', 'owner', 'target'] as const).some(key => expected[key] !== identity[key])
+        || expected.artifactDigest !== artifact.digest || expected.status !== 'ready') throw new Error('Unverified smoke identity.');
       await binding(expected, signal);
       const authorization = { Authorization: `Bearer ${config.PREVIEW_ACCESS_KEY}` };
       for (const [path, expectedBody] of [
