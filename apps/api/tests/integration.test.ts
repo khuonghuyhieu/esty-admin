@@ -20,6 +20,9 @@ import { saveMigrationReport } from '../scripts/migration-report.js';
 import { manifestDigest } from '../scripts/migrations.js';
 import { runRelease } from '../scripts/release-core.js';
 import type { Deployment } from '../scripts/release-core.js';
+import type { DeploymentDiagnostics } from '../scripts/release-core.js';
+import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
+import { artifactFixture } from './artifact-fixture.js';
 import { assertContract, createApplication, get, startApi } from './helpers.js';
 import { tlsPostgres } from './tls.js';
 import { snapshotArtifact, verifyArtifact } from '../scripts/artifact.js';
@@ -462,10 +465,13 @@ test('release serialization, failure boundaries and exact deployment identity us
       const enteredPromise = new Promise<void>(resolve => { entered = resolve; });
       const blocked = new Promise<void>(resolve => { unlock = resolve; });
       const identity = { provider: 'vercel', project: 'prj_synthetic', owner: 'team_synthetic', target: 'production' };
+      let operation: DeploymentDiagnostics['operation'] = 'preflight';
       const deployment: Deployment = {
         identity,
+        diagnostics: () => ({ operation, request_state: 'not_started', category: 'unclassified', http_status: null, deploy_id: null }),
         async preflight() {},
         async trigger() {
+          operation = 'create';
           const beforeUpload = await migrationStatus(fixture.database, migrations);
           assert.equal(beforeUpload.ordered, true);
           assert.deepEqual(beforeUpload.pending, []);
@@ -478,9 +484,9 @@ test('release serialization, failure boundaries and exact deployment identity us
             project: mode === 'wrong-project' ? 'prj_other' : identity.project,
             status: mode === 'deploy-failure' ? 'failed' : mode === 'provider-canceled' ? 'canceled' : 'building' };
         },
-        async inspect() { return { ...identity, id: mode === 'changed-id' ? 'dpl_other' : 'dpl_synthetic', revision, artifactDigest,
+        async inspect() { operation = 'inspect'; return { ...identity, id: mode === 'changed-id' ? 'dpl_other' : 'dpl_synthetic', revision, artifactDigest,
           status: ['timeout', 'queued'].includes(mode) ? 'building' : 'ready' }; },
-        async smoke() { smokeCalls++; if (mode === 'domain-failure') throw new Error('synthetic-provider-secret'); },
+        async smoke() { operation = 'smoke'; smokeCalls++; if (mode === 'domain-failure') throw new Error('synthetic-provider-secret'); },
       };
       const input = { revision, digest: manifestDigest(migrationFiles(migrations)), artifactDigest, target: 'local', database: fixture.database,
         reportDirectory: join(directory, 'reports'), pollMs: 1, timeoutMs: ['timeout', 'queued'].includes(mode) ? 1000 : 5000,
@@ -516,6 +522,51 @@ test('release serialization, failure boundaries and exact deployment identity us
       assert.equal(result.reporting, 'written');
     });
   }
+});
+
+test('release failure retains acknowledged deployment and blocks duplicate execution after inspection transport failure', async t => {
+  const fixture = await databaseFixture(t);
+  const packaged = await artifactFixture();
+  t.after(packaged.dispose);
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'esty-release-diagnostic-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const artifact = packaged.artifact;
+  const config = parseDeployConfig({ VERCEL_TOKEN: 'synthetic-provider-token', VERCEL_PROJECT_ID: artifact.manifest.target.project,
+    VERCEL_SCOPE: artifact.manifest.target.scope, VERCEL_TEAM_ID: artifact.manifest.target.owner, REPOSITORY: artifact.manifest.source.repository,
+    DEPLOYMENT_TARGET: 'production', PREVIEW_ACCESS_KEY: 'c'.repeat(64), API_ORIGIN: 'https://api.lovora.us', BROWSER_ORIGIN: 'https://app.lovora.us' });
+  let creates = 0;
+  const transport: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    assert.equal(url.origin, 'https://api.vercel.com');
+    if (url.pathname === `/v9/projects/${config.VERCEL_PROJECT_ID}`) return Response.json({
+      id: config.VERCEL_PROJECT_ID, name: 'esty-admin-api', accountId: config.VERCEL_TEAM_ID, rootDirectory: 'apps/api', framework: 'nestjs',
+      nodeVersion: '24.x', buildCommand: null, installCommand: null, outputDirectory: null,
+      link: { type: 'github', org: 'synthetic', repo: 'repository', repoId: 123, productionBranch: 'main', deployHooks: [] },
+    });
+    if (url.pathname.endsWith('/domains/api.lovora.us')) return Response.json({ name: 'api.lovora.us', projectId: config.VERCEL_PROJECT_ID, verified: true });
+    if (url.pathname === '/v2/files' && init?.method === 'POST') return new Response(null, { status: 200 });
+    if (url.pathname === '/v13/deployments' && init?.method === 'POST') { creates++; return Response.json({ id: 'dpl_acknowledged' }); }
+    if (url.pathname === '/v13/deployments/dpl_acknowledged') throw new TypeError('synthetic-private-message', {
+      cause: Object.assign(new Error('synthetic-private-cause'), { code: 'ECONNRESET' }),
+    });
+    throw new Error('Unexpected synthetic route; no network fallback.');
+  };
+  const deployment = vercelDeployment(config, artifact, transport);
+  const input = { revision: artifact.manifest.source.revision, digest: artifact.manifest.migrationDigest, artifactDigest: artifact.digest,
+    target: 'local', database: fixture.database, reportDirectory: join(directory, 'reports'), verifySource: async () => {},
+    prepare: async () => ({ directory: join(artifact.root, 'operator/apps/api/migrations'), deployment, dispose: async () => {} }) };
+  const completed = await runRelease(input);
+  const persisted = JSON.parse(await readFile(join(input.reportDirectory, completed.run_id + '.json'), 'utf8')) as typeof completed;
+  assert.equal(persisted.result, 'failed'); assert.equal(persisted.deployment, 'unknown'); assert.equal(persisted.lock_retained, true);
+  assert.equal(persisted.migration?.database_outcome, 'committed'); assert.equal(persisted.deploy_id, 'dpl_acknowledged');
+  assert.deepEqual(persisted.deployment_diagnostics, {
+    operation: 'inspect', request_state: 'in_flight', category: 'tcp', http_status: null, deploy_id: 'dpl_acknowledged',
+  });
+  assert.doesNotMatch(JSON.stringify(persisted), /synthetic-private|synthetic-provider-token|postgresql|local_fixture_only|ECONNRESET/);
+  const blocked = await runRelease(input);
+  assert.equal(blocked.result, 'failed'); assert.equal(blocked.migration, null); assert.equal(creates, 1);
+  const lock = JSON.parse(await readFile(join(input.reportDirectory, 'operator.lock'), 'utf8'));
+  assert.equal(lock.run_id, completed.run_id);
 });
 
 test('compiled Vercel-mode package protects routes and verifies loopback TLS outside repository cwd; not native artifact proof', { timeout: 20000 }, async t => {

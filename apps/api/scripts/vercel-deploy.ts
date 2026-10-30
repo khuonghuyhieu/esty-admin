@@ -1,4 +1,4 @@
-import type { Deployment, DeployState } from './release-core.js';
+import type { Deployment, DeploymentDiagnostics, DeployState } from './release-core.js';
 import { artifactTarget, readArtifactFile, safePath, verifyArtifact } from './artifact.js';
 import type { VerifiedArtifact } from './artifact.js';
 
@@ -25,6 +25,26 @@ function fileMode(value: unknown): number {
   if (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 0xffff
     || (typeof value === 'string' && String(mode) !== value)) throw new Error('Invalid provider file mode.');
   return mode;
+}
+const transportCategories: Readonly<Record<string, DeploymentDiagnostics['category']>> = {
+  ENOTFOUND: 'dns', EAI_AGAIN: 'dns',
+  ECONNREFUSED: 'tcp', ECONNRESET: 'tcp', EHOSTUNREACH: 'tcp', ENETUNREACH: 'tcp', EPIPE: 'tcp', UND_ERR_SOCKET: 'tcp',
+  ETIMEDOUT: 'timeout', UND_ERR_CONNECT_TIMEOUT: 'timeout', UND_ERR_HEADERS_TIMEOUT: 'timeout', UND_ERR_BODY_TIMEOUT: 'timeout',
+  ERR_TLS_CERT_ALTNAME_INVALID: 'tls', CERT_HAS_EXPIRED: 'tls', DEPTH_ZERO_SELF_SIGNED_CERT: 'tls',
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'tls', UNABLE_TO_GET_ISSUER_CERT_LOCALLY: 'tls',
+};
+function failureCategory(error: unknown, signal: AbortSignal): DeploymentDiagnostics['category'] {
+  try {
+    if (signal.aborted) return signal.reason?.name === 'TimeoutError' ? 'timeout' : 'aborted';
+    for (let depth = 0; depth < 3 && error && typeof error === 'object'; depth++) {
+      const value = error as { name?: unknown; code?: unknown; cause?: unknown };
+      if (value.name === 'TimeoutError') return 'timeout';
+      if (value.name === 'AbortError') return 'aborted';
+      if (typeof value.code === 'string' && Object.hasOwn(transportCategories, value.code)) return transportCategories[value.code]!;
+      error = value.cause;
+    }
+  } catch { /* Classification must not replace the original failure. */ }
+  return 'unclassified';
 }
 export function parseDeployConfig(value: unknown): DeployConfig {
   const keys = ['VERCEL_TOKEN', 'VERCEL_PROJECT_ID', 'VERCEL_SCOPE', 'VERCEL_TEAM_ID', 'REPOSITORY', 'DEPLOYMENT_TARGET', 'PREVIEW_ACCESS_KEY', 'API_ORIGIN', 'BROWSER_ORIGIN'];
@@ -54,19 +74,36 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
   const [org, repo] = config.REPOSITORY.slice('https://github.com/'.length).split('/');
   let repositoryId: string | undefined;
   let createdId: string | undefined;
+  let operation: DeploymentDiagnostics['operation'] = 'preflight';
+  let requestState: DeploymentDiagnostics['request_state'] = 'not_started';
+  let category: DeploymentDiagnostics['category'] | undefined;
+  let httpStatus: number | null = null;
+  let requestSignal: AbortSignal | undefined;
+  function begin(next: DeploymentDiagnostics['operation']) {
+    operation = next; requestState = 'not_started'; category = undefined; httpStatus = null; requestSignal = undefined;
+  }
   const verify = () => verifyArtifact(artifact.root, artifact.digest, { revision: artifact.manifest.source.revision,
     migrationDigest: artifact.manifest.migrationDigest, repository: config.REPOSITORY, release: true });
   const uploads = artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/'));
   if (config.VERCEL_TEAM_ID !== artifactTarget.owner || !uploads.length) throw new Error('Artifact target differs.');
-  const request = (url: string, signal: AbortSignal, init: RequestInit = {}) => transport(url, {
-    ...init, redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
-  });
+  const request = async (url: string, signal: AbortSignal, init: RequestInit = {}) => {
+    requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
+    requestState = 'in_flight'; category = undefined; httpStatus = null;
+    try {
+      const response = await transport(url, { ...init, redirect: 'error', signal: requestSignal });
+      requestState = 'response_received';
+      httpStatus = response.status >= 100 && response.status <= 599 ? response.status : null;
+      return response;
+    } catch (error) { category = failureCategory(error, requestSignal); throw error; }
+  };
   async function provider(path: string, signal: AbortSignal, init: RequestInit = {}, expectsJson = true) {
     const url = new URL(path, 'https://api.vercel.com');
     if (url.origin !== 'https://api.vercel.com') throw new Error('Invalid provider endpoint.');
     url.searchParams.set('teamId', config.VERCEL_TEAM_ID); url.searchParams.set('slug', scope);
     const response = await request(url.href, signal, { ...init, headers: { Authorization: `Bearer ${config.VERCEL_TOKEN}`, 'Content-Type': 'application/json', ...init.headers } });
-    if (response.status !== 200 || response.redirected) { await response.body?.cancel(); throw new Error('Provider response not confirmed.'); }
+    if (response.status !== 200 || response.redirected) {
+      category = 'http'; await response.body?.cancel(); throw new Error('Provider response not confirmed.');
+    }
     if (!expectsJson) { await response.body?.cancel(); return {}; }
     return json(response);
   }
@@ -78,6 +115,7 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
     return { ...identity, id: value.id, revision: artifact.manifest.source.revision, artifactDigest: artifact.digest, status };
   }
   async function inspect(id: string, signal: AbortSignal) {
+    begin('inspect');
     if (!/^dpl_[A-Za-z0-9]+$/.test(id)) throw new Error('Invalid deployment identity.');
     const result = state(await provider(`/v13/deployments/${id}`, signal));
     if (result.id !== id) throw new Error('Deployment identity changed.');
@@ -85,11 +123,12 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
     return result;
   }
   async function attest(id: string, signal: AbortSignal) {
+    begin('attest');
     verify();
     const url = new URL(`/v6/deployments/${id}/files`, 'https://api.vercel.com');
     url.searchParams.set('teamId', config.VERCEL_TEAM_ID); url.searchParams.set('slug', scope);
     const response = await request(url.href, signal, { headers: { Authorization: `Bearer ${config.VERCEL_TOKEN}` } });
-    if (response.status !== 200 || response.redirected) throw new Error('Artifact attestation unavailable.');
+    if (response.status !== 200 || response.redirected) { category = 'http'; throw new Error('Artifact attestation unavailable.'); }
     const text = await response.text();
     if (text.length > 8 * 1024 * 1024) throw new Error('Artifact attestation exceeds bounds.');
     const seen = new Set<string>();
@@ -138,7 +177,12 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
   }
   return {
     identity,
+    diagnostics(error, signal) {
+      return { operation, request_state: requestState, category: category ?? failureCategory(error, requestSignal ?? signal),
+        http_status: httpStatus, deploy_id: createdId ?? null };
+    },
     async preflight(signal) {
+      begin('preflight');
       repositoryId = undefined;
       verify();
       const project = await provider(`/v9/projects/${projectId}`, signal);
@@ -153,6 +197,7 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
       repositoryId = String(link.repoId);
     },
     async trigger(revision, signal) {
+      begin('upload');
       verify();
       if (!repositoryId || createdId || revision !== artifact.manifest.source.revision) throw new Error('Exact-artifact preflight required.');
       for (const file of uploads) {
@@ -163,18 +208,23 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
           body: new Uint8Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength) }, false);
       }
       verify(); signal.throwIfAborted();
+      begin('create');
       const response = await provider('/v13/deployments?prebuilt=1', signal, { method: 'POST', body: JSON.stringify({
         name: 'esty-admin-api', project: projectId, target: config.DEPLOYMENT_TARGET,
         files: uploads.map(file => ({ file: file.path, sha: file.sha1, size: file.size, mode: 0o100000 | file.mode })),
       }) });
-      createdId = string(response.id);
+      const id = string(response.id);
+      if (!/^dpl_[A-Za-z0-9]{1,124}$/.test(id)) throw new Error('Invalid deployment identity.');
+      createdId = id;
       return inspect(createdId, signal);
     },
     inspect,
     async smoke(expected, signal) {
+      begin('smoke');
       if ((['provider', 'project', 'owner', 'target'] as const).some(key => expected[key] !== identity[key])
         || expected.artifactDigest !== artifact.digest || expected.status !== 'ready') throw new Error('Unverified smoke identity.');
       await binding(expected, signal);
+      begin('smoke');
       const authorization = { Authorization: `Bearer ${config.PREVIEW_ACCESS_KEY}` };
       for (const [path, expectedBody] of [
         ['/health/live', { status: 'ok' }], ['/health/ready', { status: 'ready', database: 'up', migrations: 'current' }],

@@ -12,12 +12,20 @@ import { bounded } from './bounded.js';
 
 export interface DeployIdentity { provider: string; project: string; owner: string; target: string }
 export interface DeployState extends DeployIdentity { id: string; revision: string; artifactDigest: string; status: 'queued' | 'building' | 'ready' | 'failed' | 'canceled' }
+export interface DeploymentDiagnostics {
+  operation: 'preflight' | 'upload' | 'create' | 'inspect' | 'attest' | 'smoke';
+  request_state: 'not_started' | 'in_flight' | 'response_received';
+  category: 'dns' | 'tcp' | 'tls' | 'timeout' | 'aborted' | 'http' | 'unclassified';
+  http_status: number | null;
+  deploy_id: string | null;
+}
 export interface Deployment {
   identity: DeployIdentity;
   preflight(signal: AbortSignal): Promise<void>;
   trigger(revision: string, signal: AbortSignal): Promise<DeployState>;
   inspect(id: string, signal: AbortSignal): Promise<DeployState>;
   smoke(state: DeployState, signal: AbortSignal): Promise<void>;
+  diagnostics(error: unknown, signal: AbortSignal): DeploymentDiagnostics;
 }
 export function assertSourceApproval(actual: { revision: string; dirty: boolean; digest: string }, revision: string, digest: string): void {
   if (!/^[a-f0-9]{40}$/.test(revision) || !/^[a-f0-9]{64}$/.test(digest)
@@ -29,6 +37,7 @@ export interface ReleaseReport {
   migration: MigrationReport | null;
   deployment: 'not_started' | 'unknown' | 'queued' | 'failed' | 'ready';
   deploy_id: string | null; lock_retained: boolean; reporting: 'written' | 'failed';
+  deployment_diagnostics: DeploymentDiagnostics | null;
 }
 export interface PreparedRelease { directory: string; deployment: Deployment; dispose(): Promise<void> }
 export async function runRelease(input: {
@@ -41,7 +50,8 @@ export async function runRelease(input: {
   const report: ReleaseReport = { run_id: randomUUID(), revision: /^[a-f0-9]{40}$/.test(input.revision) ? input.revision : '',
     artifact_digest: /^[a-f0-9]{64}$/.test(input.artifactDigest) ? input.artifactDigest : '',
     manifest_digest: /^[a-f0-9]{64}$/.test(input.digest) ? input.digest : '', target: /^(local|supabase:[a-z]{20})$/.test(input.target) ? input.target : '',
-    result: 'failed', stage: 'config', migration: null, deployment: 'not_started', deploy_id: null, lock_retained: false, reporting: 'written' };
+    result: 'failed', stage: 'config', migration: null, deployment: 'not_started', deploy_id: null,
+    deployment_diagnostics: null, lock_retained: false, reporting: 'written' };
   const signal = AbortSignal.any([input.signal ?? new AbortController().signal, AbortSignal.timeout(input.timeoutMs ?? 900000)]);
   let lock: string | undefined;
   let prepared: PreparedRelease | undefined;
@@ -93,8 +103,12 @@ export async function runRelease(input: {
     await bounded(input.verifySource(), signal);
     report.result = 'success';
     report.stage = 'complete';
-  } catch {
-    // Never copy driver/provider messages, request URLs, response bodies or secrets.
+  } catch (error) {
+    if (prepared && (report.stage === 'provider_preflight' || report.stage === 'deploy' || report.stage === 'smoke')) {
+      report.deployment_diagnostics = prepared.deployment.diagnostics(error, signal);
+      report.deploy_id ??= report.deployment_diagnostics.deploy_id;
+    }
+    // Persist only the adapter's bounded classification, never raw errors or responses.
   } finally {
     report.lock_retained = Boolean(lock && (report.deployment === 'unknown' || report.deployment === 'queued'
       || (report.deployment === 'ready' && report.result !== 'success') || report.migration?.database_outcome === 'unknown'));

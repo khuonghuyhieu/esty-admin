@@ -8,6 +8,7 @@ import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
+import { bounded } from '../scripts/bounded.js';
 let artifact: VerifiedArtifact;
 let dispose: () => Promise<void>;
 before(async () => { const fixture = await artifactFixture(); artifact = fixture.artifact; dispose = fixture.dispose; });
@@ -41,7 +42,7 @@ const project = { id: deploy.VERCEL_PROJECT_ID, name: 'esty-admin-api', accountI
 const deployment = { id: 'dpl_synthetic', projectId: deploy.VERCEL_PROJECT_ID, ownerId: deploy.VERCEL_TEAM_ID, target: 'production', readyState: 'READY' };
 const domain = { name: 'api.lovora.us', projectId: deploy.VERCEL_PROJECT_ID, verified: true };
 const alias = { alias: 'api.lovora.us', projectId: deploy.VERCEL_PROJECT_ID, deploymentId: deployment.id, deployment: { id: deployment.id } };
-function synthetic(options: { project?: unknown; domain?: unknown; deployment?: unknown; alias?: (count: number) => unknown; smoke?: () => Response; postStatus?: number; files?: unknown; onUpload?: () => Promise<void>; artifact?: VerifiedArtifact } = {}) {
+function synthetic(options: { project?: unknown; domain?: unknown; deployment?: unknown; alias?: (count: number) => unknown; smoke?: () => Response; postStatus?: number; createId?: string; files?: unknown; onUpload?: () => Promise<void>; onRequest?: (url: URL, init?: RequestInit) => void; artifact?: VerifiedArtifact } = {}) {
   let bindings = 0, requests = 0;
   const selected = options.artifact ?? artifact;
   let uploads = 0, creates = 0;
@@ -51,6 +52,7 @@ function synthetic(options: { project?: unknown; domain?: unknown; deployment?: 
     const url = new URL(String(input));
     const headers = new Headers(init?.headers);
     assert.equal(init?.redirect, 'error');
+    options.onRequest?.(url, init);
     if (url.origin === 'https://api.vercel.com') {
       assert.equal(headers.get('authorization'), `Bearer ${deploy.VERCEL_TOKEN}`);
       assert.equal(url.searchParams.get('teamId'), deploy.VERCEL_TEAM_ID);
@@ -78,7 +80,7 @@ function synthetic(options: { project?: unknown; domain?: unknown; deployment?: 
         assert.deepEqual(body.files, selected.manifest.files.filter(file => file.path.startsWith('.vercel/output/')).map(file => ({ file: file.path, sha: file.sha1, size: file.size, mode: 0o100000 | file.mode })));
         for (const file of body.files) assert.equal(received.get(file.sha)?.byteLength, file.size);
         assert.equal(body.project, deploy.VERCEL_PROJECT_ID); assert.equal(body.target, 'production');
-        return Response.json({ id: deployment.id, meta: { githubCommitSha: revision } }, { status: options.postStatus ?? 200 });
+        return Response.json({ id: options.createId ?? deployment.id, meta: { githubCommitSha: revision } }, { status: options.postStatus ?? 200 });
       }
       if (url.pathname === `/v13/deployments/${deployment.id}`) {
         return Response.json(options.deployment ?? deployment);
@@ -132,6 +134,75 @@ test('provider identity must match the created prebuilt invocation, not source m
   }
   for (const postStatus of [202, 302, 500]) {
     const { adapter } = synthetic({ postStatus }); await adapter.preflight(signal()); await assert.rejects(adapter.trigger(revision, signal()));
+  }
+});
+
+test('deployment diagnostics classify transport failures without retaining upstream data', async t => {
+  for (const [name, code, expected] of [
+    ['dns', 'ENOTFOUND', 'dns'], ['tcp', 'ECONNRESET', 'tcp'], ['tls', 'ERR_TLS_CERT_ALTNAME_INVALID', 'tls'],
+    ['timeout', 'UND_ERR_HEADERS_TIMEOUT', 'timeout'], ['unknown', 'synthetic-private-code', 'unclassified'],
+  ]) await t.test(name!, async () => {
+    const upstream = new TypeError('synthetic-private-message', { cause: Object.assign(new Error('synthetic-private-cause'), { code }) });
+    const current = synthetic({ onRequest() { throw upstream; } });
+    const active = signal();
+    await assert.rejects(current.adapter.preflight(active));
+    const diagnostics = current.adapter.diagnostics(upstream, active);
+    assert.deepEqual(diagnostics, { operation: 'preflight', request_state: 'in_flight', category: expected, http_status: null, deploy_id: null });
+    assert.doesNotMatch(JSON.stringify(diagnostics), /synthetic-private|https:|ENOTFOUND|ECONNRESET/);
+  });
+});
+test('deployment diagnostics distinguish upload and uncertain create from acknowledged inspection and attestation', async t => {
+  for (const [operation, path, acknowledged] of [
+    ['upload', '/v2/files', false], ['create', '/v13/deployments', false],
+    ['inspect', `/v13/deployments/${deployment.id}`, true], ['attest', `/v6/deployments/${deployment.id}/files`, true],
+  ] as const) await t.test(operation, async () => {
+    const upstream = new TypeError('synthetic-private-message', { cause: { code: 'ECONNRESET' } });
+    const current = synthetic({ onRequest(url) { if (url.pathname === path) throw upstream; } });
+    const active = signal();
+    await current.adapter.preflight(active);
+    await assert.rejects(current.adapter.trigger(revision, active));
+    assert.deepEqual(current.adapter.diagnostics(upstream, active), {
+      operation, request_state: 'in_flight', category: 'tcp', http_status: null, deploy_id: acknowledged ? deployment.id : null,
+    });
+    assert.equal(current.creates(), acknowledged ? 1 : 0);
+  });
+});
+test('HTTP rejection is recorded without turning a create response into acknowledgement', async () => {
+  const current = synthetic({ postStatus: 429 }), active = signal();
+  await current.adapter.preflight(active);
+  await assert.rejects(current.adapter.trigger(revision, active));
+  assert.deepEqual(current.adapter.diagnostics(undefined, active), {
+    operation: 'create', request_state: 'response_received', category: 'http', http_status: 429, deploy_id: null,
+  });
+  assert.equal(current.creates(), 1);
+});
+test('active cancellation classification survives the outer bounded race', async t => {
+  for (const [category, reason] of [['aborted', new Error('synthetic-private-reason')], ['timeout', new DOMException('synthetic-private-reason', 'TimeoutError')]] as const) {
+    await t.test(category, async () => {
+      const controller = new AbortController();
+      const current = synthetic({ onUpload: () => {
+        queueMicrotask(() => controller.abort(reason));
+        return new Promise<void>(() => {});
+      } });
+      await current.adapter.preflight(signal());
+      let failure: unknown;
+      await assert.rejects(bounded(current.adapter.trigger(revision, controller.signal), controller.signal), error => { failure = error; return true; });
+      assert.deepEqual(current.adapter.diagnostics(failure, controller.signal), {
+        operation: 'upload', request_state: 'in_flight', category, http_status: null, deploy_id: null,
+      });
+      assert.equal(current.creates(), 0);
+    });
+  }
+});
+test('unsafe or oversized create identifiers never enter diagnostic reports', async () => {
+  for (const createId of ['https://synthetic-private.example/token', 'dpl_' + 'a'.repeat(125)]) {
+    const current = synthetic({ createId }), active = signal();
+    await current.adapter.preflight(active);
+    await assert.rejects(current.adapter.trigger(revision, active));
+    const diagnostics = current.adapter.diagnostics(undefined, active);
+    assert.equal(diagnostics.operation, 'create'); assert.equal(diagnostics.request_state, 'response_received');
+    assert.equal(diagnostics.deploy_id, null);
+    assert.ok(!JSON.stringify(diagnostics).includes(createId));
   }
 });
 test('normalized pending and terminal provider states are never READY success', async () => {
