@@ -12,7 +12,7 @@ let artifact: VerifiedArtifact;
 let dispose: () => Promise<void>;
 before(async () => { const fixture = await artifactFixture(); artifact = fixture.artifact; dispose = fixture.dispose; });
 after(async () => { await dispose?.(); });
-function fileTree(current: VerifiedArtifact) {
+function fileTree(current: VerifiedArtifact, decimalModes = false) {
   const root: any[] = [];
   for (const file of current.manifest.files.filter(file => file.path.startsWith('.vercel/output/'))) {
     const parts = file.path.split('/'); let children = root;
@@ -21,7 +21,8 @@ function fileTree(current: VerifiedArtifact) {
       if (!directory) { directory = { name, type: 'directory', children: [] }; children.push(directory); }
       children = directory.children;
     }
-    children.push({ name: parts.at(-1), type: 'file', mode: 0o100000 | file.mode, uid: file.sha1 });
+    const mode = 0o100000 | file.mode;
+    children.push({ name: parts.at(-1), type: 'file', mode: decimalModes ? String(mode) : mode, uid: file.sha1 });
   }
   return root;
 }
@@ -160,6 +161,54 @@ test('missing or altered provider file attestation cannot become ready', async (
     const current = synthetic({ files }); await current.adapter.preflight(signal());
     await assert.rejects(current.adapter.trigger(revision, signal()));
   }
+});
+test('canonical decimal provider modes attest the complete approved artifact', async () => {
+  const current = synthetic({ files: fileTree(artifact, true) });
+  await current.adapter.preflight(signal());
+  const state = await current.adapter.trigger(revision, signal());
+  assert.equal(state.status, 'ready');
+  assert.equal(state.artifactDigest, artifact.digest);
+  await current.adapter.smoke(state, signal());
+  assert.equal(current.bindings(), 2);
+});
+test('provider mode normalization rejects coercion, overflow and changed full POSIX values', async t => {
+  const expected = 0o100000 | artifact.manifest.files.find(file => file.path.startsWith('.vercel/output/'))!.mode;
+  const rejected: [string, unknown][] = [
+    ['missing', undefined], ['null', null], ['boolean', true], ['array', [expected]], ['object', { value: expected }],
+    ['empty', ''], ['whitespace', ` ${expected}`], ['trailing whitespace', `${expected}\n`],
+    ['leading zero', `0${expected}`], ['positive sign', `+${expected}`], ['negative', -expected],
+    ['decimal fraction', `${expected}.0`], ['numeric fraction', expected + 0.5], ['exponent', `${expected}e0`],
+    ['hexadecimal', `0x${expected.toString(16)}`], ['octal prefix', `0o${expected.toString(8)}`],
+    ['octal digits', expected.toString(8)], ['suffix', `${expected}x`], ['oversized string', '9'.repeat(100)],
+    ['mode range overflow', 65536], ['bitwise wrap', expected + 2 ** 32], ['unsafe integer', Number.MAX_SAFE_INTEGER + 1],
+    ['permissions only', expected & 0o777], ['special bit', expected | 0o4000],
+    ['different permissions', expected ^ 0o100], ['wrong file type', 0o120000 | (expected & 0o777)],
+    ['wrong decimal mode', String(expected ^ 0o100)],
+  ];
+  for (const [name, mode] of rejected) await t.test(name, async () => {
+    const files = fileTree(artifact, true);
+    const leaves = (entries: any[]): any[] => entries.flatMap(entry => entry.type === 'directory' ? leaves(entry.children) : [entry]);
+    leaves(files)[0].mode = mode;
+    const current = synthetic({ files }); await current.adapter.preflight(signal());
+    await assert.rejects(current.adapter.trigger(revision, signal()));
+    assert.equal(current.bindings(), 0);
+  });
+});
+test('decimal modes do not excuse changed file identity, root or duplicate evidence', async t => {
+  for (const name of ['uid', 'type', 'root', 'path', 'duplicate', 'missing', 'extra']) await t.test(name, async () => {
+    const files = fileTree(artifact, true), directory = files[0].children[0];
+    const file = directory.children.find((entry: any) => entry.type === 'file');
+    if (name === 'uid') file.uid = '0'.repeat(40);
+    if (name === 'type') file.type = 'symlink';
+    if (name === 'root') files[0].name = 'rebased';
+    if (name === 'path') file.name = '../' + file.name;
+    if (name === 'duplicate') directory.children.push({ ...file });
+    if (name === 'missing') directory.children.splice(directory.children.indexOf(file), 1);
+    if (name === 'extra') directory.children.push({ ...file, name: 'unapproved.json' });
+    const current = synthetic({ files }); await current.adapter.preflight(signal());
+    await assert.rejects(current.adapter.trigger(revision, signal()));
+    assert.equal(current.bindings(), 0);
+  });
 });
 test('mutation during upload and cancellation never create a deployment or retry', async t => {
   for (const mode of ['mutate', 'cancel']) await t.test(mode, async t => {

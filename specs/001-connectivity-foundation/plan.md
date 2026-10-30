@@ -2,7 +2,142 @@
 
 Updated: 2026-10-30 · Actual branch: `main` · [Spec](spec.md) · [Tasks](tasks.md) · [Validation guide](quickstart.md)
 
-Status: READY_FOR_OWNER_MANUAL_ACTIONS; STOP WRITES. T059 resolved by coordinator read-only inspection of the confirmed P2 fix; T060 docs-only closeout completed with checks/legacy-link limits below. Original Luna review → one P2 → OMP fix/affected checks → coordinator acceptance; no unresolved confirmed findings remain in that scoped review. No new independent review or runtime/test/build run during acceptance/closeout. P2-fix01 is development-only; sealed07 is stale. Base remains main@fea68e80aeebcf59e87bdb8937d6fdfdb03db43b. Coordinator returns the existing FE lease/final pT receipt; publication/external/hosted/FE gates remain separate.
+Status: scoped compatibility review accepted. ONE independent gpt-6-luna reviewer at `/root/mode_review` confirmed runtime readiness and completed read-only source/test/deployment-contract/plan review with no confirmed actionable correctness, security, regression or test gaps. No reviewer tests/build/edits and no further source fix or suite rerun are needed. Await the explicit current serial Git/index/push receipt before any Git operation. Existing OWNER HOSTED START then covers exact three-file publication, a new clean published Linux artifact and scoped real release execution; old artifact2ad2 remains stale. README/PROJECT_STATE lease was returned unused; only feature001 evidence may change until renewed.
+
+## Hosted deployment-file compatibility prerequisite — 2026-10-30
+
+### Authority and source-first decision
+
+The owner authorized the existing-project minimal Supabase foundation migration, protected exact-prebuilt Vercel release and safe hosted checks, including necessary scoped correctness fixes. The first gate is resolving GETv6 file evidence BEFORE any migration. Only apps/api and feature001 are source-write scope. Private configurations may later be consumed nondisclosing through release tools only; no private/auth/cache read, SQL, provider upload/deployment or Git mutation is part of this source prerequisite. Preserve owner-completed target/TLS/rights/migration-status/project/environment/domain preflights without repeating them. Counts60/9 are not capacity proof. A fresh FE PAUSE/NO-INFLIGHT receipt permits BE-only shared documentation, not FE source, dependencies or browser connectivity.
+
+### Authoritative contract and minimal correction
+
+- [Official endpoint documentation](https://vercel.com/docs/rest-api/deployments/list-deployment-files) shows `"mode": "123"` in its JSON example, while its response schema describes `mode` as a number indicating file type and permissions.
+- [Current official OpenAPI](https://vercel.com/openapi.json), GET `/v6/deployments/{id}/files`, resolves to `FileTree[]` with `mode:number`, required mode/name/type, optional string uid and recursive directory children. Retrieved document SHA-256: `d307b1d2590addf7814c891dde026140d84d7bb2e9e9868adfdeebe6d64f0765`.
+- The [upstream SDK FileTree model](https://github.com/vercel/sdk/blob/main/src/models/filetree.ts) uses `mode: types.number()`. Its [numeric inbound primitive](https://github.com/vercel/sdk/blob/main/src/types/primitives.ts) explicitly converts strings with `Number(x)`. This establishes numeric-string interoperability, not octal interpretation or permission-bit-only equality. The SDK also tolerates other coercions that this release verifier must NOT inherit.
+- Preserve numeric integer modes and accept only canonical unsigned decimal strings, bounded to the full16-bit POSIX mode range0–65535. Compare the resulting complete value exactly with `0o100000 | expected.mode`; never strip file-type/special bits, guess octal/hex, trim whitespace, parse prefixes or default missing values. Reject fractions, signs, exponent syntax, leading-zero strings, overflow, arrays/objects/null/booleans and any changed full mode.
+- Leave rooted paths, entry type, exact SHA-1 uid equality, duplicate/missing/extra-file rejection, artifact verification, project/deployment/alias binding and migration-before-deploy serialization unchanged. Official uid documentation only calls it a unique file identifier; the actual service's path/root/uid behavior remains a fail-closed provider gate, not inferred proof. No path rebasing, opaque-uid substitution or missing-evidence fallback is authorized.
+
+The correction maps existing FR-017/020 and SC-010 to `apps/api/scripts/vercel-deploy.ts` and `apps/api/tests/release.test.ts`; no new tracker/task IDs or dependency are needed. Extend the existing adapter suite for documented decimal strings and malformed/full-mode/path/type/uid evidence. Run affected compilation/regressions and a throwaway real-adapter loopback transport smoke, without credentials, database access or live provider requests. Stop for ONE coordinator Luna review. Because the adapter is a captured source input, the old Linux artifact becomes stale for this correction; only subsequently reviewed/published exact source and a new clean Linux artifact may proceed, under a coordinated serial Git lease.
+
+Public schema/upstream evidence is retained at `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-file-evidence-yr8kavro`. FileTree source SHA-256: `1109fcc5a2011e8355ed5cec9a70e6a09fa5eaee0291f206c98594899a3621d1`; numeric primitive SHA-256: `6cdd660fd38a8329710176df9501358770425f61ca40d1bface7c496aa27b47c`.
+
+### Actual correction and verification
+
+`fileMode` accepts only integer numbers0–65535 or at-most-five-character numeric strings whose decimal conversion round-trips exactly; the unchanged comparison then requires the complete expected regular-file POSIX value. No bitwise conversion/masking of untrusted input, parser default, permission-only equality or path/uid relaxation was introduced. Call signatures and release caller remain unchanged. LSP reported no language server; scoped references confirmed the release entrypoint and existing adapter suite.
+
+The host default Node was26.10.0, so it was not used for behavioral verification. Reused the already-verified immutable official Linux/amd64 Node24.22.1 image and existing public Linux bootstrap dependencies read-only; no install or native build. Only enumerated public source inputs and the two relevant test/fixture files were copied into a disposable checks directory, with empty HOME/Docker config, read-only container rootfs, dropped capabilities and `--network none`. No host repository, private config, auth cache, DB stack or socket was mounted.
+
+Commands inside that isolated copied source:
+
+```sh
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+node --test --test-name-pattern='canonical decimal provider modes' apps/api/build/tests/release.test.js
+# Apply the source correction, recopy only that source, then:
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+node --test apps/api/build/tests/release.test.js
+```
+
+- Before correction: compilation exit0; the new documented-decimal-mode regression failed0pass/1fail with `Provider artifact evidence differs.`.
+- After correction: compilation exit0; affected release suite **47/47**, exit0. Canonical decimal evidence reaches READY and same-deployment smoke;27 malformed/overflow/changed-full-mode cases and7 identity/root/path/type/duplicate/missing/extra cases reject. Existing numeric evidence, source/identity/settings/alias/HTTP/cancellation/upload-mutation checks remain passing. No unrelated/full integration suite was rerun.
+- A throwaway script exercised the compiled corrected adapter over actual HTTP to its own127.0.0.1 server, using the historical sealed artifact read-only solely as public payload evidence. It sent1012 verified payloads to loopback, made one simulated create and five file attestations across1025 local requests. Canonical strings passed; noncanonical string, changed full mode, uid mismatch and root rebasing each rejected on the same simulated deployment without another create. Node24.22.1/linux/x64 were asserted. External provider requests0; SQL0; no new artifact build or old-artifact approval for corrected source.
+- Initial throwaway smoke failed only its cleanup assertion: two socket close events had not yet fired after server-close/setImmediate. The harness was corrected to await each owned socket's actual close event; rerun exit0, retained sockets0. Repository source/tests did not change between smoke attempts. Both logs are preserved, not rewritten as a first-attempt pass.
+
+Retained evidence includes `official-list-deployment-files.json`, `official-file-tree.json`, upstream source snapshots, exact Docker argv/environment, `compile-before.log`, `regression-before.log`, `compile-after.log`, `release-regressions-after.log`, both adapter-smoke logs, `adapter-smoke-result.json` and `review-handoff.json`. Corrected source SHA-256: `fc84c604daeb007ac0ce040572bfff6dc698b914c3ceabf9e12b83de7f8af54a`; affected test SHA-256: `0e3c3a78016f3c654bf41a56bb207b64977e6cab237030b2555f859db98efe39`. All owned check containers completed with `--rm`; owned HTTP sockets closed and the new disposable copied-source/compiled-output/smoke-harness tree was removed after retaining results. The existing public Linux artifact/snapshot/evidence and both DB volumes remain untouched.
+
+### Review gate and external limits
+
+The coordinator reports ONE independent gpt-6-luna review at `/root/mode_review`, with runtime readiness confirmed and read-only source/test/deployment-contract/plan inspection: no confirmed actionable correctness, security, regression or test gaps. The reviewer ran no tests/build and made no edits. This actual review identity is retained without inventing a CLI session UUID. Review is accepted; no source correction or duplicate affected-suite run is needed. This new compatibility review does not rewrite the earlier one-P2 review/fix-only acceptance. Only the adapter, existing release test and this plan are the authorized publication set. README/PROJECT_STATE remain untouched and their prior fresh docs lease was explicitly returned.
+
+No migration, private-file consumption, provider account/project/deployment call, lock/report deletion, Git publication, replacement artifact build or DNS operation occurred. Owner preflights are retained as owner evidence, not repeated. Real deployment file path/root/uid compatibility must still be reconciled fail-closed; the local synthetic server does not establish provider behavior. After review, coordinate the serial Git lease and exact published clean-source Linux rebuild, reconcile persisted release locks/reports/current deployment before any retry, and continue the owner's authorized minimal migration/protected-prebuilt/same-alias/TLS/access/CORS workflow without a new START. Provider10s/cancellation enforcement and intended-use eligibility remain unproven. FE fixtures still have no API client; T014–T016 and full UI→API→DB acceptance remain open.
+
+Publication handoff: the coordinator requested a fresh serial Git/index/push lease from pV; no Git operation is permitted until its explicit current receipt. Independent preparation may inspect public source/release contracts and record feature001 evidence without source edits or runtime reruns. After receipt, publish only the exact reviewed three files, export the actual published commit/tree/main/origin-main into a clean minimal public snapshot and reuse the verified Linux/amd64 image/pipeline. Never reset/stash the host documentation, fabricate clean Git identity, deploy the stale artifact or silently rebuild source through the provider. Preserve release locks/reports and known committed DB outcomes; do not blindly retry or delete a lock. Private operator/deploy files are consumed only by release tools, narrowly and read-only, with no values in argv/output/logs.
+
+## Published Linux release artifact — 2026-10-30
+
+### Authority and exact source capture
+
+The owner authorized only the unchanged pinned pipeline in explicit Docker linux/amd64 emulation after publication. Coordinator-reported host main/origin-main cleanliness was not redundantly rechecked. The necessary read-only identity export confirmed HEAD/main/origin-main `4e2a6ae4dacad3fb5e8c99009a195f04d1a8bd5e`, tree `1e61dc9cc2ef3962a6eeb6b15377c86e17542fbc`, public origin `https://github.com/khuonghuyhieu/esty-admin`.
+
+Public evidence root: `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-linux-release-mw0fqmt3`. An authorized ephemeral sparse snapshot at `published/` contains the actual published commit, all tree objects and only49 enumerated build-input blobs;111 actual objects were exported, with a shallow boundary at the real commit. Actual main/origin-main refs and a complete tree-derived index were created only in this disposable snapshot. Non-build paths are absent through explicit sparse-checkout patterns, not fabricated clean labels or hidden changes to selected files. Snapshot index/tree/refs/clean status and every selected blob/executable mode were verified; captured bytes matched the host's public inputs before build. No original Git index/HEAD/refs/source mutation, Git network operation, persistent worktree/branch, whole-repo mount, host node_modules or private/auth metadata copy occurred.
+
+The source manifest SHA-256 is `25d4b12be69144f0cb8f369e170135f55be845cbb49b93e058a8baa6ca025702`. It equals the earlier P2-fixed public input digest because those build inputs are unchanged, but this is a new, genuinely built Linux release artifact with the published revision/tree and Linux Node identity; the old Darwin artifact was not relabeled. Sealed07 remains stale and p2-fix01 remains development-only.
+
+### Verified image and tooling
+
+| Identity | Observed value |
+| --- | --- |
+| Official image selection | `docker.io/library/node:24.22.1-bookworm`, explicit `--platform linux/amd64` |
+| Immutable image index | `sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea` |
+| Selected amd64 manifest/image ID | `sha256:0925478b811e8890f5508ad2a75135933310effd45492696ecf7c111c8339d02` |
+| Image config digest | `sha256:8279a176db0ac2d89d4d3ef16063c1990ee00ea98d81e0937ed38117feab7fed` |
+| Actual process | `process.platform=linux`, `process.arch=x64`, Node `24.22.1`, `/usr/local/bin/node` |
+| Node binary SHA-256 | `e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb` |
+| npm / Git inside image | `11.19.1` / `2.39.5` |
+| Vercel CLI | `65.4.0`, own-package digest `c92fd2a7440a10ae025f4ae3ccb61bb3c8c442b8dc10141bfeb1a9cdfb3d34b4` |
+| NestJS builder | `23.0.0`, own-package digest `7897865a1a8d4ce2bfd851aae6d8ace5f15df92cfd049112c90bc892807d4a59` |
+| Node builder | `28.0.0`, own-package digest `93a8931f19c2e1ef32c3f152460787425c2beae74469c42dd7401fb2805129a5` |
+| build-utils | `15.1.0`, own-package digest `2f0bb9c7dfa069f836ba9e34d26c1ef0437d4032dd53a0b8daa170b6a393d2d3` |
+
+The image's official multi-platform index and selected amd64 manifest/config were inspected and retained. A network-none probe proved the actual Node/platform/binary identity and clean source snapshot before installing tools. The Docker CLI used a newly empty public config/HOME and explicit local socket, not cached authentication/configuration. Containers used a read-only root filesystem, dropped capabilities/no-new-privileges and the host UID for the public mounts. Source mounted read-only at `/published`; only new public output storage mounted writable at `/work`. No company/system profile changes.
+
+Public tools were installed only in `/work/tools`, and bootstrap API build dependencies only in `/work/bootstrap`; both installations used empty distinct npm configs, a disposable cache and `--ignore-scripts --no-audit --no-fund`. The actual unchanged native pipeline retained its own locked workspace install command. Original official npm SHA-512 tarball pins and the corrected complete-own-package gate ran before native execution and were revalidated afterward. Linux-compatible dependencies were downloaded fresh; the Darwin CLI/cache was not reused or patched.
+
+### Actual build commands and results
+
+Exact host/container argv and whitelisted environment are retained in `docker-build-command.json`; `work/build-release.mjs` is the public orchestration harness, not repository source. The host pulled the official tag with `docker --config <new-empty-public-config> --host unix:///var/run/docker.sock pull --platform linux/amd64 docker.io/library/node:24.22.1-bookworm`, then ran its immutable index reference with explicit linux/amd64 and `--pull never`. Inside that image:
+
+```sh
+npm install --prefix /work/tools --ignore-scripts --no-audit --no-fund --save-exact \
+  vercel@65.4.0 @vercel/nestjs@23.0.0 @vercel/node@28.0.0 @vercel/build-utils@15.1.0
+# cwd: /work/bootstrap, copied only from the enumerated public snapshot
+npm ci --workspace=@esty-admin/api --include-workspace-root=false --ignore-scripts --no-audit --no-fund
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+# cwd: /work; unchanged published pipeline
+/usr/local/bin/node /work/bootstrap/apps/api/build/scripts/build-artifact.js \
+  --repository /published --work /work/native --destination /work/sealed \
+  --cli /work/tools/node_modules/vercel/dist/vc.js --mode release
+```
+
+All four stages exited0:286 public tool packages,193 bootstrap packages, TypeScript5.9.3 compilation, then the unchanged native CLI/operator staging/sealing pipeline. The native install added193 packages and reported6 high-severity advisories; no audit-fix, dependency change or unrelated suite was run. The source/config/platform guards and duration/cancellation controls were not relaxed.
+
+Two setup attempts are disclosed: unqualified image inspection returned the multi-platform index with empty OS/architecture, so its platform assertion failed; explicit `image inspect --platform linux/amd64` resolved the selected descriptor. Running the bare child manifest digest as an image name exited125 (`No such image`); using the already-pulled immutable index reference with explicit linux/amd64 succeeded. Neither failure executed a native build or caused an arm64 fallback.
+
+### Sealed release artifact and independent revalidation
+
+**Host absolute artifact path:** `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-linux-release-mw0fqmt3/work/sealed`
+
+- Artifact/provenance SHA-256: `2ad2c32c627e20f4aed3f9bbe439811c8671d2d616aa09db9b70076dbf5415ed`.
+- Published commit/tree: `4e2a6ae4dacad3fb5e8c99009a195f04d1a8bd5e` / `1e61dc9cc2ef3962a6eeb6b15377c86e17542fbc`.
+- Source mode/platform: **release / linux / x64**,49 public source files; source digest `25d4b12be69144f0cb8f369e170135f55be845cbb49b93e058a8baa6ca025702`.
+- Migration manifest digest: `243818c0ebe11bc6ea8b12b3224810c88e888b18ec30dd5bfe58394f1f209496`; sole migration `1792972800000-foundation`, SHA-256 `c3374f370c42d8543bde5771d4cddd91990e643e8969fcaf4bf1c5ffe3e4e851`.
+- Raw runtime inventory digest: `74a3330a96e50fb0086b2002f47f062b44b215b0d13f3d04815352dd74c0fda5`;1011 raw runtime files,7200 sealed files/895 directories.
+- Final function: canonical `apps/api/src/main.js`, `nodejs24.x`, `architecture=x86_64`, empty environment, `maxDuration=10`, `supportsCancellation=true`; the original operator/migration closure remains separate.
+
+`node /work/verify-release.mjs` ran in the same pinned linux/amd64 image with `--network none` before and after native behavior checks, both exit0. It called unchanged `verifyArtifact(..., release:true)`/`assertSourceFiles`, verified commit/tree/origin-main/clean snapshot and all49 source blobs/executable modes directly against the real commit, checked migrations/config/node binary, and reran complete published-versus-installed own-package verification for all four tools. Host SHA-256 of the retained provenance matched. The before/after logs and `work/release-verification.json` preserve exact results.
+
+### Native emitted-handler checks — no database or external network
+
+The smoke container used `--network none`, no published ports/host networking/socket bridge, and mounted only the sealed artifact read-only at `/artifact` plus its owned public smoke directory at `/smoke`. No source tree, bootstrap node_modules, existing DB stack/volume, owner HOME/auth/env or private file was mounted. Node24.22.1/linux/x64 was asserted again. The actual emitted `main.js` ran outside source/dependency roots with synthetic credentials and the real hosted config/guard/TLS policy. A test-only preload remapped only the reviewed pg transport host/port to an owned127.0.0.1 silent TCP peer before connect, retained TLS verification and rejected non-loopback sockets; its rejection self-check passed without sending traffic.
+
+The actual smoke exited0:
+
+- Missing/malformed/wrong bearer:401 for all3; allowed OPTIONS204 with exact origin, denied-origin OPTIONS401, authorized live200 with `{status:"ok"}` and unknown404, all with zero DB connection attempts.
+- Authorized readiness against the silent loopback peer:503/`database_timeout` in1034ms. No peer response, PostgreSQL authentication or SQL exchange occurred.
+- Client disconnect during pending acquisition: owned connection released within1010ms; subsequent live200 and zero retained peer sockets.
+- SIGTERM during pending acquisition: process exited by SIGTERM within1041ms, zero retained peer sockets; no forced kill.
+- Exactly3 owned synthetic connections exchanged only the8-byte PostgreSQL SSLRequest. No successful ready200, real DB/TLS/auth/SQL, migration, or provider worker cancellation/10-second enforcement is claimed.
+
+Exact smoke argv/mounts are in `docker-native-smoke-command.json`; result/log/guard events are under `work/smoke/`. This is an unchanged-artifact smoke, not a rerun of config/HTTP/integration/full suites. Original Luna ONE-P2 review, narrow fix31/31/coordinator acceptance, earlier native failures and9 Darwin source-map path-only differences remain unchanged below.
+
+### Retention, after-build documentation and remaining gates
+
+All named owned containers were absent after `--rm` completion; the native child exited and synthetic sockets closed. Both shared database stacks/volumes, host source/index/refs, FE previews/root dependencies/pointer and owner Production-env/apiDNS remain untouched. Retain the immutable artifact and public evidence root: `source-capture.json`, public object pack/snapshot, image descriptors/platform evidence, exact Docker argv, public install/build logs, `work/native/native-build.log`, `work/native/operator-build.log`, raw `work/native/source/.vercel/output`, verification/smoke results and `handoff-evidence.json`. Public temporary tooling/harnesses are retained for reproducibility; no shared cache/image/volume prune or unrelated cleanup.
+
+This plan-only evidence edit occurs AFTER exact clean published capture/build/checks and makes the host worktree dirty. It does not change the sealed artifact's source commit/tree or authorize treating the dirty host checkout as clean; any later release must independently satisfy the existing exact approved-source gate. No README/PROJECT_STATE/governance/task/source edit or publication occurs in this increment.
+
+The next gate is **owner approval of this exact Linux artifact digest**, not deployment. Real provider prebuilt/file attestation/current settings, worker duration/cancellation enforcement and Hobby intended-use eligibility remain unverified. Actual Supabase target preflight/migration/release and api.lovora.us same-deployment alias/TLS/safe HTTP still require separate authorization; owner-reported conversion/Production variables/apiDNS must not be repeated or exposed. T054/hosted/FE/historical unfulfilled task gates remain unchanged. No provider/account/API/auth/env pull/upload/deploy, real SQL, DNS/billing/trial/payment or new reviewer was performed.
+
 
 ## T060 documentation closeout — 2026-10-30
 

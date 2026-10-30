@@ -19,6 +19,13 @@ function string(value: unknown): string {
   if (typeof value !== 'string') throw new Error('Invalid string field.');
   return value;
 }
+function fileMode(value: unknown): number {
+  // The upstream SDK accepts numeric strings; retain only canonical bounded decimal integers.
+  const mode = typeof value === 'string' && value.length <= 5 ? Number(value) : value;
+  if (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 0xffff
+    || (typeof value === 'string' && String(mode) !== value)) throw new Error('Invalid provider file mode.');
+  return mode;
+}
 export function parseDeployConfig(value: unknown): DeployConfig {
   const keys = ['VERCEL_TOKEN', 'VERCEL_PROJECT_ID', 'VERCEL_SCOPE', 'VERCEL_TEAM_ID', 'REPOSITORY', 'DEPLOYMENT_TARGET', 'PREVIEW_ACCESS_KEY', 'API_ORIGIN', 'BROWSER_ORIGIN'];
   const raw = object(value);
@@ -95,7 +102,7 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
         if (entry.type === 'directory') { walk(entry.children, path + '/'); continue; }
         const expected = uploads.find(file => file.path === path);
         if (!expected || seen.has(path) || entry.type !== 'file' || entry.uid !== expected.sha1
-          || entry.mode !== (0o100000 | expected.mode)) throw new Error('Provider artifact evidence differs.');
+          || fileMode(entry.mode) !== (0o100000 | expected.mode)) throw new Error('Provider artifact evidence differs.');
         seen.add(path);
       }
     }
