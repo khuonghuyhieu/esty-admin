@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { readPrivate } from './private-files.mjs';
 import { parseMigrationConfig } from '../src/config/config.js';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
-import { assertSourceApproval, runRelease } from './release-core.js';
+import { assertSourceApproval, runRelease, reconcileRelease } from './release-core.js';
+import type { ReleaseInput } from './release-core.js';
+import { describeRetainedRun, parseSupersessionApproval } from './release-journal.js';
 import { parseDeployConfig, vercelDeployment } from './vercel-deploy.js';
 import { manifestDigest } from './migrations.js';
 import { migrationFiles } from './migration-files.mjs';
@@ -37,22 +39,32 @@ async function command(binary: string, args: string[], signal: AbortSignal): Pro
 }
 const args = process.argv.slice(2);
 if (args.length === 0) {
-  console.info('RELEASE_APPROVAL_REQUIRED: --approve-release --commit <40hex> --manifest <64hex> --artifact <sealed-directory> --artifact-sha256 <64hex> --operator-file <private-json> --deploy-file <separate-private-json>. Requires exact clean published source and Linux/x64 native artifact. No operation performed.');
+  console.info('RELEASE_APPROVAL_REQUIRED: --approve-release --commit <40hex> --manifest <64hex> --artifact <sealed-directory> --artifact-sha256 <64hex> --operator-file <private-json> --deploy-file <separate-private-json> [--current-schema-only [--supersede <owner-approval-json>]]. Read-only: replace --approve-release with --reconcile-run <uuid>, retaining the original schema mode and exact artifact. Offline retained-lock fingerprint: --describe-retained-run <uuid>. Requires exact clean published source and Linux/x64 native artifact; no resume-create or force/unlock. No operation performed.');
 } else {
   const abort = new AbortController();
   const cancel = () => abort.abort();
   process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
   const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(900000)]);
   try {
+    if (args[0] === '--describe-retained-run') {
+      if (args.length !== 2 || process.versions.node !== '24.22.1') throw new Error();
+      console.info(JSON.stringify(describeRetainedRun(join(root, '.openai/reports/releases'), args[1]!)));
+    } else {
     const values = new Map<string, string>();
     let approved = false;
+    let currentOnly = false;
     for (let i = 0; i < args.length; i++) {
       const key = args[i]!;
       if (key === '--approve-release' && !approved) { approved = true; continue; }
-      if (!['--commit', '--manifest', '--artifact', '--artifact-sha256', '--operator-file', '--deploy-file'].includes(key) || values.has(key) || !args[i + 1]) throw new Error();
+      if (key === '--current-schema-only' && !currentOnly) { currentOnly = true; continue; }
+      if (!['--commit', '--manifest', '--artifact', '--artifact-sha256', '--operator-file', '--deploy-file', '--supersede', '--reconcile-run'].includes(key)
+        || values.has(key) || !args[i + 1]) throw new Error();
       values.set(key, args[++i]!);
     }
-    if (!approved || values.size !== 6 || process.versions.node !== '24.22.1') throw new Error();
+    const reconcile = values.get('--reconcile-run');
+    if (approved === Boolean(reconcile) || process.versions.node !== '24.22.1'
+      || !['--commit', '--manifest', '--artifact', '--artifact-sha256', '--operator-file', '--deploy-file'].every(key => values.has(key))
+      || (values.has('--supersede') && (!currentOnly || reconcile))) throw new Error();
     const revision = values.get('--commit')!;
     const digest = values.get('--manifest')!;
     const artifact = verifyArtifact(resolve(values.get('--artifact')!), values.get('--artifact-sha256')!);
@@ -85,8 +97,9 @@ if (args.length === 0) {
         || !('deploymentEnabled' in config.git) || config.git.deploymentEnabled !== false
         || Object.keys(config).some(key => !['$schema', 'framework', 'functions', 'git'].includes(key))) throw new Error();
     };
-    const report = await runRelease({ revision, digest, artifactDigest: artifact.digest, target: `supabase:${approvedTarget.SUPABASE_PROJECT_REF}`, database,
-      reportDirectory: join(root, '.openai/reports/releases'), signal,
+    const supersession = values.has('--supersede') ? parseSupersessionApproval(readPrivate(resolve(values.get('--supersede')!))) : undefined;
+    const input: ReleaseInput = { revision, digest, artifactDigest: artifact.digest, target: `supabase:${approvedTarget.SUPABASE_PROJECT_REF}`, database,
+      mode: currentOnly ? 'current-schema-only' : 'migrate', supersession, reportDirectory: join(root, '.openai/reports/releases'), signal,
       verifySource, prepare: async () => {
         const captured = await snapshotArtifact(artifact);
         snapshot = captured;
@@ -94,11 +107,17 @@ if (args.length === 0) {
           return { directory: join(captured.root, 'operator/apps/api/migrations'),
             deployment: vercelDeployment(deploy, captured), dispose: captured.dispose };
         } catch (error) { await captured.dispose(); throw error; }
-      } });
-    console.info(JSON.stringify(report));
-    if (report.result !== 'success') process.exitCode = 1;
+      } };
+    if (reconcile) {
+      console.info(JSON.stringify(await reconcileRelease(input, reconcile)));
+    } else {
+      const report = await runRelease(input);
+      console.info(JSON.stringify(report));
+      if (report.result !== 'success') process.exitCode = 1;
+    }
+    }
   } catch {
-    console.error('Release refused: verify explicit approval, clean exact source/manifest, separate owner-only operator/deploy files and reviewed target/settings. No secret or upstream error is printed.');
+    console.error('Release refused: verify explicit mode/approval, clean exact source/artifact/manifest, owner-only contexts and durable lock/journal/supersession identity. No secret or upstream error is printed.');
     process.exitCode = 1;
   } finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
 }

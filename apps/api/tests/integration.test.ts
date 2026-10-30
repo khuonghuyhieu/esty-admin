@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { cp, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -18,11 +19,13 @@ import { migrationFiles } from '../scripts/migration-files.mjs';
 import { migrationStatus, runMigrations } from '../scripts/migrations.js';
 import { saveMigrationReport } from '../scripts/migration-report.js';
 import { manifestDigest } from '../scripts/migrations.js';
-import { runRelease } from '../scripts/release-core.js';
-import type { Deployment } from '../scripts/release-core.js';
+import { runRelease, reconcileRelease, assertSourceApproval } from '../scripts/release-core.js';
+import type { Deployment, ReleaseInput } from '../scripts/release-core.js';
+import { describeRetainedRun, readReleaseJournal, writeReleaseEvidence } from '../scripts/release-journal.js';
+import type { ReleaseBinding, SupersessionApproval } from '../scripts/release-journal.js';
 import type { DeploymentDiagnostics } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
-import { artifactFixture } from './artifact-fixture.js';
+import { artifactFixture, fileTree } from './artifact-fixture.js';
 import { assertContract, createApplication, get, startApi } from './helpers.js';
 import { tlsPostgres } from './tls.js';
 import { snapshotArtifact, verifyArtifact } from '../scripts/artifact.js';
@@ -468,17 +471,20 @@ test('release serialization, failure boundaries and exact deployment identity us
       let operation: DeploymentDiagnostics['operation'] = 'preflight';
       const deployment: Deployment = {
         identity,
+        artifact: { revision, digest: artifactDigest, manifestDigest: manifestDigest(migrationFiles(migrations)) },
         diagnostics: () => ({ operation, request_state: 'not_started', category: 'unclassified', http_status: null, deploy_id: null }),
         async preflight() {},
-        async trigger() {
+        async trigger(_revision, _signal, checkpoints) {
           operation = 'create';
           const beforeUpload = await migrationStatus(fixture.database, migrations);
           assert.equal(beforeUpload.ordered, true);
           assert.deepEqual(beforeUpload.pending, []);
           assert.deepEqual(beforeUpload.unexpected, []);
+          await checkpoints.beforeCreate();
           deployCalls++;
           if (mode === 'cancelled') { controller.abort(); return new Promise(() => {}); }
           if (mode === 'locked') { entered(); await blocked; }
+          await checkpoints.acknowledged('dpl_synthetic');
           return { ...identity, id: 'dpl_synthetic', revision: mode === 'wrong-commit' ? 'b'.repeat(40) : revision,
             artifactDigest,
             project: mode === 'wrong-project' ? 'prj_other' : identity.project,
@@ -489,6 +495,7 @@ test('release serialization, failure boundaries and exact deployment identity us
         async smoke() { operation = 'smoke'; smokeCalls++; if (mode === 'domain-failure') throw new Error('synthetic-provider-secret'); },
       };
       const input = { revision, digest: manifestDigest(migrationFiles(migrations)), artifactDigest, target: 'local', database: fixture.database,
+        mode: 'migrate' as const,
         reportDirectory: join(directory, 'reports'), pollMs: 1, timeoutMs: ['timeout', 'queued'].includes(mode) ? 1000 : 5000,
         signal: controller.signal, verifySource: async () => {},
         prepare: async () => ({ directory: migrations, deployment, dispose: async () => {} }) };
@@ -553,6 +560,7 @@ test('release failure retains acknowledged deployment and blocks duplicate execu
   };
   const deployment = vercelDeployment(config, artifact, transport);
   const input = { revision: artifact.manifest.source.revision, digest: artifact.manifest.migrationDigest, artifactDigest: artifact.digest,
+    mode: 'migrate' as const,
     target: 'local', database: fixture.database, reportDirectory: join(directory, 'reports'), verifySource: async () => {},
     prepare: async () => ({ directory: join(artifact.root, 'operator/apps/api/migrations'), deployment, dispose: async () => {} }) };
   const completed = await runRelease(input);
@@ -566,7 +574,7 @@ test('release failure retains acknowledged deployment and blocks duplicate execu
   const blocked = await runRelease(input);
   assert.equal(blocked.result, 'failed'); assert.equal(blocked.migration, null); assert.equal(creates, 1);
   const lock = JSON.parse(await readFile(join(input.reportDirectory, 'operator.lock'), 'utf8'));
-  assert.equal(lock.run_id, completed.run_id);
+  assert.equal(lock.binding.run_id, completed.run_id);
 });
 
 test('compiled Vercel-mode package protects routes and verifies loopback TLS outside repository cwd; not native artifact proof', { timeout: 20000 }, async t => {
@@ -722,4 +730,344 @@ test('cancelled migration reports unknown safely; CLI report-write failure does 
   assert.match(result.stdout, /database=committed; report=failed/);
   assert.doesNotMatch(result.stdout + result.stderr, /postgresql|local_fixture_only|SELECT/);
   assert.deepEqual((await migrationStatus(fixture.database)).applied, expectedMigrations);
+});
+
+async function currentReleaseFixture(t: TestContext, initialize = true) {
+  const db = await databaseFixture(t);
+  const previousId = randomUUID(), previousRevision = 'd'.repeat(40);
+  if (initialize) assert.equal((await runMigrations(db.database, { sourceRevision: previousRevision, target: 'local' })).result, 'success');
+  const packaged = await artifactFixture('release', await readFile(join(migrationsDirectory, `${expectedMigrations[0]}.mjs`), 'utf8'));
+  t.after(packaged.dispose);
+  const artifact = packaged.artifact;
+  const directory = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'esty-current-release-')));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const reportDirectory = join(directory, 'reports'); fs.mkdirSync(reportDirectory, { mode: 0o700 });
+  writeReleaseEvidence(join(reportDirectory, 'operator.lock'), { run_id: previousId, revision: previousRevision });
+  writeReleaseEvidence(join(reportDirectory, `${previousId}.json`), {
+    run_id: previousId, revision: previousRevision, artifact_digest: 'e'.repeat(64), manifest_digest: artifact.manifest.migrationDigest,
+    target: 'local', result: 'failed', stage: 'deploy', deployment: 'unknown', deploy_id: null, lock_retained: true, reporting: 'written',
+    migration: { result: 'success', database_outcome: 'committed', manifest_digest: artifact.manifest.migrationDigest, source_revision: previousRevision },
+  });
+  const binding: ReleaseBinding = { run_id: randomUUID(), revision: artifact.manifest.source.revision, artifact_digest: artifact.digest,
+    manifest_digest: artifact.manifest.migrationDigest, target: 'local', schema_mode: 'current-schema-only' };
+  const previous = describeRetainedRun(reportDirectory, previousId);
+  const approval: SupersessionApproval = { version: 1, decision: 'accept-late-create-alias-risk-and-unresolved-https', previous, next: binding };
+  const config = parseDeployConfig({ VERCEL_TOKEN: 'synthetic-provider-token', VERCEL_PROJECT_ID: artifact.manifest.target.project,
+    VERCEL_SCOPE: artifact.manifest.target.scope, VERCEL_TEAM_ID: artifact.manifest.target.owner, REPOSITORY: artifact.manifest.source.repository,
+    DEPLOYMENT_TARGET: 'production', PREVIEW_ACCESS_KEY: 'c'.repeat(64), API_ORIGIN: 'https://api.lovora.us', BROWSER_ORIGIN: 'https://app.lovora.us' });
+  const counts = { creates: 0, inspections: 0 };
+  const behavior: { create?: () => Promise<Response>; inspectFailure?: boolean; beforeInspect?: () => void } = {};
+  const transport: typeof fetch = async (value, init) => {
+    const url = new URL(String(value)), headers = new Headers(init?.headers);
+    assert.equal(init?.redirect, 'error');
+    if (url.origin === 'https://api.vercel.com') {
+      assert.equal(headers.get('authorization'), `Bearer ${config.VERCEL_TOKEN}`);
+      if (url.pathname === `/v9/projects/${config.VERCEL_PROJECT_ID}`) return Response.json({
+        id: config.VERCEL_PROJECT_ID, name: 'esty-admin-api', accountId: config.VERCEL_TEAM_ID, rootDirectory: 'apps/api', framework: 'nestjs',
+        nodeVersion: '24.x', buildCommand: null, installCommand: null, outputDirectory: null,
+        link: { type: 'github', org: 'synthetic', repo: 'repository', repoId: 123, productionBranch: 'main', deployHooks: [] },
+      });
+      if (url.pathname.endsWith('/domains/api.lovora.us')) return Response.json({ name: 'api.lovora.us', projectId: config.VERCEL_PROJECT_ID, verified: true });
+      if (url.pathname === '/v2/files' && init?.method === 'POST') return new Response(null, { status: 200 });
+      if (url.pathname === '/v13/deployments' && init?.method === 'POST') {
+        counts.creates++;
+        assert.equal(readReleaseJournal(reportDirectory, binding).create_intent, true);
+        return behavior.create ? behavior.create() : Response.json({ id: 'dpl_synthetic' });
+      }
+      if (url.pathname === '/v13/deployments/dpl_synthetic') {
+        counts.inspections++; behavior.beforeInspect?.();
+        if (behavior.inspectFailure) throw new TypeError('synthetic-private-error', { cause: { code: 'ECONNRESET' } });
+        return Response.json({ id: 'dpl_synthetic', projectId: config.VERCEL_PROJECT_ID, ownerId: config.VERCEL_TEAM_ID, target: 'production', readyState: 'READY' });
+      }
+      if (url.pathname === '/v6/deployments/dpl_synthetic/files') return Response.json(fileTree(artifact));
+      if (url.pathname === '/v4/aliases/api.lovora.us') return Response.json({
+        alias: 'api.lovora.us', projectId: config.VERCEL_PROJECT_ID, deploymentId: 'dpl_synthetic', deployment: { id: 'dpl_synthetic' },
+      });
+      throw new Error('Unexpected synthetic provider request; no network fallback.');
+    }
+    assert.equal(url.origin, config.API_ORIGIN);
+    if (init?.method === 'OPTIONS') return headers.get('origin') === config.BROWSER_ORIGIN
+      ? new Response(null, { status: 204, headers: { 'access-control-allow-origin': config.BROWSER_ORIGIN } }) : new Response(null, { status: 401 });
+    if (headers.get('authorization') !== `Bearer ${config.PREVIEW_ACCESS_KEY}`) return Response.json({ status: 'unauthorized' }, { status: 401 });
+    if (url.pathname === '/health/live') return Response.json({ status: 'ok' });
+    if (url.pathname === '/health/ready') return Response.json({ status: 'ready', database: 'up', migrations: 'current' });
+    if (url.pathname === '/__release_unknown_route') return new Response(null, { status: 404 });
+    throw new Error('Unexpected synthetic API request; no network fallback.');
+  };
+  const input: ReleaseInput = {
+    revision: binding.revision, digest: binding.manifest_digest, artifactDigest: binding.artifact_digest, target: 'local',
+    mode: 'current-schema-only', supersession: approval, database: db.database, reportDirectory,
+    async verifySource() {
+      assertSourceApproval({ revision: artifact.manifest.source.revision, dirty: false, digest: artifact.manifest.migrationDigest }, input.revision, input.digest);
+      verifyArtifact(artifact.root, input.artifactDigest);
+    },
+    prepare: async () => ({ directory: join(artifact.root, 'operator/apps/api/migrations'),
+      deployment: vercelDeployment(config, artifact, transport), dispose: async () => {} }),
+  };
+  return { db, directory, reportDirectory, artifact, binding, approval, input, counts, behavior,
+    unchanged: () => assert.deepEqual(describeRetainedRun(reportDirectory, previousId), previous) };
+}
+function reportBytes(directory: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  function visit(path: string) {
+    for (const entry of fs.readdirSync(path, { withFileTypes: true })) {
+      const file = join(path, entry.name);
+      if (entry.isDirectory()) visit(file);
+      else result[file.slice(directory.length)] = fs.readFileSync(file).toString('base64');
+    }
+  }
+  visit(directory); return result;
+}
+function observeQueries(t: TestContext) {
+  const query = Client.prototype.query;
+  const statements: string[] = [];
+  t.mock.method(Client.prototype, 'query', function (this: Client, ...args: any[]) {
+    statements.push(typeof args[0] === 'string' ? args[0] : args[0]?.text ?? '');
+    return (query as any).apply(this, args);
+  });
+  return statements;
+}
+
+test('current-schema-only release performs read-only SQL and reconciles the exact durable ID without another create', async t => {
+  const fixture = await currentReleaseFixture(t);
+  const before = (await fixture.db.client.query('SELECT name, run_on FROM public.foundation_migrations ORDER BY id')).rows;
+  fixture.behavior.beforeInspect = () => assert.equal(readReleaseJournal(fixture.reportDirectory, fixture.binding).deploy_id, 'dpl_synthetic');
+  const statements = observeQueries(t);
+  const report = await runRelease(fixture.input);
+  assert.equal(report.result, 'success'); assert.equal(report.migration, null); assert.equal(report.schema_status, 'current');
+  assert.equal(report.lock_retained, true); assert.equal(report.deploy_id, 'dpl_synthetic'); assert.equal(fixture.counts.creates, 1);
+  const evidence = reportBytes(fixture.reportDirectory);
+  const reconciled = await reconcileRelease(fixture.input, report.run_id);
+  assert.equal(reconciled.deploy_id, report.deploy_id); assert.equal(reconciled.http, 'verified');
+  assert.equal(reconciled.operation, 'read-only-reconciliation');
+  assert.deepEqual(reportBytes(fixture.reportDirectory), evidence);
+  const blocked = await runRelease(fixture.input);
+  assert.equal(blocked.result, 'failed'); assert.equal(fixture.counts.creates, 1);
+  assert.deepEqual(reportBytes(fixture.reportDirectory), evidence);
+  assert.deepEqual((await fixture.db.client.query('SELECT name, run_on FROM public.foundation_migrations ORDER BY id')).rows, before);
+  assert.ok(statements.includes('BEGIN READ ONLY'));
+  assert.deepEqual(statements.filter(sql => !/^(SELECT\b|BEGIN READ ONLY$|COMMIT$)/i.test(sql)), []);
+  fixture.unchanged();
+});
+
+test('current-schema-only refuses noncurrent history and checksum manifest revision artifact drift before create', async t => {
+  for (const mode of ['uninitialized', 'pending', 'unexpected', 'unordered', 'checksum', 'manifest', 'revision', 'artifact']) {
+    await t.test(mode, async t => {
+      const fixture = await currentReleaseFixture(t, mode !== 'uninitialized');
+      if (mode === 'pending') await fixture.db.client.query('DELETE FROM public.foundation_migrations');
+      if (mode === 'unexpected') await fixture.db.client.query("INSERT INTO public.foundation_migrations(name, run_on) VALUES ('1792972800001-unexpected', now())");
+      if (mode === 'unordered') await fixture.db.client.query('INSERT INTO public.foundation_migrations(name, run_on) VALUES ($1, now())', [expectedMigrations[0]]);
+      if (mode === 'checksum') {
+        const directory = join(fixture.directory, 'altered-migrations');
+        await cp(migrationsDirectory, directory, { recursive: true });
+        await writeFile(join(directory, `${expectedMigrations[0]}.mjs`), 'export function up() {}\n');
+        const prepare = fixture.input.prepare;
+        fixture.input.prepare = async () => ({ ...await prepare(), directory });
+      }
+      if (mode === 'manifest') fixture.input.digest = '0'.repeat(64);
+      if (mode === 'revision') fixture.input.revision = '0'.repeat(40);
+      if (mode === 'artifact') fixture.input.artifactDigest = '0'.repeat(64);
+      const statements = observeQueries(t);
+      const result = await runRelease(fixture.input);
+      assert.equal(result.result, 'failed'); assert.equal(result.migration, null); assert.equal(fixture.counts.creates, 0);
+      assert.deepEqual(statements.filter(sql => !/^(SELECT\b|BEGIN READ ONLY$|COMMIT$)/i.test(sql)), []);
+      fixture.unchanged();
+    });
+  }
+});
+
+test('current-schema-only unknown and acknowledged failures retain evidence and never create during reconciliation', async t => {
+  for (const mode of ['lost-create-response', 'inspect-failure']) await t.test(mode, async t => {
+    const fixture = await currentReleaseFixture(t);
+    if (mode === 'lost-create-response') fixture.behavior.create = async () => { throw new TypeError('synthetic-private-error', { cause: { code: 'ECONNRESET' } }); };
+    else fixture.behavior.inspectFailure = true;
+    const failed = await runRelease(fixture.input);
+    assert.equal(failed.result, 'failed'); assert.equal(failed.migration, null); assert.equal(failed.deployment, 'unknown');
+    assert.equal(failed.lock_retained, true); assert.equal(fixture.counts.creates, 1);
+    assert.equal(failed.deploy_id, mode === 'inspect-failure' ? 'dpl_synthetic' : null);
+    const evidence = reportBytes(fixture.reportDirectory);
+    fixture.behavior.inspectFailure = false;
+    const reconciled = await reconcileRelease(fixture.input, failed.run_id);
+    assert.equal(reconciled.deploy_id, failed.deploy_id);
+    assert.equal(reconciled.http, mode === 'inspect-failure' ? 'verified' : 'not_checked');
+    assert.deepEqual(reportBytes(fixture.reportDirectory), evidence);
+    assert.equal((await runRelease(fixture.input)).result, 'failed');
+    assert.equal(fixture.counts.creates, 1);
+    assert.deepEqual(reportBytes(fixture.reportDirectory), evidence);
+    assert.doesNotMatch(JSON.stringify(failed), /synthetic-private|postgresql|local_fixture_only|ECONNRESET/);
+    fixture.unchanged();
+  });
+});
+
+test('current-schema-only late acknowledgement after cancellation is durable without rewriting the failed report', async t => {
+  const fixture = await currentReleaseFixture(t), controller = new AbortController();
+  fixture.input.signal = controller.signal;
+  let accepted!: () => void, respond!: (value: Response) => void, persisted!: () => void;
+  const entered = new Promise<void>(resolve => { accepted = resolve; });
+  const response = new Promise<Response>(resolve => { respond = resolve; });
+  const durable = new Promise<void>(resolve => { persisted = resolve; });
+  fixture.behavior.create = () => { accepted(); return response; };
+  const open = fs.openSync, sync = fs.fsyncSync, close = fs.closeSync, descriptors = new Map<number, string>();
+  t.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => { const fd = open(...args); descriptors.set(fd, String(args[0])); return fd; });
+  t.mock.method(fs, 'closeSync', (fd: number) => { descriptors.delete(fd); return close(fd); });
+  t.mock.method(fs, 'fsyncSync', (fd: number) => { sync(fd); if (descriptors.get(fd)?.endsWith('/acknowledged.json')) persisted(); });
+  const pending = runRelease(fixture.input);
+  await entered; controller.abort();
+  const failed = await pending;
+  const reportPath = join(fixture.reportDirectory, `${failed.run_id}.json`), original = fs.readFileSync(reportPath);
+  assert.equal(failed.deploy_id, null); assert.equal(failed.lock_retained, true);
+  respond(Response.json({ id: 'dpl_synthetic' }));
+  await Promise.race([durable, new Promise((_, reject) => { const timer = setTimeout(() => reject(new Error('Late acknowledgement was not persisted')), 3000); timer.unref(); })]);
+  assert.equal(readReleaseJournal(fixture.reportDirectory, fixture.binding).deploy_id, 'dpl_synthetic');
+  assert.deepEqual(fs.readFileSync(reportPath), original);
+  assert.equal(fixture.counts.inspections, 0);
+  const reconciled = await reconcileRelease({ ...fixture.input, signal: undefined }, failed.run_id);
+  assert.equal(reconciled.deploy_id, 'dpl_synthetic'); assert.equal(reconciled.http, 'verified');
+  assert.equal(fixture.counts.creates, 1); assert.deepEqual(fs.readFileSync(reportPath), original);
+  fixture.unchanged();
+});
+
+test('current-schema-only runner spy observes zero calls and DDL while ordinary mode still invokes the real runner', async t => {
+  const fixture = await currentReleaseFixture(t);
+  for (const mode of ['current-schema-only', 'migrate']) {
+    const reports = join(fixture.directory, `spy-${mode}`);
+    const script = `
+import assert from 'node:assert/strict';
+import {mock} from 'node:test';
+import {createRequire} from 'node:module';
+const migrationsURL=${JSON.stringify(new URL('../scripts/migrations.js', import.meta.url).href)};
+const {Client}=createRequire(migrationsURL)('pg');
+const real=await import(migrationsURL);
+let runnerCalls=0, ddl=0, creates=0;
+mock.module(migrationsURL,{namedExports:{...real,runMigrations(...args){runnerCalls++;return real.runMigrations(...args);}}});
+const {runRelease}=await import(${JSON.stringify(new URL('../scripts/release-core.js', import.meta.url).href)});
+const query=Client.prototype.query;
+Client.prototype.query=function(...args){const sql=typeof args[0]==='string'?args[0]:args[0]?.text??'';if(/^(CREATE|ALTER|DROP|TRUNCATE|INSERT|UPDATE|DELETE|GRANT|REVOKE)\\b/i.test(sql.trim()))ddl++;return query.apply(this,args);};
+const identity={provider:'vercel',project:'prj_synthetic',owner:'team_synthetic',target:'production'};
+const revision=${JSON.stringify(fixture.input.revision)}, artifactDigest=${JSON.stringify(fixture.input.artifactDigest)}, digest=${JSON.stringify(fixture.input.digest)};
+const state={...identity,id:'dpl_synthetic',revision,artifactDigest,status:'ready'};
+const deployment={identity,artifact:{revision,digest:artifactDigest,manifestDigest:digest},async preflight(){},async trigger(_r,_s,checkpoints){await checkpoints.beforeCreate();creates++;await checkpoints.acknowledged(state.id);return state;},async inspect(){return state;},async smoke(){},diagnostics(){return {operation:'create',request_state:'not_started',category:'unclassified',http_status:null,deploy_id:null};}};
+const result=await runRelease({revision,digest,artifactDigest,target:'local',mode:${JSON.stringify(mode)},database:${JSON.stringify(fixture.db.database)},reportDirectory:${JSON.stringify(reports)},async verifySource(){},async prepare(){return {directory:${JSON.stringify(join(fixture.artifact.root, 'operator/apps/api/migrations'))},deployment,async dispose(){}};}});
+assert.equal(result.result,'success',JSON.stringify(result));
+assert.equal(runnerCalls,${mode === 'migrate' ? 1 : 0});
+${mode === 'current-schema-only' ? "assert.equal(ddl,0);assert.equal(result.migration,null);" : "assert.equal(result.migration.database_outcome,'committed');"}
+assert.equal(creates,1);
+console.log(JSON.stringify({mode:${JSON.stringify(mode)},runnerCalls,ddl,creates,result:result.result}));
+`;
+    const child = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--input-type=module', '--eval', script], {
+      encoding: 'utf8', timeout: 15000, env: { PATH: process.env.PATH, HOME: fixture.directory },
+    });
+    assert.equal(child.status, 0, child.stderr + child.stdout);
+    const observed = JSON.parse(child.stdout.trim());
+    assert.equal(observed.runnerCalls, mode === 'migrate' ? 1 : 0);
+    if (mode === 'current-schema-only') assert.equal(observed.ddl, 0);
+    t.diagnostic(child.stdout.trim());
+  }
+  fixture.unchanged();
+});
+
+test('current-schema-only actual driver crash after durable ack reconciles the same ID without a second create', async t => {
+  const fixture = await currentReleaseFixture(t);
+  const script = `
+import {runRelease} from ${JSON.stringify(new URL('../scripts/release-core.js', import.meta.url).href)};
+import {writeReleaseEvidence,readReleaseJournal} from ${JSON.stringify(new URL('../scripts/release-journal.js', import.meta.url).href)};
+const binding=${JSON.stringify(fixture.binding)}, approval=${JSON.stringify(fixture.approval)};
+const identity={provider:'vercel',project:${JSON.stringify(fixture.artifact.manifest.target.project)},owner:${JSON.stringify(fixture.artifact.manifest.target.owner)},target:'production'};
+const deployment={identity,artifact:{revision:binding.revision,digest:binding.artifact_digest,manifestDigest:binding.manifest_digest},async preflight(){},
+async trigger(_r,_s,checkpoints){await checkpoints.beforeCreate();writeReleaseEvidence(${JSON.stringify(join(fixture.directory, 'child-create.json'))},{count:1});await checkpoints.acknowledged('dpl_synthetic');process.exit(73);},
+async inspect(){throw new Error('Inspection must not precede durable acknowledgement');},async smoke(){},diagnostics(){return {operation:'create',request_state:'not_started',category:'unclassified',http_status:null,deploy_id:null};}};
+await runRelease({revision:binding.revision,digest:binding.manifest_digest,artifactDigest:binding.artifact_digest,target:'local',mode:'current-schema-only',supersession:approval,database:${JSON.stringify(fixture.db.database)},reportDirectory:${JSON.stringify(fixture.reportDirectory)},async verifySource(){},async prepare(){return {directory:${JSON.stringify(join(fixture.artifact.root, 'operator/apps/api/migrations'))},deployment,async dispose(){}};}});
+process.exit(74);
+`;
+  const child = spawnSync(process.execPath, ['--input-type=module', '--eval', script], {
+    encoding: 'utf8', timeout: 15000, env: { PATH: process.env.PATH, HOME: fixture.directory },
+  });
+  assert.equal(child.status, 73, child.stderr + child.stdout);
+  assert.equal(readReleaseJournal(fixture.reportDirectory, fixture.binding).deploy_id, 'dpl_synthetic');
+  assert.equal(fs.existsSync(join(fixture.reportDirectory, `${fixture.binding.run_id}.json`)), false);
+  const evidence = reportBytes(fixture.reportDirectory);
+  const observed = await reconcileRelease(fixture.input, fixture.binding.run_id);
+  assert.equal(observed.deploy_id, 'dpl_synthetic'); assert.equal(observed.http, 'verified');
+  assert.deepEqual(reportBytes(fixture.reportDirectory), evidence);
+  assert.equal((await runRelease(fixture.input)).result, 'failed');
+  assert.equal(fixture.counts.creates, 0);
+  assert.equal(JSON.parse(fs.readFileSync(join(fixture.directory, 'child-create.json'), 'utf8')).count, 1);
+  fixture.unchanged();
+});
+
+test('current-schema-only concurrent attempts cannot publish a losing report over the reserved run', async t => {
+  const fixture = await currentReleaseFixture(t);
+  const verify = fixture.input.verifySource;
+  let arrivals = 0, release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  fixture.input.verifySource = async () => {
+    await verify();
+    if (++arrivals <= 2) {
+      if (arrivals === 2) release();
+      await gate;
+    }
+  };
+  const results = await Promise.all([runRelease(fixture.input), runRelease(fixture.input)]);
+  assert.deepEqual(results.map(result => result.result).sort(), ['failed', 'success']);
+  assert.equal(fixture.counts.creates, 1);
+  const persisted = JSON.parse(fs.readFileSync(join(fixture.reportDirectory, `${fixture.binding.run_id}.json`), 'utf8'));
+  assert.equal(persisted.result, 'success'); assert.equal(persisted.deploy_id, 'dpl_synthetic');
+  assert.equal(readReleaseJournal(fixture.reportDirectory, fixture.binding).outcome?.result, 'success');
+  fixture.unchanged();
+});
+
+test('current-schema-only elapsed deadlines during synchronous persistence stop create or inspect', async t => {
+  for (const phase of ['create-intent', 'acknowledged']) {
+    await t.test(phase, async t => {
+      const fixture = await currentReleaseFixture(t);
+      let clock = 0;
+      fixture.input.timeoutMs = 60000;
+      t.mock.method(performance, 'now', () => clock);
+      const open = fs.openSync, close = fs.closeSync, sync = fs.fsyncSync, descriptors = new Map<number, string>();
+      t.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => {
+        const fd = open(...args); descriptors.set(fd, String(args[0])); return fd;
+      });
+      t.mock.method(fs, 'closeSync', (fd: number) => { descriptors.delete(fd); return close(fd); });
+      t.mock.method(fs, 'fsyncSync', (fd: number) => {
+        sync(fd);
+        if (descriptors.get(fd)?.endsWith(`/${phase}.json`)) clock = 60001;
+      });
+      const report = await runRelease(fixture.input);
+      assert.equal(report.result, 'failed'); assert.equal(report.lock_retained, true);
+      assert.equal(fixture.counts.creates, phase === 'create-intent' ? 0 : 1);
+      assert.equal(fixture.counts.inspections, 0);
+      assert.equal(readReleaseJournal(fixture.reportDirectory, fixture.binding).deploy_id, phase === 'create-intent' ? null : 'dpl_synthetic');
+      fixture.unchanged();
+    });
+  }
+});
+
+test('current-schema-only persistence failures retain locks identity and immutable predecessor evidence', async t => {
+  for (const phase of ['create-intent', 'acknowledged', 'outcome', 'report']) {
+    await t.test(phase, async t => {
+      const fixture = await currentReleaseFixture(t);
+      fixture.behavior.inspectFailure = true;
+      const failedPath = phase === 'report'
+        ? join(fixture.reportDirectory, `${fixture.binding.run_id}.json`)
+        : join(fixture.reportDirectory, 'runs', fixture.binding.run_id, `${phase}.json`);
+      const open = fs.openSync, close = fs.closeSync, sync = fs.fsyncSync, descriptors = new Map<number, string>();
+      t.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => {
+        const fd = open(...args); descriptors.set(fd, String(args[0])); return fd;
+      });
+      t.mock.method(fs, 'closeSync', (fd: number) => { descriptors.delete(fd); return close(fd); });
+      t.mock.method(fs, 'fsyncSync', (fd: number) => {
+        if (descriptors.get(fd) === failedPath) throw Object.assign(new Error('Synthetic persistence failure'), { code: 'EIO' });
+        return sync(fd);
+      });
+      const report = await runRelease(fixture.input);
+      assert.equal(report.result, 'failed'); assert.equal(report.reporting, 'failed'); assert.equal(report.lock_retained, true);
+      assert.equal(report.deploy_id, phase === 'create-intent' ? null : 'dpl_synthetic');
+      assert.equal(fixture.counts.creates, phase === 'create-intent' ? 0 : 1);
+      assert.equal(fixture.counts.inspections, ['create-intent', 'acknowledged'].includes(phase) ? 0 : 1);
+      const before = reportBytes(fixture.reportDirectory);
+      assert.equal((await runRelease(fixture.input)).result, 'failed');
+      assert.deepEqual(reportBytes(fixture.reportDirectory), before);
+      fixture.unchanged();
+    });
+  }
 });

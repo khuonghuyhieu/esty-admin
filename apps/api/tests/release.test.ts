@@ -1,35 +1,26 @@
 import assert from 'node:assert/strict';
 import test, { before, after } from 'node:test';
+import type { TestContext } from 'node:test';
+import fs from 'node:fs';
+import { tmpdir } from 'node:os';
+import { spawnSync } from 'node:child_process';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
-import { artifactFixture } from './artifact-fixture.js';
+import { artifactFixture, fileTree } from './artifact-fixture.js';
 import { artifactTarget } from '../scripts/artifact.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { createReleaseJournal, describeRetainedRun, readReleaseJournal, writeReleaseEvidence } from '../scripts/release-journal.js';
+import type { ReleaseBinding, SupersessionApproval } from '../scripts/release-journal.js';
 import { bounded } from '../scripts/bounded.js';
+// Protocol-only cases isolate storage; durability is exercised with real journals below.
+const checkpoints = { beforeCreate() {}, acknowledged(_id: string) {} };
 let artifact: VerifiedArtifact;
 let dispose: () => Promise<void>;
 before(async () => { const fixture = await artifactFixture(); artifact = fixture.artifact; dispose = fixture.dispose; });
 after(async () => { await dispose?.(); });
-function fileTree(current: VerifiedArtifact, decimalModes = false): any[] {
-  const root: any[] = [];
-  for (const file of current.manifest.files.filter(file => file.path.startsWith('.vercel/output/'))) {
-    const parts = file.path.split('/'); let children = root;
-    for (const name of parts.slice(0, -1)) {
-      let directory = children.find(entry => entry.name === name);
-      if (!directory) { directory = { name, type: 'directory', children: [] }; children.push(directory); }
-      children = directory.children;
-    }
-    const mode = 0o100000 | file.mode;
-    children.push({ name: parts.at(-1), type: 'file', mode: decimalModes ? String(mode) : mode, uid: file.sha1 });
-  }
-  return [
-    { name: 'src', type: 'directory', mode: 0o40555, children: root },
-    { name: 'out', type: 'directory', mode: 0o40555, children: [{ name: 'index', type: 'lambda', mode: 0o140666 }] },
-  ];
-}
 
 const revision = 'a'.repeat(40);
 const digest = 'b'.repeat(64);
@@ -120,7 +111,7 @@ test('project and verified domain mismatches block deployment', async () => {
     { buildCommand: 'unapproved-build' }, { installCommand: 'unapproved-install' }, { outputDirectory: 'other' },
     { link: { ...project.link, deployHooks: [{}] } }, { link: { ...project.link, repoId: undefined } }]) {
     const { adapter } = synthetic({ project: { ...project, ...changes } });
-    await assert.rejects(adapter.preflight(signal())); await assert.rejects(adapter.trigger(revision, signal()));
+    await assert.rejects(adapter.preflight(signal())); await assert.rejects(adapter.trigger(revision, signal(), checkpoints));
   }
   for (const changes of [{ verified: false }, { projectId: 'prj_other' }, { redirect: 'https://other.example' }, { gitBranch: 'other' }]) {
     await assert.rejects(synthetic({ domain: { ...domain, ...changes } }).adapter.preflight(signal()));
@@ -130,10 +121,10 @@ test('provider identity must match the created prebuilt invocation, not source m
   for (const changes of [{ gitSource: { sha: revision } }, { id: 'dpl_other' }, { projectId: 'prj_other' },
     { ownerId: 'team_other' }, { target: 'preview' }, { readyState: 'UNKNOWN' }]) {
     const { adapter } = synthetic({ deployment: { ...deployment, ...changes } });
-    await adapter.preflight(signal()); await assert.rejects(adapter.trigger(revision, signal()));
+    await adapter.preflight(signal()); await assert.rejects(adapter.trigger(revision, signal(), checkpoints));
   }
   for (const postStatus of [202, 302, 500]) {
-    const { adapter } = synthetic({ postStatus }); await adapter.preflight(signal()); await assert.rejects(adapter.trigger(revision, signal()));
+    const { adapter } = synthetic({ postStatus }); await adapter.preflight(signal()); await assert.rejects(adapter.trigger(revision, signal(), checkpoints));
   }
 });
 
@@ -160,7 +151,7 @@ test('deployment diagnostics distinguish upload and uncertain create from acknow
     const current = synthetic({ onRequest(url) { if (url.pathname === path) throw upstream; } });
     const active = signal();
     await current.adapter.preflight(active);
-    await assert.rejects(current.adapter.trigger(revision, active));
+    await assert.rejects(current.adapter.trigger(revision, active, checkpoints));
     assert.deepEqual(current.adapter.diagnostics(upstream, active), {
       operation, request_state: 'in_flight', category: 'tcp', http_status: null, deploy_id: acknowledged ? deployment.id : null,
     });
@@ -170,7 +161,7 @@ test('deployment diagnostics distinguish upload and uncertain create from acknow
 test('HTTP rejection is recorded without turning a create response into acknowledgement', async () => {
   const current = synthetic({ postStatus: 429 }), active = signal();
   await current.adapter.preflight(active);
-  await assert.rejects(current.adapter.trigger(revision, active));
+  await assert.rejects(current.adapter.trigger(revision, active, checkpoints));
   assert.deepEqual(current.adapter.diagnostics(undefined, active), {
     operation: 'create', request_state: 'response_received', category: 'http', http_status: 429, deploy_id: null,
   });
@@ -186,7 +177,7 @@ test('active cancellation classification survives the outer bounded race', async
       } });
       await current.adapter.preflight(signal());
       let failure: unknown;
-      await assert.rejects(bounded(current.adapter.trigger(revision, controller.signal), controller.signal), error => { failure = error; return true; });
+      await assert.rejects(bounded(current.adapter.trigger(revision, controller.signal, checkpoints), controller.signal), error => { failure = error; return true; });
       assert.deepEqual(current.adapter.diagnostics(failure, controller.signal), {
         operation: 'upload', request_state: 'in_flight', category, http_status: null, deploy_id: null,
       });
@@ -198,7 +189,7 @@ test('unsafe or oversized create identifiers never enter diagnostic reports', as
   for (const createId of ['https://synthetic-private.example/token', 'dpl_' + 'a'.repeat(125)]) {
     const current = synthetic({ createId }), active = signal();
     await current.adapter.preflight(active);
-    await assert.rejects(current.adapter.trigger(revision, active));
+    await assert.rejects(current.adapter.trigger(revision, active, checkpoints));
     const diagnostics = current.adapter.diagnostics(undefined, active);
     assert.equal(diagnostics.operation, 'create'); assert.equal(diagnostics.request_state, 'response_received');
     assert.equal(diagnostics.deploy_id, null);
@@ -208,38 +199,38 @@ test('unsafe or oversized create identifiers never enter diagnostic reports', as
 test('normalized pending and terminal provider states are never READY success', async () => {
   for (const [readyState, expected] of [['QUEUED', 'queued'], ['INITIALIZING', 'building'], ['BUILDING', 'building'], ['ERROR', 'failed'], ['BLOCKED', 'failed'], ['CANCELED', 'canceled']] as const) {
     const { adapter } = synthetic({ deployment: { ...deployment, readyState } });
-    await adapter.preflight(signal()); const state = await adapter.trigger(revision, signal());
+    await adapter.preflight(signal()); const state = await adapter.trigger(revision, signal(), checkpoints);
     assert.equal(state.status, expected); await assert.rejects(adapter.smoke(state, signal()));
   }
 });
 test('same-deployment domain binding and safe HTTP must both hold before and after smoke', async () => {
   const valid = synthetic(); await valid.adapter.preflight(signal());
-  const state = await valid.adapter.trigger(revision, signal());
+  const state = await valid.adapter.trigger(revision, signal(), checkpoints);
   await valid.adapter.smoke(state, signal()); assert.equal(valid.bindings(), 2);
   for (const changes of [{ deploymentId: 'dpl_old' }, { projectId: 'prj_other' }, { deployment: { id: 'dpl_old' } },
     { deletedAt: 1 }, { redirect: 'https://other.example' }, { microfrontends: {} }]) {
     const current = synthetic({ alias: () => ({ ...alias, ...changes }) });
-    await current.adapter.preflight(signal()); const currentState = await current.adapter.trigger(revision, signal());
+    await current.adapter.preflight(signal()); const currentState = await current.adapter.trigger(revision, signal(), checkpoints);
     await assert.rejects(current.adapter.smoke(currentState, signal()));
   }
   const changed = synthetic({ alias: count => count === 1 ? alias : { ...alias, deploymentId: 'dpl_old' } });
-  await changed.adapter.preflight(signal()); const changedState = await changed.adapter.trigger(revision, signal());
+  await changed.adapter.preflight(signal()); const changedState = await changed.adapter.trigger(revision, signal(), checkpoints);
   await assert.rejects(changed.adapter.smoke(changedState, signal())); assert.equal(changed.bindings(), 2);
   for (const smoke of [() => new Response('<html>Loading</html>'), () => Response.json({ status: 'ready' }), () => new Response(null, { status: 302 })]) {
-    const current = synthetic({ smoke }); await current.adapter.preflight(signal()); const currentState = await current.adapter.trigger(revision, signal());
+    const current = synthetic({ smoke }); await current.adapter.preflight(signal()); const currentState = await current.adapter.trigger(revision, signal(), checkpoints);
     await assert.rejects(current.adapter.smoke(currentState, signal()));
   }
 });
 test('missing or altered provider file attestation cannot become ready', async () => {
   for (const files of [[], [{ name: '.vercel', type: 'directory', children: [] }], [{ name: '../secret', type: 'file' }]]) {
     const current = synthetic({ files }); await current.adapter.preflight(signal());
-    await assert.rejects(current.adapter.trigger(revision, signal()));
+    await assert.rejects(current.adapter.trigger(revision, signal(), checkpoints));
   }
 });
 test('canonical decimal provider modes attest the complete approved artifact', async () => {
   const current = synthetic({ files: fileTree(artifact, true) });
   await current.adapter.preflight(signal());
-  const state = await current.adapter.trigger(revision, signal());
+  const state = await current.adapter.trigger(revision, signal(), checkpoints);
   assert.equal(state.status, 'ready');
   assert.equal(state.artifactDigest, artifact.digest);
   await current.adapter.smoke(state, signal());
@@ -264,7 +255,7 @@ test('provider mode normalization rejects coercion, overflow and changed full PO
     const leaves = (entries: any[]): any[] => entries.flatMap(entry => entry.type === 'directory' ? leaves(entry.children) : [entry]);
     leaves(files)[0].mode = mode;
     const current = synthetic({ files }); await current.adapter.preflight(signal());
-    await assert.rejects(current.adapter.trigger(revision, signal()));
+    await assert.rejects(current.adapter.trigger(revision, signal(), checkpoints));
     assert.equal(current.bindings(), 0);
   });
 });
@@ -280,7 +271,7 @@ test('decimal modes do not excuse changed file identity, root or duplicate evide
     if (name === 'missing') directory.children.splice(directory.children.indexOf(file), 1);
     if (name === 'extra') directory.children.push({ ...file, name: 'unapproved.json' });
     const current = synthetic({ files }); await current.adapter.preflight(signal());
-    await assert.rejects(current.adapter.trigger(revision, signal()));
+    await assert.rejects(current.adapter.trigger(revision, signal(), checkpoints));
     assert.equal(current.bindings(), 0);
   });
 });
@@ -304,7 +295,7 @@ test('provider envelope requires exact source namespace and single generated out
     if (name === 'nested output') runtime.children = [{ name: 'unapproved', type: 'file' }];
     if (name === 'rebased source contents') source.children = source.children[0].children;
     const current = synthetic({ files }); await current.adapter.preflight(signal());
-    await assert.rejects(current.adapter.trigger(revision, signal()));
+    await assert.rejects(current.adapter.trigger(revision, signal(), checkpoints));
     assert.equal(current.bindings(), 0);
   });
 });
@@ -318,8 +309,245 @@ test('mutation during upload and cancellation never create a deployment or retry
       await chmod(path, 0o600); await writeFile(path, 'tampered');
     } });
     await current.adapter.preflight(signal());
-    await assert.rejects(current.adapter.trigger(revision, controller.signal));
+    await assert.rejects(current.adapter.trigger(revision, controller.signal, checkpoints));
     assert.equal(current.creates(), 0);
     if (mode === 'cancel') assert.equal(current.uploads(), 1);
   });
+});
+
+function journalFixture(t: TestContext) {
+  const directory = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'esty-journal-')));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  const previousId = randomUUID(), previousRevision = 'd'.repeat(40);
+  writeReleaseEvidence(join(directory, 'operator.lock'), { run_id: previousId, revision: previousRevision });
+  writeReleaseEvidence(join(directory, `${previousId}.json`), {
+    run_id: previousId, revision: previousRevision, artifact_digest: 'e'.repeat(64), manifest_digest: artifact.manifest.migrationDigest,
+    target: 'local', result: 'failed', stage: 'deploy', deployment: 'unknown', deploy_id: null, lock_retained: true, reporting: 'written',
+    migration: { result: 'success', database_outcome: 'committed', manifest_digest: artifact.manifest.migrationDigest, source_revision: previousRevision },
+  });
+  const binding: ReleaseBinding = { run_id: randomUUID(), revision, artifact_digest: artifact.digest,
+    manifest_digest: artifact.manifest.migrationDigest, target: 'local', schema_mode: 'current-schema-only' };
+  const previous = describeRetainedRun(directory, previousId);
+  const approval: SupersessionApproval = { version: 1, decision: 'accept-late-create-alias-risk-and-unresolved-https', previous, next: binding };
+  const original = { lock: fs.readFileSync(join(directory, 'operator.lock')), report: fs.readFileSync(join(directory, `${previousId}.json`)) };
+  const unchanged = () => {
+    assert.deepEqual(describeRetainedRun(directory, previousId), previous);
+    assert.deepEqual(fs.readFileSync(join(directory, 'operator.lock')), original.lock);
+    assert.deepEqual(fs.readFileSync(join(directory, `${previousId}.json`)), original.report);
+  };
+  return { directory, binding, approval, unchanged, run: join(directory, 'runs', binding.run_id) };
+}
+function observeFsync(t: TestContext, visit: (path: string, sync: () => void) => void) {
+  const opened = new Map<number, string>();
+  const open = fs.openSync, close = fs.closeSync, sync = fs.fsyncSync;
+  t.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => { const fd = open(...args); opened.set(fd, String(args[0])); return fd; });
+  t.mock.method(fs, 'closeSync', (fd: number) => { opened.delete(fd); return close(fd); });
+  t.mock.method(fs, 'fsyncSync', (fd: number) => visit(opened.get(fd) ?? '', () => sync(fd)));
+}
+
+test('supersession durably claims one successor while preserving the unknown predecessor inode and bytes', t => {
+  const fixture = journalFixture(t);
+  const journal = createReleaseJournal(fixture.directory, fixture.binding, fixture.approval);
+  assert.throws(() => createReleaseJournal(fixture.directory, fixture.binding, fixture.approval));
+  const other = { ...fixture.binding, run_id: randomUUID() };
+  assert.throws(() => createReleaseJournal(fixture.directory, other, { ...fixture.approval, next: other }));
+  journal.beforeCreate();
+  assert.throws(() => journal.beforeCreate());
+  journal.acknowledge(deployment.id);
+  assert.throws(() => journal.acknowledge('dpl_other'));
+  assert.equal(journal.finish({ result: 'failed', stage: 'deploy', deployment: 'unknown', deploy_id: deployment.id, retain_lock: true }), true);
+  const state = readReleaseJournal(fixture.directory, fixture.binding);
+  assert.equal(state.deploy_id, deployment.id);
+  assert.equal(state.create_intent, true);
+  assert.equal(state.outcome?.retain_lock, true);
+  fixture.unchanged();
+});
+
+test('supersession refuses stale approval, wrong binding, changed original report and substituted historical lock', async t => {
+  for (const mode of ['decision', 'manifest', 'artifact', 'revision', 'run', 'report-hash', 'inode', 'old-known-id', 'old-terminal', 'old-lock-replaced']) {
+    await t.test(mode, t => {
+      const fixture = journalFixture(t), approval = structuredClone(fixture.approval);
+      if (mode === 'decision') (approval as any).decision = 'not-accepted';
+      if (mode === 'manifest') approval.next.manifest_digest = '0'.repeat(64);
+      if (mode === 'artifact') approval.next.artifact_digest = '0'.repeat(64);
+      if (mode === 'revision') approval.next.revision = '0'.repeat(40);
+      if (mode === 'run') approval.next.run_id = randomUUID();
+      if (mode === 'report-hash') approval.previous.report_sha256 = '0'.repeat(64);
+      if (mode === 'inode') approval.previous.lock.ino = '0';
+      if (mode.startsWith('old-') && mode !== 'old-lock-replaced') {
+        const path = join(fixture.directory, `${approval.previous.run_id}.json`);
+        const report = JSON.parse(fs.readFileSync(path, 'utf8'));
+        if (mode === 'old-known-id') report.deploy_id = deployment.id;
+        else report.deployment = 'ready';
+        fs.writeFileSync(path, JSON.stringify(report));
+      }
+      if (mode === 'old-lock-replaced') {
+        const path = join(fixture.directory, 'operator.lock'), bytes = fs.readFileSync(path);
+        fs.renameSync(path, join(fixture.directory, 'original-lock-preserved'));
+        fs.writeFileSync(path, bytes, { mode: 0o600 });
+      }
+      assert.throws(() => createReleaseJournal(fixture.directory, fixture.binding, approval));
+      assert.equal(fs.existsSync(join(fixture.run, 'create-intent.json')), false);
+    });
+  }
+});
+
+test('read-only journal validation rejects altered records, receipts and replacement locks', async t => {
+  for (const mode of ['intent.json', 'locked.json', 'create-intent.json', 'acknowledged.json', 'receipt', 'child-lock', 'extra', 'permissions', 'symlink', 'wrong-artifact']) {
+    await t.test(mode, t => {
+      const fixture = journalFixture(t), journal = createReleaseJournal(fixture.directory, fixture.binding, fixture.approval);
+      journal.beforeCreate(); journal.acknowledge(deployment.id);
+      if (mode === 'extra') fs.writeFileSync(join(fixture.run, 'unapproved.json'), '{}', { mode: 0o600 });
+      else if (mode === 'permissions') fs.chmodSync(join(fixture.run, 'acknowledged.json'), 0o644);
+      else if (mode === 'symlink') {
+        const path = join(fixture.run, 'acknowledged.json');
+        fs.renameSync(path, join(fixture.directory, 'original-ack'));
+        fs.symlinkSync(join(fixture.directory, 'original-ack'), path);
+      } else if (mode === 'child-lock') {
+        const path = join(fixture.run, 'operator.lock'), bytes = fs.readFileSync(path);
+        fs.renameSync(path, join(fixture.directory, 'original-child-lock'));
+        fs.writeFileSync(path, bytes, { mode: 0o600 });
+      } else if (mode !== 'wrong-artifact') {
+        const path = mode === 'receipt' ? join(fixture.directory, 'supersessions', `${fixture.approval.previous.run_id}.json`) : join(fixture.run, mode);
+        const value = JSON.parse(fs.readFileSync(path, 'utf8'));
+        value.binding.artifact_digest = 'f'.repeat(64);
+        fs.writeFileSync(path, JSON.stringify(value));
+      }
+      const binding = mode === 'wrong-artifact' ? { ...fixture.binding, artifact_digest: 'f'.repeat(64) } : fixture.binding;
+      assert.throws(() => readReleaseJournal(fixture.directory, binding));
+      assert.throws(() => journal.beforeCreate());
+      fixture.unchanged();
+    });
+  }
+});
+
+test('failed file or directory fsync leaves blocking evidence and never permits a create retry', async t => {
+  for (const phase of ['intent', 'lock', 'locked', 'receipt', 'receipt-directory', 'create', 'ack']) {
+    await t.test(phase, t => {
+      const fixture = journalFixture(t);
+      const suffix = { intent: '/intent.json', lock: '/operator.lock', locked: '/locked.json',
+        receipt: `/supersessions/${fixture.approval.previous.run_id}.json`, 'receipt-directory': '/supersessions',
+        create: '/create-intent.json', ack: '/acknowledged.json' }[phase]!;
+      let failed = false;
+      observeFsync(t, (path, sync) => {
+        if (path.endsWith(suffix) && (phase !== 'receipt-directory' || fs.existsSync(join(path, `${fixture.approval.previous.run_id}.json`)))) {
+          failed = true; throw Object.assign(new Error('Synthetic storage failure'), { code: 'EIO' });
+        }
+        sync();
+      });
+      assert.throws(() => {
+        const journal = createReleaseJournal(fixture.directory, fixture.binding, fixture.approval);
+        journal.beforeCreate(); journal.acknowledge(deployment.id);
+      });
+      assert.equal(failed, true);
+      t.mock.restoreAll();
+      assert.throws(() => createReleaseJournal(fixture.directory, fixture.binding, fixture.approval));
+      fixture.unchanged();
+    });
+  }
+});
+
+test('adapter waits for durable acknowledgement before inspect and refuses a second trigger', async t => {
+  const fixture = journalFixture(t), journal = createReleaseJournal(fixture.directory, fixture.binding, fixture.approval);
+  let inspected = 0;
+  let release!: () => void, entered!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const waiting = new Promise<void>(resolve => { entered = resolve; });
+  const current = synthetic({ onRequest(url, init) {
+    if (url.pathname === '/v13/deployments' && init?.method === 'POST') {
+      assert.equal(readReleaseJournal(fixture.directory, fixture.binding).create_intent, true);
+    }
+    if (url.pathname === `/v13/deployments/${deployment.id}`) {
+      inspected++;
+      assert.equal(readReleaseJournal(fixture.directory, fixture.binding).deploy_id, deployment.id);
+    }
+  } });
+  await current.adapter.preflight(signal());
+  const pending = current.adapter.trigger(revision, signal(), {
+    beforeCreate: () => journal.beforeCreate(),
+    async acknowledged(id) { entered(); await blocked; journal.acknowledge(id); },
+  });
+  await waiting;
+  assert.equal(current.creates(), 1); assert.equal(inspected, 0);
+  assert.equal(readReleaseJournal(fixture.directory, fixture.binding).deploy_id, null);
+  release(); await pending;
+  assert.equal(inspected, 1);
+  await assert.rejects(current.adapter.trigger(revision, signal(), checkpoints));
+  assert.equal(current.creates(), 1);
+  fixture.unchanged();
+});
+
+test('acknowledgement fsync failure blocks inspection but retains the acknowledged identity and lock', async t => {
+  const fixture = journalFixture(t), journal = createReleaseJournal(fixture.directory, fixture.binding, fixture.approval);
+  let inspected = 0;
+  const current = synthetic({ onRequest(url) { if (url.pathname === `/v13/deployments/${deployment.id}`) inspected++; } });
+  await current.adapter.preflight(signal());
+  observeFsync(t, (path, sync) => { if (path.endsWith('/acknowledged.json')) throw new Error('Synthetic fsync failure'); sync(); });
+  await assert.rejects(current.adapter.trigger(revision, signal(), { beforeCreate: () => journal.beforeCreate(), acknowledged: id => journal.acknowledge(id) }));
+  assert.equal(current.creates(), 1); assert.equal(inspected, 0);
+  assert.equal(current.adapter.diagnostics(undefined, signal()).deploy_id, deployment.id);
+  assert.equal(fs.existsSync(join(fixture.run, 'operator.lock')), true);
+  t.mock.restoreAll();
+  await assert.rejects(current.adapter.trigger(revision, signal(), checkpoints));
+  assert.equal(current.creates(), 1);
+  fixture.unchanged();
+});
+
+test('cancellation after a valid create response still records the ID before refusing inspection', async t => {
+  const fixture = journalFixture(t), journal = createReleaseJournal(fixture.directory, fixture.binding, fixture.approval);
+  const controller = new AbortController();
+  let inspected = 0;
+  const current = synthetic({ onRequest(url, init) {
+    if (url.pathname === '/v13/deployments' && init?.method === 'POST') controller.abort();
+    if (url.pathname === `/v13/deployments/${deployment.id}`) inspected++;
+  } });
+  await current.adapter.preflight(signal());
+  await assert.rejects(current.adapter.trigger(revision, controller.signal, {
+    beforeCreate: () => journal.beforeCreate(), acknowledged: id => journal.acknowledge(id),
+  }));
+  assert.equal(current.creates(), 1); assert.equal(inspected, 0);
+  assert.equal(readReleaseJournal(fixture.directory, fixture.binding).deploy_id, deployment.id);
+  fixture.unchanged();
+});
+
+test('process loss at receipt lock create and acknowledgement boundaries never reopens create', async t => {
+  for (const phase of ['intent', 'lock', 'locked', 'receipt-partial', 'receipt', 'create', 'remote-accepted', 'ack-partial', 'ack']) {
+    await t.test(phase, t => {
+      const fixture = journalFixture(t);
+      const source = `
+import fs from 'node:fs';
+import {createReleaseJournal, writeReleaseEvidence} from ${JSON.stringify(new URL('../scripts/release-journal.js', import.meta.url).href)};
+const directory=${JSON.stringify(fixture.directory)}, binding=${JSON.stringify(fixture.binding)}, approval=${JSON.stringify(fixture.approval)}, phase=${JSON.stringify(phase)};
+const opened=new Map(), open=fs.openSync, close=fs.closeSync, sync=fs.fsyncSync, write=fs.writeFileSync;
+fs.openSync=(path,flags,mode)=>{const fd=open(path,flags,mode);opened.set(fd,String(path));return fd;};
+fs.closeSync=fd=>{opened.delete(fd);return close(fd);};
+const suffix={intent:'/intent.json',lock:'/operator.lock',locked:'/locked.json',receipt:'/supersessions/'+approval.previous.run_id+'.json',create:'/create-intent.json',ack:'/acknowledged.json'}[phase];
+fs.fsyncSync=fd=>{sync(fd);if(suffix && opened.get(fd)?.endsWith(suffix)) process.exit(73);};
+fs.writeFileSync=(fd,value,...args)=>{
+  const path=opened.get(fd)??'';
+  if((phase==='receipt-partial'&&path.endsWith('/supersessions/'+approval.previous.run_id+'.json'))||(phase==='ack-partial'&&path.endsWith('/acknowledged.json'))){write(fd,'{');process.exit(73);}
+  return write(fd,value,...args);
+};
+const journal=createReleaseJournal(directory,binding,approval);
+journal.beforeCreate();
+writeReleaseEvidence(directory+'/remote-create.json',{count:1});
+if(phase==='remote-accepted')process.exit(73);
+journal.acknowledge('dpl_synthetic');
+process.exit(74);
+`;
+      const child = spawnSync(process.execPath, ['--input-type=module', '--eval', source], { encoding: 'utf8', timeout: 10000,
+        env: { PATH: process.env.PATH, HOME: fixture.directory } });
+      assert.equal(child.status, 73, child.stderr);
+      assert.throws(() => createReleaseJournal(fixture.directory, fixture.binding, fixture.approval));
+      if (['receipt', 'create', 'remote-accepted', 'ack'].includes(phase)) {
+        const state = readReleaseJournal(fixture.directory, fixture.binding);
+        assert.equal(state.create_intent, phase !== 'receipt');
+        assert.equal(state.deploy_id, phase === 'ack' ? deployment.id : null);
+      } else assert.throws(() => readReleaseJournal(fixture.directory, fixture.binding));
+      const accepted = ['remote-accepted', 'ack-partial', 'ack'].includes(phase);
+      assert.equal(fs.existsSync(join(fixture.directory, 'remote-create.json')), accepted);
+      if (accepted) assert.equal(JSON.parse(fs.readFileSync(join(fixture.directory, 'remote-create.json'), 'utf8')).count, 1);
+      fixture.unchanged();
+    });
+  }
 });

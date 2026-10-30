@@ -74,6 +74,7 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
   const [org, repo] = config.REPOSITORY.slice('https://github.com/'.length).split('/');
   let repositoryId: string | undefined;
   let createdId: string | undefined;
+  let triggered = false;
   let operation: DeploymentDiagnostics['operation'] = 'preflight';
   let requestState: DeploymentDiagnostics['request_state'] = 'not_started';
   let category: DeploymentDiagnostics['category'] | undefined;
@@ -107,17 +108,18 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
     if (!expectsJson) { await response.body?.cancel(); return {}; }
     return json(response);
   }
-  function state(value: Record<string, unknown>): DeployState {
+  function state(value: Record<string, unknown>, expectedId: string): DeployState {
     const states: Record<string, DeployState['status']> = { QUEUED: 'queued', INITIALIZING: 'building', BUILDING: 'building', READY: 'ready', ERROR: 'failed', BLOCKED: 'failed', CANCELED: 'canceled' };
     const status = typeof value.readyState === 'string' && Object.hasOwn(states, value.readyState) ? states[value.readyState] : undefined;
-    if (!createdId || typeof value.id !== 'string' || value.id !== createdId || value.projectId !== projectId
+    if (typeof value.id !== 'string' || value.id !== expectedId || value.projectId !== projectId
       || value.ownerId !== identity.owner || value.target !== identity.target || !status || value.gitSource) throw new Error('Unverified deployment identity.');
     return { ...identity, id: value.id, revision: artifact.manifest.source.revision, artifactDigest: artifact.digest, status };
   }
   async function inspect(id: string, signal: AbortSignal) {
     begin('inspect');
-    if (!/^dpl_[A-Za-z0-9]+$/.test(id)) throw new Error('Invalid deployment identity.');
-    const result = state(await provider(`/v13/deployments/${id}`, signal));
+    if (!/^dpl_[A-Za-z0-9]{1,124}$/.test(id)) throw new Error('Invalid deployment identity.');
+    verify();
+    const result = state(await provider(`/v13/deployments/${id}`, signal), id);
     if (result.id !== id) throw new Error('Deployment identity changed.');
     if (result.status === 'ready') await attest(id, signal);
     return result;
@@ -177,6 +179,7 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
   }
   return {
     identity,
+    artifact: Object.freeze({ revision: artifact.manifest.source.revision, digest: artifact.digest, manifestDigest: artifact.manifest.migrationDigest }),
     diagnostics(error, signal) {
       return { operation, request_state: requestState, category: category ?? failureCategory(error, requestSignal ?? signal),
         http_status: httpStatus, deploy_id: createdId ?? null };
@@ -196,10 +199,12 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
       await domain(signal);
       repositoryId = String(link.repoId);
     },
-    async trigger(revision, signal) {
+    async trigger(revision, signal, checkpoints) {
       begin('upload');
       verify();
-      if (!repositoryId || createdId || revision !== artifact.manifest.source.revision) throw new Error('Exact-artifact preflight required.');
+      if (!repositoryId || triggered || revision !== artifact.manifest.source.revision
+        || typeof checkpoints?.beforeCreate !== 'function' || typeof checkpoints?.acknowledged !== 'function') throw new Error('Exact-artifact durable release required.');
+      triggered = true;
       for (const file of uploads) {
         signal.throwIfAborted();
         const bytes = readArtifactFile(artifact.root, file.path, file);
@@ -207,6 +212,8 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
           'Content-Length': String(file.size), 'x-now-digest': file.sha1, 'x-now-size': String(file.size) },
           body: new Uint8Array(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength) }, false);
       }
+      verify(); signal.throwIfAborted();
+      await checkpoints.beforeCreate();
       verify(); signal.throwIfAborted();
       begin('create');
       const response = await provider('/v13/deployments?prebuilt=1', signal, { method: 'POST', body: JSON.stringify({
@@ -216,6 +223,8 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
       const id = string(response.id);
       if (!/^dpl_[A-Za-z0-9]{1,124}$/.test(id)) throw new Error('Invalid deployment identity.');
       createdId = id;
+      await checkpoints.acknowledged(id);
+      signal.throwIfAborted();
       return inspect(createdId, signal);
     },
     inspect,
