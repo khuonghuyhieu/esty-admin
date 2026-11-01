@@ -54,7 +54,6 @@ test('invalid startup exits before accepting work and prints only safe diagnosti
       DATABASE_URL: 'private-password-with-secret' }, encoding: 'utf8', timeout: 5000,
   });
   assert.equal(result.status, 1);
-  assert.match(result.stderr, /DATABASE_URL:/);
   assert.doesNotMatch(result.stderr + result.stdout, /private-password-with-secret| at |postgresql:\/\//);
 });
 

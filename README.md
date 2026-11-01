@@ -4,6 +4,21 @@ Open this `esty-admin/` folder directly. It is the standalone repository for `kh
 
 Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 and correction T013–T020 are complete, including external review and owner visual acceptance. The coordinator confirms the owner-approved FE-only push of 20 files to `main@6c64eaa`; a deployment result for that correction is not verified. The local BE foundation is verified and separately reviewed; the owner has now authorized its source-only commit/push. Hosted acceptance remains pending. Application screens and full UI → API → DB acceptance remain outside the completed increments.
 
+## Managed startup repair — review accepted
+
+The BE bootstrap's top-level await blocked the pinned managed bridge's import-before-bind sequence. The narrow repair preserves canonical NestFactory/listen, guards dependency imports and emits secret-safe startup stages with an8s initialization bound, cleared on actual server binding. Node24 compilation,19 affected tests and the unchanged official Linux/x64 managed bridge passed. This is local compatibility proof, not hosted success: existing e7 deployment `dpl_5odnTH7bHuVVRPU9VJCJYH3gwaHA` remains last-observed500 `INTERNAL_FUNCTION_INVOCATION_FAILED`.
+
+With **existing Node24.22.1 and installed dependencies**, the affected checks are:
+
+```sh
+npm run build --workspace=@esty-admin/api
+node --test apps/api/build/tests/startup.test.js apps/api/build/tests/http.test.js apps/api/build/tests/config.test.js
+```
+
+This increment compiled to a repository-shaped external public directory rather than overwriting the shared build, then executed those three compiled test files:19/19. The unchanged pinned official bridge smoke separately used network-none, the old function copied as an explicit development overlay and only corrected emitted main.js/map. Exact harness, hashes, failures and result: `.openai/reports/runtime-startup-cvh4ccl3/`; [full evidence and limits](specs/001-connectivity-foundation/plan.md#actual-repair-and-affected-evidence--ready_for_review).
+
+Review accepted: ONE `/root/startup_review`, explicitly requested as gpt-6-luna through coordinator orchestration, completed the exact10-path read-only scope with no confirmed actionable findings; coordinator inspection found no additional issue. Independent runtime model identity/session UUID are unavailable. No fixes or tests/build reruns were needed. The fresh owner-coordinator exact10 grant and FE OMP p0 Git/docs PAUSE receipt authorize only this publication and tiny review closeout; return HOLD before building the matching clean Linux artifact durably and performing the already-authorized controlled archive deployment. No new abstract START, migration replay or blind duplicate create. Same-ID TLS/private-bearer live200/ready200 and access/unknown/CORS acceptance remain mandatory.
+
 
 ## Current hosting direction — Vercel
 

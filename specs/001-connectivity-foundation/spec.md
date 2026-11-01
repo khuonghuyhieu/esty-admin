@@ -1,15 +1,19 @@
 # Feature specification: Connectivity foundation
 
-Feature:001-connectivity-foundation · Created:2026-10-25 · Updated:2026-10-30 · Status: owner-authorized narrow source/local current-schema-only and durable release-journal repair; plan first, actual local checks, then STOP READY_FOR_REVIEW for the coordinator's one scoped review. No external execution or Git window. Fresh BE-only README/PROJECT_STATE grant plus explicit FE PAUSE receipt is effective for this increment only. All dated reviews/failures below remain historical; Decision B has consumed zero creates.
+Feature:001-connectivity-foundation · Created:2026-10-25 · Updated:2026-10-30 · Status: managed startup review accepted; ONE coordinator /root/startup_review explicitly requested gpt-6-luna, no confirmed findings, independent runtime identity/session UUID unavailable. Retain19/19 and actual official Linux bridge/standalone evidence without fixes/reruns. Fresh exact10 owner-coordinator grant plus FE p0 pause authorizes scoped publication, then hold return before new clean Linux artifact/deploy. Old e7 deployment remains last-observed500; actual corrected hosted acceptance remains pending.
 
 Source: owner decisions and [ARCH-001](../architecture.md). Tracking: existing [Notion C3-03](https://app.notion.com/p/3d256f555918814abd42efeec2ea5edb). Keep this feature, repository and actual branch; no duplicate tracker/spec or checkout.
+
+## Current managed startup repair acceptance
+
+Canonical Nest startup must let the managed bridge finish module import before binding the captured server. Preserve the actual NestFactory/listen entrypoint and all function controls; no speculative removal of the upstream empty AWS-handler field. Startup import/config/initializer/listen failures must terminate within a finite asynchronous bound with secret-safe stage/error metadata. The deadline must stop on actual binding even when the managed bridge discards Nest's callback. Preserve local shutdown and bearer-before-DB/lazy verified Session pooling. Functional managed/failure/secrecy checks and an unchanged official bridge smoke precede the coordinator's one scoped review; only later exact published Linux deployment and actual same-ID HTTPS acceptance complete hosted delivery.
 
 
 ## Current-schema-only controlled release repair
 
 The latest owner request authorizes the existing sole BE writer to repair the concrete reviewed-tool incompatibility, using existing dependencies and only the guarded synthetic55432 fixture. Ordinary explicitly approved migration releases remain supported. A separately selected current-schema-only release must not invoke the migration runner at all, including a nominal zero-application run. Historical81d4 unknown/null-ID report/lock and original99f4 committed foundation evidence are preserved, never relabeled terminal. No new migration table/history or automatic adoption is permitted.
 
-Source/local implementation and coordinator review do not authorize hosted SQL, private-context consumption, provider upload/create, alias/DNS or lock clearance. Subsequent exact reviewed publication needs the coordinator's fresh serial Git receipt; the approved clean public pipeline then builds a NEW Linux/x64 artifact. Old ea73982/0ed cannot be relabeled. External work remains paused until the owner binds that new exact source/artifact; accepted residual late-create risk is not an exactly-once guarantee or a promise to resolve HTTPS timeout.
+Source/local implementation and coordinator review alone do not authorize hosted SQL, private-context consumption, provider upload/create, alias/DNS or lock clearance. Later exact publication, original73 binding and explicit454 rebind are recorded separately in the plan. Both attempts stopped before create, but454 reached upload and durably claimed the81d4 successor receipt. No consumed identity or receipt may be cleared, reused or replaced automatically; other UUIDs are not authorized. Old ea73982/0ed cannot be relabeled. Accepted residual risk remains neither an exactly-once guarantee nor HTTPS serving proof.
 
 ## Latest owner hosting preference — Vercel, 2026-10-29
 

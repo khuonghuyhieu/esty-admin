@@ -1,6 +1,12 @@
 # Connectivity foundation validation guide
 
-Updated:2026-10-30. Owner-authorized source/local current-schema-only/durable release-journal repair is active; actual checks then STOP READY_FOR_REVIEW. Existing Node24/dependencies and exact synthetic55432 guard only; no private/cloud consumption or Git window. Fresh BE-only README/PROJECT_STATE lease is effective for this increment after the explicit new FE PAUSE receipt. All dated results below remain historical; NEW reviewed/published Linux artifact and concrete owner binding are required before external continuation.
+Updated:2026-10-30. Managed startup review accepted: ONE coordinator /root/startup_review explicitly requested gpt-6-luna, no confirmed findings; independent runtime identity/session UUID unavailable. Retain compilation0,19/19 and actual unchanged official Linux bridge/standalone evidence without fixes/reruns. Fresh exact10 owner-coordinator serial grant plus FE p0 Git/docs pause authorizes scoped publication/tiny closeout, then explicit HOLD return before new clean Linux artifact/deploy. Old e7 remains last-observed500; actual corrected same-ID TLS/private readiness is still required.
+
+## Managed startup repair validation
+
+Use the [canonical affected commands](../../README.md#managed-startup-repair--review-accepted) with existing Node24/dependencies. Startup tests exercise real child-process import/capture/bind behavior, initializer error/hang, transitive import failure, bind/config rejection and non-disclosing diagnostics. HTTP/config tests preserve access-before-DB, resource bounds and local behavior. No database or provider setup is needed for these checks. Accepted checks are not rerun for this documentation-only closeout.
+
+The separate unchanged official managed bridge smoke and pinned Nest entrypoint detection ran in an isolated Linux/x64 network-none container; exact harness/results live in `.openai/reports/runtime-startup-cvh4ccl3/`. It is a declared development overlay, not a new sealed release or proof of Vercel's production launcher. Keep the e7 bundle unchanged. Coordinator alone runs the one scoped Luna review; no repeated full suite, cloud probe or new artifact/deploy before the review/publication gates.
 
 
 ## Current-schema-only repair validation

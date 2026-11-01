@@ -2,7 +2,394 @@
 
 Updated: 2026-10-30 · Actual branch: `main` · [Spec](spec.md) · [Tasks](tasks.md) · [Validation guide](quickstart.md)
 
-Status: **SCOPED REVIEW ACCEPTED; exact14-path serial publication authorized; external execution PAUSED.** The repair's tested seven-file source map is unchanged from READY_FOR_REVIEW. ONE coordinator-run review is accepted without confirmed findings or fixes; actual checks are reused, not rerun. Fresh explicit coordinator grant plus exact FE Git/docs PAUSE receipt authorizes p12 alone to publish the14 reviewed paths and narrow review-status documentation. Preserve FE/history/root dependencies/private originals and81d4 lock/report. Return the serial lease after publication/public-source capture, then use the unchanged isolated pipeline for a NEW clean published Linux/x64 artifact. Concrete NEW source/artifact owner binding remains required before external execution; Decision B creates consumed:0.
+Status: **MANAGED STARTUP REVIEW ACCEPTED; EXACT10 SERIAL PUBLICATION AUTHORIZED.** ONE coordinator `/root/startup_review`, explicitly requested as gpt-6-luna, found no confirmed actionable issue; independent runtime identity/session UUID are unavailable. Existing19/19 and actual Linux managed/standalone evidence are retained without fixes/reruns. Fresh owner-coordinator grant and FE p0 Git/docs PAUSE authorize only reviewed publication/tiny closeout, followed by explicit HOLD return before new clean Linux artifact/deploy. Existing e7 deployment remains last-observed500; old artifact/reports/locks stay intact.
+
+## Managed startup repair — owner-authorized narrow source/local increment
+
+The owner resumed actual runtime diagnosis/minimal repair after the attested e7 deployment's500, not another transport probe/build/deploy loop. The fresh assigned FE OMP wA:p0 NO-INFLIGHT/PAUSE receipt activates the conditional exclusive BE-only README/PROJECT_STATE hunk lease; all existing FE/history/audit content is preserved. Git/install/root dependencies/private inputs/SQL remain out of scope. This increment stops at READY_FOR_REVIEW for one coordinator-run available gpt-6-luna review; publication requires a later serial receipt.
+
+**Evidence before source:** the retained, integrity-pinned `@vercel/node@28.0.0` `dist/dev-server.mjs` intercepts `http.Server.prototype.listen`, captures the server without invoking the original listener/callback, then awaits entrypoint import before binding that captured server. The packaged `apps/api/src/main.js` instead top-level-awaits Nest's `app.listen()`. This creates a cycle: import waits for listening; the managed bridge waits for import before listening. The unchanged official loader, exact immutable e7 handler/dependencies and synthetic hosted configuration ran under pinned Linux/x64 Node24.22.1, read-only mounts and network-none: timeout exit124 after12s, zero stdout/stderr, no bridge-ready or application-listening event. No artifact mutation or provider request occurred.
+
+The official [NestJS entrypoint example](https://vercel.com/docs/frameworks/backend/nestjs) calls an async `bootstrap()` without top-level-awaiting it. The public [Node serverless handler source](https://github.com/vercel/vercel/blob/main/packages/node/src/serverless-functions/serverless-handler.mts) documents the listener interception and import-before-bind contract; the retained pinned package is the execution authority. `awsLambdaHandler: ""` is the Node builder's ordinary non-AWS-handler default, not evidence of a broken config. Runtime/architecture/framework/helpers/sourcemaps/duration10/cancellation/environment remain unchanged. The pool is lazy; no DB connect occurs during module composition.
+
+**Minimal repair design, before editing source:** keep `src/main.ts`, actual `NestFactory.create` and `app.listen`; launch async bootstrap without holding module evaluation open. Move fallible configuration/application/framework imports inside the guarded async bootstrap so dependency evaluation failures do not bypass startup diagnostics. Emit bounded stage-only entry/config/module-import/NestFactory/listen/listening/failure events and explicitly allowlisted error class/code/config field, never raw error/message/stack/env/headers/credentials. Enforce a finite startup deadline including asynchronous import, initializer, listen and failed-start cleanup. Preserve successful local signal shutdown, pre-DB bearer protection, verified Session CA, pool lifecycle/timeouts/cancellation.
+
+**Affected acceptance:** failing-before/passing-after managed import/listen regression; real Nest initializer failure and hang, transitive import failure and secret-canary suppression, invalid configuration and bind failure, local successful startup/shutdown. Reuse existing HTTP security/deadline checks. Execute the unchanged official managed bridge again on the corrected development output and real protected HTTP routes; this is managed-launch compatibility, not a claim to possess Vercel's production-generated launcher or to have fixed the hosted deployment. No full release/DB suite or new artifact/deploy before review/publication.
+
+### Actual repair and affected evidence — READY_FOR_REVIEW
+
+- `apps/api/src/main.ts` now invokes guarded async bootstrap without top-level-awaiting it. Configuration/framework/application imports are inside that guard; emitted diagnostics contain only fixed stages, built-in/known error classes, allowlisted codes/config fields and a known application filename plus bounded line/column. No raw error/message/stack/env/credential is printed.
+- The startup watchdog is8s and exits1 for pending async import/initialization/listen/failed cleanup. It is cleared on the **actual HTTP server `listening` event**, not Nest's callback: the upstream managed bridge discards that callback, so awaiting it cannot prove binding. Successful local SIGINT/SIGTERM hooks and all runtime guard/TLS/pool/cancellation composition remain unchanged. A blocked event loop, invalid entrypoint syntax or provider failure before module entry cannot be interrupted by this JavaScript timer; no such coverage is claimed.
+- Before repair: the permanent managed-import regression failed1/1. The exact e7 unchanged official bridge run exited124 under the12s external cap with no output/ready event. Pinned bridge SHA-256: `7ea81d8ca4a08df82d2445989fd092d758715b131c03203998c1c5799f302ae9`.
+- After repair: Node24.22.1 TypeScript compilation exit0; final affected run **19/19** (startup6, HTTP4, config9). Real Nest provider throw/hang, transitive import failure, invalid config, occupied loopback bind, managed live/denial beyond the8s watchdog and SIGTERM passed. Error message/name/code canaries are absent; unknown codes/names are not reflected. Existing tests retain bearer-before-DB, silent peer deadlines, pool exhaustion cleanup, disconnect/shutdown, CORS and config/TLS validation.
+- Intermediate failures are retained: the first affected run was13/16, with an obsolete wording assertion, missing contract file in the temporary layout and a bind fixture that did not force the same loopback host. Removed only the wording assertion, preserved its exit/secrecy behavior, restored repository-shaped public test layout and corrected the bind fixture. A narrowed name-pattern recheck still executed all19 and passed; no further suite rerun. Initial overlay preparation lacked an emitted source map; an explicit mapped compile completed it. The first official detection call omitted its `files` argument and failed before launch; passing the pinned glob output corrected that harness input. None required a source workaround.
+- Actual unchanged `@vercel/nestjs@23.0.0` selected `src/main.ts`, including its guarded dynamic `@nestjs/core` import. Actual unchanged `@vercel/node@28.0.0/dist/dev-server.mjs` ran with pinned Linux/x64 Node24.22.1 under network-none. The **development overlay**, not a sealed/releasable artifact, replaced only emitted main.js/map in a copy of e7's function; `.vc-config.json` stayed byte-equivalent. Protected live200, anonymous/malformed/wrong bearer ready401, authorized unknown404, allowed OPTIONS204 and denied OPTIONS401 passed through the managed bridge; live remained200 beyond8s and bridge shutdown exited0. Separate real local loopback startup returned live200 and shut down on SIGTERM.
+- No authorized cloud ready200 was attempted. This proves compatibility with the public pinned managed bridge and an evidenced bootstrap deadlock, not possession of Vercel's production-generated launcher or complete attribution of its internal500. Actual corrected production success still requires the reviewed publication/new clean Linux artifact/controlled deploy and same-ID TLS/private-bearer readiness gates.
+- Durable sanitized evidence: `.openai/reports/runtime-startup-cvh4ccl3/result.json`, `affected-tests.txt`, `managed-smoke.mjs`, `tested-main.ts` and `preservation-verified.json`. Exact source hashes are in the receipt. The e7 provenance digest,7200 file contents/modes and895 directory modes remain identical; all12 historical records retain bytes/inodes/modes. Root package/lock/ignore/pointer are unchanged. No provider/private/auth/SQL/dependency/Git/FE action occurred.
+
+T079 accepted: ONE `/root/startup_review`, explicitly requested as gpt-6-luna through coordinator orchestration, completed read-only exact10 scope with no confirmed actionable correctness/security/regression/test-gap findings. Coordinator source inspection found no additional confirmed issue. Independent runtime identity/session UUID are unavailable; no reviewer edits/tests/build/private/provider/auth actions, fixes or reruns. Fresh owner-coordinator exact10 serial grant and FE p0 NO-INFLIGHT Git/docs PAUSE now authorize scoped non-force publication and tiny review closeout. Return Git/docs HOLD directly before the new matching clean Linux artifact is built/stored under its actual SHA and the existing owner-authorized controlled archive deployment proceeds. No new abstract START or blind duplicate create; same-ID actual serving remains required.
+
+
+## Durable unchanged-source rebuild and actual archive deployment
+
+The owner explicitly authorized recovery from our temporary-artifact storage loss: rebuild the already-reviewed/published source unchanged, persist the real output/provenance durably, then perform one controlled official CLI archive deployment. No new approval,188-byte probe, custom release feature, source review or source publication was required. The previous ENOENT remains historical; the owner was not asked to recover our temporary files.
+
+### Actual published source, isolated build and durable verification
+
+- Read-only Git identity confirmed HEAD/main/origin-main `d811bd441854652a9489d3d6def9ebe86844ceca`, tree `da6a5607fa676fc1c3a678be7e14e13f39aafa34`. A disposable sparse public snapshot exported112 actual Git objects and50 selected input files from that commit. Snapshot refs/index/clean status and every selected Git blob/mode were verified; the dirty host checkout was not used as release input or reset/stashed.
+- Source digest is `4fb1e43305c40de13c709803d5cc88d63854b988f888982209d47f1ab77cd3a3`. The unchanged pipeline ran externally with the pinned official image index `sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea`, selected Linux/amd64 image `sha256:0925478b811e8890f5508ad2a75135933310effd45492696ecf7c111c8339d02`, actual Node24.22.1 and its previously pinned binary digest.
+- Initial Docker calls failed because OrbStack was stopped and its socket absent. Starting the existing OrbStack runtime exited0; the documented `/var/run/docker.sock` remained unavailable, while its existing `~/.orbstack/run/docker.sock` exposed the exact retained image. No new machine/image pull, shared service stop/reset or volume operation was performed. The existing engine remains running.
+- Public tools installed only in the external `/work/tools`; bootstrap workspace dependencies installed only in external `/work/bootstrap`. Empty HOME/auth/npm configurations, read-only container root, UID501, dropped capabilities and no private mounts were used. Four stages exited0: pinned tools, locked bootstrap install, compilation, unchanged native/operator/seal pipeline. No source edit, host repository install/lock change, test-suite rerun or reviewer.
+- The **newly computed** provenance SHA-256 is `e7a9febc6d0985032f5555102146db57b8f60201f039b15aee1fc8117bce9236`: this rebuild actually reproduced the prior digest; it was not relabeled without hashing. `git check-ignore` confirmed the existing `.openai/` rule before storage.
+- Durable root: `.openai/artifacts/e7a9febc6d0985032f5555102146db57b8f60201f039b15aee1fc8117bce9236/`. `sealed/` contains the immutable output; `public-source/` contains the selected source tar, real Git object pack and capture manifest, not a persistent checkout; `compiled-driver/` and `evidence/release-driver-provenance.json` preserve34 matching compiled/public driver files; `public-tool-pins/` retains the four exact public package tarballs.
+- After copy/fsync, independent network-none verification passed all7200 files/895 directories,50 source blobs, source/tree/platform/Node/migration/config binding, four tarball-integrity/complete-own-package checks and final runtime controls. Function remains Node24, maxDuration10, supportsCancellation=true and empty embedded environment; runtime bearer/CA/pool code is unchanged. Exact source/compile/build/verification harnesses and results are retained in `evidence/`.
+
+### Reconciliation, archive evidence and one actual deployment
+
+Normal isolated CLI reads confirmed the intended user, existing BE project/team/root/Node24, original production deployment and alias. A complete production-deployment page from `2026-10-30T05:19:32.032Z` through timestamp1793392065671 returned zero candidates. This does not declare81d4 terminal; the owner's accepted late-create/alias risk remains explicit.
+
+All12 literal historical reports/locks/approvals/continuation/supersession records existed. Their bytes/inodes/modes were fingerprinted before and preserved after this increment.81d4 remains unknown/null-ID;73 remains failed before deployment;454's create-intent/acknowledgement files remain absent. No historical lock was cleared, receipt overwritten, UUID replaced or missing evidence fabricated.
+
+Before invocation, `evidence/cli-archive-continuation.json` and `cli-invocation-intent.json` were exclusively written and fsynced, binding those historical records/limits, accepted risk, exact source/artifact, method and the single controlled CLI invocation. No migration runner or direct SQL was invoked; owner-reported current schema was not redone.
+
+The previously established CLI compatibility was reused. Actual offline packaging used the unchanged pinned client's generator only through its first `hashes-calculated` yield in a network-none container, then closed it before any provider request. Its archive contained exactly1012 selected regular files matching the immutable output's bytes/sizes/modes; embedded config/runtime controls were checked. Host deploy CLI own-package verification also matched the pinned public package.
+
+The sole deployment invocation used:
+
+```text
+.openai/cloud-tools/vc deploy --prebuilt --archive=tgz --prod --no-wait --json \
+  --no-guidance --non-interactive --cwd <disposable-public-stage> \
+  --scope khuonghuyhieu0705s-projects \
+  --meta sourceCommit=d811bd441854652a9489d3d6def9ebe86844ceca \
+  --meta artifactSha256=e7a9febc6d0985032f5555102146db57b8f60201f039b15aee1fc8117bce9236 \
+  --meta sourceDigest=4fb1e43305c40de13c709803d5cc88d63854b988f888982209d47f1ab77cd3a3
+```
+
+Existing real project/team metadata linked the staging directory; only verified prebuilt output was deployed. CLI stdout/stderr stayed in process memory, with validated ID/URL exclusively persisted as soon as emitted. Exit0 in4.149s acknowledged `dpl_5odnTH7bHuVVRPU9VJCJYH3gwaHA` and provider-issued `https://esty-admin-aw4x4p79v-khuonghuyhieu0705s-projects.vercel.app`, initially INITIALIZING. Supported `inspect --wait --timeout 120s --json` exited0/READY; same-ID API inspection confirmed expected project/owner/production, no gitSource and matching source/artifact metadata. No blind create retry or manual alias/DNS mutation occurred.
+
+Provider representation is one `src/.vercel/source.tgz.part1` and one `out/index` lambda, not the prior unarchived tree. [Supported file-content retrieval](https://vercel.com/docs/rest-api/deployments/get-deployment-file-contents) retrieved that uploaded public archive by UID `e826f8776ca2334504bc277368e7447f0a9e85d7`; its SHA-256 is `24249aa37b2edc82184adbc41700d708703d4b1b5c30d866b55eef7b5d051546`. Decompressed1012 files **all match exact sealed contents, sizes and modes**. Compressed bytes differ from the earlier Linux offline archive; no compressed-byte equality is claimed. This is actual uploaded-input attestation beyond metadata echo, not proof of the provider-generated launcher or worker enforcement.
+
+### Actual same-alias serving failure
+
+The alias was verified against the acknowledged ID before and after requests. A reviewed private reader consumed the existing prepared runtime configuration in memory for the bearer; no raw secret/headers/environment were printed or stored. No env pull/decryption, browser bearer, public proxy or platform-protection bypass was used.
+
+At `2026-10-30T20:30:02.214Z`–`20:30:02.232Z`, eight bounded HTTP/1.1 requests exercised authorized live/ready, anonymous/malformed/wrong-key denial, authorized unknown route, and allowed/denied OPTIONS. All validated TLS but received **no response headers within20s**; none passed. Provider request records correlate the exact deployment/project/custom host/paths with route `/` and499 at20:30:22Z.499 is the provider's cancellation record, not a client-received response. Separate earlier provider request records showed500 with IDs `pcxll-1793392144903-2a46ea60fe61` and `4mbfj-1793392144878-e6f3a5d25838`; these are not attributed to our eight acceptance requests.
+
+One additional diagnostic changed to HTTP/2 and allowed65s for an anonymous GET `/health/live`, without credentials, redirect or retry:
+
+```text
+curl -q --http2 --max-time 65 --connect-timeout 5 --proto =https \
+  --silent --show-error --dump-header - \
+  --write-out <fixed-status-version-TLS-timing-markers> \
+  https://api.lovora.us/health/live
+```
+
+All response bytes were captured and allowlisted **inside the parent process before output**; this is not a raw-log display command. Started `2026-10-30T20:34:49.395Z`, exit0, verified TLS, HTTP/2 **500 after60.678563s**, provider code **`INTERNAL_FUNCTION_INVOCATION_FAILED`**, request ID **`hkg1::mg9vb-1793392489735-13e9d1c63312`**.
+
+The bounded initial and actual-failure runtime-log windows both exited0 with zero entries; the latter had no next page. Exact request-ID trace inspection returned not found, not a login/permission error. Build-log retrieval exited0 without a recognized error code in the allowlist; absence of a recognized code is not proof of boot success. All log/API/trace output was captured and sanitized before model/output. Exact commands, timestamps and safe observations are retained in `provider-read-commands.json`, `sanitized-serving-logs.json`, `routing-observations.json`, `failed-invocation-log-trace.json` and the acceptance/error receipts.
+
+**One concrete blocker:** the attested new deployment's function invocation returns500 `INTERNAL_FUNCTION_INVOCATION_FAILED`; application startup and application bearer handling are not reached successfully in the observed serving path. [Vercel's error reference](https://vercel.com/docs/errors/INTERNAL_FUNCTION_INVOCATION_FAILED) permits function-code or execution-environment causes; no specific configuration/source defect is established by this code alone. The smallest operator action is to have Vercel inspect the internal invocation failure for this exact deployment/request ID/time and expose its runtime/dispatch error. Our normal runtime/trace interfaces provided no underlying error; no indefinite trace wait, unsupported source edit, credential redo, DB operation or duplicate deployment followed.
+
+No live200/ready200, denial401, unknown404, OPTIONS success or hosted Supabase connectivity is claimed. The60.679s edge failure does not prove a worker exceeded maxDuration10; dispatch/init timing versus worker execution is unavailable. Worker cancellation/enforcement, eligibility/capacity and FE/UI→API→DB gates remain unverified. Archive upload succeeded for this invocation;454's historical transport cause remains unknown, not rewritten as fixed.
+
+Final sanitized receipt: `.openai/artifacts/e7a9febc6d0985032f5555102146db57b8f60201f039b15aee1fc8117bce9236/evidence/final-receipt.json`; final Herdr submission results are recorded separately in `delivery-receipt.json`. README/PROJECT_STATE, source, root dependency files, shared pointer, FE and original reports/locks/private files remain unchanged. No new source publication or shared-doc lease was used.
+
+<details>
+<summary>Previous current summaries — retained storage/upload history</summary>
+
+Status: **AUTHORIZED OFFICIAL PREBUILT ARCHIVE DEPLOYMENT BLOCKED BEFORE STAGING: approved sealed artifact absent (ENOENT).** The owner authorized the actual deployment path for exact d811bd4/e7a9febc, including official CLI archive semantics. Installed CLI65.4.0 exposes prebuilt/archive options and its source supports their combination, but `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-current-schema-linux-hd6p_7un/work/sealed` and its evidence parent are not present in this executor's filesystem. No artifact substitution, build, provider deployment or new serving probe occurred. Restore the exact existing sealed bundle/provenance or expose its actual accessible location; this is a missing input, not another approval/token gate. Historical454 upload failure,73 journal failure and81d4 unknown outcome remain unchanged.
+
+Prior spec status: explicit owner/coordinator rebind to exact454 with unchanged d811bd4/e7a9febc pins. Actual-container0700/write/fsync gates passed before arming; one supported current-schema-only invocation timed out during upload. Zero create/runner/DDL; durable create_intent=false, no ID. New454 report/lock/receipt retained, no retry. Original73 and81d4 evidence unchanged; no new-artifact serving proof or shared-doc/Git lease. See the plan's actual evidence.
+
+</details>
+
+## Official prebuilt archive execution prerequisite — blocked before provider mutation
+
+The latest owner request supersedes the earlier read-only/single188-only stops for one controlled production deployment of exact reviewed source `d811bd441854652a9489d3d6def9ebe86844ceca`, source digest `4fb1e43305c40de13c709803d5cc88d63854b988f888982209d47f1ab77cd3a3`, and Linux artifact `e7a9febc6d0985032f5555102146db57b8f60201f039b15aee1fc8117bce9236`. Official CLI prebuilt/archive transport and its content-addressed upload retry semantics are authorized; no additional method-change START or188-byte probe is required. This does not authorize substituting different bytes, replaying SQL, clearing retained locks or claiming the old deployment as the new artifact.
+
+### Completed offline compatibility checks
+
+- The current [official deploy documentation](https://vercel.com/docs/cli/deploy#prebuilt) explicitly recommends `vercel deploy --prebuilt --archive=tgz` to reduce uploaded file count. This is compatibility guidance, not proof that archive transport solves454.
+- Installed `.openai/cloud-tools/vercel/node_modules/vercel/package.json` reports65.4.0. Public launcher inspection identifies the existing Node24 executable, pinned CLI and isolated global-config path; no auth-store contents were read.
+- The real pinned CLI `deploy --help` exited0 under `/usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network*)'`, with empty temporary HOME/global config and telemetry disabled. Help exposes `--prebuilt`, `--archive` and `--prod`. Its help text does not itself contain `tgz`; support for that value is established by the inspected implementation, not inferred from help.
+- Static `dist/commands/deploy/index.js:42–45` accepts archive formats, selects `.vercel/output` for prebuilt mode, validates target compatibility and passes both `archive:"tgz"` and `prebuilt` to deployment-file inspection. `dist/chunks/chunk-N6JBQMOF.js:19` implements `collectDeploymentFiles` and `createTgzFiles`, packing the selected file list into gzip chunks named `.vercel/source.tgz.partN`. No upstream code was changed.
+- These checks establish the pinned option/code path only. Actual approved-output archiving, archive-content/runtime-control verification and immutable source/tool/file provenance remain unperformed because the input bundle is unavailable. No synthetic substitute was represented as that artifact.
+
+### Actual failed input check
+
+The exact owner-supplied path and its parent `esty-current-schema-linux-hd6p_7un` both returned not found. An independent filesystem `stat` confirmed **ENOENT / No such file or directory**, while the containing `.../T` directory and installed CLI package exist. Scoped discovery found no `esty-current-schema-linux-*` parent or `esty-*/work/sealed` / `esty-*/sealed` alternative under `/private/var/folders/*/*/T`, `/private/tmp` or `/tmp`. No credential/private/auth inventory was performed.
+
+```text
+stat -f '%N %HT %Sp' \
+  /private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T \
+  /private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-current-schema-linux-hd6p_7un/work/sealed \
+  /Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin/.openai/cloud-tools/vercel/node_modules/vercel/package.json
+# exit1: containing temp directory and CLI package exist; exact sealed path is absent.
+
+/usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network*)' \
+  /Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node \
+  /Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin/.openai/cloud-tools/vercel/node_modules/vercel/dist/vc.js \
+  --global-config <owned-empty-temporary-directory> deploy --help
+# exit0; empty HOME/auth, network denied; temporary directory removed afterward.
+```
+
+**Single concrete blocker / smallest repair:** restore the retained exact e7a9febc sealed bundle and associated source/tool/file provenance to an accessible public artifact directory, or expose the actual location of those same existing bytes. The executor can then verify the binding, stage the immutable output, perform fresh before-create reconciliation and execute the already-authorized single CLI archive deployment. Missing bytes cannot be repaired by copying the current dirty checkout, creating an empty output, trusting a recorded hash without files, or silently rebuilding a replacement artifact.
+
+No provider request, upload/create, new UUID/continuation record, SQL/migration, bearer/private input read, source/build/test/install/reviewer/Git operation or alias/DNS change occurred in this attempt. Fresh before-create reconciliation was deliberately not run while its required artifact was absent; prior live identity and serving observations below remain historical, not refreshed acceptance. All historical reports/locks, source, FE/shared docs and DB volumes remain untouched. No live200/ready200, anonymous401, authorized unknown404 or OPTIONS acceptance is claimed. Only this existing feature001 plan changed.
+
+<details>
+<summary>Previous current summary — retained historical454 status</summary>
+
+Status: **EXACT454 ATTEMPT BLOCKED DURING UPLOAD; no create reached, zero migration runner/DDL.** The owner explicitly rebound unchanged d811bd4/e7a9febc pins to run454d77e9. Actual-container private-directory/write/fsync guards passed before arming. Strict approval, continuation evidence, run lock and81d4→454 supersession receipt were persisted. The one supported invocation timed out during upload; immutable report remains unknown/null-ID with lock retained. Read-only reconciliation confirms create_intent=false, schema current and no deployment ID. No retry, replacement UUID, source/build/review/Git action or shared-doc lease.
+
+</details>
+
+## Bounded read-only READY deployment diagnosis
+
+Owner scope: inspect the original deployment through the existing isolated `.openai/cloud-tools/vc` launcher, compare four anonymous health requests, and inspect bounded deployment logs. Only this existing feature001 plan receives evidence; no README/PROJECT_STATE lease, source change, release retry or new run identity is implied. Recorded process/provider timestamps below are UTC as actually returned; the owner's session date is2026-10-31, while both observed clocks report2026-10-30.
+
+### Live identity before serving requests
+
+Four normal authenticated GETs exited0 between `2026-10-30T18:39:35.495Z` and the alias query starting `18:39:42.605Z`. They confirmed user `khuonghuyhieu0705`, project `esty-admin-api` / `prj_uITHKLUGGE98VxrEcs5FoktBbcls`, owner `team_k2Hk4wx5XAb9Mgc6lP5AjVhf`, root `apps/api`, Node24, and original deployment `dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy` READY/production. Both the deployment alias list and alias lookup bound `api.lovora.us` to that same project/deployment.
+
+The deployment response supplied `https://esty-admin-pc9gky5gd-khuonghuyhieu0705s-projects.vercel.app`; no hostname was guessed. Project protection remained `all_except_custom_domains`. Existing CLI authentication/read permission worked; no missing-login claim or credential redo is warranted. This verifies live identity, not a new artifact attestation: historical f46/9da remains the deployed candidate; current d811bd441854652a9489d3d6def9ebe86844ceca/e7a9febc6d0985032f5555102146db57b8f60201f039b15aee1fc8117bce9236 is not deployed.
+
+### Four simultaneous anonymous GETs and request-log correlation
+
+One host Node `https.get` comparison used fresh nonpooled HTTP/1.1 connections, certificate verification, no authentication, no redirects/retries, and a15,000ms total bound per request. All four started within36ms at `2026-10-30T18:40:04.764Z`–`18:40:04.800Z`; response bodies were not read. Only numeric status, validated request ID/error-code enums and timing/TLS booleans were retained.
+
+| Target | Path | Client result | Verified TLS elapsed | Total elapsed | Provider request record |
+| --- | --- | --- | --- | --- | --- |
+| Provider-issued URL | `/health/live` |302 |658ms |869ms |302 at18:40:05.561Z |
+| Provider-issued URL | `/health/ready` |302 |618ms |836ms |302 at18:40:05.550Z |
+| `api.lovora.us` | `/health/live` |No response headers/status; total timeout |734ms |15007ms |499 at18:40:19.000Z |
+| `api.lovora.us` | `/health/ready` |No response headers/status; total timeout |735ms |15007ms |499 at18:40:19.000Z |
+
+Provider response IDs were `hkg1::vnd2r-1793385605561-605260d6489f` (live) and `hkg1::8pdjp-1793385605550-67cddb68a45d` (ready). The request log returned their exact suffix IDs, matching timestamp/path/host and the expected deployment/project. Custom-domain records matched both exact paths/host, deployment/project and the client-deadline timestamp, but had no request ID; correlation is by those fields, not an invented ID. The client did not receive HTTP499: that is the provider's record coincident with client cancellation.
+
+The provider URL's302 proves a responding access path, not application startup or readiness. Protection configuration makes a protection redirect plausible, but redirect location/body were not retained, so this is not proof of the redirect's destination. No protection bypass was attempted. Custom-domain requests reached this deployment's provider request logging after valid TLS; a blanket DNS/TCP/TLS failure or wrong alias is not supported by these observations.
+
+### Bounded log inspection and its limits
+
+The single build-log query exited0. In-process sanitization found no recognized bootstrap/module/config error code from the explicit allowlist; this does not prove successful application invocation or that arbitrary unrecognized error prose was absent. No raw build/runtime messages, stack payloads, headers or environment values were printed or saved.
+
+The first runtime query covering `2026-10-30T04:00:00Z` through `18:40:54.216732Z` was rejected with exit2 for the plan's log-retention limit. A corrected query limited to `18:39:00Z`–`18:40:54.216732Z` exited0 with zero runtime entries and no next page. The request-log query for that same narrow interval exited0 with exactly the four correlated records above and no next page. No polling or repeated serving probes followed. Zero retained runtime entries is not proof that the function was never invoked or that bootstrap succeeded; the original startup history is unavailable in this queried retention window.
+
+Executed command forms (all CLI stdout/stderr captured inside the parent process and parsed/allowlisted **before** any model-visible output; never run these as raw-log display commands):
+
+```text
+.openai/cloud-tools/vc --help
+.openai/cloud-tools/vc api --help
+.openai/cloud-tools/vc logs --help
+.openai/cloud-tools/vc inspect --help
+.openai/cloud-tools/vc logs requests --help
+.openai/cloud-tools/vc api /v2/user --method GET --raw --scope khuonghuyhieu0705s-projects
+.openai/cloud-tools/vc api /v9/projects/prj_uITHKLUGGE98VxrEcs5FoktBbcls?teamId=team_k2Hk4wx5XAb9Mgc6lP5AjVhf --method GET --raw --scope khuonghuyhieu0705s-projects
+.openai/cloud-tools/vc api /v13/deployments/dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy?teamId=team_k2Hk4wx5XAb9Mgc6lP5AjVhf --method GET --raw --scope khuonghuyhieu0705s-projects
+.openai/cloud-tools/vc api /v4/aliases/api.lovora.us?teamId=team_k2Hk4wx5XAb9Mgc6lP5AjVhf --method GET --raw --scope khuonghuyhieu0705s-projects
+node -e <in-memory four-request anonymous https.get comparison> <two verified base URLs>
+.openai/cloud-tools/vc inspect dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy --logs --scope khuonghuyhieu0705s-projects
+.openai/cloud-tools/vc logs runtime --deployment dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy --project prj_uITHKLUGGE98VxrEcs5FoktBbcls --scope khuonghuyhieu0705s-projects --since 2026-10-30T04:00:00Z --until 2026-10-30T18:40:54.216732Z --limit 20 --json
+.openai/cloud-tools/vc logs requests --deployment dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy --project prj_uITHKLUGGE98VxrEcs5FoktBbcls --scope khuonghuyhieu0705s-projects --since 2026-10-30T18:39:00Z --until 2026-10-30T18:40:54.216732Z --limit 20 --json
+.openai/cloud-tools/vc logs runtime --deployment dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy --project prj_uITHKLUGGE98VxrEcs5FoktBbcls --scope khuonghuyhieu0705s-projects --since 2026-10-30T18:39:00Z --until 2026-10-30T18:40:54.216732Z --limit 20 --json
+```
+
+Each CLI subprocess was bounded to25s with telemetry/update notifications disabled and no inherited credential overrides; the documented wrapper alone performed normal CLI authentication. API/log payloads remained in process memory for allowlisted extraction. No private prepared file, raw auth/cache store, env-pull/decryption, public proxy or browser key was used.
+
+**Single actionable evidence gap:** this deployment receives custom-domain requests but supplies no client-visible headers before15s; retained request records end499 and expose no correlated invocation/runtime error. Available evidence cannot distinguish provider routing/dispatch from bootstrap/application stall. Smallest next repair path is a provider-side read-only invocation/dispatch trace for this exact deployment, `api.lovora.us`, both health paths and `2026-10-30T18:40:04.799Z`–`18:40:19.000Z`; recover the missing invocation disposition/error before choosing a source/runtime or routing repair. If unavailable under current retention/access, that specific provider trace is the missing capability—not credentials, DNS setup or another release. No timeout increase, DNS change or redeployment is justified as a confirmed fix.
+
+STOP after this diagnosis. No upload/control POST, create/release, SQL/migration, lock/receipt clearance, source/build/test/install/reviewer/Git action, alias/DNS mutation or new run UUID occurred. Historical73/81d4/454 evidence, current source/artifact, private originals, FE/domain and DB volumes were untouched. The188-byte successes and full-upload timeout remain unchanged and unresolved; no serving or UI→API→DB acceptance is claimed.
+
+## Authorized original-native-fetch188-byte comparison
+
+The owner separately authorized one comparison POST using the original native fetch, changing only the transport from the preceding HTTPS diagnostic. It retained Linux/x64 Node24.22.1, the literal `https://api.vercel.com/v2/files` URL **without teamId/slug/query**, the same188-byte approved artifact payload and SHA1/SHA256, binary/size/digest headers, existing reviewed in-memory credential context and15s total bound. No release or new run identity was authorized.
+
+### Offline verification and one-request guard
+
+A network-none/no-private-mount container reverified the exact approved source/artifact/payload and matching compiled context. The unmodified runtime was Node24.22.1 with bundled Undici7.30.1. Static offline inspection of that runtime's bundled source established that `undici:client:sendHeaders` publishes synchronously before H1 buffer writes and H2 stream requests; native fetch also contains an automatic421 retry branch, so merely calling fetch once would not establish one wire request.
+
+The diagnostic therefore subscribed to native request-construction and prewrite channels, rejecting any unexpected origin/path/method or additional request/write by synchronous process termination before transmission. Guards remained installed until process exit. They did not replace/patch fetch, change its dispatcher, use an alternate client or modify runtime source. Header/body objects were not inspected or dumped by observers; only allowed request identity, connection metadata, status and local event timings were retained. The hypothetical retry-blocking branch was not exercised or claimed tested.
+
+Bundled Undici source SHA256: `50a6f643f00499ef75c5a36a0a610e7db4f5fbb0a2093ad4942b46fc797f7e26`. Actual counters were **one fetch invocation, one native request construction, one native header-send hook and one body-sent hook**. Guard blocked=false; no redirect/retry occurred.
+
+### Actual bounded result
+
+Started `2026-10-30T18:09:28.868Z`; **HTTP200 observed**, total1651.205ms within15,000ms.
+
+| Event | Elapsed |
+| --- | --- |
+| Native request constructed / before-connect |172.732ms /175.346ms |
+| DNS lookup |1050.905ms; `76.76.21.21`, IPv4 |
+| TCP connected |1087.666ms |
+| Native connected/TLS |1344.852ms; certificate verified, TLSv1.3, ALPN http/1.1 |
+| Native headers prewrite |1351.662ms |
+| Native local body-sent hook |1358.547ms;188-byte known payload |
+| Native response headers |1631.785ms; HTTP200 |
+| Fetch response available |1637.015ms |
+| Completion after unread-body cancellation |1651.205ms |
+
+Provider request ID: `hkg1:hkg1:sfo1::bjf89-1793383770375-a2cbf26bc787`. An AbortError diagnostic event at1641.901ms followed the successful response during intentional cancellation of the unread response body; the main fetch succeeded, no total deadline fired and no retry occurred. No raw response body, headers/auth, credential values or hashes were logged. DNS/TCP/TLS and body-sent events were actually observed; the body-sent hook is local transport evidence, not a server receipt or durable-storage acknowledgement.
+
+### Supported comparison and limits
+
+The prior explicit `https.request` diagnostic received200 in502.212ms; this original-native-fetch diagnostic received200 in1651.205ms under the same small-payload/literal-URL/15s conditions. Thus a blanket inability of the original native-fetch client to POST this188-byte content-addressed request was not reproduced. These are one observation per client at different times, with different observed DNS/connect timing, not a controlled performance benchmark or evidence of a client-caused latency regression.
+
+Both200 responses may deduplicate existing content. Neither proves fresh body storage, large-file or pooled/batch behavior, the release's scoped teamId/slug query, upload completion, deployment readiness or a timeout fix.454's failed file/size/digest/prior acknowledgements remain unrecorded and unknowable from retained evidence.454's original unknown report, create_intent=false/noack journal and all73/81d4 receipts/locks remain unchanged; no original release evidence was mounted.
+
+STOP after this authorized comparison. No automatic query probe, full release, retry, create, SQL, new UUID, source fix, build/test/review, Git/DNS or lock/receipt/journal operation followed. The prior188 evidence was read only for context and was not modified. Shared docs and FE resources were not changed; only this feature001 evidence was added.
+
+Sanitized evidence root: `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-native188-454-ghjie1v5`, including `native-guard-source.json`, `offline-command.json`, `work/offline-verification.json`, `post-command.json`, `work/post-intent.json`, `work/post-result.json` and `process-result.json`. Owned temporary script/input placeholders are removed after evidence retention; immutable original artifacts and all earlier evidence are preserved.
+
+## Authorized188-byte upload-only diagnostic
+
+The owner explicitly authorized exactly one diagnostic content-addressed POST, not a release, using the unchanged approved d811bd4/e7a9febc artifact's `.vercel/output/config.json`:188 bytes, SHA1 `b42210047421e4b7734568ba599631978bb9628d`, SHA256 `bd8e51e07ac0ebd7148f9646600c93600094d06dca3fa28dbf676d69992c42d0`. This superseded the preceding proposal-only boundary solely for that request. No new release UUID or create permission was introduced.
+
+An initial network-none container, with no private mount, verified Linux/x64 Node24.22.1/UID501, the exact artifact/source/tree/manifest identities, all four matching compiled release-module/source hashes and the payload's actual bytes/size/digests. The online invocation rechecked runtime, compiled context and payload against that offline evidence before consuming the existing deploy context through reviewed `readPrivate`/`parseDeployConfig`, in memory only. The private input was read-only; no credentials were placed in argv/environment or output.
+
+The diagnostic used one explicit Node24 `https.request`, fresh nonpooled HTTP/1.1 connection, no redirect/retry machinery and a15,000ms total deadline covering DNS through response headers. The URL was literally `https://api.vercel.com/v2/files`, **without query parameters**, as approved. Binary body/Content-Length/x-now-digest/x-now-size matched the documented contract. This differs from the release uploader's native fetch and teamId/slug query; results must not be attributed to either difference without a controlled comparison. Only whitelisted public metadata and socket/request event timings were recorded; response body and raw headers/auth were never dumped.
+
+### Actual single-attempt result
+
+Started `2026-10-30T17:37:04.488Z`; exactly one POST attempt; **HTTP200 observed within502.212ms**, with no timeout or retry.
+
+| Observed event | Elapsed from request start |
+| --- | --- |
+| Socket assigned |39.056ms |
+| DNS lookup |53.549ms; `api.vercel.com` → `76.76.21.21`, IPv4 |
+| TCP connected |92.233ms |
+| TLS connected |205.930ms; certificate verified, TLSv1.3, ALPN http/1.1 |
+| Local request finish |208.007ms;188-byte payload handed to local transport |
+| Response headers |493.590ms; HTTP200 |
+| Bounded operation completed |502.212ms |
+
+Provider request ID: `hkg1:hkg1:sfo1::6nxwp-1793381824813-d4bca8c1681d`. The local finish event is **not** a server receipt or proof of durable body storage. Response-body reading was disabled.
+
+This proves only that this small content-addressed request obtained200 under the recorded conditions; it may have deduplicated already-present content. It does not identify454's failed file, recover its unknown prior acknowledgement count, prove fresh body storage/large-file or batch behavior, establish native-fetch equivalence, or establish deployment readiness. There is no evidence that raising timeout, changing digest headers or retrying the full release would fix454.
+
+### Preservation and next boundary
+
+No release entrypoint, deployment create, SQL, retry, new UUID, source fix, build/test/review, Git/DNS action or release-journal/lock/receipt mutation occurred. Original73/81d4/454 reports/locks/receipts were not mounted; the private deploy input and artifact/source mounts were read-only.454 remains retained with its existing create_intent=false/no acknowledgement; no original status was rewritten. Shared docs and FE resources remain untouched.
+
+STOP after this approved request. If further comparison is authorized separately, the smallest next transport experiment would hold the188-byte payload, literal no-query URL and15s bound constant and change only the client to the original native-fetch path, with whitelisted event evidence and an explicit one-request/no-retry guard. That experiment is **not authorized or executed here**; query scope and pooled/batch behavior would still remain separate variables. No full release retry, receipt clearance or source repair is justified by this200 alone.
+
+Sanitized evidence root: `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-upload188-454-3iz3j9lh`; retained `offline-command.json`, `work/offline-verification.json`, `post-command.json`, `work/post-intent.json`, `work/post-result.json` and `process-result.json`. Local diagnostic evidence is separate from release journals. Owned temporary script/mount scaffolding is removed after retention; no original evidence is disposable.
+
+## Read-only upload transport diagnosis after run454
+
+The owner's next bounded scope authorized public GET/HEAD transport comparison and static contract research only. No release, upload POST, create, SQL, authenticated control, private/auth/cache read, journal/receipt mutation, source fix, test/build/review, Git or DNS operation was performed. Existing sanitized454 evidence was used instead of reopening original release reports or private inputs. Shared README/PROJECT_STATE remain untouched; this evidence does not close T077.
+
+### Retrospective evidence boundary
+
+The exact recorded phase is `upload / in_flight / timeout / http_status=null`. The failed file path, byte size, SHA1/SHA256, file ordinal, bytes sent and count of preceding successful upload acknowledgements are **not recorded and cannot be recovered from these retained records**. The reviewed uploader resets request state for each sequential file and persists no per-file progress/ack ledger. Neither elapsed time nor manifest ordering identifies the failed file; do not call it the first file or infer an acknowledgement count. A timeout before response headers does not locate the failure within DNS, TCP, TLS, body transfer or response waiting.
+
+The retained sanitized journal still reports `create_intent=false`, no acknowledged deployment ID and a retained unknown outcome. This diagnosis did not alter or reclassify454,81d4,73 or any receipt/alias. Possible server acceptance of a timed-out upload remains unresolved.
+
+### Actual low-count public controls
+
+Eight HTTP requests total, four per environment, ran at `2026-10-30T16:57:31.337Z`–`16:57:35.005Z`. Both used clean environment/empty HOME, no credentials/proxy configuration, no redirects/retries,10s HTTP bounds and5s curl connect bounds. The Linux container used the exact previously approved Node image by digest, Linux/x64 Node24.22.1, UID501/read-only root; no repository/private/report mounts. No image pull/install occurred.
+
+| Observation | Host Darwin/arm64 | Exact Linux/x64 image |
+| --- | --- | --- |
+| Node / bundled Undici |26.10.0 /8.10.2 |24.22.1 /7.30.1 |
+| curl |8.7.1, SecureTransport/LibreSSL |7.88.1, OpenSSL3.0.22 |
+| DNS A | `76.76.21.21` | `76.76.21.21` |
+| DNS AAAA | `ENODATA` | `ENODATA` |
+| Explicit IPv4 TCP / certificate TLS | Connected; validated TLSv1.3; ALPN h2 | Connected; validated TLSv1.3; ALPN h2 |
+| Node fetch `HEAD /` |308 in885ms; connected ALPN h2 |308 in398ms; connected ALPN http/1.1 |
+| Node fetch `GET /v2/files` |404 in228ms |404 in381ms |
+| curl IPv4 default-ALPN `HEAD /` |308, HTTP/2, certificate verify0,194ms |308, HTTP/2, certificate verify0,256ms |
+| curl IPv4 forced-HTTP/1.1 `GET /v2/files` |404, certificate verify0,346ms |404, certificate verify0,453ms |
+
+No IPv6 TCP/TLS/HTTP connection was attempted because neither bounded DNS query returned an AAAA; this is not proof that IPv6 networking is broken or globally unavailable. Redirect308 targets were recorded but not followed. Public GET404 proves an HTTP response to that method, not upload authorization or POST endpoint failure. Node26's observed h2 connection differs from Node24's http/1.1 connection, but Linux Node fetch and forced-HTTP/1.1 curl both obtained responses; this is a transport difference, **not an evidenced upload root cause**. These later probes cannot rule out transient conditions at the earlier failure.
+
+### Current official contract and pinned CLI65.4.0
+
+The current [Upload Deployment Files reference](https://vercel.com/docs/rest-api/deployments/upload-deployment-files) specifies `POST /v2/files`, binary `application/octet-stream`, SHA1 integrity via **either `x-vercel-digest` or `x-now-digest`**, `Content-Length`/`x-now-size`, optional teamId/slug and success200, including an already-uploaded file. The existing adapter's endpoint/header/body/status handling matches those documented fields. No evidence supports renaming its digest header, switching to the legacy `/v2/now/files`, or treating this timeout as a proven request-contract mismatch. The page's generated JSON examples are not used instead of its binary request/header contract.
+
+Static inspection of the unchanged installed CLI65.4.0 bundle `vercel/dist/chunks/chunk-N6JBQMOF.js` confirms `API_FILES="/v2/files"` and the same octet-stream/Content-Length/x-now-digest/x-now-size headers. Its uploader streams bytes, emits per-file progress and `file-uploaded` events, permits concurrency and retries transient/server errors with `retries:5,factor:6,minTimeout:10`. That minTimeout is retry backoff, not a transfer deadline. The pinned upload/fetch callsites pass an optional dispatcher and an AbortController used for peer failure; they do not install the project's15s per-request timer. This inspection does not establish one effective wall-clock timeout for every CLI transport/dispatcher, nor prove that increasing the project's deadline would fix the failure.
+
+Content addressing does not grant a safe journal resume. The [creation reference](https://vercel.com/docs/rest-api/deployments/create-a-new-deployment) references previously uploaded files by SHA; [missing_files](https://vercel.com/docs/rest-api/errors#missing-files) is a deployment-creation response. The pinned client's initial missing-file discovery calls deployment **POST**, which can create successfully, and subsequently uploads missing content. Its separate continuation helper **POSTs `/deployments/{id}/continue`**, requires an existing ID and advises same-ID inspection after an uncertain continuation. Neither is a read-only probe or usable permission to resume no-ID454. No documented read-only SHA-level pending-upload receipt lookup was established in the inspected official references. No CLI deploy/continue/retry was executed.
+
+### Conclusion and smallest separately scoped next action
+
+At probe time, broad IPv4 DNS/TCP/certificate-TLS and public HTTP failure was not reproduced on either host or the exact Linux image. Upload authorization, body ingress, content-store acceptance, the original failed payload and prior acknowledgements remain unproved. Public controls cannot distinguish an upload-specific transient, body/size/connection behavior, authorization rejection or provider-side delay at the original request. No source repair or timeout increase is justified as a confirmed fix.
+
+If the owner authorizes further diagnosis, the smallest proposed mutating experiment is **one upload-only POST, not a release**, from the same Linux Node24 environment to the documented `/v2/files` endpoint, using the already-approved artifact's public `.vercel/output/config.json`:188 bytes, SHA1 `b42210047421e4b7734568ba599631978bb9628d`, SHA256 `bd8e51e07ac0ebd7148f9646600c93600094d06dca3fa28dbf676d69992c42d0`. Those bytes/digests were checked offline; they are a proposed controlled payload, **not an identification of the failed454 file**. Keep the15s bound, no retry, use existing reviewed nonlogging private readers in memory, and retain only whitelisted DNS/connect/TLS/ALPN/body-sent/response timing, status/request ID and public payload metadata. No raw authorization/headers/body dump, deployment/create/SQL/release entrypoint or lock/receipt change. This needs separate concrete approval and was **not executed**. Even200 may use already-present content and would prove only this small content-addressed request, not the failed file, fresh body storage, large-file behavior or full release readiness.
+
+Sanitized evidence: `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-upload-transport-454-sso9qgd4`, containing `probe-command.json`, `host-transport.json`, `linux-transport.json`, `cli-contract.json` (bundle hash/static excerpt offsets) and `diagnosis-summary.json`. No additional authenticated control was needed. Original private inputs,454 child lock/journal/receipt,73/81d4 originals and all protected FE/DB resources were neither mounted nor changed; existing FE integration and hosted serving gates remain separate.
+
+## Explicit454 rebind and bounded upload failure — 2026-10-30
+
+The owner/coordinator explicitly authorized only run `454d77e9-a90d-4d0f-8291-7df460dce546`, preserving the exact commit/tree/source/artifact/manifest/platform listed in the historical73 binding below. No new START, token preparation, build or review was requested or performed. Decision B's create budget was0/1 before this attempt; the consumed73 identity was not invoked again.
+
+### Same-container guards and durable continuation
+
+Before reading/arming private inputs or making provider/DB requests, the actual execution container checked the explicitly bound `/published/.openai/reports` parent, actual mounted release-output directory, `/work` and `/execution`: UID501 matching process ownership,0700, no symlink components, exclusive0600 nonsecret write/readback, file/directory fsync and probe removal all passed. A child-directory create/write/fsync/remove probe under the actual report output also passed. This used an explicit writable owner-only parent bind mount, not host-chmod inference. Exact artifact/source/published Git identity and all four recorded compiled release-module/source hashes were reverified without rebuilding.
+
+Supported81d4 description matched its original descriptor. The consumed73 report remained failed/journal/not_started/null-ID with no run directory; raw SHA-256 `3307ae12cc6cf5e7aeb02b37e7ccc605d2e26e8dc0a4ee5061147e0660cca297`. Its approval raw SHA-256 was `7c651cc9355ddd8b8dbabb7ca606219377e155010ea7c4c7680930a1181f77fd`. The new exclusive, fsynced `.openai/reports/releases/continuation-454d77e9-a90d-4d0f-8291-7df460dce546.json` binds those exact file identities, consumed73 evidence, corrected actual-container capability, original81d4 fingerprint, unchanged pins and sole authorized454 identity. Extra continuation fields were not inserted into the strict supersession schema.
+
+Separate prepared private inputs were consumed only by reviewed nonlogging readers; the armed operator existed only in the private tmpfs. Original81d4 report/root lock and73 report/approval were also read-only file mounts. Strict owner-risk approval was exclusively written and fsynced at `.openai/reports/releases/owner-approval-454d77e9-a90d-4d0f-8291-7df460dce546.json` after fresh reconciliation.
+
+### Actual preflight, attempt and read-only result
+
+| Gate | Observed result |
+| --- | --- |
+| Full production deployment window | `2026-10-30T05:19:32.032Z` through `2026-10-30T16:28:37.642Z`; one complete page, zero candidate IDs. This bounded absence does not make historical81d4 terminal. |
+| Preflight source/files/alias | Original `dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy` READY with its exact original artifact/file attestation. Before/after preflight alias remained that original ID, not the new artifact. |
+| Current schema | Initialized/ordered; only `1792972800000-foundation` applied; pending/unexpected empty before and after the attempt. No runner/DDL or rollback of committed foundation. |
+| Single supported invocation | Exact454 `--approve-release --current-schema-only --supersede`; exit1, no wrapper force/overflow. Preflight completed `2026-10-30T16:28:46.066Z`. |
+| Immutable release report | `result=failed`, `stage=deploy`, `schema_status=current`, `migration=null`, `deployment=unknown`, `deploy_id=null`, `lock_retained=true`, `reporting=written`. |
+| Causal diagnostics | `operation=upload`, `request_state=in_flight`, `category=timeout`, `http_status=null`. The reviewed uploader uses `POST /v2/files` with a15s request bound. Exact number of accepted uploads was not recorded; a timed-out upload may have been accepted. No upload retry was attempted. |
+| Durable journal | Intent, acquired child lock,81d4→454 supersession receipt and retained failed outcome validate. `create_intent=false`, no acknowledged deployment ID. Upload failed before the before-create checkpoint; no production create was reached, so the create budget remains0/1, not permission to retry. |
+| Read-only reconciliation | Returned `schema_status=current`, `create_intent=false`, `deploy_id=null`, `deployment=not_started`, `http=not_checked`, `original_report_unchanged=true`. This derived state does not rewrite the conservative unknown/null-ID report. Project/domain GETs returned200. |
+| Alias and TLS after attempt | Alias before/after reconciliation still `dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy`. Separate anonymous TLS probe validated the certificate and negotiated TLSv1.3 for `api.lovora.us`. TLS is not application HTTP proof. |
+| New-artifact serving acceptance | No new deployment ID exists. New same-ID live/ready/denial/unknown-route/CORS checks were not run or passed; original READY cannot satisfy them. |
+| Preservation | Original81d4 full descriptor and consumed73 report/approval fingerprints unchanged at final check. New journal unchanged across reconciliation; all locks/reports/approval/receipt retained. Completed at `2026-10-30T16:31:49.833Z`. |
+
+Sanitized evidence root: `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-bound-454d77e9-wpnzdtfp`. It contains `execution-command.json`, `work/actual-container-capability.json`, `work/continuation.json`, `work/preflight-window.json`, `work/preflight-complete.json`, `work/supported-release-result.json`, `work/durable-journal-state.json`, `work/readonly-reconciliation.json` and `work/final-outcome.json`. Durable repository-local evidence remains under `.openai/reports/releases/`: the454 report/approval/continuation, `runs/454d77e9-a90d-4d0f-8291-7df460dce546/` and `supersessions/81d4a855-46e2-4b1f-91a3-3dac6deeb5db.json`.
+
+### Stopping boundary
+
+The blocker is now a bounded provider upload timeout, not a local parent-directory permission failure. No source fix, rebuild, reviewer, token redo, Git action, second release invocation or alternative UUID was initiated. The supported protocol does not resume-create a consumed run or replace the existing81d4→454 receipt automatically. Preserve the uncertain report/lock and accepted-upload uncertainty; any further disposition requires separately authorized coordination, not generic lock clearance.
+
+FE browser evidence remains separately attributed and was not rerun; there is no UI→API→DB claim. Worker10s/cancellation, capacity and intended-use/Hobby eligibility remain unverified. No shared README/PROJECT_STATE lease was inferred; only feature001 evidence was updated. FE/previews/volumes, historical records and private originals remain untouched. The temporary armed context was removed; owned execution scaffolding is cleaned separately from retained immutable evidence.
+
+## Owner-bound current-schema-only execution — 2026-10-30
+
+### Exact published binding
+
+| Field | Owner-bound value |
+| --- | --- |
+| Run | `73f3e5ec-8fec-4103-b906-3b98ff602ac1` |
+| Commit / tree | `d811bd441854652a9489d3d6def9ebe86844ceca` / `da6a5607fa676fc1c3a678be7e14e13f39aafa34` |
+| Source digest | `4fb1e43305c40de13c709803d5cc88d63854b988f888982209d47f1ab77cd3a3` |
+| Artifact SHA-256 | `e7a9febc6d0985032f5555102146db57b8f60201f039b15aee1fc8117bce9236` |
+| Migration manifest | `243818c0ebe11bc6ea8b12b3224810c88e888b18ec30dd5bfe58394f1f209496` |
+| Platform | Linux/x64, Node24.22.1, npm11.19.1, release |
+
+The earlier explicit serial grant published the exact14 reviewed paths without force and captured clean HEAD/main/origin-main and the public source snapshot before returning the lease. The unchanged isolated public pipeline produced this new artifact; network-none verification covered50 source blobs/modes,7200 artifact files,895 directories and1011 raw-output files. Release orchestration is intentionally outside the sealed database operator; matching compiled release-module hashes are retained in `release-driver-provenance.json`. Publication/build evidence resides under `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-current-schema-linux-hd6p_7un`. Existing compile0/release121/121/integration39/39 and actual synthetic-driver evidence were reused, not rerun. The native install reported6 high-severity advisories; no dependency upgrade occurred.
+
+### Actual bounded execution and blocker
+
+The owner accepted residual historical late-create/alias risk and unresolved HTTPS for this exact binding, authorizing at most one supported production create, no migration runner/DDL and no retry. The first action was supported offline `--describe-retained-run 81d4a855-46e2-4b1f-91a3-3dac6deeb5db`, exit0. Its raw report SHA-256 is `a758c56127cb596905db9f35a987a7b72ca08a6c169b008a9706a0abc4aecf4e`; this is not the earlier canonical-JSON audit hash. Original lock inode116941 and the full descriptor were checked unchanged before and after the attempt.
+
+Fresh complete production-deployment pagination covered `2026-10-30T05:19:32.032Z` through `2026-10-30T16:08:13.712Z`: one page, no candidates. This bounded observation does not make historical81d4 terminal. Before/after preflight, `api.lovora.us` still bound to original deployment `dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy`; same-ID inspection confirmed READY and the original exact file/artifact identity (`9da28ebe84442b868f1afecc5b625cf978d4836212e9575e35bc44506bb559e5`), not the newly approved artifact. Read-only schema status was initialized and ordered, with only `1792972800000-foundation` applied and no pending/unexpected migration. No historical committed foundation was rolled back or reapplied.
+
+Reviewed private-file readers consumed the separate existing inputs; only an ephemeral0700/tmpfs operator context was armed. Original private files were read-only mounts, with no secret values in argv/environment/output. Exact owner approval was exclusively written and file/directory-fsynced as `.openai/reports/releases/owner-approval-73f3e5ec-8fec-4103-b906-3b98ff602ac1.json`.
+
+The supported CLI was invoked exactly once with `--current-schema-only` and this approval. It exited1 and durably reported `result=failed`, `stage=journal`, `schema_status=not_checked`, `deployment=not_started`, `deploy_id=null`, `lock_retained=true`, `reporting=written`. The CLI's `not_checked` describes its own later schema gate; it does not erase the separate successful preflight read-only status above. No run directory, intent, child lock, supersession receipt, create-intent or acknowledgement was created. Consequently there were **zero uploads, zero production creates, zero migration-runner calls and zero DDL statements**, not an unknown new create. The wrapper's `create_cli_invocations=1` counts a CLI invocation, not a provider create. Its catch-level preflight timeout diagnostic is not the causal journal failure.
+
+The concrete cause was the executor's scratch mount layout: `/published/.openai/reports` appeared as owner501/mode0755, while `durableDirectory` correctly requires its parent to be0700 (`release-journal.ts:100–105,216`; `private-files.mjs:13–14`). Read-only diagnosis reproduced that exact guard rejection; fsync of the existing parent/release directories succeeded. A host chmod alone still appeared0755 in the container. An explicit owner-only parent bind mount then produced owner501/mode0700 and passed the actual reviewed guard in a network-none container. This corrected only owned scratch layout, not product source, originals or journal guards. It was **not** used to invoke release again.
+
+The immutable failed report `.openai/reports/releases/73f3e5ec-8fec-4103-b906-3b98ff602ac1.json` prevents reuse of that exact run ID. No record was removed, renamed, rewritten or fabricated to bypass this rule. Continuing requires coordinator/owner binding of a different run identity to the same unchanged pins and corrected layout; no new token, rebuild, review or source fix is indicated by this failure. No replacement identity was silently allocated.
+
+Sanitized execution evidence root: `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-bound-73f3e5ec-r51565ul`. Retained records include `execution-command.json`, `work/retained-fingerprint.json`, `work/preflight-window.json`, `work/preflight-complete.json`, `work/supported-release-result.json`, `work/final-outcome.json`, `work/journal-diagnosis-parent.json` and `work/corrected-parent-guard.json`. No new deployment ID exists for same-ID TLS/live/ready/denial/unknown-route/CORS acceptance. READY of the original deployment does not prove the new artifact serves.
+
+### Separate gates and preserved scope
+
+The existing FE browser audit remains FE/coordinator-owned evidence; it was not rerun or counted as BE serving proof. This attempt makes no new `app.lovora.us` claim and no UI→API→DB claim. Historical HTTPS timeout remains unresolved; the original foundation remains committed. Provider10-second worker enforcement, cancellation, capacity and intended-use/Hobby eligibility remain unverified;60/9 is not a capacity budget.
+
+No source/build/Git/dependency/DNS/billing/new-infrastructure mutation occurred during this bound attempt. Shared README/PROJECT_STATE and FE/previews/volumes were not changed; no current shared-doc lease was inferred. Original81d4 report/lock, private inputs, immutable artifacts and the new approval/failed report are retained. Only owned temporary execution scaffolding is disposable; no historical receipt/lock cleanup or automatic resume is authorized.
 
 ## Current-schema-only and durable release-journal design — 2026-10-30
 
