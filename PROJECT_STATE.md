@@ -1,5 +1,15 @@
 # Current handoff
 
+## Current BE readiness diagnosis — review accepted, 2026-11-01
+
+Production remains exact c75d000/666ab1cf/dpl_4U98EbGBC4QzrknVLq7Kdh2ojXiw: actual protected live200/access401/unknown404/OPTIONS204-401/TLS/startup pass; authorized readiness503/database_timeout repeated twice. No ready200, measured production subphase or Supabase acceptance yet. Existing sanitized logs lack DB phases; one scoped existing-request trace lookup exited1 without usable evidence. No fresh cloud health probe reconfirmed the owner's failure.
+
+Sole OMP p12 implemented only bounded per-attempt readiness diagnostics in the existing Vercel path, preserving public contracts, pg networking/authentication, verified CA/hostname, bearer-before-DB, lazy pooling and all timeout/cancellation/shutdown controls. No DB/timer/region/credential repair was guessed. Actual affected evidence: Node24.22.1 compilation0, HTTP13/13, startup6/6, and separate canonical emitted-main smoke with verified loopback TLS/authentication28P01 classification, live200/access401/unknown404/OPTIONS204-401, secret-safe output and normal SIGTERM shutdown. Initial helper/harness/verifier failures are retained, not suppressed.
+
+The NEW owner current-hunk docs grant plus FE p0 explicit PAUSE/NO-INFLIGHT receipt authorized only additive BE shared-doc hunks. All prior README/PROJECT_STATE bytes, including FE003/T013/history/audit, are preserved. Current666 provenance/all7200 file bytes/modes and895 directory modes, all12 historical report/lock bytes/inodes/modes, root dependencies/ignore/pointer are verified unchanged. No Git/install/deploy/SQL mutation/DDL/private-original read or write, new reviewer or FE action.
+
+ONE `/root/readiness_review`, explicitly selected gpt-6-luna through orchestration, matched all11 manifest hashes with no confirmed actionable findings; coordinator read-only inspection found no additional issue. Independent runtime model identity/session UUID are unavailable. No reviewer edits/tests/build/provider/Git/private calls and no source fixes/check reruns. The fresh exact11 serial grant plus NEW FE p0 Git/docs PAUSE is now effective for tiny review closeout and scoped publication; explicitly return HOLD after source capture and BEFORE long build. [README owns the only current remaining-actions list](README.md#remaining-actions--single-current-list). [Feature001 evidence](specs/001-connectivity-foundation/plan.md#actual-diagnostic-increment-evidence--ready_for_review) and sanitized11-path review receipts: `.openai/reports/readiness-diagnosis-tky0k78a/`. Historical BE entries below retain their original dates/status/permissions and are not current authority.
+
 Updated: 2026-10-30. Architecture: [ARCH-001](specs/architecture.md). Repository: `e-commerce/esty-admin/`.
 
 ## Current managed startup repair — review accepted

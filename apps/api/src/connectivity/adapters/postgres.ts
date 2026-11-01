@@ -3,6 +3,7 @@ import type { ClientConfig, PoolClient } from 'pg';
 import type { OnModuleDestroy } from '@nestjs/common';
 import type { DatabaseProbe, DatabaseState } from '../application/readiness.js';
 import { expectedMigrations } from '../../generated/migrations.js';
+import { acquisitionDiagnostic, DiagnosticClient, ReadinessDiagnostic } from './postgres-diagnostics.js';
 
 export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
   readonly pool: Pool;
@@ -10,8 +11,9 @@ export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
   private closing = false;
 
   constructor(config: ClientConfig, private readonly requiredMigrations = expectedMigrations,
-    private readonly maxConnections: 2 | 4 = 4) {
-    this.pool = new Pool({ ...config, max: maxConnections, min: 0, idleTimeoutMillis: 1000 });
+    private readonly maxConnections: 2 | 4 = 4, private readonly diagnose = false) {
+    this.pool = new Pool({ ...config, max: maxConnections, min: 0, idleTimeoutMillis: 1000,
+      ...(diagnose ? { Client: DiagnosticClient } : {}) });
     // pg removes failed idle clients. Never emit driver errors containing secrets.
     this.pool.on('error', () => {});
   }
@@ -26,10 +28,11 @@ export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
     }
     const operation = new AbortController();
     this.active.add(operation);
+    const diagnostic = this.diagnose ? new ReadinessDiagnostic() : undefined;
     const { promise, resolve } = Promise.withResolvers<DatabaseState>();
     let client: PoolClient | undefined;
     let finished = false;
-    const finish = (state: DatabaseState, destroy = false) => {
+    const finish = (state: DatabaseState, destroy = false, error?: unknown) => {
       if (finished) return;
       finished = true;
       clearTimeout(deadline);
@@ -38,6 +41,7 @@ export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
       this.active.delete(operation);
       client?.release(destroy);
       client = undefined;
+      diagnostic?.finish(state, error);
       resolve(state);
     };
     const abort = () => finish('database_unavailable', true);
@@ -46,10 +50,13 @@ export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
     operation.signal.addEventListener('abort', abort, { once: true });
     void (async () => {
       try {
-        const acquired = await this.pool.connect();
+        const acquired = await (diagnostic
+          ? acquisitionDiagnostic.run(diagnostic, () => this.pool.connect())
+          : this.pool.connect());
         // Acquisition may complete after HTTP cancellation; never leak the late client.
         if (finished) { acquired.release(true); return; }
         client = acquired;
+        diagnostic?.enter('schema_query');
         const schema = await client.query<{ schema: string | null; history: string | null }>(
           "SELECT to_regnamespace('foundation')::text AS schema, to_regclass('public.foundation_migrations')::text AS history",
         );
@@ -58,6 +65,7 @@ export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
           finish('migrations_pending');
           return;
         }
+        diagnostic?.enter('history_query');
         const history = await client.query<{ name: string }>(
           'SELECT name FROM public.foundation_migrations ORDER BY id',
         );
@@ -68,7 +76,7 @@ export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
         const code = error instanceof Error && 'code' in error ? error.code : undefined;
         const message = error instanceof Error ? error.message : '';
         const timedOut = code === '57014' || /timeout|timed out/i.test(message);
-        finish(timedOut ? 'database_timeout' : 'database_unavailable', true);
+        finish(timedOut ? 'database_timeout' : 'database_unavailable', true, error);
       }
     })();
     return promise;

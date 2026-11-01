@@ -14,7 +14,8 @@ export function createApplicationModule(config: ApiConfig, requiredMigrations = 
     controllers: [HealthController],
     providers: [
       { provide: PostgresProbe, useFactory: () => {
-        const probe = new PostgresProbe(config.database, requiredMigrations, config.runtime === 'local' ? 4 : 2);
+        const probe = new PostgresProbe(config.database, requiredMigrations, config.runtime === 'local' ? 4 : 2,
+          config.runtime === 'vercel');
         attachPlatformLifecycle(config.runtime, probe.pool);
         return probe;
       } },

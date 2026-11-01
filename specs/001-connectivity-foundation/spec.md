@@ -1,8 +1,12 @@
 # Feature specification: Connectivity foundation
 
-Feature:001-connectivity-foundation · Created:2026-10-25 · Updated:2026-10-30 · Status: managed startup review accepted; ONE coordinator /root/startup_review explicitly requested gpt-6-luna, no confirmed findings, independent runtime identity/session UUID unavailable. Retain19/19 and actual official Linux bridge/standalone evidence without fixes/reruns. Fresh exact10 owner-coordinator grant plus FE p0 pause authorizes scoped publication, then hold return before new clean Linux artifact/deploy. Old e7 deployment remains last-observed500; actual corrected hosted acceptance remains pending.
+Feature:001-connectivity-foundation · Created:2026-10-25 · Updated:2026-11-01 · Status: measurement-only readiness increment REVIEW_ACCEPTED; ONE orchestration-selected gpt-6-luna review matched all11 hashes with no confirmed findings or additional coordinator finding. Independent runtime identity/session UUID unavailable. Retain compilation0/HTTP13/13/startup6/6/emitted TLS smoke without reruns. Fresh exact11 serial grant/FE pause authorizes publication/capture then HOLD return before long build. Production c75d000/666ab1cf/dpl_4U98EbGBC4QzrknVLq7Kdh2ojXiw remains live200/access/CORS/TLS/startup PASS and ready503/database_timeout; no production cause or repair claimed.
 
 Source: owner decisions and [ARCH-001](../architecture.md). Tracking: existing [Notion C3-03](https://app.notion.com/p/3d256f555918814abd42efeec2ea5edb). Keep this feature, repository and actual branch; no duplicate tracker/spec or checkout.
+
+## Current targeted hosted readiness diagnosis acceptance
+
+Existing serving live/access/CORS/startup evidence is retained, not rerun to confirm the owner. Before changing a DB control, distinguish actual function pool acquisition, DNS/TCP, verified TLS, authentication and fixed schema/history queries through bounded secret-safe phase timings and allowlisted codes. Preserve the HTTP contract and every security/resource bound; no diagnostic endpoint, migration/DDL/DB mutation, credential reset or speculative timeout/region change. A local or Mac DB connection cannot prove the hosted path. Instrumentation needs affected checks and ONE coordinator review before separately granted publication and a new exact Linux artifact/deployment. Actual same-ID ready200/database-up/migrations-current or one measured specific failing phase is the outcome; provider READY and generic timeout are insufficient.
 
 ## Current managed startup repair acceptance
 

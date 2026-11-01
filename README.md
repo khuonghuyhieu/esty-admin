@@ -4,6 +4,29 @@ Open this `esty-admin/` folder directly. It is the standalone repository for `kh
 
 Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 and correction T013–T020 are complete, including external review and owner visual acceptance. The coordinator confirms the owner-approved FE-only push of 20 files to `main@6c64eaa`; a deployment result for that correction is not verified. The local BE foundation is verified and separately reviewed; the owner has now authorized its source-only commit/push. Hosted acceptance remains pending. Application screens and full UI → API → DB acceptance remain outside the completed increments.
 
+## Current BE readiness diagnosis — review accepted, 2026-11-01
+
+Actual production c75d000/666ab1cf on `dpl_4U98EbGBC4QzrknVLq7Kdh2ojXiw` serves protected live200, denial401, authorized unknown404 and allowed/denied OPTIONS204/401 with verified TLS and startup through listening. Readiness still returned503/database_timeout twice; no ready200/Supabase-completion claim. The older BE deployment/setup/current-authority statements below are dated history, superseded by this section and [feature001's latest plan](specs/001-connectivity-foundation/plan.md#targeted-actual-function-readiness-diagnosis--2026-11-01). FE evidence/gates are unchanged.
+
+The new source increment only adds bounded private runtime phase measurements to existing Vercel readiness. It observes the unchanged pg transport, verified TLS/authentication and two fixed reads; one final allowlisted diagnostic excludes messages/stacks/SQL/parameters/targets/credentials. `tls_verified_this_attempt=false` on pooled reuse means no handshake was observed during that attempt, not that TLS was disabled. Bearer-before-DB, lazy pool, live independence, all existing deadlines/cancellation and public responses remain unchanged. No production cause or speculative fix is asserted.
+
+With existing Node24.22.1/dependencies, affected canonical commands are:
+
+```sh
+npm run build --workspace=@esty-admin/api
+node --test apps/api/build/tests/http.test.js apps/api/build/tests/startup.test.js
+```
+
+Actual execution instead emitted compilation to an external repository-shaped public directory, preserving the shared build. Compilation passed; HTTP13/13 plus startup6/6 passed under loopback-only outbound sandboxing. Separate emitted-main HTTP smoke observed live200/denial401/unknown404/OPTIONS204-401 and a synthetic verified-TLS auth rejection503 classified as authentication/28P01 with no secret output; normal Nest shutdown was SIGTERM. This is local diagnostic proof, not a new hosted measurement. Initial helper typing, shutdown-harness expectation and historical-mode verifier corrections are retained in [actual evidence](specs/001-connectivity-foundation/plan.md#actual-diagnostic-increment-evidence--ready_for_review).
+
+### Remaining actions — single current list
+
+1. Publish only the accepted11 paths under the now-effective fresh exact11 serial grant and FE p0 Git/docs PAUSE, capture clean published source and explicitly return HOLD before building/storing/after-copy-verifying the matching NEW clean Linux artifact.
+2. OMP continues the already-authorized controlled official archive deployment once; measure the actual function's failing phase before any minimal repair. Preserve all records, current666 artifact, verified TLS and bounds; no migration runner/DDL, credential reset, speculative timer/region change or abstract permission loop.
+3. Verify exact uploaded bytes and same-ID alias/TLS/private live200 plus ready200/database-up/migrations-current, denial401/unknown404/OPTIONS204-401 and one bounded unchanged FE public-host check. Record actual success or one measured specific blocker and justified action; close out current docs under a fresh lease. No genuine missing login/token has been observed.
+
+Review accepted: ONE `/root/readiness_review`, explicitly selected gpt-6-luna through orchestration, matched all11 manifest hashes with no confirmed actionable correctness/security/regression/test-gap findings; coordinator read-only inspection found no additional issue. Independent runtime model identity/session UUID are unavailable. No reviewer edits/tests/build/provider/Git/private calls, source changes or check reruns. The fresh exact11 grant and NEW FE p0 Git/docs PAUSE are effective; return the short HOLD before long build. Provider-policy eligibility, actual worker-duration/cancellation enforcement, capacity and independent FE/UI→API→DB acceptance remain separate unverified gates.
+
 ## Managed startup repair — review accepted
 
 The BE bootstrap's top-level await blocked the pinned managed bridge's import-before-bind sequence. The narrow repair preserves canonical NestFactory/listen, guards dependency imports and emits secret-safe startup stages with an8s initialization bound, cleared on actual server binding. Node24 compilation,19 affected tests and the unchanged official Linux/x64 managed bridge passed. This is local compatibility proof, not hosted success: existing e7 deployment `dpl_5odnTH7bHuVVRPU9VJCJYH3gwaHA` remains last-observed500 `INTERNAL_FUNCTION_INVOCATION_FAILED`.
@@ -449,6 +472,8 @@ For a separately authorized isolated reproduction only (never the working tree/p
 The recorded invocation used `/private/tmp/esty-api-native-fix-7nyjm23o/source` and its sibling `empty-auth`. Relevant verified settings were manually copied, not obtained by a full genuine pull. No --yes, pull/env pull, authenticated launcher, deployment or actual hosted acceptance. T057/T058 remain partial/blocked; coordinator must resolve a controls-preserving supported builder path before the source repair, new T059 review and later T060 docs-only closeout.
 
 ### Remaining manual actions — one owner checklist
+
+**Historical snapshot — 2026-10-30, not an active checklist.** Preserved verbatim below for failure/authorization history. The only current remaining-actions list is [above](#remaining-actions--single-current-list); do not rerun its old setup, credential, migration or deployment actions.
 
 Actual2026-10-30 result: accepted strict src/out correction was published as `9f1ecd5a2ce592ab2ed022eb77a299e989c9267f`; fresh verified Linux artifact SHA-256 `c0d1232aa5c505520790395521635bfdc80e72e744a40a6a6a079a374cfd2288` is **not proven deployed**. The five-file Git/docs HOLD was returned. After documented read-only reconciliation and durable new-artifact supersession, release `81d4a855-46e2-4b1f-91a3-3dac6deeb5db` failed at deploy with no deployment ID, deployment unknown and lock retained. Its committed migration transaction applied0 new migrations; foundation remains committed once. A complete read-only window05:19:32.032Z–05:24:22.934Z found0 new deployments, not proof that no in-flight creation could finish later. Original `dpl_ARde5FN2Wu4XtLeXx27hoVP4GDGy` remains READY, same alias and exact1012-file attestation for originalf46/9da, not current9f1/c0. Eight safe HTTPS probes obtained no HTTP status; separate clean-env curl20s/0bytes and reader probes timed out. No hosted success. Accepted `/root/envelope_review` was requested as gpt-6-luna through orchestration; independent runtime model-identity attestation remains unavailable. Detailed identities/results are in the [current feature evidence](specs/001-connectivity-foundation/plan.md#published-envelope-correction-and-reconciled-hosted-blocker--2026-10-30).
 

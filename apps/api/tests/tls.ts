@@ -9,7 +9,7 @@ import type { TestContext } from 'node:test';
 
 // Generated certificates and private keys are disposable test material, not
 // project credentials. All sockets are hard-bound to the authorized local fixture.
-export async function tlsPostgres(t: TestContext, hostname: string) {
+export async function tlsPostgres(t: TestContext, hostname: string, onSecure?: (socket: TLSSocket) => void) {
   const directory = await mkdtemp(join(tmpdir(), 'esty-synthetic-tls-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await writeFile(join(directory, 'certificate.cnf'), `[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=extensions\n[dn]\nCN=${hostname}\n[extensions]\nsubjectAltName=DNS:${hostname}\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,digitalSignature,keyEncipherment,keyCertSign\n`);
@@ -20,7 +20,7 @@ export async function tlsPostgres(t: TestContext, hostname: string) {
   const context = createSecureContext({ cert: ca, key: await readFile(join(directory, 'key.pem')) });
   const sockets = new Set<Socket>();
   let connections = 0;
-  const track = (socket: Socket) => {
+  const track = <T extends Socket>(socket: T): T => {
     sockets.add(socket);
     socket.on('error', () => socket.destroy());
     socket.on('close', () => sockets.delete(socket));
@@ -36,6 +36,7 @@ export async function tlsPostgres(t: TestContext, hostname: string) {
       socket.write('S');
       const secure = track(new TLSSocket(socket, { isServer: true, secureContext: context }));
       secure.once('secure', () => {
+        if (onSecure) { onSecure(secure); return; }
         const upstream = track(connect(55432, '127.0.0.1'));
         secure.pipe(upstream).pipe(secure);
         secure.once('close', () => upstream.destroy());
