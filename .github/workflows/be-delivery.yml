@@ -1,0 +1,126 @@
+name: BE delivery
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: BE required checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    outputs:
+      archive_hash: ${{ steps.verify.outputs.archive_hash }}
+      artifact_hash: ${{ steps.verify.outputs.artifact_hash }}
+      source_tree: ${{ steps.verify.outputs.source_tree }}
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+    services:
+      postgres:
+        image: postgres:17.11@sha256:0b81cec82228160abfa753aeaad0609b709eb26eeb950f2e404ad2326e1cc370
+        env:
+          POSTGRES_USER: foundation_local
+          POSTGRES_PASSWORD: local_fixture_only
+          POSTGRES_DB: foundation_local
+        ports:
+          - 127.0.0.1:55432:5432
+        options: >-
+          --health-cmd "pg_isready -U foundation_local -d foundation_local"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    steps:
+      - name: Check out exact event source without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set pinned Node without shared dependency cache
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      - name: Install unchanged-lock API dependencies on this disposable runner
+        run: npm ci --workspace=@esty-admin/api --include-workspace-root=false --ignore-scripts --no-audit --no-fund
+      - name: Verify generated contract and compile
+        run: |
+          npm run codegen:check --workspace=@esty-admin/api
+          npm run build --workspace=@esty-admin/api
+      - name: Build native artifact and require functional plus actual HTTP-to-test-DB checks
+        id: verify
+        run: node apps/api/build/scripts/ci.js "$GITHUB_WORKSPACE" "$RUNNER_TEMP/be-transfer"
+      - name: Retain one immutable mode-preserving tested bundle
+        id: upload
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: be-tested-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/be-transfer/be-release.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+          compression-level: 0
+          overwrite: false
+
+  production:
+    name: BE production delivery
+    needs: checks
+    if: >-
+      github.repository == 'khuonghuyhieu/esty-admin' &&
+      github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
+      vars.BE_DELIVERY_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: be-production
+    concurrency:
+      group: esty-admin-be-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      deployments: write
+    steps:
+      - name: Set exact delivery runtime without application installation
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      - name: Download only this successful checks job's immutable artifact ID
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ needs.checks.outputs.artifact_id }}
+          path: ${{ runner.temp }}/be-transfer
+          merge-multiple: true
+      - name: Verify independent transfer digest before extracting or executing helpers
+        env:
+          ARCHIVE_SHA: ${{ needs.checks.outputs.archive_hash }}
+        run: |
+          [[ "$ARCHIVE_SHA" =~ ^[a-f0-9]{64}$ ]]
+          printf '%s  %s\n' "$ARCHIVE_SHA" "$RUNNER_TEMP/be-transfer/be-release.tar.gz" | sha256sum --check --strict
+          mkdir "$RUNNER_TEMP/be-consume"
+          tar -xzf "$RUNNER_TEMP/be-transfer/be-release.tar.gz" -C "$RUNNER_TEMP/be-consume"
+      - name: Bootstrap independently verified public CLI before secrets are present
+        run: node "$RUNNER_TEMP/be-consume/runner/ci-tools.js" "$RUNNER_TEMP/be-tools"
+      - name: Reserve durable intent, validate candidate, promote once and verify exact domain
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          BE_DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
+          BE_DELIVERY_ENVIRONMENT: be-production
+          ARTIFACT_SHA: ${{ needs.checks.outputs.artifact_hash }}
+          SOURCE_TREE: ${{ needs.checks.outputs.source_tree }}
+        run: >-
+          node "$RUNNER_TEMP/be-consume/runner/ci-delivery.js"
+          "$RUNNER_TEMP/be-consume/artifact" "$ARTIFACT_SHA" "$SOURCE_TREE"
+          "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js" "$RUNNER_TEMP/be-receipts"
+      - name: Retain sanitized receipts without secret-bearing subprocess logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: be-delivery-receipts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/be-receipts/*.json
+          if-no-files-found: ignore
+          retention-days: 30
+          overwrite: false

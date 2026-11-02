@@ -1,6 +1,7 @@
 import type { Deployment, DeploymentDiagnostics, DeployState } from './release-core.js';
 import { artifactTarget, readArtifactFile, safePath, verifyArtifact } from './artifact.js';
 import type { VerifiedArtifact } from './artifact.js';
+import { checkHostedHttp } from './hosted-acceptance.js';
 
 const projectId = 'prj_uITHKLUGGE98VxrEcs5FoktBbcls';
 const scope = 'khuonghuyhieu0705s-projects';
@@ -19,7 +20,7 @@ function string(value: unknown): string {
   if (typeof value !== 'string') throw new Error('Invalid string field.');
   return value;
 }
-function fileMode(value: unknown): number {
+export function fileMode(value: unknown): number {
   // The upstream SDK accepts numeric strings; retain only canonical bounded decimal integers.
   const mode = typeof value === 'string' && value.length <= 5 ? Number(value) : value;
   if (typeof mode !== 'number' || !Number.isInteger(mode) || mode < 0 || mode > 0xffff
@@ -234,31 +235,8 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
         || expected.artifactDigest !== artifact.digest || expected.status !== 'ready') throw new Error('Unverified smoke identity.');
       await binding(expected, signal);
       begin('smoke');
-      const authorization = { Authorization: `Bearer ${config.PREVIEW_ACCESS_KEY}` };
-      for (const [path, expectedBody] of [
-        ['/health/live', { status: 'ok' }], ['/health/ready', { status: 'ready', database: 'up', migrations: 'current' }],
-      ] as const) {
-        const response = await request(config.API_ORIGIN + path, signal, { headers: authorization });
-        const body = await json(response);
-        if (response.status !== 200 || response.redirected || !body || Object.keys(body).length !== Object.keys(expectedBody).length
-          || Object.entries(expectedBody).some(([key, value]) => body[key] !== value)) throw new Error('Hosted application smoke failed.');
-      }
-      for (const key of [undefined, 'malformed', '0'.repeat(64) === config.PREVIEW_ACCESS_KEY ? '1'.repeat(64) : '0'.repeat(64)]) {
-        const response = await request(`${config.API_ORIGIN}/health/ready`, signal, { headers: key ? { Authorization: `Bearer ${key}` } : {} });
-        const body = await json(response);
-        if (response.status !== 401 || response.redirected || body?.status !== 'unauthorized' || Object.keys(body).length !== 1) throw new Error('Hosted access check failed.');
-      }
-      const unknown = await request(`${config.API_ORIGIN}/__release_unknown_route`, signal, { headers: authorization });
-      await unknown.body?.cancel();
-      if (unknown.status !== 404 || unknown.redirected) throw new Error('Hosted route check failed.');
-      for (const origin of [config.BROWSER_ORIGIN, 'https://untrusted.example']) {
-        const response = await request(`${config.API_ORIGIN}/health/ready`, signal, { method: 'OPTIONS', headers: {
-          Origin: origin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization',
-        } });
-        await response.body?.cancel();
-        if (response.redirected || response.status !== (origin === config.BROWSER_ORIGIN ? 204 : 401)
-          || (origin === config.BROWSER_ORIGIN && response.headers.get('access-control-allow-origin') !== origin)) throw new Error('Hosted origin check failed.');
-      }
+      await checkHostedHttp(config.API_ORIGIN, config.BROWSER_ORIGIN, config.PREVIEW_ACCESS_KEY,
+        (url, init) => request(url, signal, init));
       await binding(expected, signal);
     },
   };

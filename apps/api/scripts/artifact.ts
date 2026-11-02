@@ -31,6 +31,7 @@ export interface ArtifactManifest {
   files: FileRecord[]; directories: DirectoryRecord[];
 }
 export interface VerifiedArtifact { root: string; digest: string; manifest: ArtifactManifest }
+export interface ArtifactSnapshot extends VerifiedArtifact { dispose(): Promise<void> }
 const outputPrefix = '.vercel/output/';
 const functionPrefix = `${outputPrefix}functions/index.func/`;
 const handler = 'apps/api/src/main.js';
@@ -286,7 +287,7 @@ export function verifyArtifact(root: string, digest: string, expected?: { revisi
     || manifest.source.repository !== expected.repository || (expected.release && manifest.source.mode !== 'release'))) reject();
   return { root, digest, manifest };
 }
-export async function snapshotArtifact(artifact: VerifiedArtifact): Promise<VerifiedArtifact & { dispose(): Promise<void> }> {
+export async function snapshotArtifact(artifact: VerifiedArtifact): Promise<ArtifactSnapshot> {
   verifyArtifact(artifact.root, artifact.digest);
   const parent = await mkdtemp(join(realpathSync(tmpdir()), 'esty-artifact-consume-'));
   const root = join(parent, 'artifact');

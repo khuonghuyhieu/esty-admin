@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { cp, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import fs from 'node:fs';
@@ -8,6 +9,7 @@ import { join } from 'node:path';
 import { once } from 'node:events';
 import { createServer } from 'node:net';
 import { request } from 'node:http';
+import { setTimeout as delay } from 'node:timers/promises';
 import test from 'node:test';
 import type { TestContext } from 'node:test';
 import { Client } from 'pg';
@@ -37,6 +39,25 @@ function fixtureConfig() {
   assert.equal(raw, 'postgresql://foundation_local:local_fixture_only@127.0.0.1:55432/foundation_local',
     'Set TEST_DATABASE_URL to the documented synthetic local fixture; integration tests refuse all other targets.');
   return parseConfig({ DATABASE_URL: raw });
+}
+
+async function waitForHttp(child: ChildProcess, origin: string, expectedStatus: number): Promise<void> {
+  const deadline = AbortSignal.timeout(5000);
+  while (!deadline.aborted) {
+    if (child.exitCode !== null || child.signalCode !== null) throw new Error('Packaged API exited before accepting HTTP.');
+    let response: Response | undefined;
+    try {
+      response = await fetch(origin + '/health/live', { redirect: 'error',
+        signal: AbortSignal.any([deadline, AbortSignal.timeout(500)]) });
+    } catch { /* Connection refusal is expected only while the child starts. */ }
+    if (response) {
+      await response.body?.cancel();
+      assert.equal(response.status, expectedStatus);
+      return;
+    }
+    await delay(25);
+  }
+  throw new Error('Packaged API did not accept HTTP within the startup bound.');
 }
 
 async function databaseFixture(t: TestContext) {
@@ -373,16 +394,8 @@ test('portable operator and compiled HTTP entrypoint work outside the repository
   child.stdout.on('data', chunk => { output += chunk; });
   child.stderr.on('data', chunk => { output += chunk; });
   try {
-    // Real child-process startup/shutdown needs bounded wall-clock guards.
-    await new Promise<void>((resolve, reject) => {
-      const deadline = setTimeout(() => reject(new Error('Staged API did not start.')), 5000);
-      const check = (chunk: Buffer) => {
-        if (chunk.toString().includes('API is listening')) { clearTimeout(deadline); resolve(); }
-      };
-      child.stdout.on('data', check);
-      child.once('exit', () => { clearTimeout(deadline); reject(new Error('Staged API exited before startup.')); });
-    });
     const origin = `http://127.0.0.1:${port}`;
+    await waitForHttp(child, origin, 200);
     assert.equal((await get(origin, '/health/live')).status, 200);
     assert.equal((await get(origin, '/health/ready')).status, 200);
     assert.equal((await get(origin, '/unknown')).status, 404);
@@ -577,7 +590,7 @@ test('release failure retains acknowledged deployment and blocks duplicate execu
   assert.equal(lock.binding.run_id, completed.run_id);
 });
 
-test('compiled Vercel-mode package protects routes and verifies loopback TLS outside repository cwd; not native artifact proof', { timeout: 20000 }, async t => {
+test('packaged HTTP entrypoint protects routes and verifies loopback TLS outside repository cwd', { timeout: 20000 }, async t => {
   const fixture = await databaseFixture(t);
   await migrate(fixture.database);
   const hostname = 'aws-0-ap-northeast-2.pooler.supabase.com';
@@ -599,6 +612,12 @@ test('compiled Vercel-mode package protects routes and verifies loopback TLS out
   await writeFile(preload, `import {createRequire} from 'node:module';
 const {Client}=createRequire(${JSON.stringify(join(runtime, 'apps/api/package.json'))})('pg');
 import net from 'node:net';
+import http from 'node:http';
+const listen = http.Server.prototype.listen;
+http.Server.prototype.listen = function(port, ...args) {
+  if (typeof port !== 'number') throw new Error('Only loopback TCP listeners are permitted in this test');
+  return listen.call(this, port, '127.0.0.1', ...args.filter(value => typeof value === 'function'));
+};
 const socketConnect = net.Socket.prototype.connect;
 net.Socket.prototype.connect = function(...args) {
   const host = typeof args[0] === 'number' ? args[1] : args[0]?.host;
@@ -635,12 +654,8 @@ Client.prototype.connect=function(...args) {
   child.stdout.on('data', chunk => { output += chunk; });
   child.stderr.on('data', chunk => { output += chunk; });
   try {
-    await new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error('Vercel-mode package startup timed out.')), 5000);
-      child.stdout.on('data', chunk => { if (chunk.toString().includes('API is listening')) { clearTimeout(timer); resolve(); } });
-      child.once('exit', () => { clearTimeout(timer); reject(new Error('Vercel-mode package exited before startup.')); });
-    });
     const origin = `http://127.0.0.1:${port}`;
+    await waitForHttp(child, origin, 401);
     assert.equal((await get(origin, '/health/ready')).status, 401);
     for (const token of ['malformed', 'b'.repeat(64)]) {
       assert.equal((await get(origin, '/health/ready', { Authorization: `Bearer ${token}` })).status, 401);
@@ -668,13 +683,14 @@ Client.prototype.connect=function(...args) {
     } finally { await fixture.admin.query(`ALTER DATABASE "${fixture.name}" ALLOW_CONNECTIONS true`); }
     assert.equal((await fetch(origin + '/health/ready', { headers })).status, 200);
     await fixture.client.query('BEGIN; LOCK TABLE public.foundation_migrations IN ACCESS EXCLUSIVE MODE');
+    // Observe from autocommit: the lock-holding transaction caches pg_stat_activity snapshots.
     try {
       const controller = new AbortController();
       const pending = fetch(origin + '/health/ready', { headers, signal: controller.signal }).catch(() => undefined);
       const deadline = Date.now() + 3000;
       let waiting = false;
       while (Date.now() < deadline) {
-        const active = await fixture.client.query("SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND application_name='esty-admin-foundation' AND wait_event_type='Lock'", [fixture.name]);
+        const active = await fixture.admin.query("SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND application_name='esty-admin-foundation' AND wait_event_type='Lock'", [fixture.name]);
         if (active.rowCount) { waiting = true; break; }
         await new Promise(resolve => setTimeout(resolve, 20));
       }
@@ -682,7 +698,7 @@ Client.prototype.connect=function(...args) {
       controller.abort(); await pending;
       let active = 1;
       while (Date.now() < deadline) {
-        const result = await fixture.client.query("SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND application_name='esty-admin-foundation' AND state='active'", [fixture.name]);
+        const result = await fixture.admin.query("SELECT 1 FROM pg_stat_activity WHERE datname=$1 AND application_name='esty-admin-foundation' AND state='active'", [fixture.name]);
         active = result.rowCount ?? 0;
         if (!active) break;
         await new Promise(resolve => setTimeout(resolve, 20));

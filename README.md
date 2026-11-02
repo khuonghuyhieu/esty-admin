@@ -4,6 +4,50 @@ Open this `esty-admin/` folder directly. It is the standalone repository for `kh
 
 Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 and correction T013–T020 are complete, including external review and owner visual acceptance. The coordinator confirms the owner-approved FE-only push of 20 files to `main@6c64eaa`; a deployment result for that correction is not verified. The local BE foundation is verified and separately reviewed; the owner has now authorized its source-only commit/push. Hosted acceptance remains pending. Application screens and full UI → API → DB acceptance remain outside the completed increments.
 
+## Current BE delivery automation — scoped review accepted
+
+The owner authorized plan-first PR CI plus serialized main production delivery in the new BE-specific `.github/workflows/be-delivery.yml`. This source/local increment is not an actual GitHub run or deployment PASS. It preserves the hosted result below, existing dependency lock, FE source/previews and old artifacts/locks. [Feature001's current plan](specs/001-connectivity-foundation/plan.md#current-be-delivery-automation-addon--plan-before-source) specifies mandatory generation/build/functional/native HTTP→test DB checks, exact tested Linux artifact transfer, official CLI archive/icn1, no production migration runner, candidate schema/HTTP acceptance before alias promotion and durable unknown-outcome fencing.
+
+With existing Node24.22.1/dependencies, the affected local BE commands are:
+
+```sh
+npm run codegen:check --workspace=@esty-admin/api
+npm run build --workspace=@esty-admin/api
+node --test apps/api/build/tests/ci.test.js
+TEST_DATABASE_URL=postgresql://foundation_local:local_fixture_only@127.0.0.1:55432/foundation_local npm run test:integration --workspace=@esty-admin/api
+```
+
+For native integration, also set `NATIVE_ARTIFACT` and its independently verified `NATIVE_ARTIFACT_SHA256` to the sealed public artifact. Without both, the ordinary local integration command exercises the compiled fallback and is not native-artifact proof; the workflow never accepts that fallback.
+
+Source/local checks are retained: CI23/23; initial release/artifact/CI174/174 and shared neighbors36/36; corrected affected integration2/2; final exact-native HTTP→test DB1/1; actionlint and six shell blocks pass. Distinct failures, corrections and no-final-full-rerun limits remain in [the verification receipt](specs/001-connectivity-foundation/plan.md#be-sourcelocal-verification--ready_for_review). ONE `/root/automation_review`, explicitly requested as gpt-6-luna through orchestration, completed read-only with no confirmed actionable findings; independent model identity/session UUID are unavailable. At review15/19 old hashes matched, including unchanged BE code/tests/workflow; four FE-amended documents were considered current for context, not claimed exact19 matches. No fixes/check reruns are needed. Native0619 is Darwin/arm64 development, not an actual Linux/Actions/provider acceptance. [Future versioned production migration integration](specs/001-connectivity-foundation/plan.md#future-versioned-production-migration-integration--plan-only) is planned only; the current pipeline remains current-schema-only with no production DDL.
+
+## Current hosted BE acceptance — PASS
+
+Retained actual evidence from2026-11-01: published source `0d9d305e85df2d4853beb4f30d401e9c8e00affe`, durable Linux artifact `699a3b19125fc85ac942fb57945c3f0275d44fd0914f5f532c7d9e57e072dba4`, final deployment `dpl_E7FELzuA6Ymt9mW8B3NE7mA4oQH3`, region **icn1**. All1014 uploaded file paths/bytes/sizes/modes match the artifact. **https://api.lovora.us** had the same deployment alias before and after verified-TLS acceptance.
+
+**Eight cases passed:** protected live200; protected ready200 with `{status:"ready",database:"up",migrations:"current"}`; missing/malformed/wrong bearer401; authorized unknown404; allowed OPTIONS204 and denied OPTIONS401. The actual in-function DB probe completed both fixed reads in126ms; HTTPS readiness took654ms. These are retained observations, not new checks in this docs-only closeout.
+
+The preceding iad1 deployment of the same artifact reached verified TLS/authentication at563ms, then hit acquisition timeout at1006ms before schema/history queries. The correction was only the supported single-region deployment option **`--regions icn1`**, matching Supabase ap-northeast-2. With identical source/artifact, verified authentication began at40ms and readiness completed in126ms. No source, timer, TLS/hostname verification, bearer, credential, schema or SQL-migration change accompanied the placement correction. This region is **not pinned in source `vercel.json` or the project default**.
+
+Accepted source evidence remains compilation0, HTTP13/13, startup6/6 and the emitted-main loopback TLS smoke. ONE `/root/readiness_review` was explicitly selected as gpt-6-luna through orchestration, with no confirmed actionable findings or additional coordinator finding; independent runtime model identity/session UUID were unavailable. The serial Git/docs HOLD was returned before the long Linux build. No new tests, build, reviewer, Git, deployment, install or private/provider access occurred during final documentation closeout.
+
+The bounded FE home/privacy HTTPS checks both returned200; FE003/T013, independent audit, previews and fixture-only behavior are unchanged. **Hosted BE acceptance does not prove UI→API→DB.** [Actual phase comparison, exact identities and historical failures](specs/001-connectivity-foundation/plan.md#actual-same-artifact-locality-repair-and-hosted-success--2026-11-01) and `.openai/reports/readiness-diagnosis-tky0k78a/actual-hosted-success.json` retain the evidence. Earlier BE pending/setup/permission statements elsewhere in this document are historical, not current status or authority; FE evidence remains unchanged.
+
+### Remaining actions — single current list
+
+1. After reviewed source publication, the owner configures GitHub repository **Settings → Environments → be-production**, restricting deployment branches to `main` and applying available required-reviewer rules. Verify environment support for this repository/plan; do not purchase a plan or silently weaken missing protection.
+2. In that environment's **Environment secrets**, the owner manually enters only the following three values. Never send values in chat; agents do not read/copy local or Vercel secret stores. Existing Vercel Production runtime variables remain unchanged; no GitHub DB URL/CA or migration secret is needed.
+   - `VERCEL_TOKEN`: owner-managed Vercel access token authorized for the existing team/project; manage it in Vercel account **Settings → Tokens** without adding resources or upgrading a plan.
+   - `BE_PREVIEW_ACCESS_KEY`: the exact existing Production `PREVIEW_ACCESS_KEY`, entered manually by the owner; do not regenerate the runtime key as part of automation setup.
+   - `VERCEL_AUTOMATION_BYPASS_SECRET`: the existing BE project's **Settings → Deployment Protection → Protection Bypass for Automation** value. It is used only for the private candidate URL, never to mask final-domain application protection.
+3. Configure the stable required branch check **BE required checks** and protect reviewed workflow/source changes. Only after environment/secret/check settings are complete, set repository **Settings → Secrets and variables → Actions → Variables → BE_DELIVERY_ENABLED** to `true`, then select **Actions → BE delivery → Run workflow → main**. Exact setting/run evidence remains unverified until actual activation.
+4. Retain explicit **`--regions icn1`**, official prebuilt archive and exact-artifact/same-ID acceptance on future authorized releases. Never rerun a failed/unknown create/promotion blindly; preserve the durable run/journal and resolve that specific outcome before another release.
+5. Keep Hobby intended-use eligibility and real worker-duration/cancellation enforcement/capacity as separate unverified gates.
+
+The existing hosted BE runtime needs no repeat login/credential/migration setup. New GitHub automation activation above is separate and unverified. The fresh exact19 BE-hunk serial grant and NEW FE p0 Git/docs PAUSE receipt authorize only scoped publication and BE documentation closeout, not FE amendments or Actions/settings/provider operations. Return the serial HOLD directly to FE p0 and the coordinator, copying pT, immediately after publication and before CI/long operations. Disjoint FE source is not held by this lease; no historical HOLD is reused.
+
+The following readiness-review entry is the preserved pre-hosted-acceptance snapshot; its status and permissions are historical.
+
 ## Current BE readiness diagnosis — review accepted, 2026-11-01
 
 Actual production c75d000/666ab1cf on `dpl_4U98EbGBC4QzrknVLq7Kdh2ojXiw` serves protected live200, denial401, authorized unknown404 and allowed/denied OPTIONS204/401 with verified TLS and startup through listening. Readiness still returned503/database_timeout twice; no ready200/Supabase-completion claim. The older BE deployment/setup/current-authority statements below are dated history, superseded by this section and [feature001's latest plan](specs/001-connectivity-foundation/plan.md#targeted-actual-function-readiness-diagnosis--2026-11-01). FE evidence/gates are unchanged.
@@ -19,7 +63,7 @@ node --test apps/api/build/tests/http.test.js apps/api/build/tests/startup.test.
 
 Actual execution instead emitted compilation to an external repository-shaped public directory, preserving the shared build. Compilation passed; HTTP13/13 plus startup6/6 passed under loopback-only outbound sandboxing. Separate emitted-main HTTP smoke observed live200/denial401/unknown404/OPTIONS204-401 and a synthetic verified-TLS auth rejection503 classified as authentication/28P01 with no secret output; normal Nest shutdown was SIGTERM. This is local diagnostic proof, not a new hosted measurement. Initial helper typing, shutdown-harness expectation and historical-mode verifier corrections are retained in [actual evidence](specs/001-connectivity-foundation/plan.md#actual-diagnostic-increment-evidence--ready_for_review).
 
-### Remaining actions — single current list
+### Historical remaining actions — pre-hosted-acceptance snapshot
 
 1. Publish only the accepted11 paths under the now-effective fresh exact11 serial grant and FE p0 Git/docs PAUSE, capture clean published source and explicitly return HOLD before building/storing/after-copy-verifying the matching NEW clean Linux artifact.
 2. OMP continues the already-authorized controlled official archive deployment once; measure the actual function's failing phase before any minimal repair. Preserve all records, current666 artifact, verified TLS and bounds; no migration runner/DDL, credential reset, speculative timer/region change or abstract permission loop.

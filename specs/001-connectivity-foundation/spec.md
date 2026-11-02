@@ -1,8 +1,22 @@
 # Feature specification: Connectivity foundation
 
-Feature:001-connectivity-foundation · Created:2026-10-25 · Updated:2026-11-01 · Status: measurement-only readiness increment REVIEW_ACCEPTED; ONE orchestration-selected gpt-6-luna review matched all11 hashes with no confirmed findings or additional coordinator finding. Independent runtime identity/session UUID unavailable. Retain compilation0/HTTP13/13/startup6/6/emitted TLS smoke without reruns. Fresh exact11 serial grant/FE pause authorizes publication/capture then HOLD return before long build. Production c75d000/666ab1cf/dpl_4U98EbGBC4QzrknVLq7Kdh2ojXiw remains live200/access/CORS/TLS/startup PASS and ready503/database_timeout; no production cause or repair claimed.
+Feature:001-connectivity-foundation · Created:2026-10-25 · Updated:2026-11-01 · Status: ACTUAL HOSTED BE ACCEPTANCE PASS on reviewed0d9d305/durable Linux699/dpl_E7FELzuA6Ymt9mW8B3NE7mA4oQH3 in icn1. Exact1014 uploaded files, same-ID alias/TLS and all eight live200/ready200/current/access/unknown/CORS cases verified. Actual DB probe126ms completes both fixed reads. Measured iad1 authentication timeout was corrected by supported single-region placement of identical bytes, without timer/TLS/bearer/credential/schema/source change. No UI→API→DB or provider-policy/enforcement/capacity completion claim; see actual plan evidence.
 
 Source: owner decisions and [ARCH-001](../architecture.md). Tracking: existing [Notion C3-03](https://app.notion.com/p/3d256f555918814abd42efeec2ea5edb). Keep this feature, repository and actual branch; no duplicate tracker/spec or checkout.
+
+## Current owner-authorized BE delivery automation addon
+
+The owner authorized plan-first source/local implementation of PR CI and serialized main production delivery, followed by one coordinator-run scoped Luna review and separately leased publication. This supersedes earlier manual-only delivery/no-CI scope, not historical evidence. Retain actual hosted0d9d305/699/finalE7FEL/icn1/eight-case PASS; it is not evidence that the new GitHub automation ran. Sole BE p12 owns new BE-specific `.github/workflows/**`, necessary API helpers/tests and feature001 documents. Root dependencies, FE source/other workflows, private/auth stores, old artifacts/locks and the shared feature pointer remain protected. No ad hoc deployment, live migration/DDL or secret copying is authorized.
+
+### Story 7 — Tested immutable BE delivery (P1)
+
+As the owner, I can require meaningful secret-free BE checks on pull requests and permit only their exact tested main Linux artifact to reach production through the existing official Vercel CLI.
+
+1. PRs, including forks, run mandatory generation-drift/build/functional/API integration and actual HTTP→synthetic test DB checks without production secrets, privileged PR triggers or shared dependency caches.
+2. Any failed required check, invalid event/ref/repository/run attempt, non-release artifact, changed source/tree/manifest/content or unresolved previous create outcome prevents production creation. Main delivery is serialized without cancellation of an in-progress release.
+3. Official pinned CLI uses `--prebuilt --archive=tgz --prod --regions icn1 --skip-domain`. Exact uploaded candidate bytes and private live/readiness/access/CORS are verified before promotion; a noncurrent schema cannot move the production alias. Production delivery never invokes the migration runner or DDL.
+4. Promotion consumes that same known production deployment, not a rebuild. Success requires exact source/artifact/deployment/alias/TLS and all eight actual private HTTP cases. Unknown create/promotion outcomes retain durable evidence and block blind retries.
+5. The owner manually supplies only the documented GitHub environment secret names/settings. No local/Vercel credential inventory, secret export, automatic environment activation or paid upgrade is implied. Source/local success remains distinct from an actual GitHub run/deployment PASS.
 
 ## Current targeted hosted readiness diagnosis acceptance
 
@@ -138,6 +152,12 @@ As a developer, I can use an isolated Supabase stack with the local backend whil
 - FR-021: Provide explicit current-schema-only release execution with zero migration-runner calls and zero DDL; refuse uninitialized, unordered, pending or unexpected history and source/revision/manifest/checksum mismatch. Retain the ordinary migration path and the sole existing application history.
 - FR-022: Before any controlled superseding create, durably record the new run identity and fsynced exclusive receipt binding the exact historical lock device/inode/value/content identity, original unknown/null-ID report hash, acknowledged owner residual-risk decision and exact new source/artifact/manifest/target. Preserve originals and serialize one successor per historical lock; no generic clear, overwrite, retry or bypass.
 - FR-023: Durably persist valid acknowledged provider ID and stage before first inspection. Persist create intent before the request; retain unknown locks across crashes/write failures and provide strictly read-only reconciliation that never creates again. Reject stale/tampered/mismatched journal/receipt/lock/artifact. An acknowledgement can still be lost before durable persistence; unknown stays unknown.
+- FR-024: Run stable required BE PR/main checks on ephemeral GitHub-hosted Linux runners with full-SHA official actions, exact existing Node/tool pins, unchanged lockfile, read-only default token and no production secrets/caches or privileged untrusted checkout.
+- FR-025: Bind every release artifact to the exact tested event commit/tree/repository, generated migration manifest, complete files/modes/checksums and actual native HTTP→test DB result. Transfer one sealed Linux/x64 artifact by immutable artifact identity and independent digest; never rebuild or substitute latest main at deployment.
+- FR-026: Permit production only for the approved repository/main push or explicit main workflow dispatch, first run attempt, all required jobs successful and owner activation enabled. Serialize without cancel-in-progress; persist an external create-intent fence before invoking the official archive CLI and retain known-ID/unknown-outcome evidence across runner loss.
+- FR-027: Before production alias change, verify the exact candidate artifact and current initialized/ordered full migration history through the candidate's actual protected readiness path. Preserve source/generated/artifact checksum equality and existing migration history semantics; no runner/DDL, automatic schema adoption, roles/grants or business-data mutation.
+- FR-028: Keep all runtime build environment values empty, consume production secrets only in the gated environment delivery step, sanitize subprocess/provider outputs before logging, and never upload credentials/raw logs. Owner activation documents locations/names only; existing Vercel runtime variables remain runtime-only and are not copied into GitHub or the artifact.
+- FR-029: Declare automation complete only after an actual CI/delivery run proves exact source/artifact/known deployment/icn1 and same-alias verified TLS plus live200/ready200/current, three access denials, unknown404 and allowed/denied OPTIONS. Preserve separate Hobby/capacity/real worker-control and FE integration gates.
 
 ## Dependencies and constraints
 
@@ -160,6 +180,9 @@ Node24.22.1/NestJS12.2.0/current application dependencies, installed Supabase CL
 - SC-013: Existing local release tests spy zero migration-runner calls and observe zero DDL in current-schema-only mode; noncurrent DB states and altered source/assets fail before create, while the ordinary migration-path regression remains valid.
 - SC-014: Filesystem failure/interruption/crash checks around receipt, fsync, lock, create intent, acknowledgement and inspection demonstrate fail-closed serialization, original evidence preservation, durable known-ID recovery and no second create during reconciliation or repeated execution.
 - SC-015: Only a newly reviewed/published clean Linux/x64 artifact may be proposed for owner binding; local proof and provider READY never substitute for the later fresh full deployment/alias/current-DB reconciliation and same-deployment HTTPS acceptance.
+- SC-016: Local behavioral checks exercise failing prerequisite jobs, forbidden PR/branch/rerun contexts, stale/tampered artifacts, unresolved create outcomes and candidate schema/HTTP failures; each prevents the relevant create/promotion operation without exposing synthetic secrets.
+- SC-017: The mandatory native CI path executes the existing sealed-handler HTTP→guarded PostgreSQL journey, including degraded/recovery and access-before-DB, with no tsc-only fallback. Exact production artifact bytes remain unchanged through testing/transfer/consumption.
+- SC-018: An actual GitHub Actions run URL and immutable artifact/source identity plus final same-deployment HTTPS evidence are recorded before automation PASS. Missing owner environment activation is one concrete manual list, not fabricated runtime evidence or an abstract START loop.
 
 ## Delivery and approval boundaries
 
