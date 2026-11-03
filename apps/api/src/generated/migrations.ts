@@ -3,6 +3,14 @@ export const migrationManifest = [
   {
     "name": "1792972800000-foundation",
     "sha256": "c3374f370c42d8543bde5771d4cddd91990e643e8969fcaf4bf1c5ffe3e4e851"
+  },
+  {
+    "name": "1792972800001-app-foundation",
+    "sha256": "4416736cb809720359dd0d650a3d530e6c3836be683f7c1700a8da8138df9608"
+  },
+  {
+    "name": "1792972800002-app-session-check",
+    "sha256": "49316100a5c98a852ef28ccb99d6e2a4306da9d5baf9631d4643a26d9d1c82f2"
   }
 ] as const;
 export const expectedMigrations: readonly string[] = migrationManifest.map(entry => entry.name);

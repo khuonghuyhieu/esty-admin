@@ -4,11 +4,25 @@ import { parseEnv } from 'node:util';
 import type { ClientConfig } from 'pg';
 import approvedTarget from '../../config/hosted-target.example.json' with { type: 'json' };
 
+const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export class ConfigurationError extends Error {
   constructor(field: string, remedy: string) {
     super(`${field}: ${remedy}`);
     this.name = 'ConfigurationError';
   }
+}
+
+export interface AppFoundationConfig {
+  workspaceId: string;
+  authUrl: string;
+  jwksUrl: string;
+  audience: 'authenticated';
+  apiKey: string;
+  emailEnabled: boolean;
+  adminKey?: string;
+  invitationRedirect: string;
+  retentionPolicyId?: string;
 }
 
 export interface ApiConfig {
@@ -18,6 +32,7 @@ export interface ApiConfig {
   browserOrigin: string;
   database: ClientConfig;
   previewAccessKey?: string;
+  appFoundation?: AppFoundationConfig;
 }
 
 const loopback = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -79,6 +94,52 @@ function databaseConfig(env: NodeJS.ProcessEnv, hosted: boolean, field: string):
   };
 }
 
+function appFoundationConfig(env: NodeJS.ProcessEnv, hosted: boolean, browserOrigin: string): AppFoundationConfig | undefined {
+  if (env.APP_FOUNDATION_ENABLED === undefined || env.APP_FOUNDATION_ENABLED === 'false') return undefined;
+  if (env.APP_FOUNDATION_ENABLED !== 'true') throw new ConfigurationError('APP_FOUNDATION_ENABLED', 'use true or false.');
+  if (!uuidPattern.test(env.APP_WORKSPACE_ID ?? '')) {
+    throw new ConfigurationError('APP_WORKSPACE_ID', 'supply the explicitly provisioned workspace UUID.');
+  }
+  let authUrl: URL;
+  try {
+    authUrl = new URL(env.APP_AUTH_URL ?? '');
+    const expected = `https://${env.SUPABASE_PROJECT_REF}.supabase.co/auth/v1`;
+    if (hosted ? authUrl.href !== expected : (
+      authUrl.protocol !== 'http:' || authUrl.hostname !== '127.0.0.1' || Number(authUrl.port) < 1
+      || authUrl.pathname !== '/' || authUrl.search || authUrl.hash || authUrl.username || authUrl.password
+    )) throw new Error();
+  } catch {
+    throw new ConfigurationError('APP_AUTH_URL', 'use the exact project HTTPS Auth endpoint or an explicit loopback-only local fixture origin.');
+  }
+  const apiKey = env.APP_AUTH_API_KEY;
+  if (!apiKey || apiKey.length > 8192 || /[\s\u0000-\u001f\u007f]/u.test(apiKey)) {
+    throw new ConfigurationError('APP_AUTH_API_KEY', 'supply the server-held Auth API key without whitespace.');
+  }
+  const emailEnabled = env.APP_EMAIL_ENABLED ?? 'false';
+  if (!['true', 'false'].includes(emailEnabled)) throw new ConfigurationError('APP_EMAIL_ENABLED', 'use true or false.');
+  const adminKey = env.APP_AUTH_ADMIN_KEY;
+  if (emailEnabled === 'true') {
+    if (!adminKey || adminKey.length > 8192 || /[\s\u0000-\u001f\u007f]/u.test(adminKey)) {
+      throw new ConfigurationError('APP_AUTH_ADMIN_KEY', 'enabled invitation delivery requires the separately provisioned server-only admin key.');
+    }
+  } else if (adminKey !== undefined) {
+    throw new ConfigurationError('APP_AUTH_ADMIN_KEY', 'omit unused admin credentials while email delivery is disabled.');
+  }
+  const retentionPolicyId = env.APP_RETENTION_POLICY_ID;
+  if ((hosted && retentionPolicyId === undefined)
+    || (retentionPolicyId !== undefined && !/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(retentionPolicyId))) {
+    throw new ConfigurationError('APP_RETENTION_POLICY_ID', 'hosted activation requires an explicitly approved retention policy identifier; no duration is assumed.');
+  }
+  const base = authUrl.href.replace(/\/$/, '');
+  return {
+    workspaceId: env.APP_WORKSPACE_ID!.toLowerCase(), authUrl: base,
+    jwksUrl: `${base}/.well-known/jwks.json`, audience: 'authenticated', apiKey,
+    emailEnabled: emailEnabled === 'true', ...(adminKey === undefined ? {} : { adminKey }),
+    invitationRedirect: `${browserOrigin}/auth/invitation`,
+    ...(retentionPolicyId === undefined ? {} : { retentionPolicyId }),
+  };
+}
+
 export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
   const runtime = env.API_RUNTIME ?? 'local';
   if (!['local', 'vercel'].includes(runtime)
@@ -93,15 +154,19 @@ export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
   if (runtime === 'vercel') {
     if (!/^[a-f0-9]{64}$/.test(env.PREVIEW_ACCESS_KEY ?? '')) throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'supply a separate private 32-byte lowercase hex key.');
     for (const key of Object.keys(env)) {
-      if (env[key] !== undefined && (key.startsWith('MIGRATION_') || ['VERCEL_TOKEN', 'VERCEL_API_TOKEN', 'DEPLOYMENT_TARGET'].includes(key))) {
+      if (env[key] !== undefined && (key.startsWith('MIGRATION_') || key.startsWith('APP_OPERATOR_') || ['VERCEL_TOKEN', 'VERCEL_API_TOKEN', 'DEPLOYMENT_TARGET'].includes(key))) {
         throw new ConfigurationError('operator/deploy context', 'never put operator or deployment credentials in the API runtime.');
       }
     }
     for (const [key, value] of Object.entries(approvedTarget)) {
-      if (key.startsWith('SUPABASE_') && env[key] !== value) throw new ConfigurationError(key, 'use the exact reviewed Session target.');
+      const expected = env.APP_FOUNDATION_ENABLED === 'true' && key === 'SUPABASE_DATABASE_USER'
+        ? `app_runtime.${env.SUPABASE_PROJECT_REF}` : value;
+      if (key.startsWith('SUPABASE_') && env[key] !== expected) throw new ConfigurationError(key, 'use the exact reviewed Session target and selected runtime role.');
     }
+  } else if (env.APP_FOUNDATION_ENABLED === 'true') {
+    if (!/^[a-f0-9]{64}$/.test(env.PREVIEW_ACCESS_KEY ?? '')) throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'app-enabled local mode also requires a separate private 32-byte lowercase hex key.');
   } else if (env.PREVIEW_ACCESS_KEY !== undefined) {
-    throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'preview access is supported only in Vercel mode.');
+    throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'preview access requires Vercel or explicitly enabled app mode.');
   }
   if (hosted && (env.API_HOST !== undefined || env.API_PORT !== undefined)) {
     throw new ConfigurationError('API_HOST/API_PORT', 'omit local binding settings in hosted mode; the platform supplies PORT.');
@@ -123,9 +188,14 @@ export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
   } catch {
     throw new ConfigurationError('BROWSER_ORIGIN', 'use one exact origin without credentials, path, query or fragment; hosted origins require HTTPS.');
   }
-  return { runtime: runtime as ApiConfig['runtime'], host, port: Number(port), browserOrigin,
-    database: databaseConfig(env, hosted, 'DATABASE_URL'),
-    ...(runtime === 'vercel' ? { previewAccessKey: env.PREVIEW_ACCESS_KEY } : {}) };
+  const appFoundation = appFoundationConfig(env, hosted, browserOrigin);
+  const database = databaseConfig(env, hosted, 'DATABASE_URL');
+  if (appFoundation && database.user !== (hosted ? `app_runtime.${env.SUPABASE_PROJECT_REF}` : 'app_runtime')) {
+    throw new ConfigurationError('DATABASE_URL', 'app mode requires the separately provisioned least-privilege app_runtime identity.');
+  }
+  return { runtime: runtime as ApiConfig['runtime'], host, port: Number(port), browserOrigin, database,
+    ...(appFoundation ? { appFoundation } : {}),
+    ...(runtime === 'vercel' || appFoundation ? { previewAccessKey: env.PREVIEW_ACCESS_KEY } : {}) };
 }
 
 export function parseMigrationConfig(env: NodeJS.ProcessEnv): ClientConfig {
@@ -144,6 +214,44 @@ export function parseMigrationConfig(env: NodeJS.ProcessEnv): ClientConfig {
     return databaseConfig(env, true, 'MIGRATION_DATABASE_URL');
   }
   return databaseConfig(env, false, 'DATABASE_URL');
+}
+
+export function parseAppOperatorConfig(env: NodeJS.ProcessEnv) {
+  const target = env.APP_OPERATOR_TARGET;
+  if (!['local', 'supabase'].includes(target ?? '') || env.VERCEL !== undefined) {
+    throw new ConfigurationError('APP_OPERATOR_TARGET', 'select explicit local or supabase outside the API platform.');
+  }
+  const hosted = target === 'supabase';
+  if (env.APP_OPERATOR_CONFIRM_WORKSPACE !== env.APP_WORKSPACE_ID
+    || !uuidPattern.test(env.APP_OPERATOR_APPROVAL_ID ?? '')) {
+    throw new ConfigurationError('APP_OPERATOR_CONFIRM_WORKSPACE/APP_OPERATOR_APPROVAL_ID', 'supply an explicit matching workspace and recorded approval UUID.');
+  }
+  if (hosted) {
+    for (const [key, value] of Object.entries(approvedTarget)) {
+      const expected = key === 'SUPABASE_DATABASE_USER' ? `app_operator.${env.SUPABASE_PROJECT_REF}` : value;
+      if (key.startsWith('SUPABASE_') && env[key] !== expected) throw new ConfigurationError(key, 'use the reviewed target and separately provisioned app_operator role.');
+    }
+    if (env.APP_OPERATOR_CONFIRM_PROJECT_REF !== env.SUPABASE_PROJECT_REF) {
+      throw new ConfigurationError('APP_OPERATOR_CONFIRM_PROJECT_REF', 'explicitly confirm the reviewed project.');
+    }
+  }
+  const database = databaseConfig(env, hosted, 'APP_OPERATOR_DATABASE_URL');
+  if (database.user !== (hosted ? `app_operator.${env.SUPABASE_PROJECT_REF}` : 'app_operator')) {
+    throw new ConfigurationError('APP_OPERATOR_DATABASE_URL', 'use only the separately provisioned app_operator identity.');
+  }
+  const key = env.APP_OPERATOR_AUTH_KEY;
+  if (!key || key.length > 8192 || /[\s\u0000-\u001f\u007f]/u.test(key)) {
+    throw new ConfigurationError('APP_OPERATOR_AUTH_KEY', 'supply the separate server-only Auth admin credential.');
+  }
+  const browserOrigin = env.BROWSER_ORIGIN ?? '';
+  try {
+    const origin = new URL(browserOrigin);
+    if (origin.origin !== browserOrigin || origin.username || origin.password
+      || !(hosted ? ['https:'] : ['http:', 'https:']).includes(origin.protocol)) throw new Error();
+  } catch { throw new ConfigurationError('BROWSER_ORIGIN', 'use an exact approved origin.'); }
+  const appFoundation = appFoundationConfig({ ...env, APP_FOUNDATION_ENABLED: 'true', APP_EMAIL_ENABLED: 'false',
+    APP_AUTH_ADMIN_KEY: undefined }, hosted, browserOrigin)!;
+  return { database, appFoundation, key, approvalId: env.APP_OPERATOR_APPROVAL_ID! };
 }
 
 function localEnvironment(): NodeJS.ProcessEnv {

@@ -1,7 +1,31 @@
 # Implementation plan: Reference Application shell
 
-Date: 2026-10-27 · Authorized baseline: `main@b370578` · Status: T001–T012 implementation, local verification and separate review complete; owner visual acceptance pending.
+Date: 2026-10-27 · Authorized implementation baseline: `main@b370578` · Current status: T001–T013 complete; explicit owner visual acceptance received on 2026-11-01.
 Input: [spec.md](spec.md). Spec Kit helpers report logical feature `003-application-shell`; they do not switch Git branches. Use `SPECIFY_FEATURE_DIRECTORY=specs/003-application-shell SPECIFY_FEATURE_NO_PERSIST=1` per invocation; preserve other sessions' feature context.
+
+The owner accepted the current Application visual design in the direct FE handoff. This closes T013 without redesign, source changes or repeating the retained functional/E2E/visual checks for a documentation-only decision. Preserve the earlier comparison and independent-review evidence below as history; older references to pending owner acceptance are superseded by this explicit decision. Local feature001 connectivity remains separate.
+
+## Current owner cleanup plan — superseding visible chrome and placeholder behavior
+
+Align these existing documents before source changes, then implement the authorized cleanup without a second planning stop. Original inventory/acceptance and prior execution records below remain historical. No new feature/tracker or business-flow design is introduced.
+
+| Historical group | Current retained / retired decision |
+| --- | --- |
+| C01 | Keep brand, icons, useful Dashboard/Team/Settings links and mobile drawer; retire Boards/Templates dead links and explanatory sidebar hint. Login remains a direct route, not a fake logout destination. |
+| C02 | Retire the entire sidebar Canvas storage/progress widget and its now-unused fixture/style fields. This intentional owner-directed difference does not rewrite original C02 acceptance. |
+| C03 | Keep title, workspace control, synchronized dashboard search, notifications and functioning profile menu. Retire the repeated workspace subtitle, plan badge and unavailable-action hint. Workspace/notifications become enabled inert buttons. |
+| C04 | Retain the four-card grid and existing values, including the compact storage metric, to preserve the core accepted arrangement; removal of C02 is not indiscriminate deletion of dashboard data. |
+| C05–C06 | Retain chart/data disclosure, compact metrics, activity counters and entries. |
+| C07–C10 | Retain toolbar, functional search/status/sort/reset, all columns/rows/totals and menu behavior. Remove explanatory preview text. Toolbar/footer and row-menu placeholder actions become enabled inert buttons without download/print/data mutation. |
+
+Use existing scoped CSS and event handlers; remove obsolete notice/storage/disabled-only styling and unused values rather than retaining dead adapters. Preserve the established paper `#f9f6f0`, ink `#111827`, peach `#eacdc2`, Geist typography, sketch borders and offset shadows. No new animation, data source, dependencies or global styling changes.
+
+Verification: extend the existing production suite for every retained placeholder's pointer/Enter/Space activation with unchanged URL, data/form state, browser stores and no API/download/print effects; keep actual search/sort/filter/menu/drawer tests. Capture fresh before/after at 1440×1000, 390×844 and 360×800 including menu/functional states; verify reduced motion, 200% text and internal-only table scroll. The live reference sidebar still resolves Boards/Templates/Team/Settings to `#`; approved local Team/Settings routes, not reference dead links, determine current navigation.
+
+Runtime serialization: root pT owns dev127.0.0.1:3000 (reported session93974). Coordinate its explicit pause before any type generation/build/production E2E, with only one `.next` writer. E2E already builds; do not add a redundant build. Restore the owner dev server afterward and verify home/application/login/settings/team. No enabled-connectivity/API/DB fixture. Preserve old evidence and all 14 FE001 web files; record authorized feature003 document hash deltas separately. Evidence belongs in existing 003/004 tasks and an isolated ignored cleanup folder; README/PROJECT_STATE and other lanes stay untouched. Stop at READY_FOR_REVIEW; the coordinator alone starts one new scoped Luna review, and new owner visual acceptance is pending.
+
+## Historical implementation plan and comparison evidence
+
 
 ## Summary and review decisions
 

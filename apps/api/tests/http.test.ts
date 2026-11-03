@@ -8,6 +8,14 @@ import { assertContract, createApplication, get, silentPeer, startApi } from './
 import { parseConfig } from '../src/config/config.js';
 import { tlsPostgres } from './tls.js';
 import { expectedMigrations } from '../src/generated/migrations.js';
+import { randomUUID } from 'node:crypto';
+import { SignJWT } from 'jose';
+import { syntheticAuthPeer } from './app-auth-fixture.js';
+import { AuthVerifier } from '../src/app-foundation/adapters/auth-verifier.js';
+import { AuthAdmin } from '../src/app-foundation/adapters/auth-admin.js';
+import { AppError } from '../src/app-foundation/application/errors.js';
+import { capabilities, capabilitiesFor, permits } from '../src/app-foundation/application/policy.js';
+import { displayName, record, revision } from '../src/app-foundation/application/validation.js';
 
 function url(port: number) {
   return `postgresql://fixture:private-test-password@127.0.0.1:${port}/fixture`;
@@ -147,7 +155,7 @@ function packet(type: string, body: Buffer): Buffer {
   return Buffer.concat([Buffer.from(type), length, body]);
 }
 
-function row(fields: string[], values: string[]): Buffer {
+function rows(fields: string[], values: readonly string[][]): Buffer {
   const count = Buffer.alloc(2);
   count.writeInt16BE(fields.length);
   const description = fields.map(name => {
@@ -157,14 +165,14 @@ function row(fields: string[], values: string[]): Buffer {
     metadata.writeInt32BE(-1, 12);
     return Buffer.concat([Buffer.from(name + '\0'), metadata]);
   });
-  const data = values.map(value => {
-    const bytes = Buffer.from(value);
+  const data = values.map(value => packet('D', Buffer.concat([count, ...value.map(cell => {
+    const bytes = Buffer.from(cell);
     const length = Buffer.alloc(4);
     length.writeInt32BE(bytes.length);
     return Buffer.concat([length, bytes]);
-  });
-  return Buffer.concat([packet('T', Buffer.concat([count, ...description])),
-    packet('D', Buffer.concat([count, ...data])), packet('C', Buffer.from('SELECT 1\0')), packet('Z', Buffer.from('I'))]);
+  })])));
+  return Buffer.concat([packet('T', Buffer.concat([count, ...description])), ...data,
+    packet('C', Buffer.from(`SELECT ${values.length}\0`)), packet('Z', Buffer.from('I'))]);
 }
 
 type PeerMode = 'current' | 'authentication' | 'schema_query' | 'history_query' | 'auth_error' | 'unknown_error';
@@ -197,10 +205,10 @@ function readinessPeer(socket: TLSSocket, mode: PeerMode): void {
       assert.equal(message[0], 81);
       const query = message.subarray(5, -1).toString();
       if (query === "SELECT to_regnamespace('foundation')::text AS schema, to_regclass('public.foundation_migrations')::text AS history") {
-        if (mode !== 'schema_query') socket.write(row(['schema', 'history'], ['foundation', 'foundation_migrations']));
+        if (mode !== 'schema_query') socket.write(rows(['schema', 'history'], [['foundation', 'foundation_migrations']]));
       } else {
         assert.equal(query, 'SELECT name FROM public.foundation_migrations ORDER BY id');
-        if (mode !== 'history_query') socket.write(row(['name'], [expectedMigrations[0]!]));
+        if (mode !== 'history_query') socket.write(rows(['name'], expectedMigrations.map(name => [name])));
       }
     }
   });
@@ -297,4 +305,104 @@ test('concurrent readiness observations stay isolated, cancellation is final and
   assert.equal(logs.length, 3);
   assert.equal(probe.pool.totalCount, 0);
   assert.equal(probe.pool.waitingCount, 0);
+});
+
+test('fixed workspace policy denies unknown roles/status and settings reject privilege-bearing fields', () => {
+  assert.deepEqual(capabilitiesFor('owner', 'active'), capabilities);
+  assert.deepEqual(capabilitiesFor('member', 'active'), ['profile.read.self', 'profile.update.self', 'team.read', 'workspace.read']);
+  for (const role of ['admin', 'Owner', '', undefined, { role: 'owner' }]) {
+    for (const capability of capabilities) assert.equal(permits(role, 'active', capability), false);
+  }
+  for (const capability of capabilities) assert.equal(permits('owner', 'disabled', capability), false);
+  assert.equal(displayName('  Hà Nội  '), 'Hà Nội');
+  assert.equal(displayName('𐐀'.repeat(100)), '𐐀'.repeat(100));
+  for (const value of ['', '  ', 'a'.repeat(101), '\ud800', 'line\nbreak']) assert.throws(() => displayName(value), AppError);
+  assert.throws(() => record({ displayName: 'Name', revision: 1, role: 'owner' }, ['displayName', 'revision']), AppError);
+  for (const value of [0, -1, 1.1, '1', 2147483647]) assert.throws(() => revision(value), AppError);
+});
+
+test('real signature verification through synthetic JWKS rejects unsafe claims and current-user failure', async t => {
+  const peer = await syntheticAuthPeer();
+  t.after(() => peer.close());
+  const userId = randomUUID(), sessionId = randomUUID();
+  peer.users.set(userId, 'member@example.test');
+  const verifier = new AuthVerifier(peer.config), signal = AbortSignal.timeout(10000);
+  const token = await peer.token(userId, sessionId, { user_metadata: { role: 'owner' } });
+  assert.deepEqual(await verifier.verify(token, signal), { userId, sessionId, email: 'member@example.test' });
+  const denied = (error: unknown) => error instanceof AppError && error.code === 'unauthenticated';
+  for (const claims of [
+    { iss: 'https://attacker.example' }, { aud: 'another-project' }, { exp: 1 }, { exp: undefined },
+    { sub: 'not-a-user' }, { session_id: 'not-a-session' }, { session_id: undefined },
+    { role: 'service_role' }, { is_anonymous: true }, { is_anonymous: undefined },
+  ]) await assert.rejects(verifier.verify(await peer.token(userId, sessionId, claims), signal), denied);
+  for (const header of [{ kid: 'unknown-key' }, { jku: 'https://attacker.example/keys' }, { jwk: { kty: 'oct', k: 'AAAA' } }]) {
+    await assert.rejects(verifier.verify(await peer.token(userId, sessionId, {}, header), signal), denied);
+  }
+  const symmetric = await new SignJWT({ sub: userId, session_id: sessionId, role: 'authenticated', is_anonymous: false })
+    .setProtectedHeader({ alg: 'HS256', kid: peer.kid }).setIssuer(peer.config.authUrl).setAudience('authenticated')
+    .setExpirationTime('5m').sign(new TextEncoder().encode('synthetic-only-secret-at-least-32-characters'));
+  await assert.rejects(verifier.verify(symmetric, signal), denied);
+  await assert.rejects(verifier.verify('unsigned.payload.', signal), denied);
+  peer.state.userStatus = 401;
+  await assert.rejects(verifier.verify(token, signal), denied);
+  peer.state.userStatus = 503;
+  await assert.rejects(verifier.verify(token, signal), (error: unknown) => error instanceof AppError && error.code === 'dependency_unavailable');
+  peer.state.jwksStatus = 503;
+  await assert.rejects(new AuthVerifier(peer.config).verify(token, signal),
+    (error: unknown) => error instanceof AppError && error.code === 'dependency_unavailable');
+});
+
+test('invitation transport never falls through from unknown delivery into an extra email action', async t => {
+  const peer = await syntheticAuthPeer();
+  t.after(() => peer.close());
+  const adapter = new AuthAdmin(peer.config), signal = AbortSignal.timeout(10000);
+  peer.state.loseInviteAcknowledgement = true;
+  assert.equal(await adapter.sendInvitation('member@example.test', randomUUID(), signal), 'unknown');
+  assert.equal(peer.state.inviteCalls, 1);
+  assert.equal(peer.state.otpCalls, 0);
+  peer.state.loseInviteAcknowledgement = false;
+  peer.state.inviteStatus = 422; peer.state.inviteCode = 'email_exists';
+  assert.equal(await adapter.sendInvitation('existing@example.test', randomUUID(), signal), 'confirmed');
+  assert.equal(peer.state.otpCalls, 1);
+  peer.state.inviteStatus = 503;
+  assert.equal(await adapter.sendInvitation('uncertain@example.test', randomUUID(), signal), 'unknown');
+  assert.equal(peer.state.otpCalls, 1);
+  const disabled = new AuthAdmin({ ...peer.config, emailEnabled: false, adminKey: undefined });
+  await assert.rejects(disabled.sendInvitation('member@example.test', randomUUID(), signal),
+    (error: unknown) => error instanceof AppError && error.code === 'delivery_unavailable');
+  assert.equal(peer.state.inviteCalls, 3);
+});
+
+test('app-enabled local HTTP enforces both credential boundaries before DB and keeps responses uncached', async t => {
+  const auth = await syntheticAuthPeer(), database = await silentPeer();
+  t.after(() => auth.close()); t.after(() => database.close());
+  const key = 'c'.repeat(64);
+  const config = parseConfig({ DATABASE_URL: `postgresql://app_runtime:synthetic-only@127.0.0.1:${database.port}/fixture`,
+    APP_FOUNDATION_ENABLED: 'true', APP_WORKSPACE_ID: auth.config.workspaceId, APP_AUTH_URL: auth.config.authUrl,
+    APP_AUTH_API_KEY: 'synthetic-key', PREVIEW_ACCESS_KEY: key });
+  const app = await createApplication(config);
+  t.after(() => app.close());
+  await app.listen(0, '127.0.0.1');
+  const origin = await app.getUrl();
+  for (const path of ['/health/live', '/v1/app/me', '/unknown']) {
+    const response = await fetch(origin + path);
+    assert.equal(response.status, 401);
+    assert.deepEqual(await response.json(), { status: 'unauthorized' });
+  }
+  const noUser = await fetch(origin + '/v1/app/me', { headers: { Authorization: `Bearer ${key}` } });
+  assert.equal(noUser.status, 401);
+  assert.match(noUser.headers.get('cache-control') ?? '', /no-store/);
+  assert.equal((await noUser.json() as { code: string }).code, 'unauthenticated');
+  const malformed = await fetch(origin + '/v1/app/me', { headers: { Authorization: `Bearer ${key}`, 'X-App-Access-Token': 'invalid' } });
+  assert.equal(malformed.status, 401); await malformed.arrayBuffer();
+  assert.equal(app.get(PostgresProbe).pool.totalCount, 0);
+  assert.equal(database.sockets.size, 0);
+  const live = await fetch(origin + '/health/live', { headers: { Authorization: `Bearer ${key}` } });
+  assert.equal(live.status, 200); await live.arrayBuffer();
+  const userId = randomUUID(); auth.users.set(userId, 'member@example.test');
+  const token = await auth.token(userId, randomUUID());
+  const unavailable = await fetch(origin + '/v1/app/me', { headers: { Authorization: `Bearer ${key}`, 'X-App-Access-Token': token } });
+  assert.equal(unavailable.status, 503);
+  assert.equal((await unavailable.json() as { code: string }).code, 'dependency_unavailable');
+  assert.equal(app.get(PostgresProbe).pool.totalCount, 0);
 });

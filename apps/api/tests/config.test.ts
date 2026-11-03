@@ -176,3 +176,50 @@ test('Vercel rejects retired modes and runtime/operator credential confusion', (
   assert.throws(() => parseMigrationConfig({ ...valid, VERCEL: '1' }), /separately/);
   assert.throws(() => parseConfig({ ...valid, PREVIEW_ACCESS_KEY: 'a'.repeat(64) }), /Vercel/);
 });
+
+const appLocal = {
+  API_RUNTIME: 'local', DATABASE_URL: 'postgresql://app_runtime:synthetic-only@127.0.0.1:55440/f005_fixture',
+  PREVIEW_ACCESS_KEY: 'a'.repeat(64), APP_FOUNDATION_ENABLED: 'true',
+  APP_WORKSPACE_ID: '00000000-0000-4000-8000-000000000005',
+  APP_AUTH_URL: 'http://127.0.0.1:55441', APP_AUTH_API_KEY: 'synthetic-api-key',
+};
+
+test('app opt-in requires independent technical protection, fixed Auth origin and least-privilege DB identity', () => {
+  const enabled = parseConfig(appLocal);
+  assert.equal(enabled.appFoundation?.workspaceId, appLocal.APP_WORKSPACE_ID);
+  assert.equal(enabled.appFoundation?.emailEnabled, false);
+  assert.equal(enabled.previewAccessKey, appLocal.PREVIEW_ACCESS_KEY);
+  for (const changes of [
+    { PREVIEW_ACCESS_KEY: undefined }, { PREVIEW_ACCESS_KEY: 'private-invalid' },
+    { APP_FOUNDATION_ENABLED: 'yes' }, { APP_WORKSPACE_ID: 'private-invalid' },
+    { APP_AUTH_URL: 'https://remote.example/auth/v1' }, { APP_AUTH_URL: 'http://127.0.0.1:0' },
+    { APP_AUTH_URL: 'http://127.0.0.1:55441/unsafe' }, { APP_AUTH_URL: 'http://user:private-invalid@127.0.0.1:55441' },
+    { APP_AUTH_API_KEY: undefined }, { APP_EMAIL_ENABLED: 'yes' },
+    { APP_EMAIL_ENABLED: 'true' }, { APP_AUTH_ADMIN_KEY: 'private-invalid' },
+    { DATABASE_URL: appLocal.DATABASE_URL.replace('app_runtime:', 'postgres:') },
+  ]) assert.throws(() => parseConfig({ ...appLocal, ...changes }), (error: Error) => {
+    assert.doesNotMatch(error.message, /private-invalid|synthetic-only|remote\.example/);
+    return true;
+  });
+  assert.equal(parseConfig({ ...appLocal, APP_EMAIL_ENABLED: 'true', APP_AUTH_ADMIN_KEY: 'synthetic-admin' }).appFoundation?.emailEnabled, true);
+  assert.equal(parseConfig(valid).appFoundation, undefined);
+});
+
+test('hosted app activation binds reviewed project, verified Session TLS and explicit retention policy', () => {
+  const appHosted = { ...hosted, APP_FOUNDATION_ENABLED: 'true', APP_WORKSPACE_ID: appLocal.APP_WORKSPACE_ID,
+    SUPABASE_DATABASE_USER: 'app_runtime.eotmpaliqcxxcotrcols',
+    DATABASE_URL: hosted.DATABASE_URL.replace('postgres.eotmpaliqcxxcotrcols:', 'app_runtime.eotmpaliqcxxcotrcols:'),
+    APP_AUTH_URL: 'https://eotmpaliqcxxcotrcols.supabase.co/auth/v1', APP_AUTH_API_KEY: 'synthetic-api-key',
+    APP_RETENTION_POLICY_ID: 'synthetic-approved-policy' };
+  const enabled = parseConfig(appHosted);
+  assert.deepEqual(enabled.database.ssl, { rejectUnauthorized: true, servername: hosted.SUPABASE_SESSION_HOST });
+  assert.equal(enabled.appFoundation?.retentionPolicyId, appHosted.APP_RETENTION_POLICY_ID);
+  for (const changes of [
+    { APP_RETENTION_POLICY_ID: undefined }, { APP_RETENTION_POLICY_ID: '' },
+    { APP_AUTH_URL: 'http://127.0.0.1:55441' },
+    { APP_AUTH_URL: 'https://zyxwvutsrqponmlkjihgf.supabase.co/auth/v1' },
+    { APP_AUTH_URL: `${appHosted.APP_AUTH_URL}?override=1` },
+    { DATABASE_URL: hosted.DATABASE_URL, SUPABASE_DATABASE_USER: hosted.SUPABASE_DATABASE_USER },
+    { APP_OPERATOR_AUTH_KEY: 'private-operator-key' }, { APP_OPERATOR_TARGET: 'supabase' },
+  ]) assert.throws(() => parseConfig({ ...appHosted, ...changes }));
+});

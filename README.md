@@ -4,6 +4,8 @@ Open this `esty-admin/` folder directly. It is the standalone repository for `kh
 
 Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 and correction T013–T020 are complete, including external review and owner visual acceptance. The coordinator confirms the owner-approved FE-only push of 20 files to `main@6c64eaa`; a deployment result for that correction is not verified. The local BE foundation is verified and separately reviewed; the owner has now authorized its source-only commit/push. Hosted acceptance remains pending. Application screens and full UI → API → DB acceptance remain outside the completed increments.
 
+Current Feature003 visual acceptance: the owner explicitly accepted the existing Application shell visuals. T013 is ACCEPTED; T001-T013 for feature003 are complete within the sample-data Application shell scope. Retain earlier pending-acceptance statements only as dated history, not current status. This acceptance does not establish feature001 connectivity, operational business functionality, hosted caller authentication, API integration, or publication/deployment authorization. The existing frame remains unchanged.
+
 ## Current BE delivery automation — scoped review accepted
 
 The owner authorized plan-first PR CI plus serialized main production delivery in the new BE-specific `.github/workflows/be-delivery.yml`. This source/local increment is not an actual GitHub run or deployment PASS. It preserves the hosted result below, existing dependency lock, FE source/previews and old artifacts/locks. [Feature001's current plan](specs/001-connectivity-foundation/plan.md#current-be-delivery-automation-addon--plan-before-source) specifies mandatory generation/build/functional/native HTTP→test DB checks, exact tested Linux artifact transfer, official CLI archive/icn1, no production migration runner, candidate schema/HTTP acceptance before alias promotion and durable unknown-outcome fencing.
@@ -20,6 +22,27 @@ TEST_DATABASE_URL=postgresql://foundation_local:local_fixture_only@127.0.0.1:554
 For native integration, also set `NATIVE_ARTIFACT` and its independently verified `NATIVE_ARTIFACT_SHA256` to the sealed public artifact. Without both, the ordinary local integration command exercises the compiled fallback and is not native-artifact proof; the workflow never accepts that fallback.
 
 Source/local checks are retained: CI23/23; initial release/artifact/CI174/174 and shared neighbors36/36; corrected affected integration2/2; final exact-native HTTP→test DB1/1; actionlint and six shell blocks pass. Distinct failures, corrections and no-final-full-rerun limits remain in [the verification receipt](specs/001-connectivity-foundation/plan.md#be-sourcelocal-verification--ready_for_review). ONE `/root/automation_review`, explicitly requested as gpt-6-luna through orchestration, completed read-only with no confirmed actionable findings; independent model identity/session UUID are unavailable. At review15/19 old hashes matched, including unchanged BE code/tests/workflow; four FE-amended documents were considered current for context, not claimed exact19 matches. No fixes/check reruns are needed. Native0619 is Darwin/arm64 development, not an actual Linux/Actions/provider acceptance. [Future versioned production migration integration](specs/001-connectivity-foundation/plan.md#future-versioned-production-migration-integration--plan-only) is planned only; the current pipeline remains current-schema-only with no production DDL.
+
+## Current FE local connectivity — source/local READY_FOR_REVIEW
+
+Assigned FE p0 reports T014/T015 implemented and T016 local checks complete, with coordinator review and owner acceptance of the **new connectivity screen** still pending. Source/hashes/results: `apps/web/test-results/connectivity-evidence/final-handoff.json`,17-path manifest SHA256 `721474b470e010d3bec62ccffd5aa985fde088863bf8d35ddda6b4248cca6357`. These are FE-attributed checks, not independently rerun or reviewed by BE.
+
+Node24.22.1: functional40/40; generation clean0/isolated drift1; lint0/typecheck0; production build/default E2E46PASS/12mode skips. Enabled mode has10 distinct passing cases **across affected runs**, not a final full rerun: initial7pass/3fail/5skip, corrected3pass/1remaining selector failure/2skip, final real journey1pass. The retained JSON/logs disclose typing/public-snapshot/zoom/selector corrections. Actual browser→canonical Nest→owned Supabase55433 observed ready → missing-DB live200/ready503 → owned API stopped/unreachable → restart/ready. FE's independent visual smoke observed1440/360/390 ready, no mobile overflow/browser errors and nonlocal Host404; screenshots and old gallery remain. Owned resources were cleaned, shared54322/55432/volumes untouched.
+
+Canonical FE commands, supplied by the assigned FE owner:
+
+```sh
+npm run codegen --workspace=@esty-admin/web
+npm run codegen:check --workspace=@esty-admin/web
+npm test --workspace=@esty-admin/web
+npm run typecheck --workspace=@esty-admin/web
+npm run lint --workspace=@esty-admin/web
+npm run test:e2e --workspace=@esty-admin/web
+LOCAL_CONNECTIVITY_E2E=1 npm run test:e2e --workspace=@esty-admin/web -- connectivity.spec.ts
+LOCAL_CONNECTIVITY_ENABLED=true LOCAL_CONNECTIVITY_API_ORIGIN=http://127.0.0.1:3001 npm run dev --workspace=@esty-admin/web
+```
+
+Default E2E builds and verifies disabled connectivity/public/Application routes; enabled E2E uses the existing production build and only its authorized owned Docker fixture. Local API `BROWSER_ORIGIN` must exactly match the FE origin. `/connectivity` stays server-gated/default-disabled, strict loopback and unlinked; no credentials/cache/redirect and no hosted enablement. This **local** browser journey is not hosted UI→API→DB, caller authentication, operational business functionality or publication/deployment authorization. Existing Feature003 frame/T013 acceptance remains separate.
 
 ## Current hosted BE acceptance — PASS
 
@@ -42,7 +65,7 @@ The bounded FE home/privacy HTTPS checks both returned200; FE003/T013, independe
    - `VERCEL_AUTOMATION_BYPASS_SECRET`: the existing BE project's **Settings → Deployment Protection → Protection Bypass for Automation** value. It is used only for the private candidate URL, never to mask final-domain application protection.
 3. Configure the stable required branch check **BE required checks** and protect reviewed workflow/source changes. Only after environment/secret/check settings are complete, set repository **Settings → Secrets and variables → Actions → Variables → BE_DELIVERY_ENABLED** to `true`, then select **Actions → BE delivery → Run workflow → main**. Exact setting/run evidence remains unverified until actual activation.
 4. Retain explicit **`--regions icn1`**, official prebuilt archive and exact-artifact/same-ID acceptance on future authorized releases. Never rerun a failed/unknown create/promotion blindly; preserve the durable run/journal and resolve that specific outcome before another release.
-5. Keep Hobby intended-use eligibility and real worker-duration/cancellation enforcement/capacity as separate unverified gates.
+5. Keep Hobby intended-use eligibility, real worker-duration/cancellation enforcement/capacity and the new local connectivity screen's coordinator review/owner acceptance distinct. Feature003 visual T013 is already accepted; no hosted FE integration or browser bearer exposure is authorized.
 
 The existing hosted BE runtime needs no repeat login/credential/migration setup. New GitHub automation activation above is separate and unverified. The fresh exact19 BE-hunk serial grant and NEW FE p0 Git/docs PAUSE receipt authorize only scoped publication and BE documentation closeout, not FE amendments or Actions/settings/provider operations. Return the serial HOLD directly to FE p0 and the coordinator, copying pT, immediately after publication and before CI/long operations. Disjoint FE source is not held by this lease; no historical HOLD is reused.
 

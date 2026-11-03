@@ -2,6 +2,18 @@
 
 This is a user-interface contract, not a new HTTP/OpenAPI contract. All activity is local and synthetic.
 
+## Current owner cleanup contract
+
+This overrides the historical disabled/explained contract below, without adding integrations:
+
+- Dashboard, Team and Settings navigate to their approved routes; omit Boards/Templates and C02 storage. Login stays directly accessible. Never use `#` as a dead destination.
+- Keep actual drawer/profile/row-menu opening and focus behavior, shared search, status filters, sorting, reset, chart data disclosure and totals.
+- Retained workspace/notification, toolbar/footer and row-menu actions are enabled semantic `type="button"` placeholders with an inert handler. Pointer, Enter and Space must not mutate data, navigate, print, download, call APIs, write browser persistence or show fake success. Remove misleading disabled/aria-disabled states.
+- Remove visible preview/sample/non-persistence banners and unavailable-action explanations; retain usable names, headings, empty-state recovery, field errors and focus. The fixtures remain synthetic and nonintegrated regardless of the quieter presentation.
+- Preserve noindex/public routes, keyboard menu/drawer Escape and focus return, reduced motion, 200% text and no page overflow. C02 removal, the simplified C01/C03 and enabled inert actions are deliberate current differences from the original reference.
+
+## Historical observed reference and original preview contract
+
 | Control | Observed reference | Planned preview behavior |
 | --- | --- | --- |
 | Dashboard | Selected sidebar entry | Link to preview overview anchor |

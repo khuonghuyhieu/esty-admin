@@ -34,20 +34,19 @@ export function ProjectsTable({ query, onQueryChange }: { query: string; onQuery
 
   return <section className={`${styles.panel} ${styles.tablePanel}`} aria-labelledby="projects-title">
     <div className={styles.tableHeading}><h2 id="projects-title">Whiteboard projects</h2><div className={styles.controls}>
-      <button className={styles.control} disabled aria-describedby="table-unavailable"><Icon name="list" size={16} />List view</button>
-      <button className={styles.control} disabled aria-describedby="table-unavailable"><Icon name="export" size={18} />Export</button>
+      <button className={styles.control} type="button" onClick={event => event.preventDefault()}><Icon name="list" size={16} />List view</button>
+      <button className={styles.control} type="button" onClick={event => event.preventDefault()}><Icon name="export" size={18} />Export</button>
     </div></div>
     <div className={styles.toolbar}>
       <label className={styles.search}><Icon name="search" size={16} /><span className={styles.srOnly}>Search projects, owners</span><input type="search" name="project-search" autoComplete="off" placeholder="Search projects, owners…" value={query} onChange={(event) => { onQueryChange(event.target.value); setOpenRow(null); }} /></label>
-      <button className={styles.control} disabled aria-describedby="table-unavailable"><Icon name="filter" size={16} />Filters</button>
-      <button className={styles.control} disabled aria-label="Table settings" aria-describedby="table-unavailable"><Icon name="settings" size={18} /></button>
-      <button className={`${styles.control} ${styles.primary}`} disabled aria-describedby="table-unavailable"><Icon name="plus" size={16} />New board</button>
+      <button className={styles.control} type="button" onClick={event => event.preventDefault()}><Icon name="filter" size={16} />Filters</button>
+      <button className={styles.control} type="button" onClick={event => event.preventDefault()} aria-label="Table settings"><Icon name="settings" size={18} /></button>
+      <button className={`${styles.control} ${styles.primary}`} type="button" onClick={event => event.preventDefault()}><Icon name="plus" size={16} />New board</button>
     </div>
-    <p className={styles.unavailable} id="table-unavailable">Preview only: board, view, export and print actions are unavailable. Search, status and sorting work with sample data.</p>
     <fieldset className={styles.filters}><legend>Show only:</legend>{filters.map((filter) => <label key={filter.value}><input type="radio" name="project-status" value={filter.value} checked={status === filter.value} onChange={() => { setStatus(filter.value); setOpenRow(null); }} />{filter.label}</label>)}{changed ? <button className={styles.reset} onClick={reset}>Reset table</button> : null}</fieldset>
     <div className={styles.tableScroll} role="region" aria-label="Whiteboard projects table, scroll for all columns" tabIndex={0}>
       <table className={styles.table}>
-        <caption className={styles.srOnly}>Sample whiteboard projects</caption>
+        <caption className={styles.srOnly}>Whiteboard projects</caption>
         <thead><tr>
           <th scope="col">Project</th><th scope="col">Owner</th><th scope="col">Collaborators</th>
           <th scope="col" className={styles.numeric} aria-sort={sort?.key === "strokes" ? sort.direction : undefined}><button onClick={() => sortBy("strokes")}>Strokes{sort?.key === "strokes" ? <span aria-hidden="true">{sort.direction === "ascending" ? "↑" : "↓"}</span> : <Icon name="sort" size={14} />}</button></th>
@@ -65,7 +64,7 @@ export function ProjectsTable({ query, onQueryChange }: { query: string; onQuery
     {visible.count === 0 ? <div className={styles.empty}><p>No projects match your search and status.</p><button className={styles.reset} onClick={reset}>Clear search and filters</button></div> : null}
     <footer className={styles.tableFooter}>
       <div className={styles.totals} role="status" aria-live="polite" aria-atomic="true"><span>Projects in view<strong>{visible.count}</strong></span><span>Strokes in view<strong>{numberFormat.format(visible.strokes)}</strong></span></div>
-      <div className={styles.controls}><button className={styles.footerAction} disabled aria-describedby="table-unavailable">Print</button><button className={styles.footerAction} disabled aria-describedby="table-unavailable">Duplicate</button><button className={`${styles.control} ${styles.primary}`} disabled aria-describedby="table-unavailable">Export CSV</button></div>
+      <div className={styles.controls}><button className={styles.footerAction} type="button" onClick={event => event.preventDefault()}>Print</button><button className={styles.footerAction} type="button" onClick={event => event.preventDefault()}>Duplicate</button><button className={`${styles.control} ${styles.primary}`} type="button" onClick={event => event.preventDefault()}>Export CSV</button></div>
     </footer>
   </section>;
 }

@@ -1,8 +1,26 @@
 # Feature specification: Reference Application shell
 
-Created: 2026-10-27 · Status: T001–T012 implementation, local verification and separate review complete; owner visual acceptance pending · Authorized baseline: `main@b370578`.
+Created: 2026-10-27 · Status: T001–T013 complete; owner explicitly accepted the current Application visual design on 2026-11-01 · Authorized implementation baseline: `main@b370578`.
 
 Owner request: first build the complete UI frame visible at https://doodle-typeui-9fa2feab.vercel.app/application. Identify its components before planning; review this plan before publication and implementation in the To do FE session. This feature supersedes the earlier suggestion to start with operational Orders/Order detail screens. [ARCH-001](../architecture.md) retains stack authority.
+
+## Current owner supersession — UI cleanup
+
+The owner authorized cleanup of the existing Application/foundation surfaces by the sole FE writer. This supersedes only the visible preview/sample/non-persistence explanations, disabled-placeholder contract and reference-only chrome below. Earlier C01–C10 coverage, task checkmarks, visual acceptance and review/failure records remain **historical evidence**, not acceptance of this changed UI.
+
+- Keep real Dashboard (`/application`), Team (`/settings/team`) and Settings (`/settings`) navigation. Login remains directly available at `/login`; do not add a public CTA or pretend that sign-out navigates to it.
+- Remove Boards/Templates dead navigation, C02 sidebar storage/progress, repeated preview/unavailable copy, duplicate workspace subtitles and the header plan badge. Preserve the core four-card/chart/activity/table arrangement and its functioning fixture search/filter/sort/reset, menus and drawer.
+- Retained placeholders become enabled semantic `type="button"` controls with inert handlers, including row actions, workspace/notification controls and table toolbar/footer actions. No disabled/aria-disabled state, fake success, mutation, download, print, API request, persistent browser write or navigation is allowed. This deliberately supersedes the earlier prohibition on enabled no-ops.
+- Retain Doodle paper/ink/peach, readable Geist, meaningful labels/headings, chart data alternative, keyboard/focus/Escape behavior, noindex and narrow-screen usability. Synthetic/transient/nonintegrated limitations remain documented here, not repeated as visible banners.
+- Current acceptance covers useful-route-only sidebar without C02 storage, absent explanatory clutter, enabled no-op mouse/keyboard activation without side effects, preserved functional journeys, public/redirect/404/default-disabled-connectivity regressions, and fresh desktop/mobile comparisons. This supersedes affected FR-001/003/007/008/009 and SC-001/004 wording below; unrelated requirements remain in force.
+- No real auth/policy/business integration, dependency, Git publication or deployment is authorized. All 14 FE001 `apps/web` manifest paths remain protected; the three feature003 documents are explicitly authorized to change and must be recorded as changed, not counted as unchanged in the old 17-file manifest. New coordinator-scoped review and owner visual acceptance remain pending.
+
+## Historical accepted-frame requirements and evidence
+
+## Current owner acceptance — 2026-11-01
+
+The owner explicitly accepted the existing Application frame in the direct FE implementation handoff. T013 is complete on that owner decision, not inferred from automated checks. Preserve the accepted design, sample behavior and retained comparison/audit evidence; no redesign or redundant test run accompanies this documentation-only acceptance. Earlier pending-acceptance and publication statements below are dated history. Separately authorized feature001 T014–T016 remains a local connectivity increment, not hosted UI→API→DB acceptance or business-flow authorization.
+
 
 ## User scenarios and testing
 

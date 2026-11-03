@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "engines": { "node": "24.x" },
+  "engines": {
+    "node": "24.x"
+  },
   "scripts": {
     "dev": "npm run build && node --watch build/src/main.js",
     "build": "npm run migrations:check && node scripts/clean-build.mjs && tsc -p tsconfig.json",
@@ -36,6 +38,7 @@
     "@nestjs/core": "12.2.0",
     "@nestjs/platform-express": "12.2.0",
     "@vercel/functions": "3.10.4",
+    "jose": "6.2.15",
     "node-pg-migrate": "9.0.0",
     "pg": "8.23.1",
     "reflect-metadata": "0.2.2",

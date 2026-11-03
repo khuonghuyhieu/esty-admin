@@ -3,8 +3,9 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { readFileSync } from 'node:fs';
+import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { assembleArtifact, readArtifactFile, sha256 } from '../scripts/artifact.js';
+import { assembleArtifact, canonical, readArtifactFile, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
 import { artifactFixture } from './artifact-fixture.js';
 import { checksContext } from '../scripts/ci.js';
@@ -14,6 +15,7 @@ import type { DeliveryProvider, RunIdentity } from '../scripts/ci-provider.js';
 import { verifyUploadedArchive } from '../scripts/ci-archive.js';
 import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
 import type { CommandResult } from '../scripts/ci-tools.js';
+import { migrationManifest } from '../src/generated/migrations.js';
 
 interface Fixture { artifact: VerifiedArtifact; dispose(): Promise<void> }
 async function fixture(): Promise<Fixture> {
@@ -73,6 +75,29 @@ test('exact current-schema candidate acceptance precedes one promotion and final
   assert.ok(h.events.indexOf('candidate_http') < h.events.indexOf('promote'));
   assert.ok(h.events.indexOf('production_http') < h.events.indexOf('success:accepted:dpl_candidate'));
   assert.ok(h.events.indexOf('receipt:create_intent') < h.events.indexOf('create'));
+});
+test('current-schema-only delivery rejects the app migration manifest before any provider action', async t => {
+  const base = await artifactFixture();
+  t.after(base.dispose);
+  const files = base.artifact.manifest.source.files.filter(entry => !entry.path.startsWith('apps/api/migrations/'));
+  for (const migration of migrationManifest) {
+    const path = `apps/api/migrations/${migration.name}.mjs`;
+    const content = readFileSync(new URL(`../../migrations/${migration.name}.mjs`, import.meta.url));
+    await writeFile(join(base.operator, path), content);
+    files.push(file(path, content, 0o644));
+  }
+  const artifact = await assembleArtifact({
+    raw: base.raw, operator: base.operator, destination: join(base.root, 'app-schema'), config: base.config,
+    source: { ...base.artifact.manifest.source, repository: `https://github.com/${repository}`, files, digest: sha256(canonical(files)) },
+    migrations: [...migrationManifest], build: base.artifact.manifest.build,
+  });
+  verifyArtifact(artifact.root, artifact.digest, { revision: run.revision, migrationDigest: artifact.manifest.migrationDigest,
+    repository: `https://github.com/${repository}`, release: true });
+  assert.notEqual(artifact.manifest.migrationDigest, approvedMigrationDigest);
+  const h = harness(artifact);
+  await assert.rejects(deliver(h.input));
+  assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+  assert.deepEqual(h.events, []);
 });
 test('stale source, previous intent, persistence and candidate failures prevent creation or promotion', async t => {
   const f = await fixture(); t.after(f.dispose);

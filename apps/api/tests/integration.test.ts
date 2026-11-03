@@ -32,6 +32,8 @@ import { assertContract, createApplication, get, startApi } from './helpers.js';
 import { tlsPostgres } from './tls.js';
 import { snapshotArtifact, verifyArtifact } from '../scripts/artifact.js';
 
+const nextMigrationVersion = String(Number(expectedMigrations.at(-1)!.slice(0, 13)) + 1);
+
 // Destructive operations are limited to newly created, randomly named databases
 // on the exact synthetic Compose fixture. Never accept an arbitrary database URL.
 function fixtureConfig() {
@@ -87,12 +89,10 @@ test('fresh database, migrations twice, real HTTP readiness and dependency recov
     assert.equal(pending.status, 503);
     assertContract(pending.body, 'Degraded');
     assert.equal(pending.body.reason, 'migrations_pending');
-    assert.equal(await migrate(fixture.database), 1);
+    assert.equal(await migrate(fixture.database), expectedMigrations.length);
     assert.equal(await migrate(fixture.database), 0);
     const history = await fixture.client.query('SELECT name FROM public.foundation_migrations');
     assert.deepEqual(history.rows, expectedMigrations.map(name => ({ name })));
-    const tables = await fixture.client.query("SELECT schemaname, tablename FROM pg_tables WHERE schemaname NOT IN ('pg_catalog', 'information_schema') ORDER BY schemaname, tablename");
-    assert.deepEqual(tables.rows, [{ schemaname: 'public', tablename: 'foundation_migrations' }]);
     const ready = await get(origin, '/health/ready');
     assert.equal(ready.status, 200);
     assertContract(ready.body, 'Ready');
@@ -185,7 +185,7 @@ test('a failed migration rolls back schema and history, stays unready and can re
   const directory = await mkdtemp(join(tmpdir(), 'esty-foundation-migrations-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await cp(migrationsDirectory, directory, { recursive: true });
-  await writeFile(join(directory, '1792972800001-failure.mjs'),
+  await writeFile(join(directory, `${nextMigrationVersion}-failure.mjs`),
     "export function up(pgm) { pgm.createSchema('rollback_probe'); pgm.sql('SELECT 1 / 0'); }\n");
   await assert.rejects(migrate(fixture.database, directory), /Migration failed/);
   const schemas = await fixture.client.query("SELECT nspname FROM pg_namespace WHERE nspname IN ('foundation', 'rollback_probe')");
@@ -200,7 +200,7 @@ test('a failed migration rolls back schema and history, stays unready and can re
     assert.equal(pending.status, 503);
     assertContract(pending.body, 'Degraded');
     assert.equal(pending.body.reason, 'migrations_pending');
-    assert.equal(await migrate(fixture.database), 1);
+    assert.equal(await migrate(fixture.database), expectedMigrations.length);
     assert.equal((await get(origin, '/health/ready')).status, 200);
   } finally { await app.close(); }
 });
@@ -211,7 +211,7 @@ test('an already applied initial migration cannot hide a pending or failed later
   const directory = await mkdtemp(join(tmpdir(), 'esty-foundation-pending-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await cp(migrationsDirectory, directory, { recursive: true });
-  const laterMigration = join(directory, '1792972800001-later.mjs');
+  const laterMigration = join(directory, `${nextMigrationVersion}-later.mjs`);
   await writeFile(laterMigration, "export function up(pgm) { pgm.sql('SELECT 1 / 0'); }\n");
   const app = await createApplication(parseConfig({ DATABASE_URL: fixture.url }), migrationFiles(directory).map(entry => entry.name));
   await app.listen(0, '127.0.0.1');
@@ -232,7 +232,7 @@ test('an already applied initial migration cannot hide a pending or failed later
     const corrected = await mkdtemp(join(tmpdir(), 'esty-foundation-corrected-'));
     t.after(() => rm(corrected, { recursive: true, force: true }));
     await cp(migrationsDirectory, corrected, { recursive: true });
-    await writeFile(join(corrected, '1792972800001-later.mjs'), "export function up(pgm) { pgm.sql('SELECT 1'); }\n");
+    await writeFile(join(corrected, `${nextMigrationVersion}-later.mjs`), "export function up(pgm) { pgm.sql('SELECT 1'); }\n");
     assert.equal(await migrate(fixture.database, corrected), 1);
     assert.equal((await get(origin, '/health/ready')).status, 200);
   } finally { await app.close(); }
@@ -418,13 +418,13 @@ test('read-only status never initializes history; action and SQL failures identi
       const directory = await mkdtemp(join(tmpdir(), 'esty-report-fixture-'));
       t.after(() => rm(directory, { recursive: true, force: true }));
       await cp(migrationsDirectory, directory, { recursive: true });
-      const version = '1792972800001-failed-version';
+      const version = `${nextMigrationVersion}-failed-version`;
       await writeFile(join(directory, `${version}.mjs`), failure === 'action'
         ? "export function up() { throw new Error('synthetic-password-do-not-log'); }\n"
         : "export function up(pgm) { pgm.sql(\"SELECT 'synthetic-password-do-not-log'::integer\"); }\n");
       const status = await migrationStatus(fixture.database, directory);
       assert.equal(status.initialized, false);
-      assert.deepEqual(status.pending, ['1792972800000-foundation', version]);
+      assert.deepEqual(status.pending, [...expectedMigrations, version]);
       assert.equal((await fixture.client.query("SELECT to_regclass('public.foundation_migrations') AS name")).rows[0].name, null);
       const report = await runMigrations(fixture.database, { directory });
       assert.equal(report.result, 'failed');
@@ -434,7 +434,7 @@ test('read-only status never initializes history; action and SQL failures identi
       assert.deepEqual(report.before, []);
       assert.deepEqual(report.after, []);
       assert.deepEqual(report.attempted.map(item => [item.name, item.outcome]),
-        [['1792972800000-foundation', 'rolled_back'], [version, 'rolled_back']]);
+        [...expectedMigrations, version].map(name => [name, 'rolled_back']));
       assert.doesNotMatch(JSON.stringify(report), /synthetic-password|SELECT|postgresql| at /);
       assert.equal((await fixture.client.query("SELECT to_regnamespace('foundation') AS name")).rows[0].name, null);
     });
@@ -469,7 +469,7 @@ test('release serialization, failure boundaries and exact deployment identity us
       t.after(() => rm(directory, { recursive: true, force: true }));
       const migrations = join(directory, 'migrations');
       await cp(migrationsDirectory, migrations, { recursive: true });
-      if (mode === 'migration-failure') await writeFile(join(migrations, '1792972800001-failure.mjs'),
+      if (mode === 'migration-failure') await writeFile(join(migrations, `${nextMigrationVersion}-failure.mjs`),
         "export function up() { throw new Error('synthetic-provider-secret'); }\n");
       const revision = 'a'.repeat(40);
       const artifactDigest = 'c'.repeat(64);
@@ -728,12 +728,12 @@ test('cancelled migration reports unknown safely; CLI report-write failure does 
   const cancel = () => controller.abort();
   process.once(event, cancel);
   t.after(() => process.removeListener(event, cancel));
-  await writeFile(join(migrations, '1792972800001-cancelled.mjs'),
+  await writeFile(join(migrations, `${nextMigrationVersion}-cancelled.mjs`),
     `export async function up() { process.emit(${JSON.stringify(event)}); await new Promise(() => {}); }\n`);
   const report = await runMigrations(fixture.database, { directory: migrations, signal: controller.signal });
   assert.equal(report.result, 'failed');
   assert.equal(report.stage, 'migration');
-  assert.equal(report.failed_version, '1792972800001-cancelled');
+  assert.equal(report.failed_version, `${nextMigrationVersion}-cancelled`);
   assert.equal(report.database_outcome, 'unknown');
   assert.ok(report.attempted.every(item => item.outcome === 'unknown'));
   const occupied = join(directory, 'not-a-directory');

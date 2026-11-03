@@ -1,8 +1,18 @@
 # Current handoff
 
+Current Feature003 visual acceptance: the owner explicitly accepted the existing Application shell visuals. T013 is ACCEPTED; T001-T013 for feature003 are complete within the sample-data Application shell scope. Retain earlier pending-acceptance statements only as dated history, not current status. This acceptance does not establish feature001 connectivity, operational business functionality, hosted caller authentication, API integration, or publication/deployment authorization. The existing frame remains unchanged.
+
 ## Current BE delivery automation — scoped review accepted
 
 T085–T091 source/local evidence is retained; T092 ONE `/root/automation_review` explicitly requested gpt-6-luna through orchestration and completed read-only with no confirmed actionable findings. Independent runtime identity/session UUID are unavailable. At review15/19 old manifest hashes matched, including unchanged BE source/tests/workflow; four FE-amended documents were reviewed current for context, not an exact19-current-hash claim. No fixes or check reruns are needed. Actual local checks, failures and native0619 Darwin/arm64 development limits remain in [the plan](specs/001-connectivity-foundation/plan.md#be-sourcelocal-verification--ready_for_review). The fresh exact19 BE-hunk Git/docs grant plus NEW FE p0 PAUSE receipt authorizes only current-scope publication/closeout, preserving FE amendments unstaged and byte-identical. Return HOLD before CI/long operations. Actual Actions/environment settings and same-artifact production-health proof remain unverified; README owns the one activation list. Current-schema-only/no-production-DDL remains deliberate; future versioned migration integration is planned, not implemented. No new FE, policy, capacity or worker acceptance is inferred.
+
+## Current FE local connectivity — source/local READY_FOR_REVIEW
+
+Assigned FE p0 supplied `apps/web/test-results/connectivity-evidence/final-handoff.json`,17-path manifest SHA256 `721474b470e010d3bec62ccffd5aa985fde088863bf8d35ddda6b4248cca6357`. T014/T015 implementation and T016 local checks are complete; coordinator ONE FE Luna review and owner acceptance of the new connectivity screen remain separate. BE serialized these exact supplied deltas without editing FE source, rerunning its checks or claiming independent FE review.
+
+Reported Node24.22.1 results: functional40/40; generation clean0/isolated drift1; lint0/typecheck0; production build/default E2E46PASS/12mode skips. Enabled10 distinct cases passed across affected runs, not a final full rerun: initial7pass/3fail/5skip; corrected3pass/1remaining selector failure/2skip; final actual journey1pass. Retained JSON/logs disclose typing/public-snapshot/zoom/selector corrections. Actual browser→canonical Nest→owned Supabase55433: ready → missing-DB live200/ready503 → owned API stopped/unreachable → restart/ready. FE visual smoke observed1440/360/390 ready, no mobile overflow/browser errors and nonlocal Host404; screenshots/old gallery retained. FE reports owned container/API/web/temp cleanup, shared54322/55432/volumes preserved.
+
+The screen remains local/default-disabled with strict loopback origin,5s body-inclusive cancellation/stale guard and no credentials/cache/redirect. Existing Application is unchanged; owner Feature003 T013 acceptance above is not acceptance of this new screen. No hosted UI→API→DB/authentication/business/publication/deployment claim. [README owns supplied commands](README.md#current-fe-local-connectivity--sourcelocal-ready_for_review).
 
 ## Current hosted BE acceptance — PASS
 

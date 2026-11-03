@@ -2,14 +2,8 @@ import type { ActivityEvent, ChartPoint, Project } from "./model.ts";
 
 export const workspace = {
   name: "Northwind Studio",
-  plan: "Team",
   profile: "Jordan Kim",
   initials: "JK",
-  storageUsed: 6.8,
-  storageTotal: 10,
-  storagePercent: 68,
-  boards: 142,
-  strokes: 28400,
 } as const;
 
 export const metrics = [

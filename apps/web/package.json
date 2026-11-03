@@ -8,12 +8,14 @@
   },
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
-    "build": "next build",
+    "build": "npm run codegen:check && next build",
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "next typegen && tsc --noEmit",
     "test": "node --experimental-strip-types --test tests/site-config.test.ts tests/functional/*.test.ts",
     "test:e2e": "playwright test",
+    "codegen": "node scripts/codegen.mjs",
+    "codegen:check": "node scripts/codegen.mjs --check",
     "check:release": "node --experimental-strip-types scripts/check-release.ts"
   },
   "dependencies": {

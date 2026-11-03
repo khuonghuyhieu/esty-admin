@@ -1,11 +1,16 @@
 {
   "openapi": "3.1.0",
   "info": {
-    "title": "Connectivity foundation",
-    "version": "0.3.0",
-    "description": "Local health remains unauthenticated. Vercel requires the private bearer key on every non-preflight request, including custom domains. Never expose that shared key in browser code."
+    "title": "Connectivity and internal app foundation",
+    "version": "0.4.0",
+    "description": "Feature-disabled local health remains unauthenticated. Vercel and app-enabled local mode require the technical bearer on all non-preflight requests. Opt-in /v1/app operations additionally require a verified current user token. No public bootstrap/password API. FE generated consumer updates and production schema-changing delivery are separately coordinated."
   },
-  "security": [{}, { "PreviewAccess": [] }],
+  "security": [
+    {},
+    {
+      "PreviewAccess": []
+    }
+  ],
   "paths": {
     "/health/live": {
       "get": {
@@ -56,6 +61,666 @@
           }
         }
       }
+    },
+    "/v1/app/me": {
+      "get": {
+        "operationId": "getAppMe",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppMe"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateAppProfile",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppProfileResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppNamePatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app/workspace": {
+      "get": {
+        "operationId": "getAppWorkspace",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppWorkspaceResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        }
+      },
+      "patch": {
+        "operationId": "updateAppWorkspace",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppWorkspaceResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppNamePatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app/team": {
+      "get": {
+        "operationId": "getAppTeam",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppMemberPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/app/team/{memberId}": {
+      "patch": {
+        "operationId": "updateAppMember",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppMemberResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "memberId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppMemberPatch"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app/audit": {
+      "get": {
+        "operationId": "getAppAudit",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppAuditEventPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/app/invitations": {
+      "get": {
+        "operationId": "getAppInvitations",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppInvitationPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      },
+      "post": {
+        "operationId": "createAppInvitation",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppInvitationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppInvitationCreate"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app/invitations/{id}/reinvite": {
+      "post": {
+        "operationId": "reinviteAppInvitation",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppInvitationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppInvitationReinvite"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app/invitations/{id}/revoke": {
+      "post": {
+        "operationId": "revokeAppInvitation",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppInvitationResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppInvitationRevoke"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/app/invitations/{id}/accept": {
+      "post": {
+        "operationId": "acceptAppInvitation",
+        "security": [
+          {
+            "PreviewAccess": [],
+            "AppAccessToken": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Confirmed application result. Invitation delivery is reported separately and never implies admission or receipt.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AppMemberResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/AppBadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/AppUnauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/AppForbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/AppNotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/AppConflict"
+          },
+          "503": {
+            "$ref": "#/components/responses/AppUnavailable"
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AppInvitationAccept"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -63,7 +728,13 @@
       "PreviewAccess": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Vercel only: a separate private 64-character lowercase hex key."
+        "description": "Separate private64-lowercase-hex technical key; required in Vercel and whenever app foundation is enabled locally. Never browser-visible."
+      },
+      "AppAccessToken": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-App-Access-Token",
+        "description": "Server-forwarded Supabase user JWT, independently verified against fixed issuer/JWKS/current session and membership. Never substitute the technical bearer."
       }
     },
     "responses": {
@@ -71,7 +742,76 @@
         "description": "Generic Vercel denial before database work.",
         "content": {
           "application/json": {
-            "schema": { "$ref": "#/components/schemas/Unauthorized" }
+            "schema": {
+              "$ref": "#/components/schemas/Unauthorized"
+            }
+          }
+        }
+      },
+      "AppBadRequest": {
+        "description": "Strict input validation failed.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AppError"
+            }
+          }
+        }
+      },
+      "AppUnauthorized": {
+        "description": "Invalid technical key or user authentication/session.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/Unauthorized"
+                },
+                {
+                  "$ref": "#/components/schemas/AppError"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "AppForbidden": {
+        "description": "Current membership/capability denied.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AppError"
+            }
+          }
+        }
+      },
+      "AppNotFound": {
+        "description": "Unknown or inaccessible scoped object.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AppError"
+            }
+          }
+        }
+      },
+      "AppConflict": {
+        "description": "Revision, invitation, ownership or idempotency conflict.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AppError"
+            }
+          }
+        }
+      },
+      "AppUnavailable": {
+        "description": "Dependency unavailable or outcome uncertain; do not blindly retry delivery.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/AppError"
+            }
           }
         }
       }
@@ -80,8 +820,15 @@
       "Unauthorized": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["status"],
-        "properties": { "status": { "type": "string", "const": "unauthorized" } }
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "unauthorized"
+          }
+        }
       },
       "Liveness": {
         "type": "object",
@@ -138,6 +885,599 @@
               "database_timeout",
               "migrations_pending"
             ]
+          }
+        }
+      },
+      "AppError": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "requestId"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "invalid_request",
+              "unauthenticated",
+              "forbidden",
+              "not_found",
+              "revision_conflict",
+              "last_owner",
+              "invitation_conflict",
+              "delivery_unavailable",
+              "dependency_unavailable",
+              "bootstrap_conflict"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "AppProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId",
+          "displayName",
+          "revision"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Trimmed nonblank Unicode name; reject control characters and malformed Unicode."
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483646
+          }
+        }
+      },
+      "AppWorkspace": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "displayName",
+          "revision"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Trimmed nonblank Unicode name; reject control characters and malformed Unicode."
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483646
+          }
+        }
+      },
+      "AppMember": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "userId",
+          "displayName",
+          "role",
+          "status",
+          "revision"
+        ],
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Trimmed nonblank Unicode name; reject control characters and malformed Unicode."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "member"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483646
+          }
+        }
+      },
+      "AppMe": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profile",
+          "email",
+          "workspace",
+          "membership",
+          "capabilities"
+        ],
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/AppProfile"
+          },
+          "email": {
+            "type": "string",
+            "format": "email",
+            "readOnly": true
+          },
+          "workspace": {
+            "$ref": "#/components/schemas/AppWorkspace"
+          },
+          "membership": {
+            "$ref": "#/components/schemas/AppMember"
+          },
+          "capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {
+              "type": "string",
+              "enum": [
+                "profile.read.self",
+                "profile.update.self",
+                "team.read",
+                "team.invite",
+                "team.invite.manage",
+                "team.role.assign",
+                "team.membership.manage",
+                "workspace.read",
+                "workspace.update",
+                "audit.read"
+              ]
+            }
+          }
+        }
+      },
+      "AppNamePatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "displayName",
+          "revision"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Trimmed nonblank Unicode name; reject control characters and malformed Unicode."
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483646
+          }
+        }
+      },
+      "AppMemberPatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision"
+        ],
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "owner",
+              "member"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "disabled"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483646
+          }
+        },
+        "anyOf": [
+          {
+            "required": [
+              "role"
+            ]
+          },
+          {
+            "required": [
+              "status"
+            ]
+          }
+        ]
+      },
+      "AppProfileResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "profile"
+        ],
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/AppProfile"
+          }
+        }
+      },
+      "AppWorkspaceResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "workspace"
+        ],
+        "properties": {
+          "workspace": {
+            "$ref": "#/components/schemas/AppWorkspace"
+          }
+        }
+      },
+      "AppMemberResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "member"
+        ],
+        "properties": {
+          "member": {
+            "$ref": "#/components/schemas/AppMember"
+          }
+        }
+      },
+      "AppInvitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "email",
+          "role",
+          "status",
+          "delivery",
+          "revision",
+          "expiresAt"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "role": {
+            "type": "string",
+            "const": "member"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "revoked",
+              "expired"
+            ]
+          },
+          "delivery": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "confirmed",
+              "failed",
+              "unknown"
+            ]
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483646
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AppInvitationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "invitation"
+        ],
+        "properties": {
+          "invitation": {
+            "$ref": "#/components/schemas/AppInvitation"
+          }
+        }
+      },
+      "AppInvitationCreate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "email",
+          "idempotencyKey"
+        ],
+        "properties": {
+          "email": {
+            "type": "string",
+            "format": "email",
+            "maxLength": 254
+          },
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "AppInvitationReinvite": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "idempotencyKey",
+          "revision"
+        ],
+        "properties": {
+          "idempotencyKey": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483646
+          }
+        }
+      },
+      "AppInvitationRevoke": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision"
+        ],
+        "properties": {
+          "revision": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483646
+          }
+        }
+      },
+      "AppInvitationAccept": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "displayName"
+        ],
+        "properties": {
+          "displayName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100,
+            "description": "Trimmed nonblank Unicode name; reject control characters and malformed Unicode."
+          }
+        }
+      },
+      "AppAuditEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "actorUserId",
+          "action",
+          "targetId",
+          "outcome",
+          "requestId",
+          "occurredAt",
+          "beforeRevision",
+          "afterRevision",
+          "beforeRole",
+          "afterRole",
+          "beforeStatus",
+          "afterStatus"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "actorUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "workspace.bootstrap",
+              "profile.update",
+              "workspace.update",
+              "membership.update",
+              "invitation.create",
+              "invitation.revoke",
+              "invitation.accept",
+              "invitation.delivery",
+              "invitation.reconcile"
+            ]
+          },
+          "targetId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "accepted",
+              "confirmed",
+              "failed",
+              "unknown"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "occurredAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "beforeRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "afterRevision": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "beforeRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owner",
+              "member",
+              null
+            ]
+          },
+          "afterRole": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "owner",
+              "member",
+              null
+            ]
+          },
+          "beforeStatus": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "active",
+              "disabled",
+              null
+            ]
+          },
+          "afterStatus": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "active",
+              "disabled",
+              null
+            ]
+          }
+        }
+      },
+      "AppMemberPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AppMember"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "AppInvitationPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AppInvitation"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "AppAuditEventPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/AppAuditEvent"
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
           }
         }
       }

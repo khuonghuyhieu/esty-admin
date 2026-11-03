@@ -56,10 +56,10 @@ export function RowMenu({ title, open, onOpenChange }: { title: string; open: bo
   }, [open, onOpenChange]);
 
   return <>
-    <button ref={trigger} className={styles.rowTrigger} aria-label={`Actions for ${title}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => { initialItem.current = 0; onOpenChange(!open); }} onKeyDown={(event) => {
+    <button ref={trigger} type="button" className={styles.rowTrigger} aria-label={`Actions for ${title}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => { initialItem.current = 0; onOpenChange(!open); }} onKeyDown={(event) => {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); initialItem.current = event.key === "ArrowUp" ? actions.length - 1 : 0; onOpenChange(true); }
     }}><Icon name="more" size={16} /></button>
-    {open ? <div id={id} ref={menu} className={styles.rowMenu} role="menu" aria-label={`Actions for ${title}`} aria-describedby={`${id}-hint`} onKeyDown={(event) => {
+    {open ? <div id={id} ref={menu} className={styles.rowMenu} role="menu" aria-label={`Actions for ${title}`} onKeyDown={(event) => {
       const items = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[role=menuitem]")];
       const index = items.indexOf(document.activeElement as HTMLButtonElement);
       if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
@@ -75,8 +75,7 @@ export function RowMenu({ title, open, onOpenChange }: { title: string; open: bo
         next?.focus();
       }
     }}>
-      {actions.map((action) => <button key={action.label} type="button" role="menuitem" tabIndex={-1} aria-disabled="true" onClick={(event) => event.preventDefault()}><Icon name={action.icon} size={16} />{action.label}</button>)}
-      <p id={`${id}-hint`}>Actions are unavailable in this UI preview. No changes are saved.</p>
+      {actions.map((action) => <button key={action.label} type="button" role="menuitem" tabIndex={-1} onClick={(event) => event.preventDefault()}><Icon name={action.icon} size={16} />{action.label}</button>)}
     </div> : null}
   </>;
 }

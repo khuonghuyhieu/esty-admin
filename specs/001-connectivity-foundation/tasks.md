@@ -2,9 +2,16 @@
 
 Updated: 2026-11-01 · Actual branch main · [Plan](plan.md)
 
-## Current scope — BE delivery automation
+## Feature005 scoped handoff — no existing task closure
 
-T085–T094 implement the owner-authorized plan-first addon; actual CI/deployment success is still unverified. Retain0d9d305/699/finalE7FEL/icn1/eight-case hosted PASS and all historical failures. Sole BE p12 owns this file and current feature/shared docs.
+Feature005's owner-approved BE source/local tasks live in `specs/005-app-foundation/tasks.md`; retain every T001–T094 identity/checkmark and all FE/history evidence here. p12 owns the sole canonical OpenAPI and BE generated output under the explicit contract grant; the FE generated consumer remains FE-owned and requires an exact delta/hash handoff before later FE generation/build.
+
+Local app schema changes use the existing migration history; current-schema-only production CI remains rejecting new tables/manifests. Feature005 records the future migration-before-deploy integration handoff only, not implementation of feature001 workflow/ci-delivery/release changes or closure of hosted/FE gates. Fresh FE p0 whole-file pause covers only these small BE alignment hunks in plan.md/tasks.md; the writer must return the lease. No README/STATE, Git, install, fixture startup or real setup/deployment authority is implied.
+
+
+## Current scope — BE delivery automation and coordinated FE local evidence
+
+T085–T094 implement the owner-authorized plan-first addon; actual CI/deployment success is still unverified. Retain0d9d305/699/finalE7FEL/icn1/eight-case hosted PASS and all historical failures. Sole BE p12 owns this file and current feature/shared docs. FE p0 owns disjoint FE source; its17-path manifest `721474b470e010d3bec62ccffd5aa985fde088863bf8d35ddda6b4248cca6357` reports source/local T014–T016 READY_FOR_REVIEW, not BE review or hosted UI→API→DB.
 
 Historical open-ID reconciliation uses only retained evidence:
 
@@ -16,6 +23,7 @@ Historical open-ID reconciliation uses only retained evidence:
 | T028 | Actual99f4 committed the one approved foundation migration; later current-schema readiness is proven. The original second live runner invocation is not evidenced and must not be replayed merely to tick this historical row. No migration is required by the new current-schema-only CI path. |
 | T048 | Actual api.lovora.us same-ID alias/TLS/HTTP is satisfied. The original separate app.lovora.us-unaffected criterion is not established by the bounded esty-admin.vercel.app checks; no extra DNS action/probe is implied. |
 | T054 | Genuine Linux sealed artifact/uploaded bytes/hosted execution now have actual evidence. Keep the remaining real platform-duration/cancellation enforcement/metadata limits explicit rather than falsely closing every native/provider criterion. |
+| T014, T015, T016 | FE-attributed source/local implementation and ONE scoped coordinator review are complete/accepted; T014/T015 remain checked. T016 remains open only for new connectivity-screen owner visual acceptance. Feature003 visual T013 is separately owner-accepted and is not this new-screen gate. See the accepted FE review receipt in plan.md; no hosted UI→API→DB acceptance. |
 
 ### Historical pre-automation scope
 
@@ -79,9 +87,9 @@ Independent BE check: codegen has no drift; migrations applied twice create one 
 
 ## Coordinated FE follow-up — not this increment
 
-- [ ] T014 [US3] After Supabase-local/contract readiness and an explicit FE handoff, generate apps/web/src/lib/api/generated.ts and typed transport from the single contract, with drift checking and exact loopback API-origin validation; follow plan’s next-local-slice design. Any openapi-fetch install needs a separate serial dependency lease and verified exact pin.
-- [ ] T015 [US2] Implement the separately approved local-only connectivity screen in apps/web/src/features/connectivity/ and proposed apps/web/src/app/connectivity/page.tsx: default-disabled gate, idle/checking/ready/degraded/unreachable, distinct live/ready indicators, safe contract errors,5s proposed client bound, cancellation/stale-result handling and keyboard retry; use required UI/React skills and application reference without changing FE003 sample frame.
-- [ ] T016 [US2] Extend existing apps/web/tests/e2e/ for actual browser→local API→Supabase-local readiness plus safe API/DB failure/recovery using only test-owned processes/configuration, default-disabled404, focus/status/mobile behavior and public/Application regressions. Never reset/stop shared Supabase or redirect destructive fixtures. Record actual checks and the separate scoped Luna review/owner screen acceptance in PROJECT_STATE.md; no hosted proof inferred.
+- [x] T014 [US3] FE p0 implemented installed openapi-typescript generation into apps/web/src/lib/api/generated.ts and generated-type native-fetch transport; clean generation exits0 and isolated changed-output drift exits1. No openapi-fetch install/dependency change; sole OpenAPI/BE output unchanged. Evidence: apps/web/test-results/connectivity-evidence/final-handoff.json; subsequent scoped FE review COMPLETE/ACCEPTED, distinct from BE review.
+- [x] T015 [US2] FE p0 implemented local-only /connectivity under apps/web/src/features/connectivity/ and apps/web/src/app/connectivity/page.tsx, default-disabled server-only LOCAL_CONNECTIVITY_ENABLED, canonical HTTP127.0.0.1 explicit-port origin, known-hosted/nonlocal Host rejection, separate live/ready states, total5s body-inclusive cancellation/stale guard and keyboard retry, without credentials/cache/redirect or Application/public changes. Source/local implementation and subsequent scoped FE review are accepted; new-screen owner visual acceptance remains pending.
+- [ ] T016 [US2] FE source/local checks are complete in existing apps/web/tests/functional and tests/e2e suites: functional40/40, default production E2E46PASS/12mode skips,10 distinct enabled cases across affected runs and actual browser→canonical Nest→owned Supabase55433 ready/degraded/unreachable/recovery. Initial failures/fixes remain disclosed; no final full rerun claimed. ONE scoped gpt-6-luna review is COMPLETE/ACCEPTED, session01a1981b-b54f-7f33-a10c-97c1de543d17, read-only/ephemeral, exit0, no actionable findings; coordinator independently matched all17 manifest hashes. Remaining gate: owner visual acceptance of the new connectivity screen only. Evidence/hashes: apps/web/test-results/connectivity-evidence/final-handoff.json; exact review receipt in plan.md. No fixes/reruns or hosted UI→API→DB/auth claim.
 
 ## Review and evidence
 
