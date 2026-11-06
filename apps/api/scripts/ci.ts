@@ -1,4 +1,4 @@
-import { appendFile, copyFile, mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, mkdtemp, realpath, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -42,12 +42,9 @@ export async function runChecks(root: string, output: string, environment: NodeJ
       NATIVE_ARTIFACT: artifact.root, NATIVE_ARTIFACT_SHA256: artifact.digest }, signal);
   await writeFile(join(work, 'integration.log'), integration);
   verifyArtifact(artifact.root, artifact.digest); assertSourceFiles(root, artifact.manifest.source);
-  const runner = join(bundle, 'runner'); await mkdir(runner);
-  for (const file of ['artifact.js', 'build-artifact.js', 'migration-files.mjs', 'ci-tools.js', 'ci-archive.js', 'ci-provider.js',
-    'ci-delivery.js', 'vercel-deploy.js', 'hosted-acceptance.js']) {
-    await copyFile(join(root, 'apps/api/build/scripts', file), join(runner, file));
-  }
-  await writeFile(join(runner, 'package.json'), JSON.stringify({ private: true, type: 'module' }));
+  // Execute only operator bytes already sealed and verified with the native artifact.
+  const runner = join(bundle, 'runner');
+  await cp(join(artifact.root, 'operator'), runner, { recursive: true, errorOnExist: true });
   await writeFile(join(bundle, 'receipt.json'), JSON.stringify({ version: 1, revision: artifact.manifest.source.revision,
     tree: artifact.manifest.source.tree, artifact: artifact.digest, source: artifact.manifest.source.digest,
     nativeHttpDatabase: 'passed', functional: 'passed', mode, node: process.versions.node, runner: inventory(runner) }, null, 2) + '\n');

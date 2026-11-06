@@ -1,17 +1,21 @@
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
-import { access, mkdtemp, mkdir, writeFile, readFile, realpath, rm, lstat, symlink } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, writeFile, realpath, rm, lstat, symlink, open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'node:net';
 import { exportJWK, generateKeyPair, SignJWT } from 'jose';
 import { saveOwnedFailure } from './app-fixture-diagnostics.mjs';
+import { fixtureProfile } from './app-fixture-profile.mjs';
 
-const project = 'esty005-auth-fixture';
+const profile = fixtureProfile();
+const project = profile.project;
 const compose = fileURLToPath(new URL('../tests/fixtures/auth-compose.yaml', import.meta.url));
-const prefix = join(await realpath(tmpdir()), 'esty005-auth-');
+const prefix = join(await realpath(tmpdir()), profile.prefix);
+const ports = [profile.databasePort, profile.authPort, profile.mailPort, profile.apiPort,
+  ...(profile.name === 'activation001' ? [profile.webPort] : [])];
 
 function docker(directory, args, includeStderr = false) {
   const host = process.env.DOCKER_HOST ?? 'unix:///var/run/docker.sock';
@@ -25,14 +29,25 @@ function docker(directory, args, includeStderr = false) {
   return (result.stdout + (includeStderr ? '\n' + result.stderr : '')).trim();
 }
 function composeCommand(directory, args) {
-  return docker(directory, ['compose', '--env-file', join(directory, 'compose.env'), '-p', project, '-f', compose, ...args]);
+  return docker(directory, ['compose', '--env-file', join(directory, 'compose.env'), '-p', project, '-f', compose,
+    ...(profile.timebox ? ['-f', join(directory, 'timebox-compose.json')] : []), ...args]);
 }
 async function ownership(directory) {
   const actual = await realpath(directory);
-  if (!actual.startsWith(prefix) || actual !== directory || (await lstat(directory)).isSymbolicLink()) throw new Error('Not an owned fixture directory.');
-  const state = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8'));
-  if (state.project !== project || !/^[a-f0-9]{32}$/.test(state.nonce)
-    || !/^f005_[a-f0-9]{32}$/.test(state.database)) throw new Error('Invalid owned fixture marker.');
+  const stat = await lstat(directory);
+  if (!actual.startsWith(prefix) || actual !== directory || !stat.isDirectory() || stat.isSymbolicLink()
+    || stat.uid !== process.getuid() || (stat.mode & 0o777) !== 0o700) throw new Error('Not an owned fixture directory.');
+  const marker = await open(join(directory, 'state.json'), constants.O_RDONLY | constants.O_NOFOLLOW);
+  let state;
+  try {
+    const info = await marker.stat();
+    if (!info.isFile() || info.uid !== process.getuid() || (info.mode & 0o777) !== 0o600 || info.size > 65536) throw new Error('Invalid owned fixture marker permissions.');
+    state = JSON.parse(await marker.readFile('utf8'));
+  } finally { await marker.close(); }
+  if (state.project !== project || (state.profile ?? '006') !== profile.name
+    || (state.timebox ?? 'false') !== String(profile.timebox) || !/^[a-f0-9]{32}$/.test(state.nonce)
+    || !/^f005_[a-f0-9]{32}$/.test(state.database)
+    || (profile.name === 'activation001' && state.nonce !== process.env.F001_RUN_NONCE)) throw new Error('Invalid owned fixture marker.');
   const containers = docker(directory, ['ps', '-aq', '--filter', `label=com.docker.compose.project=${project}`]).split('\n').filter(Boolean);
   for (const id of containers) {
     if (docker(directory, ['inspect', '--format', '{{index .Config.Labels "esty005.run"}}', id]) !== state.nonce) {
@@ -70,23 +85,37 @@ function assertNoProject(directory) {
 }
 async function start() {
   if (process.argv[3] !== '--approved-resource-start') throw new Error('A separate resource startup grant is required.');
-  for (const port of [55440, 55441, 55442, 55443]) await available(port);
-  const directory = await mkdtemp(prefix);
+  for (const port of ports) await available(port);
+  let directory;
+  if (profile.name === 'activation001') {
+    directory = process.env.F001_FIXTURE_DIRECTORY;
+    if (typeof directory !== 'string' || basename(directory) !== (profile.timebox ? 'timebox' : 'fixture')
+      || !/^[a-f0-9]{32}$/.test(process.env.F001_RUN_NONCE ?? '')) throw new Error('Explicit activation staging and task nonce required.');
+    const parent = dirname(directory), stat = await lstat(parent);
+    if (!parent.startsWith(prefix) || await realpath(parent) !== parent || !stat.isDirectory()
+      || stat.uid !== process.getuid() || (stat.mode & 0o777) !== 0o700) throw new Error('Activation staging parent refused.');
+    await mkdir(directory, { mode: 0o700 }); // Exclusive lifecycle directory; never adopt another run.
+  } else directory = await mkdtemp(prefix);
   await mkdir(join(directory, 'docker'), { mode: 0o700 });
   await writeFile(join(directory, 'docker/config.json'), '{}\n', { mode: 0o600, flag: 'wx' });
-  const nonce = randomBytes(16).toString('hex'), database = `f005_${randomBytes(16).toString('hex')}`;
+  const nonce = profile.name === 'activation001' ? process.env.F001_RUN_NONCE : randomBytes(16).toString('hex');
+  const database = `f005_${randomBytes(16).toString('hex')}`;
   const secret = randomBytes(32).toString('hex');
   const pair = await generateKeyPair('ES256', { extractable: true });
   const signing = { ...await exportJWK(pair.privateKey), kid: 'f005-es256', alg: 'ES256', use: 'sig', key_ops: ['sign', 'verify'] };
   const legacy = { kty: 'oct', k: Buffer.from(secret).toString('base64url'), kid: 'f005-legacy', alg: 'HS256', use: 'sig', key_ops: ['verify'] };
   const serviceToken = await new SignJWT({ role: 'service_role' }).setProtectedHeader({ alg: 'HS256', kid: 'f005-legacy' })
-    .setIssuer('http://127.0.0.1:55441').setAudience('authenticated').setExpirationTime('2h').sign(Buffer.from(secret));
-  await writeFile(join(directory, 'state.json'), JSON.stringify({ project, nonce, database }), { mode: 0o600, flag: 'wx' });
-  await writeFile(join(directory, 'compose.env'), `F005_RUN_NONCE=${nonce}\nF005_DATABASE_NAME=${database}\nF005_JWT_SECRET=${secret}\nF005_JWT_KEYS='${JSON.stringify([signing, legacy])}'\n`, { mode: 0o600, flag: 'wx' });
+    .setIssuer(`http://127.0.0.1:${profile.authPort}`).setAudience('authenticated').setExpirationTime('2h').sign(Buffer.from(secret));
+  await writeFile(join(directory, 'state.json'), JSON.stringify({ project, nonce, database,
+    profile: profile.name, timebox: String(profile.timebox) }), { mode: 0o600, flag: 'wx' });
+  const portsEnv = `F005_PROFILE=${profile.name}\nF005_DB_PORT=${profile.databasePort}\nF005_AUTH_PORT=${profile.authPort}\nF005_MAIL_PORT=${profile.mailPort}\nF005_API_PORT=${profile.apiPort}\n`;
+  await writeFile(join(directory, 'compose.env'), `${portsEnv}F005_RUN_NONCE=${nonce}\nF005_DATABASE_NAME=${database}\nF005_JWT_SECRET=${secret}\nF005_JWT_KEYS='${JSON.stringify([signing, legacy])}'\n`, { mode: 0o600, flag: 'wx' });
+  if (profile.timebox) await writeFile(join(directory, 'timebox-compose.json'),
+    JSON.stringify({ services: { auth: { environment: { GOTRUE_SESSIONS_TIMEBOX: '30s' } } } }), { mode: 0o600, flag: 'wx' });
   await writeFile(join(directory, 'test-env.json'), JSON.stringify({
     F005_FIXTURE_DIRECTORY: directory, F005_RUN_NONCE: nonce,
-    F005_DATABASE_URL: `postgresql://f005_fixture_admin:synthetic_f005_admin_only@127.0.0.1:55440/${database}`,
-    F005_AUTH_ADMIN_KEY: serviceToken,
+    F005_DATABASE_URL: `postgresql://f005_fixture_admin:synthetic_f005_admin_only@127.0.0.1:${profile.databasePort}/${database}`,
+    APP_SESSION_E2E_PROFILE: profile.name, F001_AUTH_TIMEBOX: String(profile.timebox), F005_AUTH_ADMIN_KEY: serviceToken,
   }), { mode: 0o600, flag: 'wx' });
   let began = false;
   let stage = 'public Compose executable verification';
@@ -107,14 +136,21 @@ async function start() {
     console.info(JSON.stringify({ stage: 'compose_preflight', executable, target, sha256: digest.digest('hex'), version, configuration: 'valid' }));
     stage = 'project inspection';
     assertNoProject(directory);
-    stage = 'public image pull';
-    composeCommand(directory, ['pull']);
+    if (profile.name === 'activation001') {
+      stage = 'cached immutable image inspection';
+      const images = composeCommand(directory, ['config', '--images']).split('\n').filter(Boolean);
+      if (images.length !== 3 || images.some(image => !/@sha256:[a-f0-9]{64}$/.test(image))) throw new Error('Pinned fixture images required.');
+      for (const image of images) docker(directory, ['image', 'inspect', '--format', '{{.Id}}', image]);
+    } else {
+      stage = 'public image pull';
+      composeCommand(directory, ['pull']);
+    }
     stage = 'immediate pre-bind guards';
-    for (const port of [55440, 55441, 55442, 55443]) await available(port);
+    for (const port of ports) await available(port);
     assertNoProject(directory);
     stage = 'owned service startup';
     began = true;
-    composeCommand(directory, ['up', '-d', '--wait', '--wait-timeout', '60']);
+    composeCommand(directory, ['up', '-d', '--pull', 'never', '--wait', '--wait-timeout', '60']);
     console.info(JSON.stringify({ status: 'started', directory, runId: nonce, database }));
   } catch (error) {
     if (began) {

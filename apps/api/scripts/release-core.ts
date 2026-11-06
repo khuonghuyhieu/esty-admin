@@ -9,7 +9,7 @@ import type { MigrationReport } from './migrations.js';
 import { migrationFiles } from './migration-files.mjs';
 import { saveMigrationReport } from './migration-report.js';
 import { bounded } from './bounded.js';
-import { migrationManifest } from '../src/generated/migrations.js';
+import { activationSchema } from '../src/config/schema-transition.js';
 import { createReleaseJournal, readReleaseJournal, parseSupersessionApproval, validateBinding, writeReleaseEvidence, RunIdentityConflict } from './release-journal.js';
 import type { ReleaseBinding, SchemaMode, SupersessionApproval } from './release-journal.js';
 
@@ -60,7 +60,7 @@ function preparedMatches(input: ReleaseInput, prepared: PreparedRelease): void {
   const artifact = prepared.deployment.artifact;
   if (artifact.revision !== input.revision || artifact.digest !== input.artifactDigest || artifact.manifestDigest !== input.digest
     || manifestDigest(migrationFiles(prepared.directory)) !== input.digest
-    || (input.mode === 'current-schema-only' && manifestDigest(migrationManifest) !== input.digest)) throw new Error('Release source or migration assets differ.');
+    || (input.mode === 'current-schema-only' && activationSchema.oldDigest !== input.digest)) throw new Error('Release source or migration assets differ.');
 }
 async function currentSchema(input: ReleaseInput, directory: string, signal: AbortSignal): Promise<void> {
   const status = await bounded(migrationStatus(input.database, directory), signal);

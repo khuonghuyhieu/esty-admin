@@ -55,7 +55,7 @@ export function ConnectivityScreen({ apiOrigin }: { apiOrigin: string }) {
   return (
     <div className={styles.screen}>
       <main id="main-content" tabIndex={-1} className={styles.main}>
-        <nav aria-label="Local preview"><Link href="/application">Application preview</Link><Link href="/">Public home</Link></nav>
+        <nav aria-label="Local preview"><a href="/application">Application preview</a><Link href="/">Public home</Link></nav>
         <header className={styles.header}>
           <p className={styles.scope}>Local development only</p>
           <h1>Local connectivity</h1>

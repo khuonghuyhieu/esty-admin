@@ -5,8 +5,10 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { parseConfig, parseMigrationConfig } from '../src/config/config.js';
+import { ConfigurationError, parseConfig, parseMigrationConfig } from '../src/config/config.js';
 import { migrationFiles, verifyMigrationFiles } from '../scripts/migration-files.mjs';
+import { fixtureProfile } from '../scripts/app-fixture-profile.mjs';
+import { runtimeConfigDigest } from '../src/config/activation-config.js';
 
 const valid = { DATABASE_URL: 'postgresql://fixture:secret%40value@127.0.0.1:55432/foundation_local' };
 
@@ -144,7 +146,9 @@ test('hosted loading ignores local env files and local package loading is cwd-in
   t.after(() => rm(directory, { recursive: true, force: true }));
   await mkdir(join(directory, 'build/src/config'), { recursive: true });
   await writeFile(join(directory, 'package.json'), '{"name":"@esty-admin/api","type":"module"}');
-  await cp(new URL('../src/config/config.js', import.meta.url), join(directory, 'build/src/config/config.js'));
+  await cp(new URL('../src/config/', import.meta.url), join(directory, 'build/src/config'), { recursive: true });
+  await mkdir(join(directory, 'build/src/generated'), { recursive: true });
+  await cp(new URL('../src/generated/migrations.js', import.meta.url), join(directory, 'build/src/generated/migrations.js'));
   await cp(new URL('../config/', import.meta.url), join(directory, 'build/config'), { recursive: true });
   await writeFile(join(directory, '.env'), `DATABASE_URL=${valid.DATABASE_URL}\nAPI_PORT=3210\nSUPABASE_SESSION_HOST=${hosted.SUPABASE_SESSION_HOST}\n`);
   const moduleUrl = pathToFileURL(join(directory, 'build/src/config/config.js')).href;
@@ -209,7 +213,7 @@ test('hosted app activation binds reviewed project, verified Session TLS and exp
   const appHosted = { ...hosted, APP_FOUNDATION_ENABLED: 'true', APP_WORKSPACE_ID: appLocal.APP_WORKSPACE_ID,
     SUPABASE_DATABASE_USER: 'app_runtime.eotmpaliqcxxcotrcols',
     DATABASE_URL: hosted.DATABASE_URL.replace('postgres.eotmpaliqcxxcotrcols:', 'app_runtime.eotmpaliqcxxcotrcols:'),
-    APP_AUTH_URL: 'https://eotmpaliqcxxcotrcols.supabase.co/auth/v1', APP_AUTH_API_KEY: 'synthetic-api-key',
+    APP_AUTH_URL: 'https://eotmpaliqcxxcotrcols.supabase.co/auth/v1', APP_AUTH_API_KEY: 'sb_publishable_synthetic-only',
     APP_RETENTION_POLICY_ID: 'synthetic-approved-policy' };
   const enabled = parseConfig(appHosted);
   assert.deepEqual(enabled.database.ssl, { rejectUnauthorized: true, servername: hosted.SUPABASE_SESSION_HOST });
@@ -221,5 +225,68 @@ test('hosted app activation binds reviewed project, verified Session TLS and exp
     { APP_AUTH_URL: `${appHosted.APP_AUTH_URL}?override=1` },
     { DATABASE_URL: hosted.DATABASE_URL, SUPABASE_DATABASE_USER: hosted.SUPABASE_DATABASE_USER },
     { APP_OPERATOR_AUTH_KEY: 'private-operator-key' }, { APP_OPERATOR_TARGET: 'supabase' },
+    { APP_ROLES_RUNTIME_DATABASE_URL: 'private-role-key' }, { ACTIVATION_PACKET: 'private-activation-input' },
   ]) assert.throws(() => parseConfig({ ...appHosted, ...changes }));
+  const jwt = (header: unknown, payload: unknown) => [header, payload]
+    .map(value => Buffer.from(JSON.stringify(value)).toString('base64url')).concat(Buffer.alloc(32, 1).toString('base64url')).join('.');
+  const header = { alg: 'HS256', typ: 'JWT' };
+  const payload = { role: 'anon', iss: 'supabase', ref: hosted.SUPABASE_PROJECT_REF };
+  assert.equal(parseConfig({ ...appHosted, APP_AUTH_API_KEY: jwt(header, payload) }).appFoundation?.apiKey, jwt(header, payload));
+  for (const key of ['sb_secret_private-key-canary', 'synthetic-api-key', 'sb_publishable_', 'sb_publishable_bad/key',
+    jwt(header, { ...payload, role: 'service_role' }), jwt(header, { ...payload, role: 'authenticated' }),
+    jwt({ ...header, alg: 'none' }, payload), jwt({ alg: 'HS256' }, payload), jwt(header, null),
+    jwt(header, { ...payload, ref: 'zyxwvutsrqponmlkjihgf' }), jwt(header, { ...payload, iss: 'other' }),
+    `${jwt(header, payload)}=`, `${jwt(header, payload)}.extra`]) {
+    assert.throws(() => parseConfig({ ...appHosted, APP_AUTH_API_KEY: key }), (error: Error) => {
+      assert.match(error.message, /^APP_AUTH_API_KEY:/);
+      assert.ok(!error.message.includes(key));
+      return true;
+    });
+  }
+});
+
+test('bridge activation requires an explicit disabled app and independent technical protection', () => {
+  const bridge = { ...valid, APP_SCHEMA_MODE: 'activation-bridge', APP_FOUNDATION_ENABLED: 'false', PREVIEW_ACCESS_KEY: 'a'.repeat(64) };
+  assert.equal(parseConfig(bridge).schemaMode, 'activation-bridge');
+  assert.equal(parseConfig(bridge).appFoundation, undefined);
+  for (const changes of [{ APP_FOUNDATION_ENABLED: undefined }, { APP_FOUNDATION_ENABLED: 'true' },
+    { APP_SCHEMA_MODE: 'arbitrary-history' }, { PREVIEW_ACCESS_KEY: undefined }]) {
+    assert.throws(() => parseConfig({ ...bridge, ...changes }), /APP_SCHEMA_MODE|PREVIEW_ACCESS_KEY/);
+  }
+  assert.equal(parseConfig(appLocal).schemaMode, 'strict');
+});
+
+test('owned fixture profiles reject cross-lane ports and normal-session timeboxing', () => {
+  const selected = fixtureProfile({ APP_SESSION_E2E_PROFILE: 'activation001' });
+  assert.equal(selected.authPort, 55541);
+  assert.equal(selected.webPort, 55544);
+  for (const env of [
+    { APP_SESSION_E2E_PROFILE: 'unknown' },
+    { APP_SESSION_E2E_PROFILE: 'activation001', F005_AUTH_PORT: '55441' },
+    { APP_SESSION_E2E_PROFILE: 'activation001', F005_WEB_PORT: '3000' },
+    { APP_SESSION_E2E_PROFILE: '006', F001_AUTH_TIMEBOX: 'true' },
+    { APP_SESSION_E2E_PROFILE: 'activation001', F001_AUTH_TIMEBOX: '30' },
+  ]) assert.throws(() => fixtureProfile(env));
+  assert.equal(fixtureProfile({ APP_SESSION_E2E_PROFILE: 'activation001', F001_AUTH_TIMEBOX: 'true' }).timebox, true);
+});
+
+test('runtime attestation rejects changed private configuration and unprotected disclosure', () => {
+  const values = { ...valid, API_RUNTIME: 'local', APP_SCHEMA_MODE: 'activation-bridge',
+    APP_FOUNDATION_ENABLED: 'false', PREVIEW_ACCESS_KEY: 'a'.repeat(64) };
+  const digest = runtimeConfigDigest(values);
+  const bound = { ...values, APP_ACTIVATION_CONFIG_DIGEST: digest };
+  assert.equal(parseConfig(bound).activationConfigDigest, digest);
+  assert.equal(runtimeConfigDigest({ ...values, VERCEL_REGION: 'icn1', PORT: '4199' }), digest);
+  for (const changes of [
+    { DATABASE_URL: valid.DATABASE_URL.replace('secret%40value', 'changed-secret-canary') },
+    { PREVIEW_ACCESS_KEY: 'b'.repeat(64) }, { BROWSER_ORIGIN: 'http://127.0.0.1:55544' },
+    { APP_AUTH_API_KEY: 'unexpected-public-key' }, { APP_AUTH_ADMIN_KEY: 'private-admin-canary' },
+    { APP_ACTIVATION_CONFIG_DIGEST: 'not-a-digest' },
+  ]) assert.throws(() => parseConfig({ ...bound, ...changes }), error => {
+    assert.ok(error instanceof ConfigurationError);
+    assert.doesNotMatch(error.message, /changed-secret-canary|private-admin-canary|unexpected-public-key/);
+    return true;
+  });
+  assert.throws(() => parseConfig({ ...valid, APP_ACTIVATION_CONFIG_DIGEST: runtimeConfigDigest(valid) }),
+    ConfigurationError);
 });

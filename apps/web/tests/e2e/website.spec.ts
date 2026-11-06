@@ -16,6 +16,7 @@ for (const route of ["/", "/privacy"]) {
   test(`direct ${route} access has honest content, metadata and no overflow`, async ({ page }) => {
     const response = await page.goto(route);
     expect(response?.status()).toBe(200);
+    expect(response!.headers()["content-security-policy"]).toBeUndefined();
     await expect(page.locator("html")).toHaveAttribute("lang", "en");
     await expect(page).toHaveTitle(route === "/" ? "Internal own-shop workflow | Fulfillment Workspace" : "Privacy overview | Fulfillment Workspace");
     await expect(page.locator('meta[name="description"]')).toHaveAttribute("content", /internal.*own.*shop/i);
@@ -123,7 +124,7 @@ test("home to privacy to home is a working visitor journey", async ({ page }) =>
   await page.getByRole("link", { name: "Read the privacy overview" }).click();
   await expect(page).toHaveURL(/\/privacy$/);
   await page.getByRole("link", { name: "Return to home" }).click();
-  await expect(page).toHaveURL("http://127.0.0.1:3100/");
+  await expect(page).toHaveURL("/");
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Before fulfillment");
 });
 
@@ -137,9 +138,12 @@ test("legacy privacy links permanently redirect, preserving query strings", asyn
 });
 
 test("unknown routes return 404 and offer a working route home", async ({ page }) => {
-  const response = await page.goto("/missing-page");
-  expect(response?.status()).toBe(404);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("This page is not here.");
-  await page.getByRole("link", { name: "Return to home" }).click();
-  await expect(page).toHaveURL("http://127.0.0.1:3100/");
+  for (const route of ["/missing-page", "/application/missing-page", "/settings/missing-page", "/settings/team/missing-page"]) {
+    const response = await page.goto(route);
+    expect(response?.status()).toBe(404);
+    expect(response!.headers()["content-security-policy"]).toBeUndefined();
+    await expect(page.getByRole("heading", { level: 1 })).toHaveText("This page is not here.");
+    await page.getByRole("link", { name: "Return to home" }).click();
+    await expect(page).toHaveURL("/");
+  }
 });

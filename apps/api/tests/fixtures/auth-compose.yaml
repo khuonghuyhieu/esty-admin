@@ -9,7 +9,8 @@ services:
       POSTGRES_PASSWORD: synthetic_f005_admin_only
       POSTGRES_DB: ${F005_DATABASE_NAME:?Random owned database required}
       F005_RUN_NONCE: ${F005_RUN_NONCE}
-    ports: ["127.0.0.1:55440:5432"]
+      F005_PROFILE: ${F005_PROFILE:-006}
+    ports: ["127.0.0.1:${F005_DB_PORT:-55440}:5432"]
     tmpfs: [/var/lib/postgresql/data]
     volumes:
       - ./init-auth-db.sh:/docker-entrypoint-initdb.d/005-init.sh:ro
@@ -26,7 +27,7 @@ services:
     environment:
       MP_DATABASE: /data/mailpit.db
       MP_MAX_MESSAGES: "200"
-    ports: ["127.0.0.1:55442:8025"]
+    ports: ["127.0.0.1:${F005_MAIL_PORT:-55442}:8025"]
     tmpfs: [/data]
     networks: [fixture]
   auth:
@@ -36,13 +37,13 @@ services:
     depends_on:
       db: {condition: service_healthy}
       mail: {condition: service_started}
-    ports: ["127.0.0.1:55441:9999"]
+    ports: ["127.0.0.1:${F005_AUTH_PORT:-55441}:9999"]
     environment:
       GOTRUE_API_HOST: 0.0.0.0
       GOTRUE_API_PORT: "9999"
-      API_EXTERNAL_URL: http://127.0.0.1:55441
-      GOTRUE_SITE_URL: http://127.0.0.1:55443
-      GOTRUE_URI_ALLOW_LIST: http://127.0.0.1:55443/auth/invitation,http://127.0.0.1:55443/auth/recovery
+      API_EXTERNAL_URL: http://127.0.0.1:${F005_AUTH_PORT:-55441}
+      GOTRUE_SITE_URL: http://127.0.0.1:${F005_API_PORT:-55443}
+      GOTRUE_URI_ALLOW_LIST: http://127.0.0.1:${F005_API_PORT:-55443}/auth/invitation,http://127.0.0.1:${F005_API_PORT:-55443}/auth/recovery
       GOTRUE_DISABLE_SIGNUP: "true"
       GOTRUE_DB_DRIVER: postgres
       GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:synthetic_f005_auth_only@db:5432/${F005_DATABASE_NAME}?sslmode=disable
@@ -51,7 +52,7 @@ services:
       GOTRUE_JWT_AUD: authenticated
       GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
       GOTRUE_JWT_EXP: "300"
-      GOTRUE_JWT_ISSUER: http://127.0.0.1:55441
+      GOTRUE_JWT_ISSUER: http://127.0.0.1:${F005_AUTH_PORT:-55441}
       GOTRUE_JWT_SECRET: ${F005_JWT_SECRET:?Synthetic signing secret required}
       GOTRUE_JWT_KEYS: ${F005_JWT_KEYS:?Synthetic signing JWK required}
       GOTRUE_EXTERNAL_EMAIL_ENABLED: "true"

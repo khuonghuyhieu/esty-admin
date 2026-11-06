@@ -34,6 +34,20 @@ const invitationView = (row: InvitationRow): components['schemas']['AppInvitatio
   status: row.status === 'pending' && row.expired ? 'expired' as const : row.status,
   delivery: row.delivery_state, revision: row.revision, expiresAt: row.expires_at.toISOString() });
 
+export function bootstrapIdentity(workspace: string, input: { userId: string; profileName: string; workspaceName: string; approvalId: string }) {
+  const workspaceId = uuid(workspace), userId = uuid(input.userId), profileName = displayName(input.profileName);
+  const workspaceName = displayName(input.workspaceName), approvalId = uuid(input.approvalId);
+  const fingerprint = createHash('sha256').update(JSON.stringify({ workspaceId, userId, profileName, workspaceName })).digest('hex');
+  return { workspaceId, userId, profileName, workspaceName, approvalId, fingerprint };
+}
+export function bootstrapAuditMatches(row: Record<string, unknown> | undefined,
+  expected: { workspaceId: string; userId: string; approvalId: string }): boolean {
+  return Boolean(row && row.workspace_id === expected.workspaceId && row.action === 'workspace.bootstrap'
+    && row.actor_user_id === expected.userId && row.request_id === expected.approvalId && row.target_id === expected.workspaceId
+    && row.outcome === 'accepted' && row.before_revision === null && row.after_revision === 1
+    && row.before_role === null && row.after_role === 'owner' && row.before_status === null && row.after_status === 'active');
+}
+
 export class AppService {
   constructor(private readonly config: AppFoundationConfig, private readonly database: AppDatabase,
     private readonly auth: AuthAdmin) {}
@@ -309,8 +323,8 @@ export class AppService {
   }
 
   async bootstrap(input: { userId: string; profileName: string; workspaceName: string; approvalId: string }, signal: AbortSignal) {
-    const userId = uuid(input.userId), profileName = displayName(input.profileName), workspaceName = displayName(input.workspaceName), approvalId = uuid(input.approvalId);
-    const fingerprint = createHash('sha256').update(JSON.stringify({ workspaceId: this.config.workspaceId, userId, profileName, workspaceName })).digest('hex');
+    const expected = bootstrapIdentity(this.config.workspaceId, input);
+    const { userId, profileName, workspaceName, approvalId, fingerprint } = expected;
     await this.auth.verifiedUser(userId, signal);
     return this.database.transaction(signal, async client => {
       await client.query('SELECT pg_advisory_xact_lock(5005, 1)');
@@ -318,10 +332,11 @@ export class AppService {
         'SELECT id,display_name,revision,bootstrap_request_id,bootstrap_fingerprint FROM app_private.workspaces FOR UPDATE');
       if (existing.rows[0]) {
         const owner = await this.member(client, userId);
-        const bootstrap = await client.query('SELECT id FROM app_private.audit_events WHERE workspace_id = $1 AND action = $2 AND actor_user_id = $3 AND request_id = $4',
-          [this.config.workspaceId, 'workspace.bootstrap', userId, approvalId]);
+        const bootstrap = await client.query('SELECT * FROM app_private.audit_events WHERE workspace_id = $1 AND action = $2 LIMIT 2',
+          [this.config.workspaceId, 'workspace.bootstrap']);
         if (existing.rows[0].id !== this.config.workspaceId || owner?.role_code !== 'owner' || owner.status !== 'active'
-          || existing.rows[0].bootstrap_request_id !== approvalId || existing.rows[0].bootstrap_fingerprint !== fingerprint || !bootstrap.rowCount) {
+          || existing.rows[0].bootstrap_request_id !== approvalId || existing.rows[0].bootstrap_fingerprint !== fingerprint
+          || bootstrap.rowCount !== 1 || !bootstrapAuditMatches(bootstrap.rows[0], expected)) {
           throw new AppError('bootstrap_conflict');
         }
         return { workspace: workspaceView(existing.rows[0]), member: memberView(owner) };

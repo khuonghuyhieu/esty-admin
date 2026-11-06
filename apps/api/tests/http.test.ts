@@ -6,6 +6,7 @@ import type { TLSSocket } from 'node:tls';
 import { PostgresProbe } from '../src/connectivity/adapters/postgres.js';
 import { assertContract, createApplication, get, silentPeer, startApi } from './helpers.js';
 import { parseConfig } from '../src/config/config.js';
+import { runtimeConfigDigest } from '../src/config/activation-config.js';
 import { tlsPostgres } from './tls.js';
 import { expectedMigrations } from '../src/generated/migrations.js';
 import { randomUUID } from 'node:crypto';
@@ -405,4 +406,28 @@ test('app-enabled local HTTP enforces both credential boundaries before DB and k
   assert.equal(unavailable.status, 503);
   assert.equal((await unavailable.json() as { code: string }).code, 'dependency_unavailable');
   assert.equal(app.get(PostgresProbe).pool.totalCount, 0);
+});
+
+test('activation health attests actual bound configuration only after technical authorization', async t => {
+  const peer = await silentPeer();
+  const values = { DATABASE_URL: url(peer.port), APP_SCHEMA_MODE: 'activation-bridge',
+    APP_FOUNDATION_ENABLED: 'false', PREVIEW_ACCESS_KEY: 'a'.repeat(64) };
+  const digest = runtimeConfigDigest(values);
+  const app = await createApplication(parseConfig({ ...values, APP_ACTIVATION_CONFIG_DIGEST: digest }));
+  t.after(async () => { await app.close(); await peer.close(); });
+  await app.listen(0, '127.0.0.1');
+  const origin = await app.getUrl();
+  for (const path of ['/health/live', '/health/ready']) {
+    const denied = await fetch(origin + path);
+    assert.equal(denied.status, 401);
+    assert.equal(denied.headers.get('x-activation-config-digest'), null);
+    assertContract(await denied.json(), 'Unauthorized');
+  }
+  const live = await fetch(origin + '/health/live', { headers: {
+    Authorization: `Bearer ${values.PREVIEW_ACCESS_KEY}`, 'X-Activation-Config-Digest': 'spoofed' } });
+  assert.equal(live.status, 200);
+  assert.equal(live.headers.get('x-activation-config-digest'), digest);
+  assertContract(await live.json(), 'Liveness');
+  assert.equal(app.get(PostgresProbe).pool.totalCount, 0);
+  assert.equal(peer.sockets.size, 0);
 });

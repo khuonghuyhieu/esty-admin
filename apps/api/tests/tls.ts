@@ -10,6 +10,9 @@ import type { TestContext } from 'node:test';
 // Generated certificates and private keys are disposable test material, not
 // project credentials. All sockets are hard-bound to the authorized local fixture.
 export async function tlsPostgres(t: TestContext, hostname: string, onSecure?: (socket: TLSSocket) => void) {
+  const profile = process.env.TEST_FIXTURE_PROFILE;
+  if (profile !== undefined && profile !== 'activation001') throw new Error('Unknown synthetic fixture profile.');
+  const upstreamPort = profile === 'activation001' ? 55532 : 55432;
   const directory = await mkdtemp(join(tmpdir(), 'esty-synthetic-tls-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await writeFile(join(directory, 'certificate.cnf'), `[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=extensions\n[dn]\nCN=${hostname}\n[extensions]\nsubjectAltName=DNS:${hostname}\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,digitalSignature,keyEncipherment,keyCertSign\n`);
@@ -37,7 +40,7 @@ export async function tlsPostgres(t: TestContext, hostname: string, onSecure?: (
       const secure = track(new TLSSocket(socket, { isServer: true, secureContext: context }));
       secure.once('secure', () => {
         if (onSecure) { onSecure(secure); return; }
-        const upstream = track(connect(55432, '127.0.0.1'));
+        const upstream = track(connect(upstreamPort, '127.0.0.1'));
         secure.pipe(upstream).pipe(secure);
         secure.once('close', () => upstream.destroy());
         upstream.once('close', () => secure.destroy());

@@ -5,6 +5,15 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      mode:
+        description: Explicit delivery mode; activation retains a final FE acceptance hold
+        required: true
+        default: current-schema-only
+        type: choice
+        options:
+          - current-schema-only
+          - activation
 
 permissions:
   contents: read
@@ -69,7 +78,8 @@ jobs:
       github.repository == 'khuonghuyhieu/esty-admin' &&
       github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      vars.BE_DELIVERY_ENABLED == 'true'
+      vars.BE_DELIVERY_ENABLED == 'true' &&
+      (inputs.mode != 'activation' || vars.BE_ACTIVATION_ENABLED == 'true')
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: be-production
@@ -79,6 +89,12 @@ jobs:
     permissions:
       contents: read
       deployments: write
+    env:
+      BE_DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
+      BE_DELIVERY_ENVIRONMENT: be-production
+      BE_ACTIVATION_ENABLED: ${{ vars.BE_ACTIVATION_ENABLED }}
+      BE_ACTIVATION_PACKET_SHA256: ${{ vars.BE_ACTIVATION_PACKET_SHA256 }}
+      BE_ACTIVATION_CONTEXT: actions
     steps:
       - name: Set exact delivery runtime without application installation
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -100,8 +116,9 @@ jobs:
           mkdir "$RUNNER_TEMP/be-consume"
           tar -xzf "$RUNNER_TEMP/be-transfer/be-release.tar.gz" -C "$RUNNER_TEMP/be-consume"
       - name: Bootstrap independently verified public CLI before secrets are present
-        run: node "$RUNNER_TEMP/be-consume/runner/ci-tools.js" "$RUNNER_TEMP/be-tools"
+        run: node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-tools.js" "$RUNNER_TEMP/be-tools"
       - name: Reserve durable intent, validate candidate, promote once and verify exact domain
+        if: inputs.mode != 'activation'
         env:
           GITHUB_TOKEN: ${{ github.token }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
@@ -112,15 +129,245 @@ jobs:
           ARTIFACT_SHA: ${{ needs.checks.outputs.artifact_hash }}
           SOURCE_TREE: ${{ needs.checks.outputs.source_tree }}
         run: >-
-          node "$RUNNER_TEMP/be-consume/runner/ci-delivery.js"
+          node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-delivery.js"
           "$RUNNER_TEMP/be-consume/artifact" "$ARTIFACT_SHA" "$SOURCE_TREE"
           "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js" "$RUNNER_TEMP/be-receipts"
+      - name: Prepare the explicitly approved public activation packet without credentials
+        if: &activation-mode inputs.mode == 'activation'
+        env:
+          ACTIVATION_ACTION: prepare
+          ACTIVATION_PHASE: "-"
+          BE_ACTIVATION_PACKET_JSON: ${{ vars.BE_ACTIVATION_PACKET_JSON }}
+        run: &activation-command >-
+          node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/activation.js"
+          "$ACTIVATION_ACTION" "$ACTIVATION_PHASE"
+          "$RUNNER_TEMP/be-receipts/packet-input.json" "$BE_ACTIVATION_PACKET_SHA256"
+          "$RUNNER_TEMP/be-consume/artifact" "$RUNNER_TEMP/be-receipts"
+          "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js"
+      - name: Reserve the shared durable production exclusion
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: reserve
+          ACTIVATION_PHASE: "-"
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Verify exact OLD history and role prerequisites without writes
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: preflight
+          ACTIVATION_PHASE: "-"
+          ACTIVATION_ROLE_INPUTS: ${{ secrets.BE_ACTIVATION_ROLE_INPUTS }}
+        run: *activation-command
+      - name: Authorize bridge configuration durably
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: authorize
+          ACTIVATION_PHASE: bridge-config
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Configure only approved bridge Production inputs
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: run
+          ACTIVATION_PHASE: bridge-config
+          VERCEL_CONFIGURATION_TOKEN: ${{ secrets.VERCEL_CONFIGURATION_TOKEN }}
+          ACTIVATION_BRIDGE_INPUTS: ${{ secrets.BE_ACTIVATION_BRIDGE_INPUTS }}
+        run: *activation-command
+      - name: Confirm bridge configuration before any create
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: confirm
+          ACTIVATION_PHASE: bridge-config
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Authorize one immutable bridge candidate
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: authorize
+          ACTIVATION_PHASE: bridge
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Create attest and promote the bridge without runtime inputs in CREATE
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: run
+          ACTIVATION_PHASE: bridge
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Confirm the bridge before SQL mutation
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: confirm
+          ACTIVATION_PHASE: bridge
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Authorize role provisioning
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: authorize
+          ACTIVATION_PHASE: roles
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Provision or verify fixed application roles
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: run
+          ACTIVATION_PHASE: roles
+          ACTIVATION_ROLE_INPUTS: ${{ secrets.BE_ACTIVATION_ROLE_INPUTS }}
+        run: *activation-command
+      - name: Confirm role outcome
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: confirm
+          ACTIVATION_PHASE: roles
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Authorize the ordinary two-file migration batch
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: authorize
+          ACTIVATION_PHASE: migration
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Execute the ordinary OLD to TARGET migration runner once
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: run
+          ACTIVATION_PHASE: migration
+          ACTIVATION_MIGRATION_INPUTS: ${{ secrets.BE_ACTIVATION_MIGRATION_INPUTS }}
+        run: *activation-command
+      - name: Verify TARGET roles effective privileges and definer without writes
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: postflight
+          ACTIVATION_PHASE: migration
+          ACTIVATION_ROLE_INPUTS: ${{ secrets.BE_ACTIVATION_ROLE_INPUTS }}
+        run: *activation-command
+      - name: Confirm migration and postflight before bootstrap
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: confirm
+          ACTIVATION_PHASE: migration
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Authorize the existing-identity bootstrap
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: authorize
+          ACTIVATION_PHASE: bootstrap
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Bootstrap and inspect only the approved existing identity
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: run
+          ACTIVATION_PHASE: bootstrap
+          ACTIVATION_BOOTSTRAP_INPUTS: ${{ secrets.BE_ACTIVATION_BOOTSTRAP_INPUTS }}
+        run: *activation-command
+      - name: Confirm bootstrap outcome without blind replay
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: confirm
+          ACTIVATION_PHASE: bootstrap
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Authorize strict app configuration independently
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: authorize
+          ACTIVATION_PHASE: app-config
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Configure only approved strict app Production inputs
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: run
+          ACTIVATION_PHASE: app-config
+          VERCEL_CONFIGURATION_TOKEN: ${{ secrets.VERCEL_CONFIGURATION_TOKEN }}
+          ACTIVATION_APP_INPUTS: ${{ secrets.BE_ACTIVATION_APP_INPUTS }}
+        run: *activation-command
+      - name: Confirm strict app configuration before its create
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: confirm
+          ACTIVATION_PHASE: app-config
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Authorize one strict app candidate
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: authorize
+          ACTIVATION_PHASE: app
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Consume the same immutable artifact and attest actual strict runtime
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: run
+          ACTIVATION_PHASE: app
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Confirm strict BE and retain the external FE acceptance gate
+        if: *activation-mode
+        env:
+          ACTIVATION_ACTION: confirm
+          ACTIVATION_PHASE: app
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+        run: *activation-command
+      - name: Preserve private receipt modes and record the exact transferable inventory
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/be-receipts" ]; then
+            node --input-type=module -e \
+              'const {inventory,canonical,sha256}=await import(process.argv[1]); console.log(sha256(canonical(inventory(process.argv[2]))));' \
+              "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/artifact.js" "$RUNNER_TEMP/be-receipts" \
+              > "$RUNNER_TEMP/be-delivery-receipts.inventory-sha256"
+            tar -czf "$RUNNER_TEMP/be-delivery-receipts.tar.gz" -C "$RUNNER_TEMP" be-receipts
+            sha256sum "$RUNNER_TEMP/be-delivery-receipts.tar.gz" > "$RUNNER_TEMP/be-delivery-receipts.archive-sha256"
+          fi
       - name: Retain sanitized receipts without secret-bearing subprocess logs
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: be-delivery-receipts-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/be-receipts/*.json
+          path: |
+            ${{ runner.temp }}/be-delivery-receipts.tar.gz
+            ${{ runner.temp }}/be-delivery-receipts.inventory-sha256
+            ${{ runner.temp }}/be-delivery-receipts.archive-sha256
           if-no-files-found: ignore
           retention-days: 30
           overwrite: false

@@ -4,6 +4,8 @@ import type { OnModuleDestroy } from '@nestjs/common';
 import type { DatabaseProbe, DatabaseState } from '../application/readiness.js';
 import { expectedMigrations } from '../../generated/migrations.js';
 import { acquisitionDiagnostic, DiagnosticClient, ReadinessDiagnostic } from './postgres-diagnostics.js';
+import { readyHistory } from '../../config/schema-transition.js';
+import type { AppSchemaMode } from '../../config/schema-transition.js';
 
 export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
   readonly pool: Pool;
@@ -11,7 +13,8 @@ export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
   private closing = false;
 
   constructor(config: ClientConfig, private readonly requiredMigrations = expectedMigrations,
-    private readonly maxConnections: 2 | 4 = 4, private readonly diagnose = false) {
+    private readonly maxConnections: 2 | 4 = 4, private readonly diagnose = false,
+    private readonly schemaMode: AppSchemaMode = 'strict') {
     this.pool = new Pool({ ...config, max: maxConnections, min: 0, idleTimeoutMillis: 1000,
       ...(diagnose ? { Client: DiagnosticClient } : {}) });
     // pg removes failed idle clients. Never emit driver errors containing secrets.
@@ -69,8 +72,7 @@ export class PostgresProbe implements DatabaseProbe, OnModuleDestroy {
         const history = await client.query<{ name: string }>(
           'SELECT name FROM public.foundation_migrations ORDER BY id',
         );
-        const current = history.rows.length === this.requiredMigrations.length
-          && history.rows.every((row, index) => row.name === this.requiredMigrations[index]);
+        const current = readyHistory(history.rows, this.requiredMigrations, this.schemaMode);
         if (!finished) finish(current ? 'current' : 'migrations_pending');
       } catch (error) {
         const code = error instanceof Error && 'code' in error ? error.code : undefined;

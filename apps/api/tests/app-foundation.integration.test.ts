@@ -19,28 +19,33 @@ import { AppError } from '../src/app-foundation/application/errors.js';
 import type { components } from '../src/generated/api.js';
 import { createApplication } from './helpers.js';
 import { syntheticAuthPeer } from './app-auth-fixture.js';
-import { OwnedFixtureLifecycle } from './app-fixture-lifecycle.js';
+import { createSessionSupport, OwnedFixtureLifecycle } from './app-fixture-lifecycle.js';
+import { fixtureProfile } from '../scripts/app-fixture-profile.mjs';
+import { inspectAppBootstrap } from '../scripts/bootstrap-app-owner.js';
+import { inspectAppRoles, parseAppRoleInputs, AppRoleError } from '../scripts/app-roles.js';
 
 type Me = components['schemas']['AppMe'];
 type MemberResult = components['schemas']['AppMemberResult'];
 type InvitationResult = components['schemas']['AppInvitationResult'];
 type Tokens = { access_token: string; refresh_token: string; user: { id: string; email: string } };
 const password = 'Synthetic-Password-005!safe';
-const authOrigin = 'http://127.0.0.1:55441';
-const mailOrigin = 'http://127.0.0.1:55442';
+const profile = fixtureProfile();
+const authOrigin = `http://127.0.0.1:${profile.authPort}`;
+const mailOrigin = `http://127.0.0.1:${profile.mailPort}`;
 
 async function readOwnedFixture() {
   assert.equal(process.env.F005_ALLOW_OWNED_DB, 'true', 'Explicit isolated-resource agreement/opt-in required.');
   const directory = process.env.F005_FIXTURE_DIRECTORY ?? '';
-  const prefix = join(await realpath(tmpdir()), 'esty005-auth-');
+  const prefix = join(await realpath(tmpdir()), profile.prefix);
   assert.ok(directory.startsWith(prefix) && await realpath(directory) === directory, 'Only the new fixture-owned directory may be read.');
   const state = JSON.parse(await readFile(join(directory, 'state.json'), 'utf8')) as { nonce: string; database: string; project: string };
-  assert.equal(state.project, 'esty005-auth-fixture');
+  assert.equal(state.project, profile.project);
+  if (profile.name === 'activation001') assert.equal(state.nonce, process.env.F001_RUN_NONCE);
   assert.match(state.nonce, /^[a-f0-9]{32}$/);
   assert.match(state.database, /^f005_[a-f0-9]{32}$/);
   const env = JSON.parse(await readFile(join(directory, 'test-env.json'), 'utf8')) as Record<string, string>;
   assert.equal(env.F005_RUN_NONCE, state.nonce);
-  assert.equal(env.F005_DATABASE_URL, `postgresql://f005_fixture_admin:synthetic_f005_admin_only@127.0.0.1:55440/${state.database}`);
+  assert.equal(env.F005_DATABASE_URL, `postgresql://f005_fixture_admin:synthetic_f005_admin_only@127.0.0.1:${profile.databasePort}/${state.database}`);
   assert.equal(env.F005_FIXTURE_DIRECTORY, directory);
   const database = parseMigrationConfig({ DATABASE_URL: env.F005_DATABASE_URL });
   const admin = new Client(database);
@@ -134,13 +139,13 @@ test('isolated real GoTrue → protected Nest → app DB foundation journey', { 
   await fixture.admin.query('REVOKE SELECT(id,user_id,not_after) ON auth.sessions FROM app_runtime');
   const technicalKey = 'd'.repeat(64);
   const config = parseConfig({ API_RUNTIME: 'local',
-    DATABASE_URL: `postgresql://app_runtime:synthetic_f005_runtime_only@127.0.0.1:55440/${fixture.state.database}`,
+    DATABASE_URL: `postgresql://app_runtime:synthetic_f005_runtime_only@127.0.0.1:${profile.databasePort}/${fixture.state.database}`,
     APP_FOUNDATION_ENABLED: 'true', APP_WORKSPACE_ID: workspaceId, APP_AUTH_URL: authOrigin,
     APP_AUTH_API_KEY: 'synthetic-api-key', APP_EMAIL_ENABLED: 'true', APP_AUTH_ADMIN_KEY: key,
-    PREVIEW_ACCESS_KEY: technicalKey, BROWSER_ORIGIN: 'http://127.0.0.1:55443' });
+    PREVIEW_ACCESS_KEY: technicalKey, BROWSER_ORIGIN: `http://127.0.0.1:${profile.apiPort}` });
   const app = await createApplication(config);
   closeApp = () => app.close();
-  await app.listen(55443, '127.0.0.1');
+  await app.listen(profile.apiPort, '127.0.0.1');
   const origin = await app.getUrl();
   async function api<T>(path: string, tokens: Tokens, body?: object, method?: string) {
     const response = await fetch(origin + '/v1/app' + path, { method: method ?? (body ? 'POST' : 'GET'),
@@ -152,10 +157,10 @@ test('isolated real GoTrue → protected Nest → app DB foundation journey', { 
   const initialOwnerId = await identity(address('owner'));
   let owner = await login(address('owner'));
   const approvalId = randomUUID();
-  const operatorEnv = { APP_OPERATOR_TARGET: 'local', APP_OPERATOR_DATABASE_URL: `postgresql://app_operator:synthetic_f005_operator_only@127.0.0.1:55440/${fixture.state.database}`,
+  const operatorEnv = { APP_OPERATOR_TARGET: 'local', APP_OPERATOR_DATABASE_URL: `postgresql://app_operator:synthetic_f005_operator_only@127.0.0.1:${profile.databasePort}/${fixture.state.database}`,
     APP_OPERATOR_AUTH_KEY: key, APP_OPERATOR_CONFIRM_WORKSPACE: workspaceId, APP_OPERATOR_APPROVAL_ID: approvalId,
     APP_OPERATOR_USER_ID: initialOwnerId, APP_OPERATOR_PROFILE_NAME: 'Synthetic Owner', APP_OPERATOR_WORKSPACE_NAME: 'Synthetic Workspace',
-    APP_WORKSPACE_ID: workspaceId, APP_AUTH_URL: authOrigin, APP_AUTH_API_KEY: 'synthetic-api-key', BROWSER_ORIGIN: 'http://127.0.0.1:55443' };
+    APP_WORKSPACE_ID: workspaceId, APP_AUTH_URL: authOrigin, APP_AUTH_API_KEY: 'synthetic-api-key', BROWSER_ORIGIN: `http://127.0.0.1:${profile.apiPort}` };
   function operator(extra: NodeJS.ProcessEnv = {}, action = 'bootstrap') {
     return spawnSync(process.execPath, [new URL('../scripts/bootstrap-app-owner.js', import.meta.url).pathname, action], {
       env: { ...operatorEnv, ...extra }, encoding: 'utf8', timeout: 10000 });
@@ -166,13 +171,44 @@ test('isolated real GoTrue → protected Nest → app DB foundation journey', { 
   const operatorService = new AppService(config.appFoundation!, operatorDatabase, new AuthAdmin(config.appFoundation!, key));
   closeOperator = async () => { operatorDatabase.onModuleDestroy(); await operatorPool.end(); };
 
+  await t.test('effective role preflight rejects extra table and inherited-role authority', async () => {
+    const inputs = parseAppRoleInputs({ DATABASE_URL: fixture.env.F005_DATABASE_URL,
+      APP_ROLES_CONFIRM_TARGET: 'local', APP_ROLES_APPROVAL_ID: randomUUID(),
+      APP_ROLES_RUNTIME_DATABASE_URL: config.database.user === 'app_runtime'
+        ? `postgresql://app_runtime:synthetic_f005_runtime_only@127.0.0.1:${profile.databasePort}/${fixture.state.database}` : '',
+      APP_ROLES_OPERATOR_DATABASE_URL: operatorEnv.APP_OPERATOR_DATABASE_URL });
+    await inspectAppRoles(inputs, true, AbortSignal.timeout(20000));
+    await fixture.admin.query('GRANT DELETE ON app_private.workspaces TO app_runtime');
+    try { await assert.rejects(inspectAppRoles(inputs, true, AbortSignal.timeout(20000)), AppRoleError); }
+    finally { await fixture.admin.query('REVOKE DELETE ON app_private.workspaces FROM app_runtime'); }
+    await fixture.admin.query('GRANT app_operator TO app_runtime');
+    try { await assert.rejects(inspectAppRoles(inputs, true, AbortSignal.timeout(20000)), AppRoleError); }
+    finally { await fixture.admin.query('REVOKE app_operator FROM app_runtime'); }
+    await inspectAppRoles(inputs, true, AbortSignal.timeout(20000));
+  });
+
   await t.test('trusted CLI bootstrap is atomic/idempotent; public admission and managed-schema privileges remain closed', async () => {
     assert.equal((await api('/me', owner)).status, 403);
+    assert.equal(await inspectAppBootstrap(operatorEnv), 'absent');
     for (let attempt = 0; attempt < 2; attempt++) {
       const result = operator();
       assert.equal(result.status, 0, result.stderr);
       assert.deepEqual(JSON.parse(result.stdout), { status: 'complete', action: 'bootstrap' });
     }
+    const inspected = operator({}, 'inspect-bootstrap');
+    assert.equal(inspected.status, 0);
+    assert.deepEqual(JSON.parse(inspected.stdout), { status: 'complete', action: 'inspect-bootstrap', outcome: 'committed' });
+    assert.equal(await inspectAppBootstrap({ ...operatorEnv, APP_OPERATOR_APPROVAL_ID: randomUUID() }), 'conflict');
+    await fixture.admin.query("UPDATE app_private.audit_events SET request_id=$1 WHERE workspace_id=$2 AND action='workspace.bootstrap'",
+      [randomUUID(), workspaceId]);
+    try {
+      assert.equal(await inspectAppBootstrap(operatorEnv), 'conflict');
+      assert.equal(operator().status, 1, 'Matching bootstrap input must not repair a conflicting audit record.');
+    } finally {
+      await fixture.admin.query("UPDATE app_private.audit_events SET request_id=$1 WHERE workspace_id=$2 AND action='workspace.bootstrap'",
+        [approvalId, workspaceId]);
+    }
+    assert.equal(await inspectAppBootstrap(operatorEnv), 'committed');
     assert.equal(operator({ APP_OPERATOR_WORKSPACE_NAME: 'Conflicting Workspace' }).status, 1);
     assert.equal((await api('/bootstrap', owner, {})).status, 404);
     const me = await api<Me>('/me', owner);
@@ -406,5 +442,82 @@ test('isolated real GoTrue → protected Nest → app DB foundation journey', { 
     assert.equal(app.get(PostgresProbe).pool.waitingCount, 0);
     const live = await fetch(origin + '/health/live', { headers: { Authorization: `Bearer ${technicalKey}` } });
     assert.equal(live.status, 200); await live.arrayBuffer();
+  });
+});
+
+test('006 current-session support with actual GoTrue and current membership', {
+  timeout: 120000, skip: process.env.F006_ALLOW_OWNED_FIXTURE !== 'true',
+}, async t => {
+  const support = await createSessionSupport(process.env.F005_FIXTURE_DIRECTORY ?? '', process.env.F005_RUN_NONCE ?? '');
+  t.after(() => support.close());
+  t.diagnostic(JSON.stringify({ nonce: support.nonce, ownedIdentityReceipts: support.reportDirectory }));
+  const invoke = (operation: string, fields: Record<string, unknown> = {}) =>
+    support.control({ nonce: support.nonce, operation, ...fields });
+
+  await t.test('confirmed local logout rejects the same old JWT while an independent same-user session survives', async () => {
+    const original = await support.login('owner');
+    const independent = await support.login('owner');
+    assert.equal(original.user.id, independent.user.id);
+    assert.equal((await support.api<Me>('/me', original)).status, 200);
+    assert.equal((await support.api<Me>('/me', independent)).status, 200);
+    const old = await invoke('register-session', { accessToken: original.access_token });
+    const other = await invoke('register-session', { accessToken: independent.access_token });
+    assert.ok('handle' in old && 'handle' in other);
+    assert.equal((await support.auth('/logout?scope=local', undefined, original.access_token, 'POST')).status, 204);
+    assert.deepEqual(await invoke('replay', { handle: old.handle }), { status: 401, code: 'unauthenticated' });
+    assert.deepEqual(await invoke('replay', { handle: other.handle }), { status: 200 });
+    const refresh = await support.auth('/token?grant_type=refresh_token', { refresh_token: original.refresh_token });
+    assert.ok([400, 401, 403].includes(refresh.status), 'Revoked refresh must be rejected, not merely unavailable.');
+  });
+
+  await t.test('current disable denies an unchanged valid session and explicit reactivation restores admission', async () => {
+    const member = await support.login('member');
+    assert.equal((await support.api<Me>('/me', member)).status, 200);
+    try {
+      await invoke('set-member', { target: 'member', status: 'disabled' });
+      const denied = await support.api<components['schemas']['AppError']>('/me', member);
+      assert.equal(denied.status, 403);
+      assert.equal(denied.body.code, 'forbidden');
+    } finally { await invoke('set-member', { target: 'member', status: 'active' }); }
+    assert.equal((await support.api<Me>('/me', member)).status, 200);
+    assert.equal((await support.api('/me', await support.login('unadmitted'))).status, 403);
+    assert.equal((await support.api('/me', await support.login('disabled'))).status, 403);
+  });
+
+  await t.test('demotion removes Owner capability without denying a still-active Member current me', async () => {
+    const member = await support.login('member');
+    const baseline = await support.api<Me>('/me', member);
+    assert.equal(baseline.status, 200);
+    try {
+      await invoke('set-member', { target: 'member', role: 'owner' });
+      assert.equal((await support.api('/audit', member)).status, 200);
+      await invoke('set-member', { target: 'member', role: 'member' });
+      const current = await support.api<Me>('/me', member);
+      assert.equal(current.status, 200);
+      assert.equal(current.body.membership.role, 'member');
+      assert.deepEqual(new Set(current.body.capabilities), new Set(baseline.body.capabilities));
+      assert.equal((await support.api('/audit', member)).status, 403);
+      const workspaceWrite = await support.api('/workspace', member,
+        { displayName: 'Not Authorized', revision: current.body.workspace.revision }, 'PATCH');
+      assert.equal(workspaceWrite.status, 403);
+    } finally { await invoke('set-member', { target: 'member', role: 'member' }); }
+  });
+
+  await t.test('owned dependency faults and technical guard restore without losing the current session', async faultTest => {
+    const owner = await support.login('owner');
+    for (const target of ['database', 'auth', 'technical-key']) {
+      await faultTest.test(target, async () => {
+        try {
+          await invoke('fault', { target, active: true });
+          const result = await support.api('/me', owner);
+          assert.equal(result.status, target === 'technical-key' ? 401 : 503);
+        } finally { await invoke('fault', { target, active: false }); }
+        assert.equal((await support.api('/me', owner)).status, 200);
+      });
+    }
+    const wrongNonce = (support.nonce[0] === '0' ? '1' : '0') + support.nonce.slice(1);
+    await assert.rejects(support.control({ nonce: wrongNonce, operation: 'set-member', target: 'member', status: 'disabled' }),
+      /Wrong fixture nonce/);
+    assert.equal((await support.api<Me>('/me', await support.login('member'))).body.membership.status, 'active');
   });
 });

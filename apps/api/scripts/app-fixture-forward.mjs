@@ -6,16 +6,18 @@ import { createConnection, createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fixtureProfile } from './app-fixture-profile.mjs';
 
-const project = 'esty005-auth-fixture';
+const profile = fixtureProfile();
+const project = profile.project;
 const localHost = 'unix:///Users/khuonghuyhieu/.orbstack/run/docker.sock';
 const executable = '/usr/local/bin/docker';
 const source = fileURLToPath(import.meta.url);
-const routes = [[55440, 'db', '5432'], [55441, '127.0.0.1', '9999'], [55442, 'mail', '8025']];
+const routes = [[profile.databasePort, 'db', '5432'], [profile.authPort, '127.0.0.1', '9999'], [profile.mailPort, 'mail', '8025']];
 const limits = { connections: 16, identityMs: 1000, firstResponseMs: 3000, idleMs: 15000, totalMs: 60000, killMs: 500 };
 
 async function context(directory) {
-  const prefix = join(await realpath(tmpdir()), 'esty005-auth-');
+  const prefix = join(await realpath(tmpdir()), profile.prefix);
   if (!directory.startsWith(prefix) || await realpath(directory) !== directory || (await lstat(directory)).isSymbolicLink()) throw new Error('FIXTURE_DIRECTORY_REFUSED');
   const stat = await lstat(directory);
   if (stat.uid !== process.getuid() || (stat.mode & 0o777) !== 0o700) throw new Error('FIXTURE_DIRECTORY_PERMISSIONS');
@@ -28,10 +30,14 @@ async function context(directory) {
     } finally { await handle.close(); }
   }
   const state = await ownedJson('state.json');
-  if (state.project !== project || !/^[a-f0-9]{32}$/.test(state.nonce) || !/^f005_[a-f0-9]{32}$/.test(state.database)) throw new Error('FIXTURE_IDENTITY_REFUSED');
+  if (state.project !== project || (state.profile ?? '006') !== profile.name || (state.timebox ?? 'false') !== String(profile.timebox)
+    || !/^[a-f0-9]{32}$/.test(state.nonce) || !/^f005_[a-f0-9]{32}$/.test(state.database)
+    || (profile.name === 'activation001' && state.nonce !== process.env.F001_RUN_NONCE)) throw new Error('FIXTURE_IDENTITY_REFUSED');
   if (Object.keys(await ownedJson('docker/config.json')).length !== 0 || process.env.DOCKER_HOST !== localHost) throw new Error('FIXTURE_DOCKER_CONTEXT_REFUSED');
+  const control = join(directory, profile.name === 'activation001' ? 'f001.sock' : 'forwarder.sock');
+  if (Buffer.byteLength(control) >= 104) throw new Error('FORWARDER_CONTROL_PATH_REFUSED');
   return { directory, state, ownedJson, env: { PATH: process.env.PATH, HOME: directory, DOCKER_HOST: localHost },
-    base: ['--config', join(directory, 'docker')], marker: join(directory, 'forwarder.json'), control: join(directory, 'forwarder.sock') };
+    base: ['--config', join(directory, 'docker')], marker: join(directory, 'forwarder.json'), control };
 }
 function inspect(ctx, args, signal) {
   return new Promise((resolve, reject) => {

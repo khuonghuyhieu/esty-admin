@@ -78,7 +78,7 @@ function identity(stat: fs.BigIntStats, bytes: Buffer): FileIdentity {
   return { dev: String(stat.dev), ino: String(stat.ino), size: Number(stat.size),
     mtime_ns: String(stat.mtimeNs), ctime_ns: String(stat.ctimeNs), sha256: sha256(bytes) };
 }
-function readEvidence(path: string): { value: unknown; identity: FileIdentity } {
+export function readEvidence(path: string): { value: unknown; identity: FileIdentity } {
   privateDirectory(dirname(path), false);
   const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW);
   try {

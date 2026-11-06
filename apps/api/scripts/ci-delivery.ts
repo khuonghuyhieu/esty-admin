@@ -7,9 +7,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { artifactTarget, canonical, inventory, removeArtifactTree, snapshotArtifact, verifyArtifact } from './artifact.js';
 import type { ArtifactSnapshot, VerifiedArtifact } from './artifact.js';
 import { approvedMigrationDigest, createProvider, deploymentId, repository } from './ci-provider.js';
-import type { Candidate, DeliveryProvider, RunIdentity } from './ci-provider.js';
+import type { ActivationDeliveryContext, ActivationProvider, Candidate, DeliveryProvider, RunIdentity } from './ci-provider.js';
 import { command, isolatedEnvironment } from './ci-tools.js';
 import type { CommandResult } from './ci-tools.js';
+import { validateActivationPacket, verifyActivationArtifact } from './activation-journal.js';
 
 export function deliveryContext(env: NodeJS.ProcessEnv, tree: string): RunIdentity {
   if (env.GITHUB_ACTIONS !== 'true' || env.GITHUB_REPOSITORY !== repository || env.GITHUB_REF !== 'refs/heads/main'
@@ -83,8 +84,57 @@ export async function deliver(input: { artifact: VerifiedArtifact; run: RunIdent
     throw new Error('Delivery not accepted; retained intent blocks automatic retry.');
   }
 }
-export async function officialCli(artifact: VerifiedArtifact, cli: string, token: string, signal: AbortSignal): Promise<OfficialCli> {
+export async function deliverActivationCandidate(input: {
+  artifact: VerifiedArtifact; activation: ActivationDeliveryContext; provider: ActivationProvider; cli: DeliveryCli;
+  predecessor: string; journal: number; signal: AbortSignal; pause?: () => Promise<void>;
+  persist(kind: 'acknowledged' | 'candidate-attested' | 'promotion-intent', value: Record<string, string>): void;
+}): Promise<string> {
+  const { artifact, activation, provider, cli, predecessor, journal, signal, persist } = input;
+  validateActivationPacket(activation.packet, activation.packetDigest);
+  const verify = () => { signal.throwIfAborted(); verifyActivationArtifact(artifact, activation.packet); };
+  verify(); await provider.currentMain(); await provider.binding(predecessor);
+  const created = await cli.create(), id = acknowledgedId(created.stdout);
+  if (id) {
+    persist('acknowledged', { deploymentId: id });
+    await provider.record(journal, 'in_progress', `ack:${id}`);
+    await provider.confirmJournal(journal, 'in_progress', `ack:${id}`);
+  }
+  if (!id || created.code !== 0 || created.aborted) throw new Error('Activation create outcome requires read-only reconciliation.');
+  let candidate: Candidate;
+  for (;;) {
+    signal.throwIfAborted(); candidate = await provider.inspect(id);
+    if (candidate.ready) break;
+    await (input.pause?.() ?? delay(4000, undefined, { signal }));
+  }
+  await provider.attest(id); await provider.binding(predecessor); await provider.http(candidate.origin, true);
+  persist('candidate-attested', { deploymentId: id,
+    configDigest: activation.phase === 'bridge' ? activation.packet.bridgeConfigDigest : activation.packet.appConfigDigest });
+  await provider.currentMain(); await provider.binding(predecessor); verify();
+  if (!(await provider.inspect(id)).ready) throw new Error('Activation candidate readiness changed.');
+  await provider.attest(id);
+  persist('promotion-intent', { deploymentId: id });
+  await provider.record(journal, 'in_progress', `promoting:${id}`);
+  await provider.confirmJournal(journal, 'in_progress', `promoting:${id}`);
+  signal.throwIfAborted();
+  const promoted = await cli.promote(id);
+  if (promoted.code !== 0 || promoted.aborted) throw new Error('Activation promotion outcome is unknown.');
+  await provider.binding(id);
+  if (!(await provider.inspect(id)).ready) throw new Error('Activation final candidate is not ready.');
+  await provider.attest(id); await provider.http('https://api.lovora.us', false); await provider.binding(id);
+  verify();
+  return id;
+}
+export async function officialCli(artifact: VerifiedArtifact, cli: string, token: string, signal: AbortSignal,
+  activation?: ActivationDeliveryContext): Promise<OfficialCli> {
   if (!/^[\x21-\x7e]{16,512}$/.test(token) || !cli.endsWith('/vercel/dist/vc.js')) throw new Error('Invalid isolated CLI input.');
+  if (activation) {
+    validateActivationPacket(activation.packet, activation.packetDigest);
+    if (!['bridge', 'app'].includes(activation.phase)) throw new Error('Invalid activation phase.');
+    verifyActivationArtifact(artifact, activation.packet);
+  }
+  const metadata = activation ? ['--meta', `activationRun=${activation.packet.runId}`, '--meta', `activationPhase=${activation.phase}`,
+    '--meta', `activationPacket=${activation.packetDigest}`, '--meta',
+    `activationConfigDigest=${activation.phase === 'bridge' ? activation.packet.bridgeConfigDigest : activation.packet.appConfigDigest}`] : [];
   const root = await mkdtemp(join(realpathSync(tmpdir()), 'esty-ci-delivery-'));
   try {
     const env = await isolatedEnvironment(join(root, 'environment'));
@@ -105,7 +155,7 @@ export async function officialCli(artifact: VerifiedArtifact, cli: string, token
         }
         return command(process.execPath, [cli, 'deploy', '--prebuilt', '--archive=tgz', '--prod', '--regions', 'icn1',
           '--skip-domain', '--no-wait', '--json', '--no-guidance', ...common, '--meta', `sourceCommit=${artifact.manifest.source.revision}`,
-          '--meta', `artifactSha256=${artifact.digest}`, '--meta', `sourceDigest=${artifact.manifest.source.digest}`], stage, env, signal);
+          '--meta', `artifactSha256=${artifact.digest}`, '--meta', `sourceDigest=${artifact.manifest.source.digest}`, ...metadata], stage, env, signal);
       },
       async promote(id) {
         if (!created || promoted || !deploymentId.test(id)) throw new Error('CLI promotion is one-shot.'); promoted = true;

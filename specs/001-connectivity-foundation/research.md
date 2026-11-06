@@ -135,3 +135,69 @@ Bootstrap: the published [NestJS builder](https://github.com/vercel/vercel/blob/
 Provenance decision: canonical content manifests plus an independently supplied artifact SHA-256, exact source revision/tree, source config/migration/tool digests and target/platform values. Read-only permissions are defense in depth, not cryptographic immutability. Verify a private snapshot and every uploaded byte, recheck before creation, and refuse mutation. Development overlays are explicitly labeled and rejected by real release. Original migration assets remain unchanged; no signature service, new database ledger, arbitrary deployment meta or Git rebuild fallback.
 
 Alternatives rejected: upstream fork/cache patch; legacy builds; dummy API function; framework switch; experimental backend flag; deleting function controls; claiming static exports enable cancellation; trusting a raw no-functions build; unaudited source/archive upload; treating requested git metadata as provider content attestation.
+
+## Complete production activation decisions
+
+This append supports [US8](spec.md#complete-production-activation--plan-only) and [A1–A9](plan.md#complete-production-activation-plan). It is public-source/document research only: no account, private-file, provider endpoint, SQL, runtime or test action. Owner/coordinator reports supply the existing Auth password-login PASS and absent cloud application roles/schema; those observations were not rerun. Earlier research remains dated evidence.
+
+### R-A1 — Current-only delivery is not migration delivery
+
+Observed source: `apps/api/scripts/ci-delivery.ts` verifies the hard-pinned approved migration digest before reserve/create, uses durable create/promotion intent and known-ID capture, and never invokes `runMigrations`. `apps/api/scripts/migrations.ts` already verifies immutable migration assets, locks/order, one transaction and commit acknowledgements, returning explicit `database_outcome`. The missing work is integration, secure inputs and durable cross-phase reconciliation, not a missing ordinary runner.
+
+Decision: a separately gated activation mode reuses that runner and the existing production journal/exclusion. Keep OLD/current-only behavior and its tests; bind TARGET in an explicit transition packet rather than editing the baseline until CI passes. Role/migration/bootstrap/provider phases receive separate input allowlists and write intents before side effects. A name-only migration history does not prove historic file checksums; combine it with approved source/artifact provenance.
+
+### R-A2 — Strict two-history compatibility bridge
+
+Observed source: `PostgresProbe.check` requires exact history length and position. Therefore699's one-entry history expectation rejects the application's additional entries. `runMigrations` uses `singleTransaction: true`, so a two-entry history during the approved OLD→TARGET transition is not a legitimate intermediate committed state.
+
+Decision: implement the small disabled-app OLD-or-TARGET bridge in A2; retain strict target-only app mode. Ship the real three-file TARGET manifest in the artifact, bind bridge configuration explicitly, and deploy/verify it before any role/schema mutation. Do not accept arbitrary prefixes/future migrations, forge an old manifest or weaken the global guard. One approved batch applies two pending files; an unchanged rerun applies0. The requested one-transition→zero-transition result is distinct from per-file counts and the historical foundation-only1→0.
+
+Alternative: a bounded owner-elected maintenance cutover accepts an old readiness outage and post-commit deployment-failure exposure. It is not selected silently. After SQL commits, an old699 rollback is invalid; a disabled-app bridge is only a compatible holding state.
+
+### R-A3 — Session roles, TLS and managed Auth definer
+
+The current official [Supabase connection guide](https://supabase.com/docs/guides/database/connecting-to-postgres) documents shared-pooler custom usernames as `[ROLE].[PROJECT-REF]`, Session port5432, session-level state/advisory-lock support and certificate/hostname verification distinct from encryption-only `sslmode=require`. It recommends transaction pooling for generic serverless use, but this project's reviewed Session-mode contract, migration locks and bounded shared pool remain selected. Do not infer a host from region, switch to6543, increase pools or relax TLS from a generic example.
+
+The official [Supabase RLS guidance](https://supabase.com/docs/guides/database/postgres/row-level-security) distinguishes grants from policies and warns that definer functions run with their owner's privileges and must pin name resolution in a non-exposed schema. Actual runtime/operator roles must not gain managed Auth reads or bypass attributes. The existing0002 function already uses `search_path=pg_catalog`, fully qualified `auth.sessions`, PUBLIC EXECUTE revocation and `row_security_active` failure. Preserve those bytes and verify the existing managed migration owner's real visibility later; official examples do not prove this project's grants or authorize changing managed RLS.
+
+The current source also proves `AppDatabase` rejects a wrong/superuser/bypass/create-role/create-db runtime identity, shares the existing pool, bounds transactions and destroys failed clients. New provisioning must additionally inspect inherited memberships/effective privileges and private-schema exposure. `app_operator` is a limited bootstrap role, not the role-creating migration authority. No `authenticator` membership or Data-API role mapping is needed for this direct server-side PostgreSQL design.
+
+### R-A4 — Session revocation and the missing non-NULL boundary
+
+The official [Supabase session guide](https://supabase.com/docs/guides/auth/sessions) documents JWT `session_id` correlation, removal of revoked sessions, refresh-time enforcement/cleanup timing and paid-plan availability of hosted lifetime controls. A merely cryptographically valid JWT is insufficient for this application's stricter next-request denial requirement; existing005 checks the current session and `(not_after IS NULL OR not_after > clock_timestamp())`.
+
+Existing accepted005 tests did not exercise actual non-NULL `not_after`;006's natural300s JWT expiry does not close that gap. The existing fixture pins `supabase/gotrue:v2.197.0` by digest with300s JWTs and no timebox. Future T108 uses a separately authorized fresh opt-in provider-configured timebox and actual synthetic session/Nest calls before and after that deadline, never raw Auth-row writes. Confirm the chosen configuration against that pinned provider and record actual non-NULL state; public docs/current source are not a passing fixture run. Keep manual006 unchanged. Hosted lack of a paid timebox feature remains an explicit limit, not a false reason to buy a plan or claim an expired JWT is equivalent evidence.
+
+### R-A5 — Existing identity, transactional bootstrap and email-disabled launch
+
+Observed `bootstrap-app-owner.ts` accepts only explicit process inputs and constructs the separate max1 operator connection. Existing `AppService.bootstrap` verifies the existing Auth user first, binds workspace/user/names into a fingerprint, locks and transactionally creates profile/workspace/active Owner/audit; exact replay checks the same approval/fingerprint/current Owner/audit. It does not recreate Auth users or repair disabled/demoted membership.
+
+Decision: reuse that behavior, add safe durable outcome/read-only reconciliation for orchestration, and keep the real identity represented publicly only by `OWNER_AUTH_USER_ID`. Initial runtime uses email disabled and no Auth admin credential. Operator-only Auth verification still requires its separately supplied admin authority.007/009 SMTP is not required to repeat the already confirmed password flow; lost-Owner incidents use the controlled manual A6 process until009 is separately implemented.
+
+### R-A6 — HTTPS BFF, CSP and platform protection are separate layers
+
+The accepted [006 contract](../006-login-session/contracts/session-bff.md) supplies server-only fixed-origin Auth/Nest calls, sealed `__Host-` session/context cookies, current DB admission, no shared user cache, strict Origin/CSRF/Fetch-Metadata, no automatic credential retries and exact return paths. Activation preserves that contract and canonical0.4; sample Settings/Team bodies remain unconnected.
+
+Public-source inspection found no CSP header/nonce implementation in FE source, `next.config.ts` or tests. The current official [Next.js CSP guide](https://nextjs.org/docs/app/guides/content-security-policy) documents Proxy-generated request/response nonces, framework nonce propagation and required dynamic rendering; nonce policies are incompatible with a static/PPR shell. Decision: scope a fresh nonce policy to login/application/settings documents, preserve public static pages, and verify installed Next16.4.3 hydration/navigation in the existing browser suite. No production script `unsafe-inline`/`unsafe-eval`, experimental SRI or new dependency.
+
+The current official [Vercel protection guide](https://vercel.com/docs/deployment-protection) says Standard Protection excludes production domains and All Deployments can include them; its current page says Vercel Authentication for All Deployments is available on all plans. Do not repeat older search-summary claims that every all-deployment option requires a paid upgrade. Method-specific restrictions, real project settings and commercial-use eligibility still need separately authorized verification. Existing application bearer/user guards remain mandatory regardless of platform scope.
+
+006's runtime caller does not currently add a Vercel automation-bypass header. A release tool's protected-preview success is therefore not BFF proof. Prefer the already approved final custom-domain path; obtain a coordinator protection-scope receipt before the implementation freeze. If that path requires a bypass, its exact server-only fixed-origin configuration/implementation needs the FE lease and checks before the single review. No browser cookie forwarding, secret query link, global app-guard removal or automatic protection change.
+
+### R-A7 — Promotion, backup and recovery limits
+
+The official [Vercel rollback guide](https://vercel.com/docs/instant-rollback) states that rollback reuses an earlier build/configuration and does not update its environment variables; Hobby rollback eligibility is limited to the immediately previous deployment. Thus a rollback button is neither a database rollback nor a guarantee that the earlier configuration/artifact is compatible. Attest the chosen deployment/source/configuration and actual final binding; do not rebuild between candidate proof and promotion.
+
+No backup/PITR entitlement, restore point, recovery objective or current account protection was inspected. Before separately approved SQL, the coordinator must establish the real existing recovery path and its data/Auth-session loss limits. No new infrastructure or paid plan is selected. The retention proposal in A8 is an explicit owner decision, not a legal conclusion or implemented purge.
+
+### R-A8 — Evidence and workflow adaptation
+
+Installed local clarify/plan/tasks/analyze/checklist skills and relevant helper/template sections were read. `.specify/extensions.yml` was absent. Command-local001/NO_PERSIST prerequisite checks resolved the existing documents; no setup/reset template, branch operation, shared pointer write or agent-context regeneration was run. Clarification groups material policy decisions in the compact handoff instead of asking the owner to redesign routine engineering.
+
+The plan retains005/006/010 and all earlier001 text. No reusable skill/template or canonical contract is edited. Future source writers must read the applicable project/governance/feature instructions and local `vercel-react-best-practices` for React/Next.js changes; UI visual skills apply only if separately approved UI treatment changes. Planning's structural/preservation checks are not behavior tests or the later single Luna review.
+
+### R-A9 — Scoped consistency findings and selected repairs
+
+The first read-only plan analysis found one HIGH and three MEDIUM documentation gaps, not implementation test failures. A01: candidate-host browser acceptance conflicted with006's fixed final APP_ORIGIN/Host/cookie binding; require bounded noncredential candidate checks, durable same-candidate promotion and full authenticated proof only at the final origin. A02: scoped nonce CSP omitted document-navigation/style-attribute behavior and named nonexistent layout boundaries; use existing pages, full-document scope crossings and focused navigation/hydration checks. A03:90-day disabled profile deletion conflicted with365-day audit foreign keys; retain minimal identity links for the referencing audit period and separately review identifying-name anonymization. A04: runtime no-service-key intent lacked explicit hosted key-class implementation/tests; assign BE/FE publishable/legacy-anon classification and privileged/unknown refusal without treating decoded key metadata as user authorization.
+
+These are preauthorized documentation repairs within001, not a new code review, FE edit, runtime check or policy approval. Original finding identities/severities remain in the compact handoff; the scoped recheck records their final status separately.

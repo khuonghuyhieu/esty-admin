@@ -108,3 +108,146 @@ A hosted FE needs the actual BE URL, exact CORS and caller authorization. The cl
 ## Required domain evidence
 
 Dated read-only DNS on2026-10-28 returned NXDOMAIN and GoDaddy nameservers. Recheck only during approved external execution; use exact Vercel-provided api-label records, never a generic target. Verify domain/TLS/alias and real cloud-backed HTTP. No new DNS read/write or hosted proof in source/local adaptation.
+
+## Production activation validation plan
+
+**Plan only.** Start with the [compact owner handoff](production-activation-handoff.md), [A1–A9](plan.md#complete-production-activation-plan) and [T095–T123](tasks.md#story-8--complete-production-activation-p1-plan-only). This section does not authorize or claim a test, build, migration, account read, publication or deployment. Earlier receipts remain historical and byte-preserved.
+
+### Current versus required evidence
+
+Accepted005 BE and006 local browser evidence already exist; the owner separately reports that the real Auth identity exists and password login passed. Do not repeat that report as new proof or recreate/reset the identity. Application roles/schema/Owner are reported absent. The current-only CI driver cannot deliver the application's TARGET manifest; ordinary migration support already exists. New bridge/orchestration/provisioning/CSP work, local proof, one review, publication/Linux artifact and actual hosted acceptance are still future tasks.
+
+The protected manual006 run remains KEEP-RUNNING. No command here may adopt its API/FE/forwarder, consume its private files, reset its users, revoke its sessions, change faults or reuse ports55440–55444. Wait for explicit owner stop/FE release and guarded cleanup, or a separately approved isolated resource contract, before future fixture work. Preserve owner3000/default `.next`, shared services and volumes.
+
+### Documentation checks allowed in this increment
+
+Installed helper behavior was inspected before use. These commands resolve/check existing documents only; the helper's feature `BRANCH` field is not an actual Git observation:
+
+```sh
+SPECIFY_FEATURE_DIRECTORY=specs/001-connectivity-foundation SPECIFY_FEATURE_NO_PERSIST=1 bash .specify/scripts/bash/check-prerequisites.sh --json --paths-only
+SPECIFY_FEATURE_DIRECTORY=specs/001-connectivity-foundation SPECIFY_FEATURE_NO_PERSIST=1 bash .specify/scripts/bash/check-prerequisites.sh --json --require-spec
+SPECIFY_FEATURE_DIRECTORY=specs/001-connectivity-foundation SPECIFY_FEATURE_NO_PERSIST=1 bash .specify/scripts/bash/check-prerequisites.sh --json --require-spec --require-tasks --include-tasks
+```
+
+Read-only validation checks new requirement/task coverage, unique sequential task IDs, unchanged old task rows, resolvable new links/fragments, exact append-only prefixes, protected public-source/document hashes and names-only identity/configuration examples. No template reset, setup-plan, shared pointer write, hook execution, source import or application/runtime test is part of these checks. The compact handoff records actual results and any scoped documentation repairs.
+
+### Future local verification matrix
+
+Use the [existing BE canonical commands](../../README.md#local-backend-foundation), [native artifact guide](../../README.md#application-owned-native-artifact--sourcelocal-work-only) and [006 canonical commands](../../README.md#feature006-canonical-local-commands) only after fresh exact source/resource authorization. The proposed activation CLI is not implemented; do not invent a runnable production command. Its final validated invocation belongs in README under a fresh lease after implementation.
+
+| Area / existing suite | Required actual observable result |
+|---|---|
+| Config/HTTP/integration | Technical bearer denial before DB; exact Session TLS; bounded shared pool/deadlines/cancellation; bridge rejects enabled app and accepts only exact OLD or full TARGET; strict app rejects OLD/intermediate/foreign histories |
+| Migration integration | OLD→TARGET commits two pending files in one batch, then0 on unchanged rerun; fresh all-three DB applies3 then0. Preserve historical foundation-only1→0 separately. Changed assets, wrong order, duplicates and partial history refuse before unsafe continuation |
+| Migration/release failures | Transaction rollback, lost COMMIT acknowledgement, failed durable report, role mismatch/partial provisioning, SQL committed then deploy failed, lock contention and unknown create/promotion all preserve evidence and fence the next side effect |
+| Bootstrap / real Auth→Nest→DB | Existing verified synthetic user produces profile/workspace/active Owner/audit atomically; matching replay adds nothing, different approval/fingerprint conflicts, last-Owner concurrency cannot orphan the workspace; unknown commit is read-only reconciled |
+| Role/definer security | Runtime cannot read managed Auth or acquire operator/privileged role access; app_private exposure/ACL/definer owner/search path are correct; RLS-filtered function is safe dependency failure, not misleading unauthenticated success |
+| Timebox boundary | New provider-configured local synthetic session has actual non-NULL not_after; allow before, deny after while JWT remains valid; no direct Auth-row edits or manual006 configuration change |
+| Synthetic provider/native artifact | Exact source/tree/tool/config/OLD/TARGET/files and private snapshot; one create per bridge/app phase; known-ID durable capture; no provider fallback/network; real sealed handler exercises HTTP→guarded DB, not tsc-only success |
+| FE functional/production browser | Current Owner/Member/protected paths and current negative admission; natural expiry/refresh, confirmed local logout/same JWT denial and late-generation safety; no shared user cache/tokens; hosted public/anon key-class refusal boundaries; nonce CSP/full-document public↔protected crossings/within-area navigation/hydration/style attributes and exact origin/CSRF |
+| Public/accessibility neighbors | Home/privacy/legacy redirect/404, keyboard navigation and narrow-screen overflow remain correct; Settings/Team bodies still explicitly sample-only and unsupported007/008/009 actions stay unavailable |
+
+Use existing suites rather than new duplicate feature suites. Record exact selection, source hashes, commands, exit/result counts, failures and cleanup receipts. Synthetic transports and local Auth are not production proof. After meaningful implementation changes, run affected checks and actual changed-path smoke; do not rerun accepted unrelated full suites merely for a fresh timestamp.
+
+### Future hosted acceptance and stop points
+
+1. Obtain the owner decisions and exact source/publication/build/external permissions. Freeze accepted corrected005/006 source, canonical0.4 and OLD/TARGET; complete implementation/local proof and the coordinator's one available scoped Luna review. Publish only the explicitly reviewed allowlist, with FE production assignment held.
+2. Approve the clean Linux BE artifact and exact FE source/build identity. Receive new phase-separated secure inputs without rereading/reconverting original owner files. Reserve the durable activation journal/exclusion; verify real target/TLS/OLD/predecessor/role capability, actual protection caller path and backup/recovery limits read-only.
+3. Deploy/attest/verify the disabled-app bridge against OLD at the final API hostname before any role/schema mutation. The explicit maintenance alternative requires its own bounded window and outage acceptance; it is not an automatic fallback.
+4. Provision roles, run the existing versioned runner once and verify durable TARGET/ACL/definer outcome. Then bootstrap the existing `OWNER_AUTH_USER_ID` using the private approved workspace/names/approval packet. On partial/unknown SQL or bootstrap outcome, stop and reconcile read-only; do not retry blindly.
+5. Deploy the same approved BE bytes in strict app_runtime/email-disabled mode. Verify actual TARGET/current-session/capabilities and technical denials, exact candidate files/configuration and final same-deployment `https://api.lovora.us`. After committed SQL, never roll back to699.
+6. FE OMP builds exact published source as a held Production candidate configured for the final `APP_ORIGIN`. Verify actual deployment/build/configuration identity and bounded noncredential checks, then durably promote that same known candidate without rebuilding. At the final configured origin, exercise HTTPS Owner password login→current me/workspace/capabilities→Application/Settings/Team→refresh→received confirmed local logout→same old JWT denied. A generated candidate hostname cannot stand in for exact Origin/Host/cookie binding; do not spoof headers, relax that boundary or claim prepromotion full-session proof. A failed final journey keeps acceptance fenced for explicit compatible recovery.
+7. With separately approved synthetic identities, verify Member/no-membership/disabled/demotion/revocation and cross-user denial, secure cookie/header/CSP/origin behavior, home/privacy/mobile/keyboard and truthful unconnected bodies. Do not disable/demote/revoke the real Owner for a negative case. Unavailable hosted non-NULL timeboxing is a recorded limit, not a paid upgrade or invented pass.
+8. Observe only bounded existing health/redacted error signals. Preserve real Owner/workspace/schema/original inputs and manual006; clean only explicitly released test-owned identities/sessions/resources. Record exact known deployment/alias/artifact and migration/bootstrap outcomes, limits and lease returns. Provider READY, an old health PASS or local browser success cannot close hosted acceptance.
+
+Initial application email delivery remains disabled via `APP_EMAIL_ENABLED=false`; keep the already working Supabase email/password sign-in provider unchanged.007/009 SMTP is not a blocker for the confirmed Owner password login. For lost-Owner incidents follow A6's verified, approval-bound provider recovery and explicit session revocation; never silently reactivate a disabled member or replay bootstrap as recovery. Retention approval identifies policy, not an automatic purge implementation.
+
+## Current activation source/local receipts
+
+The owner START and subsequent exact grants supersede the earlier plan-only stop solely for T095–T111 source/local work. [The current plan receipt](plan.md#forwarded-t104-decision-and-fe-pure-check-delta) records the source T104 decision: relative same-origin006 BFF, fixed production server-only `APP_API_ORIGIN=https://api.lovora.us`, existing technical bearer and separate `X-App-Access-Token` user JWT. No `VERCEL_URL`/preview fallback, bypass header/credential, incoming cookie/Authorization forwarding or public secret alias is permitted.
+
+Names-only production inputs remain `APP_SESSION_MODE`, `APP_ORIGIN`, `APP_API_ORIGIN`, `APP_AUTH_URL`, `APP_AUTH_API_KEY`, `APP_API_TECHNICAL_KEY` and `APP_SESSION_COOKIE_KEY`. FE reports unchanged fixed-origin `/v1/app/me` transport with reconstructed headers, manual redirects, omitted credentials and no-store. No private values or account inspection follow from this source decision.
+
+Owner/coordinator-reported2026-11-04 public app `/`200 and API `/health/live`401 JSON without SSO establish reachability/application denial only. Neither BE nor FE repeated these probes. Account/project/protection settings, authenticated hosted caller, actual current Owner/DB and exact new-deployment acceptance remain unknown. Recheck the actual final-domain deployment in T116/T120/T121 under later authority; redirect/SSO/challenge stops release without automatic bypass, relaxed origins or generated-host substitution.
+
+The sole FE OMP reports these completed **pure, no-network** checks; these are forwarded evidence, not BE executions:
+
+| Check | Reported result | Exact retained receipt |
+|---|---|---|
+| Node24.22.1 `--experimental-strip-types --test apps/web/tests/functional/app-session.test.ts` |24/24 PASS,0 failures/skips,204.675667ms, exit0 | `functional-01.json` |
+| Scoped ESLint `--no-cache --no-fix` | exit0 | `lint-01.json` |
+| Direct TypeScript `--noEmit --incremental false` | exit0; no Next typegen/default-output writes | `typecheck-01.json` |
+| T104 owner caller decision and evidence limits | Source decision resolved; hosted gates open | `t104-caller-decision.json` |
+
+All four receipts are under `apps/web/.openai/activation-source-2c0a45086a03b8c8d41f7683c5da8695/`. The renewed permission does not require duplicate runs. This is not local production-build/browser, native artifact or hosted proof. Fresh staging/build/browser waits for actual new-resource clearance, BE_READY, the0600 `fixture/fe-session.json` handoff and the agreed FE_READY → BE_TESTS → FE_BROWSER → FE_RELEASE lease. Manual006 and owner3000/default.next remain protected.
+
+T111 permits only the existing artifact builder's three read-only Git identity operations, not status/mutation/publication or installation. The forwarded committed baseline/tree is recorded in the plan; dirty input inventory remains separate and a development artifact is NONRELEASABLE. Native dependency/tool strategy and A3 configuration-phase linkage remain unresolved. T108 must still prove actual non-NULL provider-issued `not_after`; global timebox configuration or JWT expiry alone is not a substitute.
+
+### Fresh root decisions superseding the pending notes
+
+- **A3 chooses A:** implement the plan-first `bridge-config → bridge → roles → migration → bootstrap → app-config → app → fe` contract. Isolate configuration authority/runtime inputs from CREATE; durable unknown-ACK fences and protected runtime configuration attestation are mandatory. Current-only delivery remains unchanged. These are source/local permissions, not live configuration/deployment permission.
+- **T111 native staging:** the existing development builder may use its three read-only Git identity calls and unchanged `npm ci --workspace=@esty-admin/api --include-workspace-root=false` only in a new canonical0700 outside-repository source copy. Exact copied manifests/lock, pinned public tools, blank HOME/XDG/npmrc/cache/TMPDIR/auth and public npm registry remain required. No shared/root install or upstream patch; development output is NONRELEASABLE and T115 remains separate.
+- **T104 exact origins:** `APP_ORIGIN=https://app.lovora.us`, `APP_API_ORIGIN=https://api.lovora.us`; FE project name `esty-admin` is owner-supplied, its ID/deployment ID and current protection settings are unverified. Forwarded public probes are not authenticated hosted acceptance. T116/T120/T121 still require exact-deployment checks; no bypass/fallback.
+- **T108:** execute only bounded supported fresh-fixture proof. NULL natural password-session `not_after` cannot close the required non-NULL boundary. A demonstrated unsupported case remains a named unresolved acceptance limitation; no Auth-row mutation, SAML implementation, pin swap or paid-plan workaround.
+- **Local checks actually run:** BE Node24 isolated compilation exit0; config12/12 PASS. First HTTP load failed on staged root-vs-workspace `jose` resolution, before tests; after restoring the existing workspace dependency link, HTTP17/17 PASS. Preserve that staging failure. No555xx PostgreSQL/Auth fixture, native build, FE browser or hosted acceptance has run yet.
+
+### Actual fixture/browser receipts and retained expiry blocker
+
+The earlier unstarted-fixture note is superseded by the plan's actual owned startup/role proof and18/18 GoTrue→Nest→PostgreSQL integration PASS. Initial direct connectivity and rolled-back role-query failures remain retained. The support API then proved protected live/ready200 and unauthorized401; the exact0600 config and frozen63-file manifest were handed to FE under exclusive FE_BROWSER. No manual006 or owner3000 resource was reused.
+
+FE reports the coordinator-approved exact CSP matcher (`/login`, `/application`, `/settings`, `/settings/team`) and existing404 regression selection passed24/24 in19.5s. Unknown routes remain public404; root/not-found/layout, authentication semantics and CSP directives were not changed for the correction. The initial static404 failure (11 nonce-less scripts,22 violations) is preserved. A separate corrected cross-user identity/logout/replay case passed in3.3s. These are forwarded FE results, not BE reruns.
+
+The natural300s expiry case remains failed/open: BFF GET `/api/app/me` returned503 after `registered.expiresAt + 1000ms`, expected401. Receipt `test-1793788777480.json` ended2026-11-04T10:39:37.480Z, exit1,312.16s; source manifest `414976f90304553825145410ce926e589b424296f4843737ff33d1b0f88578a4`. No response JSON code/body was captured, so none is inferred. Existing frozen BE logs/state are insufficient to identify the request's error phase. Current status-only control shows no active fault and all63 hashes match, not historical proof or a passing expiry check. No diagnostic rerun, login/replay, reset/fault or source/artifact change was performed. T110, T108 and hosted gates remain open; explicit FE_RELEASE is still required.
+
+
+Final FE_RELEASE is now explicit. Final FE source manifest: `apps/web/.openai/activation-source-2c0a45086a03b8c8d41f7683c5da8695/source-delta-final-blocked.json`, SHA256 `3cdf89617a835ad416b2e58cecda7a45105e2ee19dbef9e8908cc7df369d2751`;10 changed files/83 inputs/9 protected unchanged. Sibling `final-handoff.json` indexes exact command receipts and retained failures. Final build0, corrected three-file lint0 and CSP/public404/admission/navigation24/24 are attributed FE results. The earlier selected67 was66pass/1fail with its cross-user assertion later corrected; do not describe it as an originally clean suite. FE reports no55544 listener and no remaining control use. Existing BE guarded teardown/timebox/source work may resume; unresolved T110 expiry still blocks joint review readiness, with no new diagnostic rerun authorized.
+
+
+### T108 bounded timebox result
+
+The separate fresh pinned-Auth30s global-timebox/password proof is **not a non-NULL PASS**. Stored `not_after` was NULL before and after31.97s; real guarded Nest `/v1/app/me` returned200 both times while the original JWT remained unexpired. Refresh then returned400/`session_expired`. Corrected proof exited2 in37.37s (`control/timebox-proof02.json`); the first omitted `F005_FIXTURE_DIRECTORY` setup failure is retained separately. No Auth-row edit, SAML/pin/paid workaround occurred. Owned identity cleanup, forwarder stop and disposable fixture retirement completed; ports55540–55544 are released. T108 requires explicit acceptance disposition, independently of unresolved T110 BFF expiry. This exercised the retained frozen compiled tree, not unfinished newer operator source.
+
+
+### Verified BE activation increment and execution boundaries
+
+See [actual checks and retained failures](plan.md#independent-be-implementation-and-actual-checks). Extended CI31/31, corrected affected integration28/28 and corrected private-TMPDIR release121/121 passed. Original functional157/190 and integration240s timeout are retained, not rewritten as clean runs. Canonical generation/migration checks exited0. The owned standalone55532 role/advisory-lock checks passed and its exact tmpfs container/network were retired;55532 is free.
+
+Native development artifact `56286e996c114bc16b297dcf7467744affb3eb4b6d0697e9f17f2244182baa58` binds89 source inputs at digest `c72ed13dde10e445d73fa20a7d7690b741c3d863eb5dcfca679a413eed1dc267`. Sealed HTTP/TLS/deadline/cancellation and bridge transition smokes each passed1/1. The bridge actually stayed ready through OLD→TARGET2→0, denied requests before DB access and attested runtime configuration. Darwin/arm64 development bytes are **NONRELEASABLE**; no Linux/publication/provider/hosted acceptance is implied.
+
+The new executor's explicit positional contract is `action phase packetPath packetDigest artifactPath privateJournalDirectory verifiedCliPath`. `packetPath` must be exactly `privateJournalDirectory/packet-input.json`; inputs are never discovered from owner files or auth caches. `prepare` accepts only the public approved packet JSON/digest. All real execution requires the approved clean Linux/x64 Node24 artifact and matching sealed operator files/directories.
+
+| Phase | Only private inputs admitted to its worker |
+|---|---|
+| bridge-config | VERCEL_CONFIGURATION_TOKEN, ACTIVATION_BRIDGE_INPUTS |
+| bridge/app CREATE and acceptance | GITHUB_TOKEN, VERCEL_TOKEN, BE_PREVIEW_ACCESS_KEY; official CREATE child receives no runtime values or technical key |
+| roles / initial preflight / TARGET postflight | ACTIVATION_ROLE_INPUTS |
+| migration | ACTIVATION_MIGRATION_INPUTS |
+| bootstrap | ACTIVATION_BOOTSTRAP_INPUTS |
+| app-config | VERCEL_CONFIGURATION_TOKEN, ACTIVATION_APP_INPUTS |
+| separately approved final FE acceptance | GITHUB_TOKEN, VERCEL_TOKEN, BE_PREVIEW_ACCESS_KEY, ACTIVATION_FE_RECEIPT |
+
+Authorization/confirmation workers remain separate from configuration/SQL/bootstrap execution. Public controls include `BE_ACTIVATION_ENABLED`, `BE_DELIVERY_ENABLED`, `BE_DELIVERY_ENVIRONMENT=be-production` and `BE_ACTIVATION_PACKET_SHA256`; configuration-phase payloads and their digests must match the exact packet. Current-only remains the workflow default and OLD-pinned. Activation Actions stops after strict BE confirmation, retaining a tar archive that preserves private receipt modes plus archive/inventory hashes. A successful BE job does not mean full activation succeeded.
+
+Later final FE handling is separately authorized, using the same artifact/operator and run. Operator context additionally requires `BE_ACTIVATION_CONTEXT=operator`, `BE_ACTIVATION_OPERATOR_APPROVAL` equal to the run UUID and the original numeric `BE_ACTIVATION_BUILD_RUN`. `import-fe` accepts only an untouched FE-gate snapshot at explicit `BE_ACTIVATION_RECEIPTS_DIRECTORY` with separately approved `BE_ACTIVATION_RECEIPTS_SHA256`, and verifies the exact remote app outcome before creating a new local lock. It cannot restart earlier phases. Final FE evidence requires its separately approved `BE_FE_ACCEPTANCE_SHA256`; authenticate actual final-origin behavior outside this executor before submitting that receipt. Lost remote acknowledgements use read-only reconciliation, never automatic effect replay.
+
+T108 remains UNPROVEN/unchecked by explicit root disposition: no further timebox experiment or prohibited workaround. T110 has one newly authorized coordinated natural300s diagnostic, not startup permission; fresh exact lease/configuration/source binding and BE_READY are required. The plan records proposal nonce `111c9db9e9a94eb3529024a10c6e90c3`, missing historical runtime inputs, no-secret diagnostic requirements and protected-resource boundaries. No joint review/complete claim is made.
+
+
+The diagnostic has now passed its separate resource/readiness gate; [the final handoff](plan.md#frozen-be-inventory-and-fresh-expiry-diagnostic-handoff) supersedes both unused parent proposals. Final parent `esty001-activation-wpj6tn2b`, nonce `111c9db9e9a94eb3529024a10c6e90c3`: secure config, source/configuration/observer hashes and phase ownership are in its `control/lease.json`; actual readiness is in `control/readiness.json`. Exclusive FE_BROWSER is granted for one natural300s case, with no competing BE requests. Sanitized `control/events.jsonl` and the four-marker Unix diagnostic socket provide correlation; dependency probes run only after the captured target response, before assertion. No diagnostic result or cleanup is claimed yet.
+
+Final independent BE public inventory: original activation parent's `control/be-source-final.json`, SHA256 `c66147301f74293515ab9a40d5baf592bd03b5c258c6e82bb604a7a7031a4046`. All89 native source inputs and six canonical/generated/migration hashes matched. This is not a Git diff, publication allowlist, Linux release or joint review readiness.
+
+
+The single authorized diagnostic subsequently passed1/1 in311.83s. Before assertion, BFF401/object/`unauthenticated` correlated to BE events130–132: actual JWT lifetime300s, expired=true, Auth rejection and API4018.632ms, with no target Auth/JWKS HTTP or app-DB transaction. Only after response capture, Auth/JWKS200 and the owned DB marker passed. The original refresh/identity/logout/old-JWT journey also passed. Historical503 did not reproduce and remains unexplained; no production fix or repeat was performed.
+
+Explicit fresh FE_RELEASE was received and guarded cleanup completed: application commit plus four individual Auth deletions confirmed, forwarder/fixture stop0, zero owned containers/networks and55540–55544 free. Exact FE receipts, correlation IDs, build-cache distinction and `control/retirement.json` are indexed in [the final diagnostic record](plan.md#single-natural-expiry-diagnostic-result-and-guarded-retirement). Earlier unconfirmed identity-deletion evidence is unchanged. T108 and joint review/hosted gates remain open; no new source or runtime action is authorized by this receipt.
+
+Owner t4y subsequently authorizes T112 review with T108 explicitly UNPROVEN/unchecked, not waived or passed. Current-scope T110 scenarios are accepted on the retained frozen-current evidence; historical503 remains NOT REPRODUCED / CAUSE UNPROVEN. Reuse the actual receipts without another test/build/runtime run. The coordinator receives exact BE/FE path/hash allowlists and fresh source/docs pauses before starting the single review; this does not authorize publication or hosted acceptance.
+
+### T113 credential-boundary fix verification
+
+The completed T112 review reported one conditional High/P1: known privileged Supabase aliases could be ignored in project environment metadata. The narrow correction rejects known Supabase/database/admin credential names before mutation or inspection; discovery after a configuration write remains an unknown outcome, with no replay or credential readback. No actual provider key inventory was inspected or changed.
+
+Fresh isolated TypeScript compilation exited0. The affected configuration/phase-credential selection passed3/3 in168.039291ms; its new regression exercises21 aliases across pre-write, inspection and post-write boundaries. A separate compiled-operation smoke passed clean configuration/readback and both reported Supabase refusals, plus post-write database-credential refusal, using only synthetic transport. No full suite, native rebuild or browser rerun occurred. Prior sealed bytes are pre-fix evidence, not a corrected release artifact. See the plan's T112/T113 record; fix-only coordinator acceptance remains separate. T108 and historical T110503 limitations are unchanged.
+
+Coordinator t4v accepted T113 after fix-only read-only inspection of the receipt, two source/test hashes and five-path allowlist. Existing compile/test/smoke results remain OMP evidence, not coordinator reruns; no actual provider inventory was accessed. No further review/test/build is required for this finding. T108, historical T110503 uncertainty and future release/production gates remain unchanged.

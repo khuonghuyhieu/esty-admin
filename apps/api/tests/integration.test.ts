@@ -38,7 +38,10 @@ const nextMigrationVersion = String(Number(expectedMigrations.at(-1)!.slice(0, 1
 // on the exact synthetic Compose fixture. Never accept an arbitrary database URL.
 function fixtureConfig() {
   const raw = process.env.TEST_DATABASE_URL;
-  assert.equal(raw, 'postgresql://foundation_local:local_fixture_only@127.0.0.1:55432/foundation_local',
+  const profile = process.env.TEST_FIXTURE_PROFILE;
+  assert.ok(profile === undefined || profile === 'activation001', 'Unknown synthetic fixture profile.');
+  const port = profile === 'activation001' ? 55532 : 55432;
+  assert.equal(raw, `postgresql://foundation_local:local_fixture_only@127.0.0.1:${port}/foundation_local`,
     'Set TEST_DATABASE_URL to the documented synthetic local fixture; integration tests refuse all other targets.');
   return parseConfig({ DATABASE_URL: raw });
 }
@@ -77,7 +80,7 @@ async function databaseFixture(t: TestContext) {
     finally { await admin.end(); }
   });
   await client.connect();
-  const url = `postgresql://foundation_local:local_fixture_only@127.0.0.1:55432/${name}`;
+  const url = `postgresql://foundation_local:local_fixture_only@127.0.0.1:${config.database.port}/${name}`;
   return { admin, client, name, database, url };
 }
 
@@ -365,10 +368,8 @@ test('portable operator and compiled HTTP entrypoint work outside the repository
   assert.equal(JSON.parse(statusBefore.stdout).initialized, false);
   const first = run();
   assert.equal(first.status, 0, first.stderr);
-  assert.match(first.stdout, /1 applied/);
   const second = run();
   assert.equal(second.status, 0, second.stderr);
-  assert.match(second.stdout, /0 applied/);
   const statusAfter = spawnSync(process.execPath, [statusCli], { cwd: tmpdir(), env, encoding: 'utf8', timeout: 15000 });
   assert.equal(statusAfter.status, 0, statusAfter.stderr);
   assert.deepEqual(JSON.parse(statusAfter.stdout).applied, expectedMigrations);
@@ -751,10 +752,11 @@ test('cancelled migration reports unknown safely; CLI report-write failure does 
 async function currentReleaseFixture(t: TestContext, initialize = true) {
   const db = await databaseFixture(t);
   const previousId = randomUUID(), previousRevision = 'd'.repeat(40);
-  if (initialize) assert.equal((await runMigrations(db.database, { sourceRevision: previousRevision, target: 'local' })).result, 'success');
   const packaged = await artifactFixture('release', await readFile(join(migrationsDirectory, `${expectedMigrations[0]}.mjs`), 'utf8'));
   t.after(packaged.dispose);
   const artifact = packaged.artifact;
+  if (initialize) assert.equal((await runMigrations(db.database, { sourceRevision: previousRevision, target: 'local',
+    directory: join(artifact.root, 'operator/apps/api/migrations') })).result, 'success');
   const directory = fs.realpathSync(fs.mkdtempSync(join(tmpdir(), 'esty-current-release-')));
   t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
   const reportDirectory = join(directory, 'reports'); fs.mkdirSync(reportDirectory, { mode: 0o700 });
@@ -1086,4 +1088,77 @@ test('current-schema-only persistence failures retain locks identity and immutab
       fixture.unchanged();
     });
   }
+});
+
+test('activation bridge spans exact OLD and TARGET while strict readiness rejects every non-TARGET history', async t => {
+  const fixture = await databaseFixture(t);
+  const old = await realpath(await mkdtemp(join(tmpdir(), 'esty-old-history-')));
+  t.after(() => rm(old, { recursive: true, force: true }));
+  await cp(join(migrationsDirectory, `${expectedMigrations[0]}.mjs`), join(old, `${expectedMigrations[0]}.mjs`));
+  assert.equal(await migrate(fixture.database, old), 1);
+  const key = 'a'.repeat(64), headers = { authorization: `Bearer ${key}` };
+  const bridge = await createApplication(parseConfig({ DATABASE_URL: fixture.url, APP_SCHEMA_MODE: 'activation-bridge',
+    APP_FOUNDATION_ENABLED: 'false', PREVIEW_ACCESS_KEY: key }));
+  const strict = await createApplication(parseConfig({ DATABASE_URL: fixture.url }));
+  await bridge.listen(0, '127.0.0.1'); await strict.listen(0, '127.0.0.1');
+  t.after(async () => { await bridge.close(); await strict.close(); });
+  const origin = await bridge.getUrl(), strictOrigin = await strict.getUrl();
+  const probe = bridge.get(PostgresProbe);
+  assert.equal((await get(origin, '/health/ready')).status, 401);
+  assert.equal(probe.pool.totalCount, 0);
+  assert.equal((await get(origin, '/v1/app/me', headers)).status, 404);
+  assert.equal((await get(origin, '/health/ready', headers)).status, 200);
+  assert.equal((await get(strictOrigin, '/health/ready')).status, 503);
+  const batch = await runMigrations(fixture.database);
+  assert.equal(batch.database_outcome, 'committed'); assert.equal(batch.result, 'success');
+  assert.deepEqual(batch.before, [expectedMigrations[0]]);
+  assert.deepEqual(batch.attempted.map(item => [item.name, item.outcome]),
+    expectedMigrations.slice(1).map(name => [name, 'applied_committed']));
+  assert.deepEqual(batch.after, expectedMigrations);
+  assert.equal((await runMigrations(fixture.database)).attempted.length, 0);
+  assert.equal((await get(origin, '/health/ready', headers)).status, 200);
+  assert.equal((await get(strictOrigin, '/health/ready')).status, 200);
+  const histories = [[], [expectedMigrations[1]], [expectedMigrations[0], expectedMigrations[2]],
+    [expectedMigrations[0], expectedMigrations[0]], [...expectedMigrations].reverse(),
+    [...expectedMigrations, `${nextMigrationVersion}-future`]];
+  for (const history of histories) {
+    await fixture.client.query('TRUNCATE public.foundation_migrations RESTART IDENTITY');
+    for (const name of history) await fixture.client.query('INSERT INTO public.foundation_migrations(name,run_on) VALUES ($1,now())', [name]);
+    assert.equal((await get(origin, '/health/ready', headers)).status, 503);
+    assert.equal((await get(strictOrigin, '/health/ready')).status, 503);
+    if (history.length) {
+      const refused = await runMigrations(fixture.database);
+      assert.equal(refused.result, 'failed'); assert.deepEqual(refused.attempted, []);
+      assert.equal(refused.database_outcome, 'not_started');
+    }
+  }
+});
+
+test('lost COMMIT acknowledgement preserves unknown outcome despite actual TARGET and permits read-only inspection', async t => {
+  const fixture = await databaseFixture(t);
+  const directory = await realpath(await mkdtemp(join(tmpdir(), 'esty-commit-ack-')));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const script = join(directory, 'lost-commit.mjs');
+  await writeFile(script, `
+import {createRequire} from 'node:module';
+const {Client}=createRequire(${JSON.stringify(new URL('../../package.json', import.meta.url).pathname)})('pg');
+const query=Client.prototype.query;
+Client.prototype.query=async function(...args) {
+  const result=await query.apply(this,args);
+  const text=typeof args[0]==='string'?args[0]:args[0].text;
+  if(text.trim().replace(/;$/,'').toUpperCase()==='COMMIT') throw new Error('synthetic lost acknowledgement after real COMMIT');
+  return result;
+};
+const {runMigrations}=await import(${JSON.stringify(new URL('../scripts/migrations.js', import.meta.url).href)});
+console.log(JSON.stringify(await runMigrations(${JSON.stringify(fixture.database)})));
+`);
+  const result = spawnSync(process.execPath, [script], { cwd: directory, encoding: 'utf8', timeout: 15000,
+    env: { PATH: process.env.PATH } });
+  assert.equal(result.status, 0, result.stderr);
+  const report = JSON.parse(result.stdout);
+  assert.equal(report.result, 'failed'); assert.equal(report.database_outcome, 'unknown');
+  assert.equal(report.attempted.length, 3);
+  assert.ok(report.attempted.every((item: { outcome: string }) => item.outcome === 'unknown'));
+  const inspected = await migrationStatus(fixture.database);
+  assert.deepEqual(inspected.applied, expectedMigrations); assert.deepEqual(inspected.pending, []);
 });

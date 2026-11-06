@@ -1,5 +1,5 @@
 import { mkdir, mkdtemp, open, realpath, lstat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 // Never retain raw provider logs, environment values or command stderr.
@@ -63,7 +63,8 @@ export async function saveOwnedFailure({ directory, stage, error, ownership, doc
     if (record.service === 'auth') record.logs = classifyFailure(docker(directory, ['logs', '--tail', '80', '--timestamps', id], true));
     containers.push(record);
   }
-  const root = fileURLToPath(new URL('../../../.openai/reports/', import.meta.url));
+  const root = state.profile === 'activation001' ? join(dirname(directory), 'reports')
+    : fileURLToPath(new URL('../../../.openai/reports/', import.meta.url));
   await mkdir(root, { recursive: true, mode: 0o700 });
   if ((await lstat(root)).isSymbolicLink() || (await realpath(root)) !== root.replace(/\/$/, '')) throw new Error('Diagnostic root must be canonical.');
   const reportDirectory = await mkdtemp(join(root, 'esty005-startup-'));

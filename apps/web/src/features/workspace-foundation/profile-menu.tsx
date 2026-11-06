@@ -1,10 +1,11 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { workspace } from "../application-preview/fixtures";
+import { useAppSession } from "../app-session/session-provider";
 import styles from "../application-preview/application-preview.module.css";
 
 export function ProfileMenu() {
+  const { view, signOut } = useAppSession();
   const [open, setOpen] = useState(false);
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
@@ -44,10 +45,14 @@ export function ProfileMenu() {
     };
   }, [open]);
 
+  if (!view.me) return null;
+  const displayName = view.me.profile.displayName;
+  const initials = displayName.split(/\s+/u).slice(0, 2).map(part => Array.from(part)[0]).join("").toLocaleUpperCase();
+
   return <>
-    <button ref={trigger} type="button" className={styles.profile} aria-label={`${workspace.initials} ${workspace.profile}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)} onKeyDown={event => {
+    <button ref={trigger} type="button" className={styles.profile} aria-label={`${initials} ${displayName}`} aria-haspopup="menu" aria-expanded={open} aria-controls={open ? id : undefined} onClick={() => setOpen(!open)} onKeyDown={event => {
       if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); setOpen(true); }
-    }}><span>{workspace.initials}</span>{workspace.profile}</button>
+    }}><span>{initials}</span>{displayName}</button>
     {open && <div id={id} ref={menu} className={styles.rowMenu} role="menu" aria-label="Profile" onKeyDown={event => {
       if (["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) {
         event.preventDefault();
@@ -58,7 +63,7 @@ export function ProfileMenu() {
         trigger.current?.focus({ preventScroll: true });
       }
     }}>
-      <button type="button" role="menuitem" tabIndex={-1} onClick={event => event.preventDefault()}>Sign out</button>
+      <button type="button" role="menuitem" tabIndex={-1} onClick={() => { setOpen(false); void signOut(); }}>Sign out</button>
     </div>}
   </>;
 }

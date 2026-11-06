@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { Module } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { ApiConfig } from './config/config.js';
 import { PostgresProbe } from './connectivity/adapters/postgres.js';
 import { expectedMigrations } from './generated/migrations.js';
@@ -21,8 +22,8 @@ export function createApplicationModule(config: ApiConfig, requiredMigrations = 
     controllers: config.appFoundation ? [HealthController, AppController] : [HealthController],
     providers: [
       { provide: PostgresProbe, useFactory: () => {
-        const probe = new PostgresProbe(config.database, requiredMigrations, config.runtime === 'local' ? 4 : 2,
-          config.runtime === 'vercel');
+        const probe = new PostgresProbe(config.database, config.appFoundation ? expectedMigrations : requiredMigrations,
+          config.runtime === 'local' ? 4 : 2, config.runtime === 'vercel', config.schemaMode);
         attachPlatformLifecycle(config.runtime, probe.pool);
         return probe;
       } },
@@ -42,7 +43,17 @@ export function createApplicationModule(config: ApiConfig, requiredMigrations = 
 }
 
 export function configureApplication(app: INestApplication, config: ApiConfig): void {
-  if (config.runtime === 'vercel' || config.appFoundation) app.use(previewAccess(config.previewAccessKey!, config.browserOrigin));
+  if (config.runtime === 'vercel' || config.appFoundation || config.schemaMode === 'activation-bridge') {
+    app.use(previewAccess(config.previewAccessKey!, config.browserOrigin));
+  }
+  if (config.activationConfigDigest) {
+    app.use((request: IncomingMessage, response: ServerResponse, next: () => void) => {
+      if (request.url === '/health/live' || request.url === '/health/ready') {
+        response.setHeader('X-Activation-Config-Digest', config.activationConfigDigest!);
+      }
+      next();
+    });
+  }
   if (config.appFoundation) app.useGlobalFilters(new AppErrorFilter());
   app.enableCors({ origin: config.browserOrigin, methods: ['GET'], credentials: false });
 }

@@ -558,3 +558,56 @@ Owner conversion, Production variables, target/TLS/rights preflights and api-dom
 ## Required BE endpoint — api.lovora.us
 
 Required final BE is **https://api.lovora.us** on existing Vercel esty-admin-api backed by Supabase cloud. [Domain acceptance](specs/001-connectivity-foundation/plan.md#hosted-custom-domain-setup-and-acceptance--t048) requires exact provider DNS, verified same-deployment alias/TLS and actual safe HTTP. Local/copied/provider-only proof is incomplete. Dated2026-10-28 lookup was NXDOMAIN, not a current DNS check. No actual provider/domain/SQL operation is authorized by these docs.
+
+## Current feature006 — local session journey accepted
+
+Feature006 T001–T016 is **LOCAL_COMPLETE**: real browser login → local Supabase Auth → fixed-origin server-only BFF → Nest/current DB membership → protected Application/Settings/Team → actual300s expiry/coordinated refresh → local logout and denial of the same browser JWT. This updates earlier fixtures-only FE statements only for006's local scope; it does not rewrite BE001/005/010, hosted/automation history or other features' acceptance.
+
+ONE coordinator-run Luna review found one P2: definitive invalid refresh was retried after reload. The approved client-only, same-epoch/generation Web Lock correction is accepted through coordinator inspection of only the fix/assertions/evidence. Failed/stale refresh responses remain cookieless;503 does not clear a newer session. No unresolved confirmed finding remains in the scoped review; there was no second whole review.
+
+Retained evidence: original93 browser scenarios passed **across corrected runs**, not a final93/93 run; the affected P2 production-browser selection passed5/5. Functional21/21 plus final five controller regressions5/5, build/full TypeScript and lint passed. The natural five-minute expiry/full suite was not repeated for P2 or documentation closeout. [Actual checks, failures, hashes, screenshots and cleanup](specs/006-login-session/quickstart.md#t015-p2-focused-correction--current-increment); [current state](PROJECT_STATE.md#current-feature006--local-journey-complete).
+
+The existing [session/caller contract](specs/006-login-session/contracts/session-bff.md) is frozen for007/008/009: reuse its encrypted HttpOnly cookies, exact Origin/CSRF/generation rules, origin-wide Web Lock and server-only fixed-operation caller. Team/Settings bodies remain explicitly sample content; invitation/settings/recovery extensions are not implemented by006.
+
+### Feature006 canonical local commands
+
+These are runnable command references, **not a new execution grant**. Use an already-installed Node24 executable as `node` and existing repository/browser dependencies; do not install/download anything implicitly. Run from the repository root. Current closeout is docs-only and ran none of these commands.
+
+Focused functional checks and lint, when separately authorized:
+
+```sh
+node --experimental-strip-types --test apps/web/tests/functional/app-session.test.ts
+(cd apps/web && node ../../node_modules/.bin/eslint . --max-warnings=0)
+```
+
+Before any browser run, coordinate a **fresh** original guarded fixture with its BE owner: DB55440/Auth55441/Mail55442/API55443, FE-only55444, actual conflict refusal, new nonce and0700/0600 synthetic handoff. Supply the following variables through the approved local channel; they name the owned run, synthetic file and existing browser cache, not credential values. Never read/source owner originals, reuse a deleted fixture, print synthetic values, or copy private configuration into the staged project.
+
+```sh
+: "${APP_SESSION_E2E_RUN_ID:?Fresh approved 32-hex fixture nonce required}"
+: "${APP_SESSION_FIXTURE_PATH:?Fresh approved synthetic JSON handoff path required}"
+: "${PLAYWRIGHT_BROWSERS_PATH:?Existing installed browser cache required}"
+export APP_SESSION_E2E_RUN_ID APP_SESSION_FIXTURE_PATH PLAYWRIGHT_BROWSERS_PATH
+
+node apps/web/scripts/app-session-run.mjs stage
+node apps/web/scripts/app-session-run.mjs build
+```
+
+Choose only the test scope authorized for that run. The accepted P2's focused selection was:
+
+```sh
+node apps/web/scripts/app-session-run.mjs test --project desktop-chromium --grep 'revoked refresh and|late definitive refresh401|transient refresh503|current profile menu|synthetic late real refresh'
+node apps/web/scripts/app-session-run.mjs verify
+```
+
+A separately authorized full application/public selection, including genuine300s expiry, uses:
+
+```sh
+node apps/web/scripts/app-session-run.mjs test tests/e2e/application.spec.ts tests/e2e/website.spec.ts
+node apps/web/scripts/app-session-run.mjs verify
+```
+
+All generated output stays in `apps/web/.openai/app-session-<nonce>/project` and its owned run directories. Do not run the default3100/default `.next` mode or live Next build/typegen for006; preserve owner3000 and dirty owner `next-env.d.ts`. If source changes during an authorized run, explicit `restage` replaces `stage` only after all owned commands/55444 are stopped, preserving the prior attempt and original protected-file baseline; rebuild before testing. It is not permission to reuse a deleted fixture. After browser/server closure, explicitly release the lease before BE performs original guarded API→forwarder→fixture cleanup.
+
+Final runtime source manifest: `3bb9f709c8a1afb377e6851d525509093e50a52567f456801b5c1996fd0fe324` (82 inputs). The two fixture runs were cleaned; no server is left running for an owner login. Runtime protected-hash receipts predate this separately authorized additive README/PROJECT_STATE closeout; retain those baselines rather than rewriting them or rerunning old verification to claim unchanged documents.
+
+**Separate gates:** production SMTP/sender/setup and dependent email flows; hosted006 Auth/BFF/Nest/DB over verified HTTPS with actual Secure-cookie enforcement; other browser engines; owner visual acceptance of006 behavior; [001-owned hosted migration delivery](specs/001-connectivity-foundation/plan.md#future-versioned-production-migration-integration--plan-only); and explicit publication/deployment approval. Existing BE hosted PASS and completed owner setup remain intact and are not automatic repeat-setup tasks. This local closeout authorizes no Git, cloud, deployment, resource restart or007–009 implementation.

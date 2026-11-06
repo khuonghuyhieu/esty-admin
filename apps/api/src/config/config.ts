@@ -3,6 +3,9 @@ import { X509Certificate } from 'node:crypto';
 import { parseEnv } from 'node:util';
 import type { ClientConfig } from 'pg';
 import approvedTarget from '../../config/hosted-target.example.json' with { type: 'json' };
+import { assertActivationManifest } from './schema-transition.js';
+import type { AppSchemaMode } from './schema-transition.js';
+import { runtimeConfigDigest } from './activation-config.js';
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -27,12 +30,14 @@ export interface AppFoundationConfig {
 
 export interface ApiConfig {
   runtime: 'local' | 'vercel';
+  schemaMode: AppSchemaMode;
   host: string;
   port: number;
   browserOrigin: string;
   database: ClientConfig;
   previewAccessKey?: string;
   appFoundation?: AppFoundationConfig;
+  activationConfigDigest?: string;
 }
 
 const loopback = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -94,6 +99,24 @@ function databaseConfig(env: NodeJS.ProcessEnv, hosted: boolean, field: string):
   };
 }
 
+function publicAuthKey(key: string, project: string | undefined): boolean {
+  if (/^sb_publishable_[A-Za-z0-9_-]+$/.test(key)) return true;
+  const parts = key.split('.');
+  if (parts.length !== 3 || parts.some(part => !/^[A-Za-z0-9_-]+$/.test(part)
+    || Buffer.from(part, 'base64url').toString('base64url') !== part)) return false;
+  try {
+    const header: unknown = JSON.parse(Buffer.from(parts[0]!, 'base64url').toString('utf8'));
+    const payload: unknown = JSON.parse(Buffer.from(parts[1]!, 'base64url').toString('utf8'));
+    if (!header || typeof header !== 'object' || Array.isArray(header)
+      || !payload || typeof payload !== 'object' || Array.isArray(payload)) return false;
+    const h = header as Record<string, unknown>, p = payload as Record<string, unknown>;
+    // Classification only. Provider validation and maintained-library verification
+    // remain responsible for authentication; decoding grants no user authority.
+    return h.alg === 'HS256' && h.typ === 'JWT' && p.role === 'anon'
+      && p.iss === 'supabase' && typeof project === 'string' && p.ref === project;
+  } catch { return false; }
+}
+
 function appFoundationConfig(env: NodeJS.ProcessEnv, hosted: boolean, browserOrigin: string): AppFoundationConfig | undefined {
   if (env.APP_FOUNDATION_ENABLED === undefined || env.APP_FOUNDATION_ENABLED === 'false') return undefined;
   if (env.APP_FOUNDATION_ENABLED !== 'true') throw new ConfigurationError('APP_FOUNDATION_ENABLED', 'use true or false.');
@@ -114,6 +137,9 @@ function appFoundationConfig(env: NodeJS.ProcessEnv, hosted: boolean, browserOri
   const apiKey = env.APP_AUTH_API_KEY;
   if (!apiKey || apiKey.length > 8192 || /[\s\u0000-\u001f\u007f]/u.test(apiKey)) {
     throw new ConfigurationError('APP_AUTH_API_KEY', 'supply the server-held Auth API key without whitespace.');
+  }
+  if (hosted && !publicAuthKey(apiKey, env.SUPABASE_PROJECT_REF)) {
+    throw new ConfigurationError('APP_AUTH_API_KEY', 'use a Supabase publishable or matching-project legacy anon key; privileged and unknown key classes are forbidden.');
   }
   const emailEnabled = env.APP_EMAIL_ENABLED ?? 'false';
   if (!['true', 'false'].includes(emailEnabled)) throw new ConfigurationError('APP_EMAIL_ENABLED', 'use true or false.');
@@ -141,6 +167,12 @@ function appFoundationConfig(env: NodeJS.ProcessEnv, hosted: boolean, browserOri
 }
 
 export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
+  const schemaMode = env.APP_SCHEMA_MODE ?? 'strict';
+  if (!['strict', 'activation-bridge'].includes(schemaMode)
+    || (schemaMode === 'activation-bridge' && env.APP_FOUNDATION_ENABLED !== 'false')) {
+    throw new ConfigurationError('APP_SCHEMA_MODE', 'use strict, or activation-bridge with explicitly disabled app routes.');
+  }
+  if (schemaMode === 'activation-bridge' || env.APP_FOUNDATION_ENABLED === 'true') assertActivationManifest();
   const runtime = env.API_RUNTIME ?? 'local';
   if (!['local', 'vercel'].includes(runtime)
     || (env.VERCEL === '1' && runtime !== 'vercel')
@@ -154,7 +186,9 @@ export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
   if (runtime === 'vercel') {
     if (!/^[a-f0-9]{64}$/.test(env.PREVIEW_ACCESS_KEY ?? '')) throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'supply a separate private 32-byte lowercase hex key.');
     for (const key of Object.keys(env)) {
-      if (env[key] !== undefined && (key.startsWith('MIGRATION_') || key.startsWith('APP_OPERATOR_') || ['VERCEL_TOKEN', 'VERCEL_API_TOKEN', 'DEPLOYMENT_TARGET'].includes(key))) {
+      if (env[key] !== undefined && (key.startsWith('MIGRATION_') || key.startsWith('APP_OPERATOR_')
+        || key.startsWith('APP_ROLES_') || key.startsWith('ACTIVATION_')
+        || ['VERCEL_TOKEN', 'VERCEL_API_TOKEN', 'DEPLOYMENT_TARGET'].includes(key))) {
         throw new ConfigurationError('operator/deploy context', 'never put operator or deployment credentials in the API runtime.');
       }
     }
@@ -163,8 +197,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
         ? `app_runtime.${env.SUPABASE_PROJECT_REF}` : value;
       if (key.startsWith('SUPABASE_') && env[key] !== expected) throw new ConfigurationError(key, 'use the exact reviewed Session target and selected runtime role.');
     }
-  } else if (env.APP_FOUNDATION_ENABLED === 'true') {
-    if (!/^[a-f0-9]{64}$/.test(env.PREVIEW_ACCESS_KEY ?? '')) throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'app-enabled local mode also requires a separate private 32-byte lowercase hex key.');
+  } else if (env.APP_FOUNDATION_ENABLED === 'true' || schemaMode === 'activation-bridge') {
+    if (!/^[a-f0-9]{64}$/.test(env.PREVIEW_ACCESS_KEY ?? '')) throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'app-enabled or bridge local mode also requires a separate private 32-byte lowercase hex key.');
   } else if (env.PREVIEW_ACCESS_KEY !== undefined) {
     throw new ConfigurationError('PREVIEW_ACCESS_KEY', 'preview access requires Vercel or explicitly enabled app mode.');
   }
@@ -193,9 +227,19 @@ export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
   if (appFoundation && database.user !== (hosted ? `app_runtime.${env.SUPABASE_PROJECT_REF}` : 'app_runtime')) {
     throw new ConfigurationError('DATABASE_URL', 'app mode requires the separately provisioned least-privilege app_runtime identity.');
   }
-  return { runtime: runtime as ApiConfig['runtime'], host, port: Number(port), browserOrigin, database,
+  let activationConfigDigest: string | undefined;
+  if (env.APP_ACTIVATION_CONFIG_DIGEST !== undefined) {
+    if ((!hosted && !appFoundation && schemaMode !== 'activation-bridge') || env.APP_AUTH_ADMIN_KEY !== undefined
+      || !/^[a-f0-9]{64}$/.test(env.APP_ACTIVATION_CONFIG_DIGEST)
+      || runtimeConfigDigest(env) !== env.APP_ACTIVATION_CONFIG_DIGEST) {
+      throw new ConfigurationError('APP_ACTIVATION_CONFIG_DIGEST', 'bind the exact protected runtime inputs without privileged Auth authority.');
+    }
+    activationConfigDigest = env.APP_ACTIVATION_CONFIG_DIGEST;
+  }
+  return { runtime: runtime as ApiConfig['runtime'], schemaMode: schemaMode as AppSchemaMode, host, port: Number(port), browserOrigin, database,
     ...(appFoundation ? { appFoundation } : {}),
-    ...(runtime === 'vercel' || appFoundation ? { previewAccessKey: env.PREVIEW_ACCESS_KEY } : {}) };
+    ...(activationConfigDigest ? { activationConfigDigest } : {}),
+    ...(runtime === 'vercel' || appFoundation || schemaMode === 'activation-bridge' ? { previewAccessKey: env.PREVIEW_ACCESS_KEY } : {}) };
 }
 
 export function parseMigrationConfig(env: NodeJS.ProcessEnv): ClientConfig {

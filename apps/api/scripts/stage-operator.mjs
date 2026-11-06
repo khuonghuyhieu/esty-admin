@@ -15,7 +15,10 @@ try {
   await mkdir(join(targetApp, 'build/scripts'), { recursive: true });
   await cp(join(appRoot, 'build/src'), join(targetApp, 'build/src'), { recursive: true });
   await cp(join(appRoot, 'build/config'), join(targetApp, 'build/config'), { recursive: true });
-  for (const name of ['migrate.js', 'migrations.js', 'migration-files.mjs', 'migration-status.js', 'migration-report.js', 'private-files.mjs', 'bounded.js']) {
+  for (const name of ['migrate.js', 'migrations.js', 'migration-files.mjs', 'migration-status.js', 'migration-report.js', 'private-files.mjs', 'bounded.js',
+    'artifact.js', 'build-artifact.js', 'ci-tools.js', 'ci-archive.js', 'ci-provider.js', 'ci-delivery.js', 'vercel-deploy.js', 'hosted-acceptance.js',
+    'release-journal.js', 'activation-journal.js', 'activation-inputs.js', 'activation-configuration.js', 'activation.js',
+    'app-roles.js', 'bootstrap-app-owner.js']) {
     await cp(join(appRoot, 'build/scripts', name), join(targetApp, 'build/scripts', name));
   }
   await mkdir(join(targetApp, 'migrations'));

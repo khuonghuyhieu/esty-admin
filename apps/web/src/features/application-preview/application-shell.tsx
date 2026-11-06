@@ -3,9 +3,8 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { ProfileMenu } from "../workspace-foundation/profile-menu";
-import { sampleSettings } from "../workspace-foundation/fixtures";
+import { useAppSession } from "../app-session/session-provider";
 import { Icon } from "./icon";
-import { workspace } from "./fixtures";
 import { ProjectsTable } from "./projects-table";
 import styles from "./application-preview.module.css";
 
@@ -23,6 +22,7 @@ function Sidebar({ section, onNavigate }: { section: Section; onNavigate?: () =>
 }
 
 export function ApplicationShell({ children, section = "dashboard" }: { children: ReactNode; section?: Section }) {
+  const { view } = useAppSession();
   const [query, setQuery] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawer = useRef<HTMLDialogElement>(null);
@@ -40,6 +40,8 @@ export function ApplicationShell({ children, section = "dashboard" }: { children
       desktop.removeEventListener("change", closeOnDesktop);
     };
   }, [drawerOpen]);
+
+  if (!view.me) return null;
 
   return <div className={styles.preview}>
     <aside className={styles.sidebar}><Sidebar section={section} /></aside>
@@ -65,12 +67,13 @@ export function ApplicationShell({ children, section = "dashboard" }: { children
           <h1>{section === "dashboard" ? "Project dashboard" : section === "team" ? "Team" : "Settings"}</h1>
         </div>
         <div className={styles.headerControls}>
-          <button className={styles.workspace} type="button" onClick={event => event.preventDefault()}><Icon name="pen" size={16} /><span>{section === "dashboard" ? workspace.name : sampleSettings.workspaceName}</span><Icon name="chevron" size={14} /></button>
+          <button className={styles.workspace} type="button" onClick={event => event.preventDefault()}><Icon name="pen" size={16} /><span>{view.me.workspace.displayName}</span><Icon name="chevron" size={14} /></button>
           {section === "dashboard" && <label className={styles.search}><Icon name="search" size={16} /><span className={styles.srOnly}>Search boards</span><input type="search" name="board-search" autoComplete="off" placeholder="Search boards…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>}
           <button className={styles.notifications} type="button" onClick={event => event.preventDefault()} aria-label="Notifications (3 unread)"><Icon name="bell" size={18} /><span>3</span></button>
           <ProfileMenu />
         </div>
       </header>
+      <p className={styles.sampleNotice}>{section === "dashboard" ? "Sample project content; boards and activity are not connected." : section === "team" ? "Sample team content — not the live workspace member list." : "Sample settings — changes are not saved."}</p>
       {children}
       {section === "dashboard" && <ProjectsTable query={query} onQueryChange={setQuery} />}
     </main>

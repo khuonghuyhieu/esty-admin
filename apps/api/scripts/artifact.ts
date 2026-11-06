@@ -121,7 +121,8 @@ export function sourceFiles(root: string): FileRecord[] {
   }
   for (const path of sourceRoots) {
     for (const file of inventory(join(root, path)).files) {
-      if (!/\.(?:ts|mjs|json)$/.test(file.path)) reject();
+      if (!/\.(?:ts|mjs|json)$/.test(file.path)
+        && !(path === 'apps/api/tests' && ['fixtures/auth-compose.yaml', 'fixtures/init-auth-db.sh'].includes(file.path))) reject();
       result.push({ ...file, path: `${path}/${file.path}` });
     }
   }
