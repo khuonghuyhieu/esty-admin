@@ -6,7 +6,7 @@ import { createConnection } from "node:net";
 
 const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const roots = ["src", "tests", "scripts"];
-const configs = ["next.config.ts", "tsconfig.json", "package.json", "playwright.config.ts", "eslint.config.mjs"];
+const configs = ["next.config.ts", "tsconfig.json", "package.json", "playwright.config.ts", "eslint.config.mjs", "vercel.json"];
 const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const noncePattern = /^[a-f0-9]{32}$/;
 const sourceExtension = /\.(?:tsx?|m?js|json|css|svg|png|jpe?g|webp|ico|woff2?|ttf|txt)$/;

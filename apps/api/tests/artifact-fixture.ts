@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { artifactTarget, assembleArtifact, builderConfig, canonical, finalRoutes, sha256, toolPins, removeArtifactTree } from '../scripts/artifact.js';
 import type { FileRecord, SourceIdentity, ToolEvidence, VerifiedArtifact } from '../scripts/artifact.js';
+import { migrationManifest } from '../src/generated/migrations.js';
+import { readFile } from 'node:fs/promises';
 
 // Synthetic packaging inputs: these prove rejection/consumption, not native execution.
 export async function artifactFixture(mode: SourceIdentity['mode'] = 'release', migrationSource = 'export function up() {}\n') {
@@ -34,6 +36,23 @@ export async function artifactFixture(mode: SourceIdentity['mode'] = 'release', 
     build: { node: artifactTarget.node, nodeSha256: sha256('synthetic-node'), npm: '11.19.1', platform: 'linux', arch: 'x64', tools, builderConfigDigest: sha256(canonical(builderConfig(config))), metadata: artifactTarget } });
   return { artifact, root, raw, operator, config, dispose: () => removeArtifactTree(root) };
 }
+export async function routineMigrationFixture(extra = 'export function up(pgm) { pgm.sql("CREATE TABLE public.routine_delivery_probe (id integer PRIMARY KEY)"); }\n') {
+  const base = await artifactFixture();
+  const files = base.artifact.manifest.source.files.filter(file => !file.path.startsWith('apps/api/migrations/'));
+  const next = `${Number(migrationManifest.at(-1)!.name.slice(0, 13)) + 1}-routine-delivery`;
+  const migrations = [...migrationManifest, { name: next, sha256: sha256(extra) }];
+  for (const entry of migrations) {
+    const path = `apps/api/migrations/${entry.name}.mjs`;
+    const bytes = entry.name === next ? Buffer.from(extra) : await readFile(new URL(`../../migrations/${entry.name}.mjs`, import.meta.url));
+    await writeFile(join(base.operator, path), bytes);
+    files.push({ path, size: bytes.length, mode: 0o644, sha256: sha256(bytes), sha1: createHash('sha1').update(bytes).digest('hex') });
+  }
+  const artifact = await assembleArtifact({ raw: base.raw, operator: base.operator, destination: join(base.root, 'routine'),
+    config: base.config, source: { ...base.artifact.manifest.source, repository: 'https://github.com/khuonghuyhieu/esty-admin',
+      files, digest: sha256(canonical(files)) }, migrations, build: base.artifact.manifest.build });
+  return { ...base, artifact };
+}
+
 
 export function fileTree(current: VerifiedArtifact, decimalModes = false): any[] {
   const root: any[] = [];

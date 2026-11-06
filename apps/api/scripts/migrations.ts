@@ -72,7 +72,7 @@ export async function migrationStatus(database: ClientConfig, directory = migrat
   finally { await client.end().catch(() => {}); }
 }
 export async function runMigrations(database: ClientConfig, options: {
-  directory?: string; sourceRevision?: string; target?: string; signal?: AbortSignal;
+  directory?: string; sourceRevision?: string; target?: string; signal?: AbortSignal; expectedBefore?: readonly string[];
 } = {}): Promise<MigrationReport> {
   const start = Date.now();
   const report: MigrationReport = { run_id: randomUUID(), source_revision: null, target: 'local', manifest_digest: '',
@@ -119,6 +119,10 @@ export async function runMigrations(database: ClientConfig, options: {
           const before = await history(db, manifest);
           report.before = before.applied;
           if (!before.ordered || before.unexpected.length) throw new Error('History order mismatch.');
+          if (options.expectedBefore && (!before.initialized || before.applied.length !== options.expectedBefore.length
+            || before.applied.some((name, index) => name !== options.expectedBefore![index]))) {
+            throw new Error('Approved pre-migration history changed.');
+          }
         }
         return result;
       };

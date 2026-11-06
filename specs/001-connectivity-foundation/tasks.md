@@ -2,6 +2,20 @@
 
 Updated: 2026-11-01 · Actual branch main · [Plan](plan.md)
 
+## Issue #5 — routine delivery source/local increment
+
+New owner START authorizes these tasks only in existing BE ownership; historical T001–T123 and their gates remain intact. No live SQL, provider mutation, deployment, Git publication, shared-doc/dependency changes or new reviewer by OMP.
+
+- [x] T124 Read issue #5/current CI/settings metadata and existing evidence; align spec/plan/research/quickstart, coordinate FE authority and resource leases. FR-044–048. Actual FE native-Git authority and promotion-before-BE-check gap are attributed in plan; inaccessible secret names stay UNKNOWN.
+- [x] T125 Replace routine OLD-only enforcement with explicit approved schema selection in `apps/api/scripts/ci-delivery.ts`/`ci-provider.ts`, preserving immutable verification and runner-free current-only delivery. FR-044.
+- [x] T126 Implement exact versioned migration packet, compatibility/rollback prerequisites, durable authorization/one-shot SQL/report/postflight and provider continuation using existing migration/operator/journal helpers. Initial activation/bootstrap is forbidden in routine mode. FR-045–046. Strict runtime preserves the activated prefix while requiring the full compiled history; one-time bridge remains exact.
+- [x] T127 Wire isolated workflow phases, visible gating/configuration prerequisites and packaged helpers in `.github/workflows/be-delivery.yml` and API packaging; no secrets in checks/tool bootstrap or migration credentials in CREATE. FR-044–047.
+- [x] T128 Extend existing focused CI/integration tests and run bounded compiled smoke checks for TARGET current-only, checksum/history/compatibility refusal, migration ordering, rollback/unknown/report failure, immutable transfer and zero forbidden effects. Preserve failures and protected resources. FR-044–046. Actual189/189,8/8,39/39 plus real Nest→owned55532 smoke and isolated packaging pass; workflow YAML/35 shell blocks parse, actionlint unavailable. Fixture retired; no cloud/native-Linux claim.
+- [x] T129 Record exact changed-file manifest, actual results, permission/configuration limitations and T108/T110 disposition in existing001 artifacts; stop READY_FOR_REVIEW. FR-047–048. Plan/quickstart retain failures,18-path manifest location, clean owned-resource receipt and remaining provider/shared-doc gates.
+- [x] T130 Coordinator runs one available scoped gpt-6-luna review after T129; owning OMP fixes confirmed findings and reruns only affected checks. Publication/provider activation remain separately authorized coordinator work. Coordinator confirms the original consolidated27-path T112 review had two findings: BE P1 completion-context gate and FE P2 bounded alias propagation; both are accepted through separate fix-only inspections, not another independent review or rerun. BE evidence:64 actual completion-shell cases, missing-input refusal,16 producer cases and36 syntax checks. FE-attributed post-P2 evidence:17/17 functional, scoped lint/syntax0 and real loopback CLI propagation/stale-exhaustion/503 cases. Exact accepted18-path BE and9-path FE receipt hashes, three corrected FE hashes, historical pre-P2 results and no-actual-Actions/Vercel limits are retained in plan/quickstart. T108 stays UNPROVEN/unchecked; historical T110503 NOT REPRODUCED / CAUSE UNPROVEN. Provider selection/verification of BE delivery accepted and T121 remain open; source/docs paused, no in-flight work.
+
+Order: T124 → T125/T126 → T127 → T128 → T129 → T130. One source writer; no implicit parallel resource or shared-document lease.
+
 ## Feature005 scoped handoff — no existing task closure
 
 Feature005's owner-approved BE source/local tasks live in `specs/005-app-foundation/tasks.md`; retain every T001–T094 identity/checkmark and all FE/history evidence here. p12 owns the sole canonical OpenAPI and BE generated output under the explicit contract grant; the FE generated consumer remains FE-owned and requires an exact delta/hash handoff before later FE generation/build.

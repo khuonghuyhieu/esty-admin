@@ -6,11 +6,15 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { artifactTarget, canonical, inventory, removeArtifactTree, snapshotArtifact, verifyArtifact } from './artifact.js';
 import type { ArtifactSnapshot, VerifiedArtifact } from './artifact.js';
-import { approvedMigrationDigest, createProvider, deploymentId, repository } from './ci-provider.js';
+import { createProvider, deploymentId, repository } from './ci-provider.js';
 import type { ActivationDeliveryContext, ActivationProvider, Candidate, DeliveryProvider, RunIdentity } from './ci-provider.js';
 import { command, isolatedEnvironment } from './ci-tools.js';
 import type { CommandResult } from './ci-tools.js';
 import { validateActivationPacket, verifyActivationArtifact } from './activation-journal.js';
+import { approvedSchema, authorizeRoutineMigration, continueRoutineMigration, executeRoutineMigration,
+  routinePacket, verifyRoutineArtifact } from './ci-migrations.js';
+import type { RoutineSchema } from './ci-migrations.js';
+import { decodePhaseInput } from './activation-inputs.js';
 
 export function deliveryContext(env: NodeJS.ProcessEnv, tree: string): RunIdentity {
   if (env.GITHUB_ACTIONS !== 'true' || env.GITHUB_REPOSITORY !== repository || env.GITHUB_REF !== 'refs/heads/main'
@@ -29,21 +33,22 @@ export function acknowledgedId(stdout: string): string | undefined {
     return typeof id === 'string' && deploymentId.test(id) ? id : undefined;
   } catch { return undefined; }
 }
-export async function deliver(input: { artifact: VerifiedArtifact; run: RunIdentity; provider: DeliveryProvider; cli: DeliveryCli;
+export async function deliver(input: { artifact: VerifiedArtifact; run: RunIdentity; schema: RoutineSchema;
+  provider: DeliveryProvider; cli: DeliveryCli; reservation?: { journal: number; predecessor: string };
   signal: AbortSignal; receipt(event: Record<string, unknown>): void; pause?: () => Promise<void> }): Promise<string> {
   const { artifact, run, provider, cli, signal, receipt } = input;
+  if (Boolean(input.schema.migration) !== Boolean(input.reservation)) throw new Error('Migration continuation is required.');
   const verify = () => {
     signal.throwIfAborted();
-    const actual = verifyArtifact(artifact.root, artifact.digest, { revision: run.revision, migrationDigest: approvedMigrationDigest,
-      repository: `https://github.com/${repository}`, release: true });
-    if (actual.manifest.source.tree !== run.tree) throw new Error('Tested source tree differs.');
+    verifyRoutineArtifact(artifact, run, input.schema);
   };
   verify();
   await provider.currentMain();
   const predecessor = await provider.preflight();
-  let journal: number | undefined, id: string | undefined;
+  if (input.reservation && predecessor !== input.reservation.predecessor) throw new Error('Migrated predecessor binding changed.');
+  let journal: number | undefined = input.reservation?.journal, id: string | undefined;
   try {
-    journal = await provider.reserve();
+    journal ??= await provider.reserve();
     receipt({ phase: 'reserved', journal, run, artifact: artifact.digest, predecessor });
     await provider.record(journal, 'in_progress', 'create_intent_unknown_until_acknowledged');
     await provider.currentMain(); await provider.binding(predecessor); verify();
@@ -174,21 +179,60 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (!root || !digest || !tree || !cli || !reports || process.argv.length !== 7 || process.versions.node !== artifactTarget.node
       || process.platform !== 'linux' || process.arch !== 'x64') throw new Error('Exact delivery arguments/platform required.');
     const run = deliveryContext(process.env, tree), signal = AbortSignal.any([abort.signal, AbortSignal.timeout(900000)]);
-    isolated = await snapshotArtifact(verifyArtifact(root, digest, { revision: run.revision, migrationDigest: approvedMigrationDigest,
+    const mode = process.env.BE_DELIVERY_MODE, action = process.env.BE_ROUTINE_ACTION;
+    if (!['current-schema-only', 'versioned-migration'].includes(mode ?? '')
+      || !['authorize', 'migrate', 'deliver'].includes(action ?? '')
+      || (mode === 'current-schema-only' && action !== 'deliver')) throw new Error('Explicit routine delivery mode/action required.');
+    const schema: RoutineSchema = { digest: approvedSchema(process.env.BE_DELIVERY_SCHEMA_SHA256) };
+    isolated = await snapshotArtifact(verifyArtifact(root, digest, { revision: run.revision, migrationDigest: schema.digest,
       repository: `https://github.com/${repository}`, release: true }));
-    // Public tooling was bootstrapped in an earlier secret-free step, never installed with this environment.
-    if (JSON.parse(readFileSync(resolve(cli, '../../package.json'), 'utf8')).version !== '65.4.0') throw new Error('CLI pin differs.');
-    const provider = createProvider(isolated, run, { github: process.env.GITHUB_TOKEN ?? '', vercel: process.env.VERCEL_TOKEN ?? '',
-      bearer: process.env.BE_PREVIEW_ACCESS_KEY ?? '', bypass: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '' }, signal);
-    official = await officialCli(isolated, resolve(cli), process.env.VERCEL_TOKEN ?? '', signal);
-    await mkdir(reports, { mode: 0o700 }); let index = 0;
-    const receipt = (event: Record<string, unknown>) => {
-      const fd = openSync(join(reports, `${String(index++).padStart(3, '0')}.json`), 'wx', 0o600);
-      try { writeFileSync(fd, JSON.stringify(event) + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
-      const directory = openSync(reports, 'r'); try { fsyncSync(directory); } finally { closeSync(directory); }
-    };
-    const id = await deliver({ artifact: isolated, run, provider, cli: official, signal, receipt });
-    console.info(JSON.stringify({ status: 'accepted', id, artifact: digest, region: 'icn1' }));
+    const executing = inventory(fileURLToPath(new URL('../../../../', import.meta.url)));
+    const expectedFiles = isolated.manifest.files.filter(file => file.path.startsWith('operator/'))
+      .map(file => ({ ...file, path: file.path.slice(9) }));
+    const expectedDirectories = isolated.manifest.directories.filter(entry => entry.path.startsWith('operator/'))
+      .map(entry => ({ ...entry, path: entry.path.slice(9) }));
+    if (canonical(executing.files) !== canonical(expectedFiles) || canonical(executing.directories) !== canonical(expectedDirectories)) {
+      throw new Error('Executing operator differs from the tested artifact.');
+    }
+    if (mode === 'versioned-migration') {
+      const packetDigest = approvedSchema(process.env.BE_MIGRATION_PACKET_SHA256);
+      const packet = routinePacket(decodePhaseInput(process.env.BE_MIGRATION_PACKET_JSON), packetDigest, isolated, run);
+      if (packet.target === 'local') throw new Error('Actions migration must use the approved cloud target.');
+      schema.migration = { packet, digest: packetDigest };
+    }
+    const providerSecrets = ['GITHUB_TOKEN', 'VERCEL_TOKEN', 'BE_PREVIEW_ACCESS_KEY', 'VERCEL_AUTOMATION_BYPASS_SECRET'];
+    const forbidden = ['VERCEL_CONFIGURATION_TOKEN', 'ACTIVATION_ROLE_INPUTS', 'ACTIVATION_BOOTSTRAP_INPUTS',
+      'ACTIVATION_MIGRATION_INPUTS', 'ACTIVATION_BRIDGE_INPUTS', 'ACTIVATION_APP_INPUTS'];
+    if (forbidden.some(key => process.env[key] !== undefined)
+      || (action === 'migrate' ? providerSecrets.some(key => process.env[key] !== undefined)
+        : process.env.BE_MIGRATION_INPUTS !== undefined)) throw new Error('Routine phase credential boundary differs.');
+    await mkdir(reports, { mode: 0o700, recursive: true });
+    if (action === 'migrate') {
+      await executeRoutineMigration({ artifact: isolated, run, schema, directory: reports,
+        values: decodePhaseInput(process.env.BE_MIGRATION_INPUTS), signal });
+      console.info('BE_MIGRATION_CONFIRMED');
+    } else {
+      // Public tooling was bootstrapped in an earlier secret-free step, never installed with this environment.
+      if (JSON.parse(readFileSync(resolve(cli, '../../package.json'), 'utf8')).version !== '65.4.0') throw new Error('CLI pin differs.');
+      const provider = createProvider(isolated, run, schema, { github: process.env.GITHUB_TOKEN ?? '', vercel: process.env.VERCEL_TOKEN ?? '',
+        bearer: process.env.BE_PREVIEW_ACCESS_KEY ?? '', bypass: process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '' }, signal);
+      if (action === 'authorize') {
+        await authorizeRoutineMigration({ artifact: isolated, run, schema, provider, directory: reports });
+        console.info('BE_MIGRATION_AUTHORIZED');
+      } else {
+        const reservation = schema.migration
+          ? await continueRoutineMigration({ artifact: isolated, run, schema, provider, directory: reports }) : undefined;
+        official = await officialCli(isolated, resolve(cli), process.env.VERCEL_TOKEN ?? '', signal);
+        let index = 0;
+        const receipt = (event: Record<string, unknown>) => {
+          const fd = openSync(join(reports, `${String(index++).padStart(3, '0')}.json`), 'wx', 0o600);
+          try { writeFileSync(fd, JSON.stringify(event) + '\n'); fsyncSync(fd); } finally { closeSync(fd); }
+          const directory = openSync(reports, 'r'); try { fsyncSync(directory); } finally { closeSync(directory); }
+        };
+        const id = await deliver({ artifact: isolated, run, schema, provider, cli: official, signal, receipt, reservation });
+        console.info(JSON.stringify({ status: 'accepted', id, artifact: digest, region: 'icn1' }));
+      }
+    }
   } catch { console.error('BE_DELIVERY_NOT_ACCEPTED: inspect the durable intent; do not rerun blindly.'); process.exitCode = 1; }
   finally { await official?.dispose(); await isolated?.dispose(); process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
 }

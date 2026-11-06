@@ -23,14 +23,18 @@ import { saveMigrationReport } from '../scripts/migration-report.js';
 import { manifestDigest } from '../scripts/migrations.js';
 import { runRelease, reconcileRelease, assertSourceApproval } from '../scripts/release-core.js';
 import type { Deployment, ReleaseInput } from '../scripts/release-core.js';
-import { describeRetainedRun, readReleaseJournal, writeReleaseEvidence } from '../scripts/release-journal.js';
+import { describeRetainedRun, readEvidence, readReleaseJournal, writeReleaseEvidence } from '../scripts/release-journal.js';
 import type { ReleaseBinding, SupersessionApproval } from '../scripts/release-journal.js';
 import type { DeploymentDiagnostics } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
-import { artifactFixture, fileTree } from './artifact-fixture.js';
+import { artifactFixture, fileTree, routineMigrationFixture } from './artifact-fixture.js';
 import { assertContract, createApplication, get, startApi } from './helpers.js';
 import { tlsPostgres } from './tls.js';
-import { snapshotArtifact, verifyArtifact } from '../scripts/artifact.js';
+import { canonical, sha256, snapshotArtifact, verifyArtifact } from '../scripts/artifact.js';
+import { authorizeRoutineMigration, continueRoutineMigration, executeRoutineMigration } from '../scripts/ci-migrations.js';
+import type { RoutineMigrationPacket, RoutineSchema } from '../scripts/ci-migrations.js';
+import { deliver } from '../scripts/ci-delivery.js';
+import type { RoutineProvider } from '../scripts/ci-provider.js';
 
 const nextMigrationVersion = String(Number(expectedMigrations.at(-1)!.slice(0, 13)) + 1);
 
@@ -1161,4 +1165,103 @@ console.log(JSON.stringify(await runMigrations(${JSON.stringify(fixture.database
   assert.ok(report.attempted.every((item: { outcome: string }) => item.outcome === 'unknown'));
   const inspected = await migrationStatus(fixture.database);
   assert.deepEqual(inspected.applied, expectedMigrations); assert.deepEqual(inspected.pending, []);
+});
+
+test('routine versioned delivery commits one exact batch before create and fences rollback, unknown ACK and replay', async t => {
+  for (const scenario of ['success', 'rollback', 'unknown-commit', 'create-failure']) await t.test(scenario, async t => {
+    const db = await databaseFixture(t);
+    assert.equal((await runMigrations(db.database)).result, 'success');
+    const f = await routineMigrationFixture(scenario === 'rollback'
+      ? 'export function up(pgm) { pgm.sql("CREATE TABLE public.routine_delivery_probe (id integer); SELECT 1/0"); }\n' : undefined);
+    t.after(f.dispose);
+    const directory = await realpath(await mkdtemp(join(tmpdir(), 'esty-routine-integration-')));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const run = { revision: f.artifact.manifest.source.revision, tree: f.artifact.manifest.source.tree, run: '123' };
+    const values = { MIGRATION_TARGET: 'local', DATABASE_URL: db.url };
+    const packet: RoutineMigrationPacket = { version: 1, revision: run.revision, tree: run.tree, target: 'local',
+      previous: migrationManifest, migrations: f.artifact.manifest.migrations, migrationInputDigest: sha256(canonical(values)),
+      predecessor: { id: 'dpl_previous', revision: 'e'.repeat(40), artifact: sha256('prior'), configDigest: sha256('config') },
+      compatibilityApproval: sha256('synthetic-reviewed-compatibility'), recoveryApproval: sha256('synthetic-recovery') };
+    const schema: RoutineSchema = { digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+    const events: string[] = []; let alias = 'dpl_previous', status = '', creates = 0, promotions = 0;
+    const provider: RoutineProvider = {
+      async currentMain() {}, async preflight() { return alias; }, async compatiblePredecessor() { events.push('compatible'); },
+      async reserve() { events.push('reserve'); return 44; },
+      async record(_id, state, description) { status = description; events.push(`${state}:${description}`); },
+      async confirmRoutineJournal(_id, description) { assert.equal(status, description); },
+      async binding(id) { assert.equal(alias, id); },
+      async inspect(id) { return { id, ready: true, origin: 'https://synthetic.vercel.app' }; },
+      async attest() {}, async http() {
+        const actual = await migrationStatus(db.database, join(f.artifact.root, 'operator/apps/api/migrations'));
+        assert.deepEqual(actual.applied, packet.migrations.map(item => item.name)); assert.deepEqual(actual.pending, []);
+      },
+    };
+    const input = { artifact: f.artifact, run, schema, provider, directory };
+    await authorizeRoutineMigration(input);
+    if (scenario === 'unknown-commit') {
+      const script = join(directory, 'unknown-worker.mjs');
+      await writeFile(script, `
+import {createRequire} from 'node:module';
+const {Client}=createRequire(${JSON.stringify(new URL('../../package.json', import.meta.url).pathname)})('pg');
+const original=Client.prototype.query; let changed=false;
+Client.prototype.query=async function(...args) {
+  const result=await original.apply(this,args);
+  const sql=typeof args[0]==='string'?args[0]:args[0].text;
+  if(sql.includes('CREATE TABLE public.routine_delivery_probe')) changed=true;
+  if(changed && sql.trim().replace(/;$/,'').toUpperCase()==='COMMIT') throw new Error('Synthetic lost commit acknowledgement');
+  return result;
+};
+const {executeRoutineMigration}=await import(${JSON.stringify(new URL('../scripts/ci-migrations.js', import.meta.url).href)});
+try { await executeRoutineMigration({...${JSON.stringify({ artifact: f.artifact, run, schema, directory, values })},signal:AbortSignal.timeout(15000)}); process.exitCode=2; }
+catch { console.log('EXPECTED_UNKNOWN_FENCE'); }
+`);
+      const child = spawnSync(process.execPath, [script], { encoding: 'utf8', timeout: 20000,
+        env: { PATH: process.env.PATH, TMPDIR: process.env.TMPDIR } });
+      assert.equal(child.status, 0, child.stderr); assert.equal(child.stdout.trim(), 'EXPECTED_UNKNOWN_FENCE');
+    } else if (scenario === 'rollback') {
+      await assert.rejects(executeRoutineMigration({ ...input, values, signal: AbortSignal.timeout(15000) }));
+    } else {
+      await executeRoutineMigration({ ...input, values, signal: AbortSignal.timeout(15000) });
+    }
+    const result = readEvidence(join(directory, 'migration-outcome.json')).value as { report: { database_outcome: string; attempted: unknown[] } };
+    assert.equal(result.report.database_outcome, scenario === 'rollback' ? 'rolled_back' : scenario === 'unknown-commit' ? 'unknown' : 'committed');
+    assert.equal(result.report.attempted.length, 1);
+    assert.equal((await db.client.query("SELECT to_regclass('public.routine_delivery_probe') AS name")).rows[0].name !== null, scenario !== 'rollback');
+    await assert.rejects(executeRoutineMigration({ ...input, values, signal: AbortSignal.timeout(15000) }));
+    if (scenario === 'rollback' || scenario === 'unknown-commit') {
+      await assert.rejects(continueRoutineMigration(input));
+      assert.equal(fs.existsSync(join(directory, 'migration-confirmed.json')), false);
+    } else {
+      const reservation = await continueRoutineMigration(input);
+      const delivery = deliver({ artifact: f.artifact, run, schema, provider, reservation, signal: AbortSignal.timeout(15000),
+        receipt(event) { events.push(`receipt:${event.phase}`); }, cli: {
+          async create() {
+            creates++;
+            assert.equal(result.report.database_outcome, 'committed');
+            assert.equal((await db.client.query('SELECT count(*)::integer AS n FROM public.foundation_migrations')).rows[0].n, 4);
+            return { code: scenario === 'create-failure' ? 1 : 0, stdout: '{"deployment":{"id":"dpl_candidate"}}', aborted: false };
+          },
+          async promote() { promotions++; alias = 'dpl_candidate'; return { code: 0, stdout: '', aborted: false }; },
+        } });
+      if (scenario === 'create-failure') await assert.rejects(delivery);
+      else assert.equal(await delivery, 'dpl_candidate');
+      await assert.rejects(continueRoutineMigration(input));
+      assert.equal(events.filter(event => event === 'reserve').length, 1);
+    }
+    assert.equal(creates, scenario === 'success' || scenario === 'create-failure' ? 1 : 0);
+    assert.equal(promotions, scenario === 'success' ? 1 : 0);
+    if (scenario !== 'success') assert.equal(events.some(event => event.startsWith('success:')), false);
+  });
+});
+
+test('routine expected history is checked under the migration advisory lock before any new action', async t => {
+  const db = await databaseFixture(t);
+  assert.equal((await runMigrations(db.database)).result, 'success');
+  const f = await routineMigrationFixture(); t.after(f.dispose);
+  const directory = join(f.artifact.root, 'operator/apps/api/migrations');
+  const refused = await runMigrations(db.database, { directory, expectedBefore: [expectedMigrations[0]!] });
+  assert.equal(refused.result, 'failed'); assert.equal(refused.stage, 'lock/order');
+  assert.deepEqual(refused.attempted, []);
+  assert.equal((await db.client.query("SELECT to_regclass('public.routine_delivery_probe') AS name")).rows[0].name, null);
+  assert.deepEqual((await migrationStatus(db.database, directory)).applied, expectedMigrations);
 });

@@ -13,6 +13,7 @@ on:
         type: choice
         options:
           - current-schema-only
+          - versioned-migration
           - activation
 
 permissions:
@@ -51,6 +52,14 @@ jobs:
         with:
           node-version: 24.22.1
           package-manager-cache: false
+      - name: Explain production gating without credentials
+        env:
+          DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
+          DELIVERY_MODE: ${{ inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only' }}
+          SCHEMA_APPROVED: ${{ vars.BE_DELIVERY_SCHEMA_SHA256 != '' }}
+        run: |
+          printf '## BE delivery gate\nEnabled: `%s`\nMode: `%s`\nApproved schema configured: `%s`\n\nChecks success is not deployment acceptance. Production requires be-production inputs and successful exact-artifact final-domain checks.\n' \
+            "$DELIVERY_ENABLED" "$DELIVERY_MODE" "$SCHEMA_APPROVED" >> "$GITHUB_STEP_SUMMARY"
       - name: Install unchanged-lock API dependencies on this disposable runner
         run: npm ci --workspace=@esty-admin/api --include-workspace-root=false --ignore-scripts --no-audit --no-fund
       - name: Verify generated contract and compile
@@ -79,10 +88,13 @@ jobs:
       github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       vars.BE_DELIVERY_ENABLED == 'true' &&
-      (inputs.mode != 'activation' || vars.BE_ACTIVATION_ENABLED == 'true')
+      ((inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only') != 'activation' ||
+        (github.event_name == 'workflow_dispatch' && inputs.mode == 'activation' && vars.BE_ACTIVATION_ENABLED == 'true'))
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: be-production
+    outputs:
+      accepted: ${{ steps.routine_delivery.outcome == 'success' || steps.activation_delivery.outcome == 'success' }}
     concurrency:
       group: esty-admin-be-production
       cancel-in-progress: false
@@ -95,6 +107,12 @@ jobs:
       BE_ACTIVATION_ENABLED: ${{ vars.BE_ACTIVATION_ENABLED }}
       BE_ACTIVATION_PACKET_SHA256: ${{ vars.BE_ACTIVATION_PACKET_SHA256 }}
       BE_ACTIVATION_CONTEXT: actions
+      BE_DELIVERY_MODE: ${{ inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only' }}
+      BE_DELIVERY_SCHEMA_SHA256: ${{ vars.BE_DELIVERY_SCHEMA_SHA256 }}
+      BE_MIGRATION_PACKET_JSON: ${{ vars.BE_MIGRATION_PACKET_JSON }}
+      BE_MIGRATION_PACKET_SHA256: ${{ vars.BE_MIGRATION_PACKET_SHA256 }}
+      ARTIFACT_SHA: ${{ needs.checks.outputs.artifact_hash }}
+      SOURCE_TREE: ${{ needs.checks.outputs.source_tree }}
     steps:
       - name: Set exact delivery runtime without application installation
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
@@ -117,23 +135,38 @@ jobs:
           tar -xzf "$RUNNER_TEMP/be-transfer/be-release.tar.gz" -C "$RUNNER_TEMP/be-consume"
       - name: Bootstrap independently verified public CLI before secrets are present
         run: node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-tools.js" "$RUNNER_TEMP/be-tools"
-      - name: Reserve durable intent, validate candidate, promote once and verify exact domain
-        if: inputs.mode != 'activation'
+      - name: Reserve and confirm compatible versioned migration intent
+        if: env.BE_DELIVERY_MODE == 'versioned-migration'
         env:
+          BE_ROUTINE_ACTION: authorize
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: &routine-command >-
+          node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-delivery.js"
+          "$RUNNER_TEMP/be-consume/artifact" "$ARTIFACT_SHA" "$SOURCE_TREE"
+          "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js" "$RUNNER_TEMP/be-receipts"
+      - name: Apply approved versioned migrations in the SQL-only worker
+        if: env.BE_DELIVERY_MODE == 'versioned-migration'
+        env:
+          BE_ROUTINE_ACTION: migrate
+          BE_MIGRATION_INPUTS: ${{ secrets.BE_MIGRATION_INPUTS }}
+        run: *routine-command
+      - name: Reserve durable intent, validate candidate, promote once and verify exact domain
+        id: routine_delivery
+        if: env.BE_DELIVERY_MODE != 'activation'
+        env:
+          BE_ROUTINE_ACTION: deliver
           GITHUB_TOKEN: ${{ github.token }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           BE_DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
           BE_DELIVERY_ENVIRONMENT: be-production
-          ARTIFACT_SHA: ${{ needs.checks.outputs.artifact_hash }}
-          SOURCE_TREE: ${{ needs.checks.outputs.source_tree }}
-        run: >-
-          node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-delivery.js"
-          "$RUNNER_TEMP/be-consume/artifact" "$ARTIFACT_SHA" "$SOURCE_TREE"
-          "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js" "$RUNNER_TEMP/be-receipts"
+        run: *routine-command
       - name: Prepare the explicitly approved public activation packet without credentials
-        if: &activation-mode inputs.mode == 'activation'
+        if: &activation-mode env.BE_DELIVERY_MODE == 'activation'
         env:
           ACTIVATION_ACTION: prepare
           ACTIVATION_PHASE: "-"
@@ -340,6 +373,7 @@ jobs:
           BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
         run: *activation-command
       - name: Confirm strict BE and retain the external FE acceptance gate
+        id: activation_delivery
         if: *activation-mode
         env:
           ACTIVATION_ACTION: confirm
@@ -371,3 +405,24 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
           overwrite: false
+
+  completion:
+    name: BE delivery accepted
+    needs: [checks, production]
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Require successful exact-artifact delivery, never a skipped job
+        env:
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          DELIVERY_RESULT: ${{ needs.production.result }}
+          DELIVERY_ACCEPTED: ${{ needs.production.outputs.accepted }}
+        shell: bash
+        run: |
+          if [[ "$CHECKS_RESULT" != success || "$DELIVERY_RESULT" != success || "$DELIVERY_ACCEPTED" != true ]]; then
+            printf '%s\n' 'BE delivery not accepted: checks, production and final delivery acceptance must all succeed.' >&2
+            exit 1
+          fi
+          printf '%s\n' 'Exact-artifact BE delivery accepted. First-activation FE acceptance remains a separate gate.'

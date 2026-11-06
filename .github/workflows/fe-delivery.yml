@@ -1,0 +1,51 @@
+name: FE delivery evidence
+
+on:
+  status:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fe-public-smoke-${{ github.event.sha }}
+  cancel-in-progress: false
+
+jobs:
+  classify:
+    name: FE smoke eligibility
+    if: github.repository == 'khuonghuyhieu/esty-admin' && github.event.context == 'Vercel – esty-admin'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    outputs:
+      outcome: ${{ steps.event.outputs.outcome }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      - name: Classify the exact native status without credentials
+        id: event
+        run: node apps/web/scripts/fe-delivery.mjs classify
+
+  smoke:
+    name: FE hosted smoke
+    needs: classify
+    if: needs.classify.outputs.outcome == 'run'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.event.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      # Native Vercel already deployed. This job never builds, deploys, promotes or proves Owner admission.
+      - name: Verify public documents from the exact production source and deployment
+        run: node apps/web/scripts/fe-delivery.mjs smoke

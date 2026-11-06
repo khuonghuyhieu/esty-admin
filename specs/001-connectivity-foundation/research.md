@@ -1,5 +1,15 @@
 # Backend foundation decisions
 
+## Issue #5 — routine-delivery decisions
+
+- Decision: require an explicit approved schema digest for routine current-only delivery rather than replacing OLD with an automatically derived digest. Evidence: both current delivery verifier paths hard-pin OLD while the published artifact contains TARGET. An independently configured TARGET pin preserves no-migration checksum enforcement after one-time activation.
+- Decision: versioned routine delivery uses an exact approved source/artifact/previous-prefix/target/predecessor packet, one shared remote fence and separate provider/SQL/provider workers. Reuse existing migration status/runner/report and Session TLS. Reject initial activation, incompatible predecessor, altered prefixes and ambiguous outcomes; no role/bootstrap/configuration side effects.
+- Decision: require reviewed compatibility and recovery evidence bound to the exact predecessor artifact/configuration. Append-only filenames and provider READY do not prove compatibility. A strict predecessor cannot be assumed to serve a new history; no automatic rollback or arbitrary bridge widening.
+- Evidence: actual public main run42164746470 at2e6065abcdf9549fec971aadf762fbdfa788a9fa has successful checks and skipped production. Accessible repo metadata is pull-only; main rules are empty, protection/environment-secret-name404 and workflow-permission403 remain access limits, not verified absence.
+- Session decision: issue #5 requires an explicit acceptance decision before changing timebox semantics. Existing NULL/valid-JWT200/refresh400 and unexplained historical503 do not justify speculative code changes. Preserve T108 and historical T110 limits.
+
+This source/local increment does not enable Actions/provider settings or approve a production packet. FE owns its single deployment authority and supplies actual project evidence separately.
+
 ## Current BE CI/delivery decisions — owner-authorized addon
 
 Primary documentation was consulted before selecting the workflow/provider path; these decisions are not an actual Actions run. Retain the existing application/root lock and native builder pins.

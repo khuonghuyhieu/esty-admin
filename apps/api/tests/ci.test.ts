@@ -8,10 +8,10 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
-import { artifactFixture } from './artifact-fixture.js';
+import { artifactFixture, routineMigrationFixture } from './artifact-fixture.js';
 import { checksContext } from '../scripts/ci.js';
 import { acknowledgedId, deliver, deliverActivationCandidate, deliveryContext } from '../scripts/ci-delivery.js';
-import { approvedMigrationDigest, createActivationProvider, createProvider, repository } from '../scripts/ci-provider.js';
+import { createActivationProvider, createProvider, repository } from '../scripts/ci-provider.js';
 import type { ActivationProvider, DeliveryProvider, RunIdentity } from '../scripts/ci-provider.js';
 import { verifyUploadedArchive } from '../scripts/ci-archive.js';
 import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
@@ -23,8 +23,13 @@ import type { ActivationPacket, ActivationPhase } from '../scripts/activation-jo
 import { completeActivation, executeActivationPhase, reconcileActivationEffect } from '../scripts/activation.js';
 import { phaseInputEnvironment } from '../scripts/activation-inputs.js';
 import { configureActivation, inspectActivationConfiguration, ActivationConfigurationError } from '../scripts/activation-configuration.js';
-import { writeReleaseEvidence } from '../scripts/release-journal.js';
+import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
 import { activationSchema } from '../src/config/schema-transition.js';
+import { approvedSchema, authorizeRoutineMigration, confirmedMigration, continueRoutineMigration, routinePacket } from '../scripts/ci-migrations.js';
+import type { RoutineMigrationPacket, RoutineSchema } from '../scripts/ci-migrations.js';
+import type { RoutineProvider } from '../scripts/ci-provider.js';
+import type { MigrationReport } from '../scripts/migrations.js';
+const oldSchema: RoutineSchema = { digest: activationSchema.oldDigest };
 
 interface Fixture { artifact: VerifiedArtifact; dispose(): Promise<void> }
 async function fixture(): Promise<Fixture> {
@@ -66,7 +71,7 @@ function harness(artifact: VerifiedArtifact, failure?: string) {
     async attest() { step('attest'); }, async binding(id) { step('binding'); assert.equal(id, alias); },
     async http(_origin, candidate) { step(candidate ? 'candidate_http' : 'production_http'); },
   };
-  const input = { artifact, run, provider, signal: AbortSignal.timeout(10000),
+  const input = { artifact, run, schema: oldSchema, provider, signal: AbortSignal.timeout(10000),
     receipt(event: Record<string, unknown>) { step(`receipt:${event.phase}`); },
     cli: {
       async create(): Promise<CommandResult> { creates++; step('create'); return { code: 0, stdout: JSON.stringify({ deployment: { id: 'dpl_candidate' } }), aborted: false }; },
@@ -77,7 +82,7 @@ function harness(artifact: VerifiedArtifact, failure?: string) {
 }
 test('exact current-schema candidate acceptance precedes one promotion and final alias acceptance', async t => {
   const f = await fixture(); t.after(f.dispose);
-  assert.equal(f.artifact.manifest.migrationDigest, approvedMigrationDigest);
+  assert.equal(f.artifact.manifest.migrationDigest, activationSchema.oldDigest);
   const h = harness(f.artifact); assert.equal(await deliver(h.input), 'dpl_candidate');
   assert.deepEqual(h.counts(), { creates: 1, promotions: 1 });
   assert.ok(h.events.indexOf('receipt:acknowledged') < h.events.indexOf('inspect'));
@@ -85,7 +90,7 @@ test('exact current-schema candidate acceptance precedes one promotion and final
   assert.ok(h.events.indexOf('production_http') < h.events.indexOf('success:accepted:dpl_candidate'));
   assert.ok(h.events.indexOf('receipt:create_intent') < h.events.indexOf('create'));
 });
-test('current-schema-only delivery rejects the app migration manifest before any provider action', async t => {
+test('current-only refuses an unapproved app schema and accepts explicitly approved TARGET without a migration phase', async t => {
   const base = await artifactFixture();
   t.after(base.dispose);
   const files = base.artifact.manifest.source.files.filter(entry => !entry.path.startsWith('apps/api/migrations/'));
@@ -102,11 +107,135 @@ test('current-schema-only delivery rejects the app migration manifest before any
   });
   verifyArtifact(artifact.root, artifact.digest, { revision: run.revision, migrationDigest: artifact.manifest.migrationDigest,
     repository: `https://github.com/${repository}`, release: true });
-  assert.notEqual(artifact.manifest.migrationDigest, approvedMigrationDigest);
+  assert.notEqual(artifact.manifest.migrationDigest, activationSchema.oldDigest);
   const h = harness(artifact);
   await assert.rejects(deliver(h.input));
   assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
   assert.deepEqual(h.events, []);
+  const approved = harness(artifact); approved.input.schema = { digest: activationSchema.targetDigest };
+  assert.equal(await deliver(approved.input), 'dpl_candidate');
+  assert.deepEqual(approved.counts(), { creates: 1, promotions: 1 });
+  let requests = 0;
+  assert.throws(() => createProvider(artifact, run, oldSchema, credentials, AbortSignal.timeout(10000),
+    async () => { requests++; throw new Error('Unexpected transport.'); }));
+  assert.equal(requests, 0);
+  for (const value of [undefined, '', 'not-a-digest']) assert.throws(() => approvedSchema(value));
+});
+
+function migrationPacketFor(artifact: VerifiedArtifact): RoutineMigrationPacket {
+  return { version: 1, revision: run.revision, tree: run.tree, target: 'local', previous: migrationManifest,
+    migrations: artifact.manifest.migrations, migrationInputDigest: sha256('synthetic-input'),
+    predecessor: { id: 'dpl_previous', revision: 'e'.repeat(40), artifact: sha256('prior'), configDigest: sha256('config') },
+    compatibilityApproval: sha256('reviewed-compatible-predecessor'), recoveryApproval: sha256('reviewed-recovery') };
+}
+test('routine migration approval rejects initial activation, altered prior checksums and unbound source', async t => {
+  const f = await routineMigrationFixture(); t.after(f.dispose);
+  const packet = migrationPacketFor(f.artifact);
+  assert.deepEqual(routinePacket(packet, sha256(canonical(packet)), f.artifact, run), packet);
+  for (const changed of [{ ...packet, previous: packet.previous.slice(0, 1) },
+    { ...packet, previous: packet.migrations }, { ...packet, previous: [...packet.previous].reverse() },
+    { ...packet, previous: packet.previous.map((item, index) => index ? item : { ...item, sha256: 'f'.repeat(64) }) },
+    { ...packet, revision: 'f'.repeat(40) }, { ...packet, compatibilityApproval: '' },
+    { ...packet, recoveryApproval: '' }, { ...packet, extra: true }]) {
+    assert.throws(() => routinePacket(changed, sha256(canonical(changed)), f.artifact, run));
+  }
+  assert.throws(() => routinePacket(packet, '0'.repeat(64), f.artifact, run));
+});
+
+test('routine migration authorization is durable, confirmed and cannot be repeated after a lost acknowledgement', async t => {
+  const f = await routineMigrationFixture(); t.after(f.dispose);
+  const packet = migrationPacketFor(f.artifact), schema: RoutineSchema = {
+    digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+  for (const fail of ['compatible', 'reserve', 'record', 'confirm', 'none']) {
+    const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-routine-authorization-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const h = harness(f.artifact), events: string[] = [];
+    const step = (name: string) => { events.push(name); if (fail === name) throw new Error('Synthetic unknown acknowledgement.'); };
+    const provider: RoutineProvider = { ...h.input.provider, async compatiblePredecessor() { step('compatible'); },
+      async reserve() { step('reserve'); return 44; }, async record() { step('record'); },
+      async confirmRoutineJournal() { step('confirm'); } };
+    const input = { artifact: f.artifact, run, schema, provider, directory };
+    if (fail === 'none') {
+      await authorizeRoutineMigration(input);
+      assert.deepEqual(events, ['compatible', 'reserve', 'record', 'confirm']);
+      assert.equal((readEvidence(join(directory, 'migration-authorized.json')).value as { journal: number }).journal, 44);
+    } else {
+      await assert.rejects(authorizeRoutineMigration(input));
+      assert.equal(existsSync(join(directory, 'migration-authorized.json')), false);
+    }
+    const calls = [...events]; await assert.rejects(authorizeRoutineMigration(input)); assert.deepEqual(events, calls);
+    await assert.rejects(continueRoutineMigration(input)); assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+  }
+});
+
+test('routine committed continuation rejects unknown, incomplete or changed migration outcomes before provider work', async t => {
+  const f = await routineMigrationFixture(); t.after(f.dispose);
+  const packet = migrationPacketFor(f.artifact), schema: RoutineSchema = {
+    digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+  const report: MigrationReport = { run_id: randomUUID(), source_revision: run.revision, target: 'local',
+    manifest_digest: schema.digest, started_at: '2026-01-01T00:00:00.000Z', ended_at: '2026-01-01T00:00:01.000Z',
+    duration_ms: 1000, result: 'success', stage: 'verification', failed_version: null, database_outcome: 'committed',
+    before: packet.previous.map(item => item.name), after: packet.migrations.map(item => item.name),
+    attempted: packet.migrations.slice(packet.previous.length).map(item => ({ ...item, outcome: 'applied_committed' })), reporting: 'written' };
+  assert.equal(confirmedMigration(report, packet), true);
+  for (const change of [{ database_outcome: 'unknown' }, { database_outcome: 'rolled_back' }, { reporting: 'failed' },
+    { before: [] }, { after: [] }, { attempted: [] }, { source_revision: 'f'.repeat(40) }]) {
+    const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-routine-outcome-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const auth = { version: 1, packetDigest: schema.migration!.digest, artifact: f.artifact.digest,
+      run, journal: 44, predecessor: 'dpl_previous' };
+    const broken = { ...report, ...change } as MigrationReport;
+    writeReleaseEvidence(join(directory, 'migration-authorized.json'), auth);
+    writeReleaseEvidence(join(directory, 'migration-outcome.json'), { authorization: sha256(canonical(auth)), report: broken });
+    writeReleaseEvidence(join(directory, 'migration-confirmed.json'), { authorization: sha256(canonical(auth)), reportDigest: sha256(canonical(broken)) });
+    let calls = 0;
+    const provider: RoutineProvider = { ...harness(f.artifact).input.provider,
+      async compatiblePredecessor() { calls++; }, async confirmRoutineJournal() { calls++; } };
+    await assert.rejects(continueRoutineMigration({ artifact: f.artifact, run, schema, directory, provider }));
+    assert.equal(calls, 0);
+  }
+});
+
+test('routine remote confirmation binds run, packet and artifact rather than trusting a success-shaped status', async t => {
+  const f = await routineMigrationFixture(); t.after(f.dispose);
+  const packet = migrationPacketFor(f.artifact), schema: RoutineSchema = {
+    digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+  const description = `migration_intent:${schema.migration!.digest}`;
+  const valid = { id: 44, sha: run.revision, task: 'deploy:esty-be-ci', environment: 'be-production',
+    payload: { version: 1, ...run, migrationPacket: schema.migration!.digest, artifact: f.artifact.digest,
+      sourceDigest: f.artifact.manifest.source.digest, migrationDigest: schema.digest, project: artifactTarget.project } };
+  for (const change of [{}, { artifact: 'f'.repeat(64) }, { migrationPacket: 'f'.repeat(64) }, { run: '124' },
+    { tree: 'f'.repeat(40) }, { migrationDigest: activationSchema.oldDigest }]) {
+    const provider = createProvider(f.artifact, run, schema, credentials, AbortSignal.timeout(10000),
+      async raw => Response.json(String(raw).includes('/statuses') ? [{ state: 'in_progress', description }]
+        : { ...valid, payload: { ...valid.payload, ...change } }));
+    if (Object.keys(change).length) await assert.rejects(provider.confirmRoutineJournal(44, description));
+    else await provider.confirmRoutineJournal(44, description);
+  }
+  const unconfirmed = createProvider(f.artifact, run, schema, credentials, AbortSignal.timeout(10000),
+    async raw => Response.json(String(raw).includes('/statuses') ? [{ state: 'success', description }] : valid));
+  await assert.rejects(unconfirmed.confirmRoutineJournal(44, description));
+});
+
+test('routine migration refuses an incompatible predecessor before SQL authorization', async t => {
+  const f = await routineMigrationFixture(); t.after(f.dispose);
+  const packet = migrationPacketFor(f.artifact), schema: RoutineSchema = {
+    digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+  for (const mismatch of ['source', 'artifact', 'region', 'configuration']) {
+    let http = 0;
+    const provider = createProvider(f.artifact, run, schema, credentials, AbortSignal.timeout(10000), async raw => {
+      const url = String(raw);
+      if (url.includes('/domains/')) return Response.json({ name: 'api.lovora.us', projectId: artifactTarget.project, verified: true });
+      if (url.includes('/aliases/')) return Response.json({ alias: 'api.lovora.us', projectId: artifactTarget.project, deploymentId: 'dpl_previous' });
+      if (url.includes('/deployments/')) return Response.json({ id: 'dpl_previous', projectId: artifactTarget.project,
+        ownerId: artifactTarget.owner, target: 'production', readyState: 'READY', regions: [mismatch === 'region' ? 'iad1' : 'icn1'],
+        meta: { sourceCommit: mismatch === 'source' ? 'f'.repeat(40) : packet.predecessor.revision,
+          artifactSha256: mismatch === 'artifact' ? 'f'.repeat(64) : packet.predecessor.artifact } });
+      http++; return Response.json({ status: 'ok' }, { headers: { 'x-activation-config-digest': 'f'.repeat(64) } });
+    });
+    await assert.rejects(provider.compatiblePredecessor());
+    assert.equal(http, mismatch === 'configuration' ? 1 : 0);
+  }
 });
 test('stale source, previous intent, persistence and candidate failures prevent creation or promotion', async t => {
   const f = await fixture(); t.after(f.dispose);
@@ -184,7 +313,7 @@ test('durable remote history blocks every unresolved outcome, including absent s
       if (init?.method === 'POST') { posts++; throw new Error('unexpected POST'); }
       return Response.json(String(url).includes('/statuses') ? prior : [{ id: 44, task: 'deploy:esty-be-ci', environment: 'be-production' }]);
     };
-    const provider = createProvider(f.artifact, run, credentials, AbortSignal.timeout(10000), transport);
+    const provider = createProvider(f.artifact, run, oldSchema, credentials, AbortSignal.timeout(10000), transport);
     await assert.rejects(provider.reserve(), /unresolved/); assert.equal(posts, 0);
   }
 });
@@ -195,7 +324,7 @@ test('successful durable reservation uses exact commit, no auto-merge and no sec
     posted = JSON.parse(String(init.body));
     return Response.json({ id: 45, sha: run.revision, task: 'deploy:esty-be-ci', environment: 'be-production' }, { status: 201 });
   };
-  const provider = createProvider(f.artifact, run, credentials, AbortSignal.timeout(10000), transport);
+  const provider = createProvider(f.artifact, run, oldSchema, credentials, AbortSignal.timeout(10000), transport);
   assert.equal(await provider.reserve(), 45);
   assert.equal(posted?.ref, run.revision); assert.equal(posted?.auto_merge, false); assert.equal(posted?.payload.artifact, f.artifact.digest);
   for (const value of Object.values(credentials)) assert.equal(JSON.stringify(posted).includes(value), false);
@@ -207,7 +336,7 @@ test('candidate metadata rejects source, owner, region and Git rebuild mismatche
     meta: { sourceCommit: run.revision, artifactSha256: f.artifact.digest, sourceDigest: f.artifact.manifest.source.digest } };
   for (const change of [{ regions: ['iad1'] }, { ownerId: 'other' }, { gitSource: { ref: 'main' } }, { meta: {} },
     { url: 'other.example' }, { readyState: 'ERROR' }]) {
-    const provider = createProvider(f.artifact, run, credentials, AbortSignal.timeout(10000), async () => Response.json({ ...valid, ...change }));
+    const provider = createProvider(f.artifact, run, oldSchema, credentials, AbortSignal.timeout(10000), async () => Response.json({ ...valid, ...change }));
     await assert.rejects(provider.inspect('dpl_candidate'));
   }
 });
@@ -223,7 +352,7 @@ test('candidate bypass is header-only and cannot mask final custom-domain applic
     if (url.endsWith('/health/ready')) return Response.json({ status: 'ready', database: 'up', migrations: 'current' });
     return new Response(null, { status: 404 });
   };
-  const provider = createProvider(f.artifact, run, credentials, AbortSignal.timeout(10000), transport);
+  const provider = createProvider(f.artifact, run, oldSchema, credentials, AbortSignal.timeout(10000), transport);
   await provider.http('https://synthetic.vercel.app', true); await provider.http('https://api.lovora.us', false);
   assert.equal(observed.length, 16);
   assert.ok(observed.slice(0, 8).every(row => row.headers.get('x-vercel-protection-bypass') === credentials.bypass));
@@ -251,7 +380,7 @@ test('provider archive attestation requires every exact file and canonical names
     ];
     const transport: typeof fetch = async raw => String(raw).includes('/v6/')
       ? Response.json(roots) : Response.json({ data: scenario === 'bad-base64' ? '!!' : bytes.toString('base64') });
-    const provider = createProvider(f.artifact, run, credentials, AbortSignal.timeout(10000), transport);
+    const provider = createProvider(f.artifact, run, oldSchema, credentials, AbortSignal.timeout(10000), transport);
     if (scenario === 'exact') await provider.attest('dpl_candidate');
     else await assert.rejects(provider.attest('dpl_candidate'));
   }

@@ -47,7 +47,7 @@ export function roleInputs(value: unknown, packet: ActivationPacket): PrivateInp
   if (parseAppRoleInputs(inputs).target !== packet.target) refuse();
   return inputs;
 }
-export function migrationInputs(value: unknown, packet: ActivationPacket): PrivateInputs {
+export function migrationInputs(value: unknown, packet: Pick<ActivationPacket, 'migrationInputDigest' | 'target'>): PrivateInputs {
   const inputs = strings(value, migrationKeys); bound(inputs, packet.migrationInputDigest);
   parseMigrationConfig(inputs);
   if (inputs.MIGRATION_TARGET === 'supabase') for (const [key, expected] of Object.entries(approvedTarget)) {

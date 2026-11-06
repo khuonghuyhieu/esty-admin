@@ -3,7 +3,7 @@ import { X509Certificate } from 'node:crypto';
 import { parseEnv } from 'node:util';
 import type { ClientConfig } from 'pg';
 import approvedTarget from '../../config/hosted-target.example.json' with { type: 'json' };
-import { assertActivationManifest } from './schema-transition.js';
+import { assertActivationManifest, assertAppManifest } from './schema-transition.js';
 import type { AppSchemaMode } from './schema-transition.js';
 import { runtimeConfigDigest } from './activation-config.js';
 
@@ -172,7 +172,8 @@ export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
     || (schemaMode === 'activation-bridge' && env.APP_FOUNDATION_ENABLED !== 'false')) {
     throw new ConfigurationError('APP_SCHEMA_MODE', 'use strict, or activation-bridge with explicitly disabled app routes.');
   }
-  if (schemaMode === 'activation-bridge' || env.APP_FOUNDATION_ENABLED === 'true') assertActivationManifest();
+  if (schemaMode === 'activation-bridge') assertActivationManifest();
+  if (env.APP_FOUNDATION_ENABLED === 'true') assertAppManifest();
   const runtime = env.API_RUNTIME ?? 'local';
   if (!['local', 'vercel'].includes(runtime)
     || (env.VERCEL === '1' && runtime !== 'vercel')

@@ -13,6 +13,18 @@ const validManifest = createHash('sha256').update(JSON.stringify(migrationManife
 export function assertActivationManifest(): void {
   if (!validManifest) throw new Error('The compiled activation migration identity differs.');
 }
+export function assertAppManifest(manifest: readonly { name: string; sha256: string }[] = migrationManifest): void {
+  if (manifest.length < 3 || createHash('sha256').update(JSON.stringify(manifest.slice(0, 3))).digest('hex') !== activationSchema.targetDigest) {
+    throw new Error('The activated application migration prefix differs.');
+  }
+  for (let index = 3; index < manifest.length; index++) {
+    const entry = manifest[index]!;
+    if (!/^\d{13}-[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.name) || !/^[a-f0-9]{64}$/.test(entry.sha256)
+      || entry.name.slice(0, 13) <= manifest[index - 1]!.name.slice(0, 13)) {
+      throw new Error('The strict application migration sequence differs.');
+    }
+  }
+}
 export function exactHistory(history: readonly { name: string }[], expected: readonly string[]): boolean {
   if (history.length !== expected.length) return false;
   for (let index = 0; index < expected.length; index++) if (history[index]!.name !== expected[index]) return false;

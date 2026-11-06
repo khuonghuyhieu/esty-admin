@@ -9,8 +9,26 @@ import { ConfigurationError, parseConfig, parseMigrationConfig } from '../src/co
 import { migrationFiles, verifyMigrationFiles } from '../scripts/migration-files.mjs';
 import { fixtureProfile } from '../scripts/app-fixture-profile.mjs';
 import { runtimeConfigDigest } from '../src/config/activation-config.js';
+import { assertAppManifest, readyHistory } from '../src/config/schema-transition.js';
+import { migrationManifest } from '../src/generated/migrations.js';
+import { createHash } from 'node:crypto';
 
 const valid = { DATABASE_URL: 'postgresql://fixture:secret%40value@127.0.0.1:55432/foundation_local' };
+
+test('strict application supports later versions only above the immutable activated prefix and still requires complete history', () => {
+  const next = { name: `${Number(migrationManifest.at(-1)!.name.slice(0, 13)) + 1}-routine-extension`,
+    sha256: createHash('sha256').update('reviewed fixture').digest('hex') };
+  const target = [...migrationManifest, next], names = target.map(item => item.name);
+  assertAppManifest(target);
+  assert.equal(readyHistory(target, names, 'strict'), true);
+  assert.equal(readyHistory(migrationManifest, names, 'strict'), false);
+  assert.equal(readyHistory(target, names, 'activation-bridge'), false);
+  for (const invalid of [migrationManifest.slice(0, 1), [migrationManifest[1]!, migrationManifest[0]!, migrationManifest[2]!],
+    [...migrationManifest, migrationManifest[2]!], [...migrationManifest, { ...next, sha256: 'invalid' }],
+    migrationManifest.map((entry, index) => index ? entry : { ...entry, sha256: next.sha256 })]) {
+    assert.throws(() => assertAppManifest(invalid));
+  }
+});
 
 test('PostgreSQL URL decoding preserves credentials and database identity', () => {
   const config = parseConfig({ DATABASE_URL: 'postgresql://fixture%40local:secret%40value@127.0.0.1:55432/foundation%20local' });

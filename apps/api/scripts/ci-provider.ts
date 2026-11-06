@@ -1,4 +1,4 @@
-import { artifactTarget, canonical, sha256, verifyArtifact } from './artifact.js';
+import { artifactTarget, canonical, sha256 } from './artifact.js';
 import type { VerifiedArtifact } from './artifact.js';
 import { fileMode, vercelDeployment } from './vercel-deploy.js';
 import { checkHostedHttp } from './hosted-acceptance.js';
@@ -6,9 +6,10 @@ import { responseBytes } from './ci-tools.js';
 import { verifyUploadedArchive } from './ci-archive.js';
 import { validateActivationPacket, verifyActivationArtifact } from './activation-journal.js';
 import type { ActivationPacket } from './activation-journal.js';
+import { verifyRoutineArtifact } from './ci-migrations.js';
+import type { RoutineSchema } from './ci-migrations.js';
 
 export const repository = 'khuonghuyhieu/esty-admin';
-export const approvedMigrationDigest = '243818c0ebe11bc6ea8b12b3224810c88e888b18ec30dd5bfe58394f1f209496';
 export const deploymentId = /^dpl_[A-Za-z0-9]{1,124}$/;
 const task = 'deploy:esty-be-ci';
 export interface RunIdentity { revision: string; tree: string; run: string }
@@ -23,6 +24,10 @@ export interface DeliveryProvider {
   binding(id: string): Promise<void>;
   http(origin: string, candidate: boolean): Promise<void>;
 }
+export interface RoutineProvider extends DeliveryProvider {
+  confirmRoutineJournal(journal: number, description: string): Promise<void>;
+  compatiblePredecessor(): Promise<void>;
+}
 export interface ActivationProvider extends DeliveryProvider {
   confirmJournal(journal: number, state: 'in_progress' | 'success', description: string): Promise<void>;
   acceptFrontend(receipt: unknown, approvedDigest: string): Promise<void>;
@@ -35,10 +40,10 @@ function object(value: unknown): Record<string, any> {
   return value as Record<string, any>;
 }
 function numeric(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0; }
-export function createProvider(artifact: VerifiedArtifact, run: RunIdentity,
+export function createProvider(artifact: VerifiedArtifact, run: RunIdentity, schema: RoutineSchema,
   credentials: { github: string; vercel: string; bearer: string; bypass: string }, signal: AbortSignal,
-  transport: typeof fetch = fetch): DeliveryProvider {
-  return providerImplementation(artifact, run, credentials, signal, transport);
+  transport: typeof fetch = fetch): RoutineProvider {
+  return providerImplementation(artifact, run, credentials, signal, transport, undefined, schema);
 }
 export function createActivationProvider(artifact: VerifiedArtifact, run: RunIdentity,
   credentials: { github: string; vercel: string; bearer: string }, signal: AbortSignal,
@@ -50,14 +55,18 @@ export function createActivationProvider(artifact: VerifiedArtifact, run: RunIde
 }
 function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
   credentials: { github: string; vercel: string; bearer: string; bypass: string }, signal: AbortSignal,
-  transport: typeof fetch, activation?: ActivationDeliveryContext): ActivationProvider {
+  transport: typeof fetch, activation?: ActivationDeliveryContext, schema?: RoutineSchema): ActivationProvider & RoutineProvider {
   for (const token of [credentials.github, credentials.vercel, ...(activation ? [] : [credentials.bypass])]) {
     if (!/^[\x21-\x7e]{16,512}$/.test(token)) throw new Error('Required environment secret is absent or invalid.');
   }
   if (!/^[a-f0-9]{64}$/.test(credentials.bearer)) throw new Error('Required application secret is absent or invalid.');
-  const verify = () => activation ? verifyActivationArtifact(artifact, activation.packet)
-    : verifyArtifact(artifact.root, artifact.digest, { revision: run.revision,
-      repository: `https://github.com/${repository}`, migrationDigest: approvedMigrationDigest, release: true });
+  const verify = () => {
+    if (activation) verifyActivationArtifact(artifact, activation.packet);
+    else {
+      if (!schema) throw new Error('An approved routine schema is required.');
+      verifyRoutineArtifact(artifact, run, schema);
+    }
+  };
   verify();
   const request = (url: string, init: RequestInit = {}) => transport(url, { ...init, redirect: 'error',
     signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) });
@@ -118,8 +127,9 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       const result = object(await github('/deployments', { method: 'POST', body: JSON.stringify({ ref: run.revision, task,
         environment: 'be-production', auto_merge: false, required_contexts: [], production_environment: true,
         description: 'Exact tested BE artifact delivery intent', payload: { version: 1, ...run, artifact: artifact.digest,
-          sourceDigest: artifact.manifest.source.digest, migrationDigest: activation?.packet.targetDigest ?? approvedMigrationDigest,
-          project: artifactTarget.project, ...(activation ? { activationPacket: activation.packetDigest, activationRun: activation.packet.runId } : {}) } }) }, 201));
+          sourceDigest: artifact.manifest.source.digest, migrationDigest: activation?.packet.targetDigest ?? schema!.digest,
+          project: artifactTarget.project, ...(activation ? { activationPacket: activation.packetDigest, activationRun: activation.packet.runId } : {}),
+          ...(schema?.migration ? { migrationPacket: schema.migration.digest } : {}) } }) }, 201));
       if (!numeric(result.id) || result.sha !== run.revision || result.task !== task || result.environment !== 'be-production') {
         throw new Error('Durable intent acknowledgement is unknown.');
       }
@@ -131,6 +141,41 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
         auto_inactive: false, log_url: `https://github.com/${repository}/actions/runs/${run.run}`,
         environment_url: 'https://api.lovora.us' }) }, 201));
       if (!numeric(result.id) || result.state !== state) throw new Error('Durable status acknowledgement is unknown.');
+    },
+    async confirmRoutineJournal(journal, description) {
+      if (!schema?.migration || !numeric(journal)) throw new Error('Routine migration binding is absent.');
+      const entry = object(await github(`/deployments/${journal}`)), payload = object(entry.payload);
+      if (entry.id !== journal || entry.sha !== run.revision || entry.task !== task || entry.environment !== 'be-production'
+        || payload.version !== 1 || payload.run !== run.run || payload.revision !== run.revision || payload.tree !== run.tree
+        || payload.migrationPacket !== schema.migration.digest || payload.artifact !== artifact.digest
+        || payload.sourceDigest !== artifact.manifest.source.digest || payload.migrationDigest !== schema.digest
+        || payload.project !== artifactTarget.project) throw new Error('Routine journal identity differs.');
+      const statuses: unknown = await github(`/deployments/${journal}/statuses?per_page=1`);
+      if (!Array.isArray(statuses) || statuses.length !== 1 || object(statuses[0]).state !== 'in_progress'
+        || object(statuses[0]).description !== description) throw new Error('Routine journal acknowledgement is unknown.');
+    },
+    async compatiblePredecessor() {
+      if (!schema?.migration) throw new Error('A compatible predecessor approval is required.');
+      const expected = schema.migration.packet.predecessor;
+      if (await alias() !== expected.id) throw new Error('Compatible predecessor alias differs.');
+      const value = object(await provider(`/v13/deployments/${expected.id}`)), meta = object(value.meta);
+      if (value.id !== expected.id || value.projectId !== artifactTarget.project || value.ownerId !== artifactTarget.owner
+        || value.target !== 'production' || value.readyState !== 'READY' || value.gitSource
+        || meta.sourceCommit !== expected.revision || meta.artifactSha256 !== expected.artifact
+        || !Array.isArray(value.regions) || canonical(value.regions) !== canonical(['icn1'])) {
+        throw new Error('Approved compatible predecessor identity differs.');
+      }
+      await checkHostedHttp('https://api.lovora.us', 'https://app.lovora.us', credentials.bearer, async (url, init) => {
+        const response = await request(url, init);
+        if (init?.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(new URL(url).pathname)) {
+          const authorized = new Headers(init?.headers).get('authorization') === `Bearer ${credentials.bearer}`;
+          if (response.headers.get('x-activation-config-digest') !== (authorized ? expected.configDigest : null)) {
+            await response.body?.cancel(); throw new Error('Compatible predecessor configuration differs.');
+          }
+        }
+        return response;
+      });
+      if (await alias() !== expected.id) throw new Error('Compatible predecessor binding changed.');
     },
     async confirmJournal(journal, state, description) {
       if (!activation || !numeric(journal)) throw new Error('Activation journal binding is absent.');
