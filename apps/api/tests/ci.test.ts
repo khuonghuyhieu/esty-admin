@@ -18,11 +18,12 @@ import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
 import type { CommandResult } from '../scripts/ci-tools.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { activationPhases, appendActivationEvent, createActivationJournal, finishActivationJournal, importFrontendJournal,
-  readActivationJournal, reserveActivationJournal } from '../scripts/activation-journal.js';
+  readActivationJournal, reserveActivationJournal, saveActivationConfigurationReceipt } from '../scripts/activation-journal.js';
 import type { ActivationPacket, ActivationPhase } from '../scripts/activation-journal.js';
-import { completeActivation, executeActivationPhase, reconcileActivationEffect } from '../scripts/activation.js';
+import { completeActivation, confirmActivationPhase, executeActivationPhase, reconcileActivationAcknowledgement, reconcileActivationEffect } from '../scripts/activation.js';
 import { phaseInputEnvironment } from '../scripts/activation-inputs.js';
-import { configureActivation, inspectActivationConfiguration, ActivationConfigurationError } from '../scripts/activation-configuration.js';
+import { configureActivation, ActivationConfigurationError } from '../scripts/activation-configuration.js';
+import type { ActivationConfigurationReceipt } from '../scripts/activation-configuration.js';
 import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
 import { activationSchema } from '../src/config/schema-transition.js';
 import { approvedSchema, authorizeRoutineMigration, confirmedMigration, continueRoutineMigration, routinePacket } from '../scripts/ci-migrations.js';
@@ -408,7 +409,14 @@ function authorizeLocal(input: Awaited<ReturnType<typeof activationJournal>>, ph
   const intent = appendActivationEvent(input.directory, input.packet, input.digest, phase, 'intent', { outcome: 'unknown' });
   appendActivationEvent(input.directory, input.packet, input.digest, phase, 'authorized', { intentHash: intent.head });
 }
-test('activation unknown effects are fenced across restart and only read-only reconciliation can advance', async t => {
+function configurationReceiptFixture(packet: ActivationPacket, phase: 'bridge-config' | 'app-config'): ActivationConfigurationReceipt {
+  return { version: 2, runId: packet.runId, phase, projectId: packet.projectId, scopeId: packet.scopeId,
+    packetDigest: sha256(canonical(packet)), revision: packet.revision, tree: packet.tree,
+    sourceDigest: packet.sourceDigest, artifactDigest: packet.artifactDigest,
+    configDigest: phase === 'bridge-config' ? packet.bridgeConfigDigest : packet.appConfigDigest,
+    metadataDigest: sha256(`synthetic-metadata:${phase}`), count: 1, valueProof: 'pending-candidate-runtime' };
+}
+test('unknown Secret writes stay fenced across restart and cannot be reconciled from metadata', async t => {
   const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
   let writes = 0, inspections = 0;
   const effect = async () => { writes++; throw new Error('synthetic private transport uncertainty'); };
@@ -422,20 +430,18 @@ test('activation unknown effects are fenced across restart and only read-only re
   await assert.rejects(executeActivationPhase(restarted, 'roles', effect));
   assert.equal(writes, 1);
   assert.throws(() => finishActivationJournal(input.directory, input.packet, input.digest));
-  await reconcileActivationEffect(restarted, 'bridge-config', async () => {
-    inspections++; return { result: 'confirmed', databaseOutcome: 'not_started', count: 10, deploymentId: null, reportDigest: sha256('readback') };
-  });
-  assert.equal(inspections, 1);
-  let current = readActivationJournal(input.directory, input.packet, input.digest);
+  await assert.rejects(reconcileActivationEffect(restarted, 'bridge-config', async () => {
+    inspections++; return { result: 'confirmed', databaseOutcome: 'not_started', count: 10, deploymentId: null, reportDigest: sha256('metadata') };
+  }));
+  assert.equal(inspections, 0);
+  const current = readActivationJournal(input.directory, input.packet, input.digest);
   assert.equal(current.next, 'bridge-config');
-  appendActivationEvent(input.directory, input.packet, input.digest, 'bridge-config', 'confirming', { outcomeHash: current.head });
-  const confirming = readActivationJournal(input.directory, input.packet, input.digest);
+  assert.throws(() => appendActivationEvent(input.directory, input.packet, input.digest, 'bridge-config', 'confirming', { outcomeHash: current.head }));
   assert.throws(() => appendActivationEvent(input.directory, input.packet, input.digest, 'bridge-config', 'reconciled',
-    { result: 'confirmed', databaseOutcome: 'not_started', count: 10, deploymentId: null, reportDigest: sha256('second-readback') }));
-  assert.equal(readActivationJournal(input.directory, input.packet, input.digest).head, confirming.head);
-  appendActivationEvent(input.directory, input.packet, input.digest, 'bridge-config', 'remote-confirmed', { outcomeHash: current.head });
-  current = readActivationJournal(input.directory, input.packet, input.digest);
-  assert.equal(current.next, 'bridge');
+    { result: 'confirmed', databaseOutcome: 'not_started', count: 10, deploymentId: null, reportDigest: sha256('metadata') }));
+  await assert.rejects(executeActivationPhase(restarted, 'bridge', effect));
+  assert.equal(writes, 1);
+  assert.equal(readActivationJournal(input.directory, input.packet, input.digest).head, current.head);
   assert.equal(existsSync(join(input.directory, 'operator.lock')), true);
 });
 
@@ -453,9 +459,11 @@ test('transferred receipts permit only the untouched FE gate after separately ap
         { deploymentId, configDigest: phase === 'bridge' ? input.packet.bridgeConfigDigest : input.packet.appConfigDigest });
       appendActivationEvent(input.directory, input.packet, input.digest, phase, 'promotion-intent', { deploymentId });
     }
-    const completed = appendActivationEvent(input.directory, input.packet, input.digest, phase, 'outcome',
-      { result: 'confirmed', databaseOutcome: ['roles', 'migration', 'bootstrap'].includes(phase) ? 'committed' : 'not_started',
-        count: phase === 'roles' || phase === 'migration' ? 2 : 1, deploymentId, reportDigest: sha256(phase) });
+    const result = phase === 'bridge-config' || phase === 'app-config'
+      ? saveActivationConfigurationReceipt(input.directory, input.packet, input.digest, phase, configurationReceiptFixture(input.packet, phase))
+      : { result: 'confirmed' as const, databaseOutcome: ['roles', 'migration', 'bootstrap'].includes(phase) ? 'committed' : 'not_started',
+        count: phase === 'roles' || phase === 'migration' ? 2 : 1, deploymentId, reportDigest: sha256(phase) };
+    const completed = appendActivationEvent(input.directory, input.packet, input.digest, phase, 'outcome', result);
     appendActivationEvent(input.directory, input.packet, input.digest, phase, 'confirming', { outcomeHash: completed.head });
     appendActivationEvent(input.directory, input.packet, input.digest, phase, 'remote-confirmed', { outcomeHash: completed.head });
   }
@@ -516,45 +524,160 @@ test('phase credential boundaries reject privileged cross-phase inputs rather th
   assert.throws(() => phaseInputEnvironment({ VERCEL_TOKEN: 'synthetic' }, 'app-config'));
 });
 
-test('configuration uses one scoped write then exact readback; partial and changed results remain uncertain', async () => {
-  const values = { API_RUNTIME: 'vercel', APP_SCHEMA_MODE: 'activation-bridge', APP_FOUNDATION_ENABLED: 'false',
+function secretConfiguration(phase: 'bridge' | 'app' = 'bridge') {
+  const values: Record<string, string> = { API_RUNTIME: 'vercel', APP_SCHEMA_MODE: 'activation-bridge', APP_FOUNDATION_ENABLED: 'false',
     SUPABASE_PROJECT_REF: 'eotmpaliqcxxcotrcols', SUPABASE_SESSION_HOST: 'aws-0-ap-northeast-2.pooler.supabase.com',
     SUPABASE_DATABASE_NAME: 'postgres', SUPABASE_DATABASE_USER: 'postgres.eotmpaliqcxxcotrcols',
     DATABASE_URL: 'postgresql://postgres.eotmpaliqcxxcotrcols:synthetic-only@aws-0-ap-northeast-2.pooler.supabase.com:5432/postgres',
     BROWSER_ORIGIN: 'https://app.lovora.us', PREVIEW_ACCESS_KEY: 'a'.repeat(64) };
-  const packet = { ...activationPacket(), bridgeConfigDigest: sha256(canonical(values)) };
-  for (const scenario of ['exact', 'partial', 'changed', 'privileged', 'lost-ack']) {
+  if (phase === 'app') Object.assign(values, { APP_SCHEMA_MODE: 'strict', APP_FOUNDATION_ENABLED: 'true',
+    SUPABASE_DATABASE_USER: 'app_runtime.eotmpaliqcxxcotrcols',
+    DATABASE_URL: values.DATABASE_URL!.replace('postgres.eotmpaliqcxxcotrcols:', 'app_runtime.eotmpaliqcxxcotrcols:'),
+    APP_WORKSPACE_ID: '00000000-0000-4000-8000-000000000005', APP_EMAIL_ENABLED: 'false',
+    APP_AUTH_URL: 'https://eotmpaliqcxxcotrcols.supabase.co/auth/v1', APP_AUTH_API_KEY: 'sb_publishable_synthetic-only',
+    APP_RETENTION_POLICY_ID: 'manual-retention-v1' });
+  const packet = { ...activationPacket(), [phase === 'bridge' ? 'bridgeConfigDigest' : 'appConfigDigest']: sha256(canonical(values)) };
+  const entries = Object.keys({ ...values, APP_ACTIVATION_CONFIG_DIGEST: sha256(canonical(values)) }).map((key, index) =>
+    ({ id: `env_${index}`, key, type: 'sensitive', visibility: 'secret', target: ['production'] }));
+  return { values, packet, entries };
+}
+test('Secret configuration accepts one-way201 acknowledgement without decrypting saved values', async () => {
+  const { values, packet, entries } = secretConfiguration();
+  let writes = 0;
+  const transport: typeof fetch = async (raw, init) => {
+    const url = new URL(String(raw));
+    assert.equal(url.pathname, `/v10/projects/${packet.projectId}/env`);
+    if (init?.method === 'POST') {
+      writes++;
+      const body = JSON.parse(String(init.body)) as Array<{ type: string }>;
+      assert.ok(body.every(row => row.type === 'sensitive'));
+      return Response.json({ created: entries, failed: [] }, { status: 201 });
+    }
+    assert.equal(url.searchParams.get('decrypt'), 'false');
+    return Response.json({ envs: entries, pagination: null, hiddenProductionEnvCount: 0 });
+  };
+  const receipt = await configureActivation(values, packet, 'bridge', 'synthetic-configuration-token', AbortSignal.timeout(10000), transport);
+  assert.equal(writes, 1);
+  assert.equal(receipt.configDigest, packet.bridgeConfigDigest);
+  assert.equal(receipt.valueProof, 'pending-candidate-runtime');
+  assert.equal(receipt.packetDigest, sha256(canonical(packet)));
+  assert.equal(JSON.stringify(receipt).includes('synthetic-only'), false);
+});
+
+test('Secret metadata respects authoritative visibility and binds both runtime phases', async () => {
+  for (const phase of ['bridge', 'app'] as const) for (const kind of ['legacy-sensitive', 'encrypted-secret', 'upgrade-config']) {
+    const { values, packet, entries } = secretConfiguration(phase);
+    const final = entries.map(row => kind === 'legacy-sensitive' ? { ...row, visibility: undefined }
+      : kind === 'encrypted-secret' ? { ...row, type: 'encrypted' } : row);
     let writes = 0;
-    const expected = { ...values, APP_ACTIVATION_CONFIG_DIGEST: packet.bridgeConfigDigest };
-    const entries = Object.entries(expected).map(([key, value], index) =>
-      ({ id: `env_${index}`, key, value, type: 'encrypted', target: ['production'], decrypted: true }));
-    const transport: typeof fetch = async (raw, init) => {
-      const url = new URL(String(raw));
-      assert.equal(url.origin, 'https://api.vercel.com');
-      assert.equal(url.searchParams.get('teamId'), artifactTarget.owner);
-      assert.equal(url.searchParams.get('slug'), artifactTarget.scope);
-      if (init?.method === 'POST') {
-        writes++;
-        if (scenario === 'lost-ack') throw new Error('synthetic secret transport failure');
-        return Response.json({ failed: scenario === 'partial' ? [{ error: 'synthetic' }] : [] });
-      }
-      if (url.pathname.endsWith('/env')) return Response.json({ envs: scenario === 'privileged'
-        ? [...entries, { key: 'APP_AUTH_ADMIN_KEY' }] : [...entries, { key: 'VERCEL_REGION', value: 'iad1' }] });
-      const entry = entries.find(value => url.pathname.endsWith(`/${value.id}`));
-      if (!entry) throw new Error('unexpected endpoint');
-      return Response.json({ ...entry, value: scenario === 'changed' ? 'different' : entry.value });
+    const transport: typeof fetch = async (_raw, init) => {
+      if (init?.method === 'POST') { writes++; return Response.json({ created: final, failed: [] }, { status: 201 }); }
+      return Response.json({ envs: !writes && kind === 'upgrade-config'
+        ? entries.map(row => ({ ...row, type: 'encrypted', visibility: 'config' })) : final });
     };
-    const operation = configureActivation(values, packet, 'bridge', 'synthetic-configuration-token', AbortSignal.timeout(10000), transport);
-    if (scenario === 'exact') {
-      const receipt = await operation;
-      assert.equal(receipt.configDigest, packet.bridgeConfigDigest);
-      assert.equal(JSON.stringify(receipt).includes('synthetic-only'), false);
-      await inspectActivationConfiguration(values, packet, 'bridge', 'synthetic-configuration-token', AbortSignal.timeout(10000), transport);
-    } else await assert.rejects(operation, error => error instanceof ActivationConfigurationError
-      && error.outcome === (scenario === 'privileged' ? 'not_started' : 'unknown'));
-    assert.equal(writes, scenario === 'privileged' ? 0 : 1);
+    const receipt = await configureActivation(values, packet, phase, 'synthetic-config-token', AbortSignal.timeout(10000), transport);
+    assert.equal(receipt.phase, `${phase}-config`); assert.equal(receipt.valueProof, 'pending-candidate-runtime');
+    assert.equal(receipt.configDigest, sha256(canonical(values))); assert.equal(writes, 1);
   }
 });
+
+test('Secret configuration fences incomplete or changed acknowledgements and metadata without readback or retry', async t => {
+  const scenarios = ['hidden', 'pagination', 'duplicate', 'preview', 'lost-ack', 'partial', 'missing-ack', 'duplicate-ack',
+    'extra-ack', 'replaced-id', 'config-visibility', 'post-drift', 'post-missing', 'abort-before-write', 'abort-after-write'];
+  for (const scenario of scenarios) await t.test(scenario, async () => {
+    const { values, packet, entries } = secretConfiguration();
+    const abort = new AbortController();
+    let writes = 0, decryptions = 0;
+    const transport: typeof fetch = async (raw, init) => {
+      const url = new URL(String(raw));
+      if (url.pathname !== `/v10/projects/${packet.projectId}/env`) { decryptions++; throw new Error('Forbidden readback'); }
+      assert.equal(url.searchParams.get('teamId'), packet.scopeId);
+      if (init?.method === 'POST') {
+        writes++;
+        if (scenario === 'lost-ack') throw new Error('synthetic-secret-canary');
+        if (scenario === 'abort-after-write') abort.abort();
+        const created = scenario === 'missing-ack' ? [] : scenario === 'duplicate-ack' ? entries.map(() => entries[0])
+          : scenario === 'extra-ack' ? [...entries, { ...entries[0], id: 'extra', key: 'UNAPPROVED' }]
+          : scenario === 'replaced-id' ? entries.map(row => ({ ...row, id: `${row.id}_replaced` }))
+          : scenario === 'config-visibility' ? entries.map(row => ({ ...row, visibility: 'config' })) : entries;
+        return Response.json({ created, failed: scenario === 'partial' ? [{ error: 'synthetic-secret-canary' }] : [] }, { status: 201 });
+      }
+      assert.equal(url.searchParams.get('decrypt'), 'false');
+      if (scenario === 'abort-before-write') abort.abort();
+      const envs = scenario === 'duplicate' ? [...entries, entries[0]]
+        : scenario === 'preview' ? entries.map(row => ({ ...row, target: ['production', 'preview'] }))
+        : writes && scenario === 'post-drift' ? entries.map(row => ({ ...row, id: `${row.id}_changed` }))
+        : writes && scenario === 'post-missing' ? entries.slice(1) : entries;
+      return Response.json({ envs, hiddenProductionEnvCount: scenario === 'hidden' ? 1 : 0,
+        pagination: scenario === 'pagination' ? { next: 123 } : null });
+    };
+    const beforeWrite = ['hidden', 'pagination', 'duplicate', 'preview', 'abort-before-write'].includes(scenario);
+    await assert.rejects(configureActivation(values, packet, 'bridge', 'synthetic-config-token', abort.signal, transport),
+      error => error instanceof ActivationConfigurationError && error.outcome === (beforeWrite ? 'not_started' : 'unknown')
+        && !error.message.includes('synthetic-secret-canary'));
+    assert.equal(writes, beforeWrite ? 0 : 1); assert.equal(decryptions, 0);
+  });
+});
+
+test('lost remote acknowledgement after a durable Secret receipt is read-only recoverable without another write', async t => {
+  const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
+  authorizeLocal(input, 'bridge-config');
+  await executeActivationPhase(input, 'bridge-config', async () =>
+    saveActivationConfigurationReceipt(input.directory, input.packet, input.digest, 'bridge-config', configurationReceiptFixture(input.packet, 'bridge-config')));
+  let writes = 0, reads = 0;
+  const forbidden = async (): Promise<never> => { throw new Error('Unexpected provider effect'); };
+  const provider: ActivationProvider = { currentMain: forbidden, preflight: forbidden, reserve: forbidden, binding: forbidden,
+    inspect: forbidden, attest: forbidden, http: forbidden, acceptFrontend: forbidden,
+    async record() { writes++; }, async confirmJournal() { reads++; if (reads === 1) throw new Error('Lost remote ACK'); } };
+  await assert.rejects(confirmActivationPhase(input, 'bridge-config', provider));
+  await assert.rejects(confirmActivationPhase(input, 'bridge-config', provider));
+  assert.equal(readActivationJournal(input.directory, input.packet, input.digest).next, 'bridge-config');
+  await reconcileActivationAcknowledgement(input, 'bridge-config', provider);
+  assert.equal(readActivationJournal(input.directory, input.packet, input.digest).next, 'bridge');
+  assert.equal(writes, 1); assert.equal(reads, 2);
+});
+
+test('missing or substituted durable Secret receipts prevent candidate execution after restart', async t => {
+  for (const change of ['missing', 'startedHash', 'packetDigest', 'artifactDigest', 'metadataDigest', 'valueProof', 'count']) {
+    const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
+    authorizeLocal(input, 'bridge-config');
+    await executeActivationPhase(input, 'bridge-config', async () =>
+      saveActivationConfigurationReceipt(input.directory, input.packet, input.digest, 'bridge-config', configurationReceiptFixture(input.packet, 'bridge-config')));
+    const current = readActivationJournal(input.directory, input.packet, input.digest);
+    appendActivationEvent(input.directory, input.packet, input.digest, 'bridge-config', 'confirming', { outcomeHash: current.head });
+    appendActivationEvent(input.directory, input.packet, input.digest, 'bridge-config', 'remote-confirmed', { outcomeHash: current.head });
+    const path = join(input.directory, `${input.packet.runId}.bridge-config.configuration.json`);
+    if (change === 'missing') await rm(path);
+    else {
+      const envelope = JSON.parse(readFileSync(path, 'utf8'));
+      if (change === 'startedHash') envelope.startedHash = sha256('substituted');
+      else envelope.receipt[change] = change === 'count' ? 2 : change === 'valueProof' ? 'confirmed' : sha256('substituted');
+      await writeFile(path, JSON.stringify(envelope));
+    }
+    let effects = 0;
+    await assert.rejects(executeActivationPhase(input, 'bridge', async () => { effects++; throw new Error('Forbidden candidate'); }));
+    await assert.rejects(reconcileActivationEffect(input, 'bridge-config', async () => { effects++; throw new Error('Forbidden reconciliation'); }));
+    assert.equal(effects, 0, change);
+    assert.equal(existsSync(join(input.directory, 'operator.lock')), true);
+  }
+});
+
+test('configuration receipt persistence failure cannot be repaired by replaying the Secret write', async t => {
+  const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
+  authorizeLocal(input, 'bridge-config');
+  writeReleaseEvidence(join(input.directory, `${input.packet.runId}.bridge-config.configuration.json`), { partial: true });
+  let writes = 0;
+  const effect = async () => {
+    writes++;
+    return saveActivationConfigurationReceipt(input.directory, input.packet, input.digest, 'bridge-config', configurationReceiptFixture(input.packet, 'bridge-config'));
+  };
+  await assert.rejects(executeActivationPhase(input, 'bridge-config', effect));
+  await assert.rejects(executeActivationPhase(input, 'bridge-config', effect));
+  const current = readActivationJournal(input.directory, input.packet, input.digest);
+  assert.equal((current.events.at(-1)!.value as { result: string }).result, 'unknown');
+  assert.equal(current.next, 'bridge-config'); assert.equal(writes, 1);
+});
+
 
 test('configuration refuses privileged credential aliases before mutation or decryption and fences post-write discovery', async () => {
   const values = { API_RUNTIME: 'vercel', APP_SCHEMA_MODE: 'activation-bridge', APP_FOUNDATION_ENABLED: 'false',
@@ -565,18 +688,18 @@ test('configuration refuses privileged credential aliases before mutation or dec
   const packet = { ...activationPacket(), bridgeConfigDigest: sha256(canonical(values)) };
   const expected = { ...values, APP_ACTIVATION_CONFIG_DIGEST: packet.bridgeConfigDigest };
   const entries = Object.entries(expected).map(([key, value], index) =>
-    ({ id: `env_${index}`, key, value, type: 'encrypted', target: ['production'], decrypted: true }));
+    ({ id: `env_${index}`, key, value, type: 'sensitive', target: ['production'] }));
   const aliases = ['SUPABASE_SERVICE_ROLE_KEY', 'SUPABASE_SECRET_KEY', 'SUPABASE_SERVICE_KEY',
     'SUPABASE_ACCESS_TOKEN', 'SUPABASE_JWT_SECRET', 'SUPABASE_DB_PASSWORD', 'SUPABASE_DATABASE_URL',
     'POSTGRES_PASSWORD', 'POSTGRES_URL', 'POSTGRES_URL_NON_POOLING', 'POSTGRES_PRISMA_URL',
     'PGPASSWORD', 'PGPASSFILE', 'DATABASE_PASSWORD', 'DATABASE_ADMIN_URL', 'DIRECT_URL',
     'AUTH_ADMIN_KEY', 'AUTH_ADMIN_TOKEN', 'ADMIN_KEY', 'SERVICE_ROLE_KEY', 'JWT_SECRET'];
   for (const key of aliases) {
-    for (const stage of ['before-write', 'inspect', 'after-write'] as const) {
+    for (const stage of ['before-write', 'after-write'] as const) {
       let writes = 0, decryptions = 0, inventories = 0;
       const transport: typeof fetch = async (raw, init) => {
         const url = new URL(String(raw));
-        if (init?.method === 'POST') { writes++; return Response.json({ failed: [] }); }
+        if (init?.method === 'POST') { writes++; return Response.json({ created: entries, failed: [] }, { status: 201 }); }
         if (url.pathname.endsWith('/env')) {
           inventories++;
           const present = stage !== 'after-write' || writes > 0;
@@ -588,8 +711,7 @@ test('configuration refuses privileged credential aliases before mutation or dec
         assert.ok(entry);
         return Response.json(entry);
       };
-      const operation = stage === 'inspect' ? inspectActivationConfiguration : configureActivation;
-      await assert.rejects(operation(values, packet, 'bridge', 'synthetic-configuration-token', AbortSignal.timeout(10000), transport),
+      await assert.rejects(configureActivation(values, packet, 'bridge', 'synthetic-configuration-token', AbortSignal.timeout(10000), transport),
         error => error instanceof ActivationConfigurationError && error.outcome === (stage === 'after-write' ? 'unknown' : 'not_started'),
         `${key}: ${stage}`);
       assert.equal(writes, stage === 'after-write' ? 1 : 0, `${key}: no forbidden write or replay`);

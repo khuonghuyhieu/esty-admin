@@ -1,5 +1,26 @@
 # Connectivity foundation validation guide
 
+## Secret-compatible activation — affected source/local validation
+
+Root accepted the [minimal Secret proof-order amendment](plan.md#secret-protocol-amendment--design-only-owner-disposition-pending); the implementation and actual checks are [recorded separately](plan.md#actual-secret-protocol-sourcelocal-evidence--ready_for_review). Configuration ACK/metadata is not value proof. A private durable pending-runtime receipt gates the single held candidate; same-candidate file/source/artifact and protected computed-runtime/final-origin acceptance still gate promotion and later effects. Unknown/partial configuration writes cannot be reconciled from metadata or repeated.
+
+Executed with existing Node24.22.1 and TypeScript, no install, isolated output `$OUTPUT=.openai/reports/secret-protocol-dbx3mt02/work/apps/api/build`, an empty HOME/environment and read-only links to existing dependencies/public fixture assets:
+
+```sh
+"$NODE24" node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --outDir "$OUTPUT" --incremental false
+sandbox-exec -p '(version 1)(allow default)(deny network*)' "$NODE24" --test "$OUTPUT/tests/ci.test.js"
+sandbox-exec -p '(version 1)(allow default)(deny network*)' "$NODE24" --test \
+  --test-name-pattern='runtime attestation rejects changed private configuration' "$OUTPUT/tests/config.test.js"
+```
+
+Actual compilation0, CI57/57 and focused startup1/1 PASS. The new one-way201 regression failed before the fix with `not_started`; retain that failure. Separate emitted-operation smoke0 used the actual configuration/journal/startup-digest functions with synthetic transport, one write/two metadata reads/zero decryptions and a single held synthetic candidate; missing runtime/file proof blocked promotion/roles/replay. No real application socket, provider upload/configuration, SQL, bootstrap or native Linux release was exercised. Test-owned journal and throwaway smoke source were removed.
+
+Full commands/results and preservation: `.openai/reports/secret-protocol-dbx3mt02/verification.json`, SHA256 `a0ceefcb2a0d7c6d95b2906ec55d7b8608785a23bc960725cb35a863bea01bb7`. These are recorded scoped checks, not permission to rerun shared/native/browser suites or overwrite the normal API build. README remains unchanged without a shared-doc lease. See the [names/formats-only owner packet](production-activation-handoff.md#current-secret-protocol-action-packet--sourcelocal-only). **READY_FOR_REVIEW; T135 belongs to the coordinator.** Publication, corrected clean Linux artifact/packet approval, historical-fence disposition and production/FE acceptance remain separate.
+
+**T135 review closeout:** the preceding READY_FOR_REVIEW status is superseded by coordinator t4v's receipt of one scoped read-only gpt-6-luna review, no actionable findings and all8 reviewed hashes matched. The reviewer did not run tests or independently verify the OMP results above. No source fixes, check/build/runtime reruns or additional review occurred. The original handoff/verification receipts remain unchanged; current documentation hashes and attributed review evidence are in `.openai/reports/secret-protocol-dbx3mt02/review-closeout.json`. **REVIEW_COMPLETE — ACTIVATION_GATED; STOP WRITES.** All publication/Linux artifact/packet,81d4/454, secure-input, hosted and FE gates remain separate.
+
+
+
 ## Issue #5 — routine delivery validation and owner configuration boundary
 
 Source/local work follows T124–T130. Actual baseline [run42164746470](https://github.com/khuonghuyhieu/esty-admin/actions/runs/42164746470) has successful BE checks and skipped production, not a deployed application. Do not rerun or enable it from this guide without authorization.

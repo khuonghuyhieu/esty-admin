@@ -1,5 +1,42 @@
 # Production Activation — Owner Plan Handoff
 
+## Current Secret-protocol action packet — source/local only
+
+Root accepted the one-way Secret proof-order amendment; T132–T135 are **SOURCE/LOCAL REVIEW COMPLETE**, not production acceptance. Coordinator t4v reports one scoped read-only gpt-6-luna T135 review, no actionable findings and all8 reviewed hashes matched. Reviewer ran no tests and did not independently verify OMP check results; no source fixes or reruns followed. The historical proposal/status/retention-duration text below is retained as history: the current approved policy is **manual-retention-v1**, with no scheduled age-based expiry or automatic purge and no TTL/session/token changes. Hieu/Lovora and the existing privately bound workspace/run are already approved; do not regenerate them or request another general START.
+
+### Secure input names, destinations and formats — no values
+
+Do not collect inputs during this documentation-only closeout. After separately approved execution, inject only the matching worker's process environment through the protected workflow environment or an explicitly approved private operator input channel. No new hidden-TTY collector was implemented; no original file/auth-store read, secret argv/chat/log, blanket environment export or automatic bearer rotation is permitted.
+
+| Protected workflow secret name | Worker environment destination | Format and allowed use |
+|---|---|---|
+| `BE_ACTIVATION_BRIDGE_INPUTS` | `ACTIVATION_BRIDGE_INPUTS`, bridge configuration worker only | UTF-8 JSON object with runtime-base string fields below; canonical digest must match packet `bridgeConfigDigest` |
+| `BE_ACTIVATION_APP_INPUTS` | `ACTIVATION_APP_INPUTS`, strict app configuration worker only | Runtime-base plus app string fields; digest matches `appConfigDigest`; existing private workspace/retention binding |
+| `VERCEL_CONFIGURATION_TOKEN` | Same name, configuration workers only | Opaque printable token string; authenticated HTTPS header, never provider-CREATE worker input |
+| `BE_ACTIVATION_ROLE_INPUTS` | `ACTIVATION_ROLE_INPUTS`, role/preflight/postflight worker only | JSON string map: migration fields plus `APP_ROLES_APPROVAL_ID`, `APP_ROLES_CONFIRM_TARGET`, `APP_ROLES_RUNTIME_DATABASE_URL`, `APP_ROLES_OPERATOR_DATABASE_URL`; digest matches `roleInputDigest` |
+| `BE_ACTIVATION_MIGRATION_INPUTS` | `ACTIVATION_MIGRATION_INPUTS`, migration worker only | JSON string map: `MIGRATION_TARGET`, `MIGRATION_DATABASE_URL`, `MIGRATION_CONFIRM_PROJECT_REF`, `DATABASE_URL` and Session metadata; digest matches `migrationInputDigest` |
+| `BE_ACTIVATION_BOOTSTRAP_INPUTS` | `ACTIVATION_BOOTSTRAP_INPUTS`, existing-user bootstrap worker only | JSON string map: app/Session metadata and `BROWSER_ORIGIN`, plus `APP_OPERATOR_TARGET`, `APP_OPERATOR_DATABASE_URL`, `APP_OPERATOR_AUTH_KEY`, `APP_OPERATOR_CONFIRM_WORKSPACE`, `APP_OPERATOR_APPROVAL_ID`, `APP_OPERATOR_USER_ID`, `APP_OPERATOR_PROFILE_NAME`, `APP_OPERATOR_WORKSPACE_NAME`, `APP_OPERATOR_CONFIRM_PROJECT_REF`; exact bootstrap input/identity digests |
+| `VERCEL_TOKEN`, `BE_PREVIEW_ACCESS_KEY`; job-scoped `GITHUB_TOKEN` | Same names, provider authorization/confirmation and candidate acceptance workers only | Opaque provider tokens and fixed64hex technical bearer; no DB/runtime/Auth-admin envelope |
+
+Runtime-base field names: `API_RUNTIME`, `DATABASE_URL`, `BROWSER_ORIGIN`, `PREVIEW_ACCESS_KEY`, `APP_SCHEMA_MODE`, `APP_FOUNDATION_ENABLED`, `SUPABASE_PROJECT_REF`, `SUPABASE_SESSION_HOST`, `SUPABASE_DATABASE_NAME`, `SUPABASE_DATABASE_USER`, optional `DATABASE_CA_PEM`. App additions: `APP_WORKSPACE_ID`, `APP_AUTH_URL`, `APP_AUTH_API_KEY`, `APP_EMAIL_ENABLED`, `APP_RETENTION_POLICY_ID`. Session metadata means the `SUPABASE_*` fields above and optional CA. JSON values are strings, at most16384 characters each, no NUL; the decoded envelope is bounded to65536 bytes. Encode PEM newlines as JSON string escapes. Exact URL/role/TLS/UUID/key-class validation remains authoritative; runtime Auth keys must be publishable/legacy-anon, while bootstrap Auth-admin authority stays isolated.
+
+The configuration worker derives `APP_ACTIVATION_CONFIG_DIGEST` from the approved packet and sends approved values only in an authenticated HTTPS JSON body with Secret type and exact Production target. The durable receipt contains public identities/digests/counts only and records `valueProof=pending-candidate-runtime`. It never includes runtime values. Actual startup-computed protected configuration equality on the same immutable candidate is still required; metadata, returned IDs or the expected-digest variable alone cannot authorize promotion/roles/SQL. A lost/partial write ACK or missing receipt remains UNKNOWN; no metadata-only reconciliation or rewrite/replay.
+
+FE-owned server-only input names remain `APP_SESSION_MODE`, `APP_ORIGIN`, `APP_API_ORIGIN`, `APP_AUTH_URL`, `APP_AUTH_API_KEY`, `APP_API_TECHNICAL_KEY`, `APP_SESSION_COOKIE_KEY`. The FE owner supplies exact source/configuration/acceptance receipts separately after strict BE acceptance. This packet does not configure FE, infer authenticated acceptance from an alias or enable broad BE delivery.
+
+### Remaining ordered gates
+
+Completed prerequisite: T135 scoped review, with no findings or fixes. Original reviewed manifest `.openai/reports/secret-protocol-dbx3mt02/handoff.json` remains unchanged; `.openai/reports/secret-protocol-dbx3mt02/review-closeout.json` records the current source/documentation manifest and attributed review evidence.
+
+1. Separately authorized corrected-source publication, clean tested Linux artifact and explicit corrected activation packet binding. The retained b3 artifact is pre-fix, not relabeled or rebuilt here. Preserve existing private identities and the manual-retention-v1 decision digest.
+2. Keep81d4/454 fenced: obtain the missing original sanitized execution-command/mount/container-identity provenance, then observe only the established original namespace under bounded authority. The documented temporary evidence and default Docker socket were unavailable; device/inode mismatch is not repaired or treated as corruption proof. If original provenance cannot be recovered, require an explicit evidence-loss disposition, not unlock/rebind/replay.
+3. Only after those gates, bind the private inputs above and authorize actual ordered activation. Strict BE and historical-fence receipts precede separate final-origin FE acceptance. No cloud configuration/SQL/bootstrap/deployment action or production-ready claim occurred in this increment.
+
+Actual affected checks, original failing-before regression, read-only forensic limits and preservation are in [the plan](plan.md#actual-secret-protocol-sourcelocal-evidence--ready_for_review) and [validation receipt](quickstart.md#secret-compatible-activation--affected-sourcelocal-validation). T108 remains UNPROVEN; historical T110503 remains NOT REPRODUCED / CAUSE UNPROVEN. Manual006/3000/010 and all16 historical fingerprints remain preserved. **REVIEW_COMPLETE — ACTIVATION_GATED; NO_INFLIGHT / STOP WRITES.**
+
+## Historical planning handoff — retained, not current authority
+
+
 **Status: READY_FOR_OWNER_PLAN_REVIEW — STOP WRITES after final receipt.** This is feature001's complete activation proposal, not permission to implement, publish, read private inputs/accounts, run SQL or deploy. Existing main/reviewed work is preserved; no new feature or tracker.
 
 ## What exists and what is missing

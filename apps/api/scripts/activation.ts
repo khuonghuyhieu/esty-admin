@@ -4,10 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { artifactTarget, canonical, inventory, sha256, verifyArtifact } from './artifact.js';
 import type { VerifiedArtifact } from './artifact.js';
 import { activationPhases, appendActivationEvent, createActivationJournal, finishActivationJournal,
-  importFrontendJournal, readActivationJournal, reserveActivationJournal, validateActivationPacket, verifyActivationArtifact } from './activation-journal.js';
+  importFrontendJournal, readActivationJournal, reserveActivationJournal, saveActivationConfigurationReceipt, validateActivationPacket, verifyActivationArtifact } from './activation-journal.js';
 import type { ActivationOutcome, ActivationPacket, ActivationPhase, ActivationState } from './activation-journal.js';
 import { bootstrapInputs, decodePhaseInput, migrationInputs, phaseInputEnvironment, roleInputs, runtimeInputs } from './activation-inputs.js';
-import { ActivationConfigurationError, configureActivation, inspectActivationConfiguration } from './activation-configuration.js';
+import { ActivationConfigurationError, configureActivation } from './activation-configuration.js';
 import { AppRoleError, inspectAppRolePrerequisites, inspectAppRoles, inspectPrivateSchemaExposure, parseAppRoleInputs, provisionAppRoles } from './app-roles.js';
 import { inspectAppBootstrap, runAppOperator } from './bootstrap-app-owner.js';
 import { migrationStatus, runMigrations } from './migrations.js';
@@ -131,6 +131,8 @@ export async function executeActivationPhase(run: ActivationRun, phase: Activati
 }
 export async function reconcileActivationEffect(run: ActivationRun, phase: ActivationPhase,
   inspect: () => Promise<ActivationOutcome>): Promise<void> {
+  // One-way Secret metadata cannot resolve a missing write acknowledgement or receipt.
+  if (phase === 'bridge-config' || phase === 'app-config') refuse();
   const current = state(run); requireNext(current, phase);
   const last = current.events.at(-1);
   if (!last || last.phase !== phase || !['started', 'acknowledged', 'candidate-attested', 'promotion-intent', 'outcome'].includes(last.kind)
@@ -161,6 +163,7 @@ async function worker(run: ActivationRun, phase: ActivationPhase, artifact: Veri
   signal.throwIfAborted(); verifyActivationArtifact(artifact, run.packet);
   const inputs = phaseCredentials(env, phase), packet = run.packet;
   if (phase === 'bridge-config' || phase === 'app-config') {
+    if (inspect) refuse();
     const runtimePhase = phase === 'bridge-config' ? 'bridge' : 'app';
     const values = runtimeInputs(decodePhaseInput(inputs[phase === 'bridge-config' ? 'ACTIVATION_BRIDGE_INPUTS' : 'ACTIVATION_APP_INPUTS']), packet, runtimePhase);
     if (runtimePhase === 'app') {
@@ -168,9 +171,8 @@ async function worker(run: ActivationRun, phase: ActivationPhase, artifact: Veri
       if (!config.appFoundation) refuse();
       await inspectPrivateSchemaExposure(config.appFoundation, signal);
     }
-    const receipt = await (inspect ? inspectActivationConfiguration : configureActivation)(values, packet, runtimePhase,
-      inputs.VERCEL_CONFIGURATION_TOKEN ?? '', signal);
-    return { ...publicOutcome(receipt, 'not_started', receipt.count), reportDigest: receipt.reportDigest };
+    const receipt = await configureActivation(values, packet, runtimePhase, inputs.VERCEL_CONFIGURATION_TOKEN ?? '', signal);
+    return saveActivationConfigurationReceipt(run.directory, packet, run.digest, phase, receipt);
   }
   if (phase === 'roles') {
     const values = parseAppRoleInputs(roleInputs(decodePhaseInput(inputs.ACTIVATION_ROLE_INPUTS), packet));

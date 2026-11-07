@@ -7,6 +7,7 @@ import { privateDirectory } from './private-files.mjs';
 import { activationSchema, assertActivationManifest } from '../src/config/schema-transition.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
+import type { ActivationConfigurationReceipt } from './activation-configuration.js';
 
 export const activationPhases = ['bridge-config', 'bridge', 'roles', 'migration', 'bootstrap', 'app-config', 'app', 'fe'] as const;
 export type ActivationPhase = typeof activationPhases[number];
@@ -95,6 +96,33 @@ function candidateAttestation(packet: ActivationPacket, phase: ActivationPhase, 
   if (phase !== 'bridge' && phase !== 'app') refuse();
   return { deploymentId: id, configDigest: phase === 'bridge' ? packet.bridgeConfigDigest : packet.appConfigDigest };
 }
+function configurationPath(directory: string, packet: ActivationPacket, phase: ActivationPhase): string {
+  return join(directory, `${packet.runId}.${phase}.configuration.json`);
+}
+function configurationReceipt(value: unknown, packet: ActivationPacket, digest: string, phase: ActivationPhase,
+  startedHash: string): { count: number; reportDigest: string } {
+  if (phase !== 'bridge-config' && phase !== 'app-config') refuse();
+  const envelope = object(value, ['startedHash', 'receipt']);
+  const receipt = object(envelope.receipt, ['version', 'runId', 'phase', 'projectId', 'scopeId', 'packetDigest', 'revision', 'tree',
+    'sourceDigest', 'artifactDigest', 'configDigest', 'metadataDigest', 'count', 'valueProof']);
+  if (envelope.startedHash !== startedHash || receipt.version !== 2 || receipt.phase !== phase
+    || receipt.packetDigest !== digest || receipt.valueProof !== 'pending-candidate-runtime'
+    || !['runId', 'projectId', 'scopeId', 'revision', 'tree', 'sourceDigest', 'artifactDigest']
+      .every(key => receipt[key] === packet[key as keyof ActivationPacket])
+    || receipt.configDigest !== (phase === 'bridge-config' ? packet.bridgeConfigDigest : packet.appConfigDigest)
+    || !matches(receipt.metadataDigest, hex) || !Number.isSafeInteger(receipt.count)
+    || Number(receipt.count) < 1 || Number(receipt.count) > 64) refuse();
+  return { count: Number(receipt.count), reportDigest: sha256(canonical(envelope)) };
+}
+export function saveActivationConfigurationReceipt(directory: string, packet: ActivationPacket, digest: string,
+  phase: ActivationPhase, receipt: ActivationConfigurationReceipt): ActivationOutcome {
+  const current = readActivationJournal(directory, packet, digest), started = current.events.at(-1);
+  if (current.next !== phase || started?.phase !== phase || started.kind !== 'started') refuse();
+  const envelope = { startedHash: started.sha256, receipt };
+  const proof = configurationReceipt(envelope, packet, digest, phase, started.sha256);
+  writeReleaseEvidence(configurationPath(directory, packet, phase), envelope);
+  return { result: 'confirmed', databaseOutcome: 'not_started', deploymentId: null, ...proof };
+}
 function syncDirectory(directory: string): void {
   const fd = openSync(directory, 'r'); try { fsyncSync(fd); } finally { closeSync(fd); }
 }
@@ -143,6 +171,7 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
   let intent = false, authorized = false, started = false, id: string | null = null;
   let attested = false, promotion = false, completed: ActivationOutcome | null = null, reconciled = false;
   let confirmation: string | null = null;
+  let startedHash = '';
   const acknowledged = new Set<string>();
   for (const [index, name] of names.entries()) {
     if (name !== `${String(index).padStart(3, '0')}.json`) refuse();
@@ -159,7 +188,7 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
         authorized = true; break;
       case 'started':
         if (!authorized || started || canonical(row.value) !== canonical({ outcome: 'unknown' })) refuse();
-        started = true; break;
+        started = true; startedHash = recorded as string; break;
       case 'acknowledged': {
         const value = object(row.value, ['deploymentId']);
         if (!started || completed || id || !['bridge', 'app'].includes(String(row.phase))
@@ -175,9 +204,14 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
       case 'outcome':
         if (!started || completed) refuse();
         completed = phaseOutcome(row.phase as ActivationPhase, row.value, id, promotion);
+        if (completed.result === 'confirmed' && ['bridge-config', 'app-config'].includes(String(row.phase))) {
+          const proof = configurationReceipt(readEvidence(configurationPath(directory, packet, row.phase as ActivationPhase)).value,
+            packet, digest, row.phase as ActivationPhase, startedHash);
+          if (completed.reportDigest !== proof.reportDigest || completed.count !== proof.count) refuse();
+        }
         break;
       case 'reconciled':
-        if (!started || reconciled || completed?.result === 'confirmed') refuse();
+        if (!started || reconciled || completed?.result === 'confirmed' || ['bridge-config', 'app-config'].includes(String(row.phase))) refuse();
         completed = phaseOutcome(row.phase as ActivationPhase, row.value, id, promotion);
         if (completed.result !== 'confirmed') refuse();
         reconciled = true; break;
@@ -224,10 +258,16 @@ export function appendActivationEvent(directory: string, packet: ActivationPacke
     const acknowledgement = events.find(event => event.kind === 'acknowledged');
     const id = acknowledgement ? object(acknowledgement.value, ['deploymentId']).deploymentId as string : null;
     if (kind === 'outcome' && !['started', 'acknowledged', 'candidate-attested', 'promotion-intent'].includes(active.kind)) refuse();
-    if (kind === 'reconciled' && (!['started', 'acknowledged', 'candidate-attested', 'promotion-intent', 'outcome'].includes(active.kind)
+    if (kind === 'reconciled' && (['bridge-config', 'app-config'].includes(phase)
+      || !['started', 'acknowledged', 'candidate-attested', 'promotion-intent', 'outcome'].includes(active.kind)
       || !events.some(event => event.kind === 'started') || events.some(event => event.kind === 'reconciled')
       || (active.kind === 'outcome' && outcome(active.value).result === 'confirmed'))) refuse();
     const data = phaseOutcome(phase, value, id, events.some(event => event.kind === 'promotion-intent'));
+    if (data.result === 'confirmed' && ['bridge-config', 'app-config'].includes(phase)) {
+      const started = events.find(event => event.kind === 'started'); if (!started) refuse();
+      const proof = configurationReceipt(readEvidence(configurationPath(directory, packet, phase)).value, packet, digest, phase, started.sha256);
+      if (data.reportDigest !== proof.reportDigest || data.count !== proof.count) refuse();
+    }
     if (kind === 'reconciled' && data.result !== 'confirmed') refuse();
   } else if (kind === 'confirming') {
     if (!active || !['outcome', 'reconciled'].includes(active.kind) || outcome(active.value).result !== 'confirmed'
@@ -270,6 +310,9 @@ export async function importFrontendJournal(source: string, directory: string, p
   reserveActivationJournal(directory, packet, digest, retained.journal);
   writeReleaseEvidence(join(directory, `${packet.runId}.initial.json`), initial);
   writeReleaseEvidence(join(directory, `${packet.runId}.postflight.json`), postflight);
+  for (const phase of ['bridge-config', 'app-config'] as const) {
+    writeReleaseEvidence(configurationPath(directory, packet, phase), readEvidence(configurationPath(source, packet, phase)).value);
+  }
   for (const event of retained.events) appendActivationEvent(directory, packet, digest, event.phase, event.kind, event.value);
   if (readActivationJournal(directory, packet, digest).head !== retained.head) refuse();
 }
