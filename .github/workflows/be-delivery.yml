@@ -15,6 +15,10 @@ on:
           - current-schema-only
           - versioned-migration
           - activation
+      activation_artifact_id:
+        description: Exact retained artifact ID for explicit activation only
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -22,6 +26,7 @@ permissions:
 jobs:
   checks:
     name: BE required checks
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.mode != 'activation' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
@@ -88,13 +93,12 @@ jobs:
       github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       vars.BE_DELIVERY_ENABLED == 'true' &&
-      ((inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only') != 'activation' ||
-        (github.event_name == 'workflow_dispatch' && inputs.mode == 'activation' && vars.BE_ACTIVATION_ENABLED == 'true'))
+      (inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only') != 'activation'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: be-production
     outputs:
-      accepted: ${{ steps.routine_delivery.outcome == 'success' || steps.activation_delivery.outcome == 'success' }}
+      accepted: ${{ steps.routine_delivery.outcome == 'success' }}
     concurrency:
       group: esty-admin-be-production
       cancel-in-progress: false
@@ -104,9 +108,6 @@ jobs:
     env:
       BE_DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
       BE_DELIVERY_ENVIRONMENT: be-production
-      BE_ACTIVATION_ENABLED: ${{ vars.BE_ACTIVATION_ENABLED }}
-      BE_ACTIVATION_PACKET_SHA256: ${{ vars.BE_ACTIVATION_PACKET_SHA256 }}
-      BE_ACTIVATION_CONTEXT: actions
       BE_DELIVERY_MODE: ${{ inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only' }}
       BE_DELIVERY_SCHEMA_SHA256: ${{ vars.BE_DELIVERY_SCHEMA_SHA256 }}
       BE_MIGRATION_PACKET_JSON: ${{ vars.BE_MIGRATION_PACKET_JSON }}
@@ -165,6 +166,149 @@ jobs:
           BE_DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
           BE_DELIVERY_ENVIRONMENT: be-production
         run: *routine-command
+      - name: Preserve private receipt modes and record the exact transferable inventory
+        if: always()
+        run: |
+          if [ -d "$RUNNER_TEMP/be-receipts" ]; then
+            node --input-type=module -e \
+              'const {inventory,canonical,sha256}=await import(process.argv[1]); console.log(sha256(canonical(inventory(process.argv[2]))));' \
+              "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/artifact.js" "$RUNNER_TEMP/be-receipts" \
+              > "$RUNNER_TEMP/be-delivery-receipts.inventory-sha256"
+            tar -czf "$RUNNER_TEMP/be-delivery-receipts.tar.gz" -C "$RUNNER_TEMP" be-receipts
+            sha256sum "$RUNNER_TEMP/be-delivery-receipts.tar.gz" > "$RUNNER_TEMP/be-delivery-receipts.archive-sha256"
+          fi
+      - name: Retain sanitized receipts without secret-bearing subprocess logs
+        if: always()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: be-delivery-receipts-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/be-delivery-receipts.tar.gz
+            ${{ runner.temp }}/be-delivery-receipts.inventory-sha256
+            ${{ runner.temp }}/be-delivery-receipts.archive-sha256
+          if-no-files-found: ignore
+          retention-days: 30
+          overwrite: false
+
+  manual_retrieval:
+    name: Select the owner-approved retained activation bundle
+    if: >-
+      github.repository == 'khuonghuyhieu/esty-admin' &&
+      github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
+      github.event_name == 'workflow_dispatch' && inputs.mode == 'activation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: be-production
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.relay.outputs.artifact-id }}
+      selection_sha: ${{ steps.select.outputs.selection_sha }}
+    env:
+      BE_DELIVERY_ENVIRONMENT: be-production
+      BE_DELIVERY_MODE: activation
+      BE_ACTIVATION_ENABLED: ${{ vars.BE_ACTIVATION_ENABLED }}
+      BE_ACTIVATION_WORKFLOW_SHA: ${{ vars.BE_ACTIVATION_WORKFLOW_SHA }}
+      BE_ACTIVATION_PACKET_JSON: ${{ vars.BE_ACTIVATION_PACKET_JSON }}
+      BE_ACTIVATION_PACKET_SHA256: ${{ vars.BE_ACTIVATION_PACKET_SHA256 }}
+    steps:
+      - name: Check out the actual reviewed workflow source without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set the exact runtime without application installation
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      - name: Validate explicit approval and select exact retained metadata before retrieval
+        id: select
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node apps/api/scripts/activation-retained.mjs select "$RUNNER_TEMP/be-transfer"
+      - name: Retrieve only the selected retained run and artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ steps.select.outputs.artifact_id }}
+          run-id: ${{ steps.select.outputs.run_id }}
+          repository: khuonghuyhieu/esty-admin
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/be-transfer
+          merge-multiple: true
+      - name: Verify the original archive before extraction and bind the full sealed bundle
+        env:
+          SELECTION_SHA: ${{ steps.select.outputs.selection_sha }}
+        run: |
+          node apps/api/scripts/activation-retained.mjs verify-relay "$RUNNER_TEMP/be-transfer" "$SELECTION_SHA"
+          mkdir "$RUNNER_TEMP/be-consume"
+          tar -xzf "$RUNNER_TEMP/be-transfer/be-release.tar.gz" -C "$RUNNER_TEMP/be-consume"
+          node apps/api/scripts/activation-retained.mjs verify-bundle "$RUNNER_TEMP/be-consume" "$RUNNER_TEMP/be-transfer/selection.json" "$SELECTION_SHA"
+      - name: Relay only the unchanged original archive and independently bound selection
+        id: relay
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: be-retained-activation-relay-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/be-transfer/be-release.tar.gz
+            ${{ runner.temp }}/be-transfer/selection.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+
+  manual_activation:
+    name: Activate the owner-approved retained bundle
+    needs: manual_retrieval
+    if: >-
+      github.repository == 'khuonghuyhieu/esty-admin' &&
+      github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
+      github.event_name == 'workflow_dispatch' && inputs.mode == 'activation'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: be-production
+    outputs:
+      accepted: ${{ steps.activation_delivery.outcome == 'success' }}
+    concurrency:
+      group: esty-admin-be-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      deployments: write
+    env:
+      BE_DELIVERY_ENVIRONMENT: be-production
+      BE_DELIVERY_MODE: activation
+      BE_ACTIVATION_ENABLED: ${{ vars.BE_ACTIVATION_ENABLED }}
+      BE_ACTIVATION_WORKFLOW_SHA: ${{ vars.BE_ACTIVATION_WORKFLOW_SHA }}
+      BE_ACTIVATION_PACKET_JSON: ${{ vars.BE_ACTIVATION_PACKET_JSON }}
+      BE_ACTIVATION_PACKET_SHA256: ${{ vars.BE_ACTIVATION_PACKET_SHA256 }}
+      BE_ACTIVATION_SELECTION_SHA256: ${{ needs.manual_retrieval.outputs.selection_sha }}
+    steps:
+      - name: Check out the actual reviewed workflow source without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set the exact runtime without application installation
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      - name: Download only this run's verified transport relay without cross-run credentials
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ needs.manual_retrieval.outputs.artifact_id }}
+          path: ${{ runner.temp }}/be-transfer
+          merge-multiple: true
+      - name: Revalidate the selection and original archive before extraction or helper execution
+        run: |
+          node apps/api/scripts/activation-retained.mjs verify-relay "$RUNNER_TEMP/be-transfer" "$BE_ACTIVATION_SELECTION_SHA256"
+          mkdir "$RUNNER_TEMP/be-consume"
+          tar -xzf "$RUNNER_TEMP/be-transfer/be-release.tar.gz" -C "$RUNNER_TEMP/be-consume"
+          node apps/api/scripts/activation-retained.mjs verify-bundle "$RUNNER_TEMP/be-consume" "$RUNNER_TEMP/be-transfer/selection.json" "$BE_ACTIVATION_SELECTION_SHA256"
+      - name: Bootstrap independently verified public CLI before secrets are present
+        run: node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-tools.js" "$RUNNER_TEMP/be-tools"
       - name: Prepare the explicitly approved public activation packet without credentials
         if: &activation-mode env.BE_DELIVERY_MODE == 'activation'
         env:
@@ -172,11 +316,10 @@ jobs:
           ACTIVATION_PHASE: "-"
           BE_ACTIVATION_PACKET_JSON: ${{ vars.BE_ACTIVATION_PACKET_JSON }}
         run: &activation-command >-
-          node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/activation.js"
+          node apps/api/scripts/manual-activation.mjs
           "$ACTIVATION_ACTION" "$ACTIVATION_PHASE"
-          "$RUNNER_TEMP/be-receipts/packet-input.json" "$BE_ACTIVATION_PACKET_SHA256"
-          "$RUNNER_TEMP/be-consume/artifact" "$RUNNER_TEMP/be-receipts"
-          "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js"
+          "$RUNNER_TEMP/be-consume" "$RUNNER_TEMP/be-transfer/selection.json"
+          "$RUNNER_TEMP/be-receipts" "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js"
       - name: Reserve the shared durable production exclusion
         if: *activation-mode
         env:
@@ -207,6 +350,7 @@ jobs:
         env:
           ACTIVATION_ACTION: run
           ACTIVATION_PHASE: bridge-config
+          GITHUB_TOKEN: ${{ github.token }} # Parent-only fresh main guard; never forwarded to the private worker.
           VERCEL_CONFIGURATION_TOKEN: ${{ secrets.VERCEL_CONFIGURATION_TOKEN }}
           ACTIVATION_BRIDGE_INPUTS: ${{ secrets.BE_ACTIVATION_BRIDGE_INPUTS }}
         run: *activation-command
@@ -260,6 +404,7 @@ jobs:
         env:
           ACTIVATION_ACTION: run
           ACTIVATION_PHASE: roles
+          GITHUB_TOKEN: ${{ github.token }}
           ACTIVATION_ROLE_INPUTS: ${{ secrets.BE_ACTIVATION_ROLE_INPUTS }}
         run: *activation-command
       - name: Confirm role outcome
@@ -285,6 +430,7 @@ jobs:
         env:
           ACTIVATION_ACTION: run
           ACTIVATION_PHASE: migration
+          GITHUB_TOKEN: ${{ github.token }}
           ACTIVATION_MIGRATION_INPUTS: ${{ secrets.BE_ACTIVATION_MIGRATION_INPUTS }}
         run: *activation-command
       - name: Verify TARGET roles effective privileges and definer without writes
@@ -317,6 +463,7 @@ jobs:
         env:
           ACTIVATION_ACTION: run
           ACTIVATION_PHASE: bootstrap
+          GITHUB_TOKEN: ${{ github.token }}
           ACTIVATION_BOOTSTRAP_INPUTS: ${{ secrets.BE_ACTIVATION_BOOTSTRAP_INPUTS }}
         run: *activation-command
       - name: Confirm bootstrap outcome without blind replay
@@ -342,6 +489,7 @@ jobs:
         env:
           ACTIVATION_ACTION: run
           ACTIVATION_PHASE: app-config
+          GITHUB_TOKEN: ${{ github.token }}
           VERCEL_CONFIGURATION_TOKEN: ${{ secrets.VERCEL_CONFIGURATION_TOKEN }}
           ACTIVATION_APP_INPUTS: ${{ secrets.BE_ACTIVATION_APP_INPUTS }}
         run: *activation-command
@@ -408,7 +556,7 @@ jobs:
 
   completion:
     name: BE delivery accepted
-    needs: [checks, production]
+    needs: [checks, production, manual_retrieval, manual_activation]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -416,12 +564,21 @@ jobs:
     steps:
       - name: Require successful exact-artifact delivery, never a skipped job
         env:
+          MANUAL_ACTIVATION: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'activation' }}
           CHECKS_RESULT: ${{ needs.checks.result }}
           DELIVERY_RESULT: ${{ needs.production.result }}
           DELIVERY_ACCEPTED: ${{ needs.production.outputs.accepted }}
+          RETRIEVAL_RESULT: ${{ needs.manual_retrieval.result }}
+          ACTIVATION_RESULT: ${{ needs.manual_activation.result }}
+          ACTIVATION_ACCEPTED: ${{ needs.manual_activation.outputs.accepted }}
         shell: bash
         run: |
-          if [[ "$CHECKS_RESULT" != success || "$DELIVERY_RESULT" != success || "$DELIVERY_ACCEPTED" != true ]]; then
+          if [[ "$MANUAL_ACTIVATION" == true ]]; then
+            if [[ "$RETRIEVAL_RESULT" != success || "$ACTIVATION_RESULT" != success || "$ACTIVATION_ACCEPTED" != true ]]; then
+              printf '%s\n' 'BE activation not accepted: retained retrieval, activation and final BE acceptance must all succeed.' >&2
+              exit 1
+            fi
+          elif [[ "$CHECKS_RESULT" != success || "$DELIVERY_RESULT" != success || "$DELIVERY_ACCEPTED" != true ]]; then
             printf '%s\n' 'BE delivery not accepted: checks, production and final delivery acceptance must all succeed.' >&2
             exit 1
           fi

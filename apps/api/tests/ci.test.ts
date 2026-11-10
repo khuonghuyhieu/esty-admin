@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
 import { gzipSync } from 'node:zlib';
 import { readFileSync, realpathSync, existsSync } from 'node:fs';
-import { cp, chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { cp, chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, sha256, verifyArtifact } from '../scripts/artifact.js';
@@ -30,6 +32,9 @@ import { approvedSchema, authorizeRoutineMigration, confirmedMigration, continue
 import type { RoutineMigrationPacket, RoutineSchema } from '../scripts/ci-migrations.js';
 import type { RoutineProvider } from '../scripts/ci-provider.js';
 import type { MigrationReport } from '../scripts/migrations.js';
+import { canonical as retainedCanonical, githubReader, manualContext, readSelection, retainedActivation,
+  selectRetained, validateSelection, verifyRelay, verifySelectedBundle, verifyWorkflowHead } from '../scripts/activation-retained.mjs';
+import { executeManualAction } from '../scripts/manual-activation.mjs';
 const oldSchema: RoutineSchema = { digest: activationSchema.oldDigest };
 
 interface Fixture { artifact: VerifiedArtifact; dispose(): Promise<void> }
@@ -808,3 +813,447 @@ test('journal mode and event tampering prevent all later phase effects', async t
   await assert.rejects(executeActivationPhase(input, 'bridge-config', effect));
   assert.equal(effects, 0);
 });
+
+interface RetainedRunMetadata {
+  id: number;
+  run_attempt: number;
+  head_sha: string;
+  head_branch: string;
+  event: string;
+  path: string;
+  repository: { full_name: string };
+  head_repository: { full_name: string };
+  status: string;
+  conclusion: string | null;
+}
+interface RetainedMetadata {
+  main: { sha: string; commit: { tree: { sha: string } } };
+  source: { sha: string; commit: { tree: { sha: string } } };
+  retainedRun: RetainedRunMetadata;
+  jobs: { total_count: number; jobs: Array<{ id: number; name: string; run_id: number; run_attempt: number;
+    head_sha: string; status: string; conclusion: string }> };
+  artifact: { id: number; name: string; expired: boolean; size_in_bytes: number; digest: string;
+    created_at: string; expires_at: string; workflow_run: { id: number; head_sha: string; head_branch: string } };
+  activeRun: RetainedRunMetadata;
+}
+
+function retainedManualFixture(now = Date.now()) {
+  const pin = retainedActivation;
+  const packet: ActivationPacket = { ...activationPacket(), runId: '11111111-1111-4111-8111-111111111111',
+    revision: pin.revision, tree: pin.tree, sourceDigest: pin.sourceDigest, artifactDigest: pin.artifactDigest,
+    projectId: pin.project, scopeId: pin.scope, target: pin.target };
+  const packetJson = retainedCanonical(packet);
+  const env: NodeJS.ProcessEnv = { ...context(), GITHUB_EVENT_NAME: 'workflow_dispatch', BE_DELIVERY_ENABLED: 'false',
+    BE_DELIVERY_MODE: 'activation', BE_ACTIVATION_ENABLED: 'true', BE_ACTIVATION_WORKFLOW_SHA: run.revision,
+    BE_ACTIVATION_PACKET_JSON: packetJson, BE_ACTIVATION_PACKET_SHA256: sha256(packetJson) };
+  const event = { inputs: { mode: 'activation', activation_artifact_id: pin.artifactId } };
+  const active = manualContext(env, event), repo = { full_name: pin.repository };
+  const retainedRun = { id: Number(pin.runId), run_attempt: 1, head_sha: pin.revision, head_branch: 'main',
+    event: 'push', path: pin.workflowPath, repository: repo, head_repository: repo, status: 'completed', conclusion: 'failure' };
+  const metadata: RetainedMetadata = {
+    main: { sha: run.revision, commit: { tree: { sha: run.tree } } },
+    source: { sha: pin.revision, commit: { tree: { sha: pin.tree } } },
+    retainedRun,
+    jobs: { total_count: 1, jobs: [{ id: Number(pin.checksJobId), name: 'BE required checks',
+      run_id: Number(pin.runId), run_attempt: 1, head_sha: pin.revision, status: 'completed', conclusion: 'success' }] },
+    artifact: { id: Number(pin.artifactId), name: `be-tested-${pin.runId}-1`, expired: false, size_in_bytes: 1024,
+      digest: `sha256:${pin.zipDigest}`, created_at: new Date(now - 60_000).toISOString(),
+      expires_at: new Date(now + 3_600_000).toISOString(),
+      workflow_run: { id: Number(pin.runId), head_sha: pin.revision, head_branch: 'main' } },
+    activeRun: { ...retainedRun, id: Number(run.run), head_sha: run.revision, event: 'workflow_dispatch',
+      status: 'in_progress', conclusion: null },
+  };
+  const read = async (path: string) => {
+    const values: Record<string, unknown> = { '/commits/main': metadata.main, [`/commits/${pin.revision}`]: metadata.source,
+      [`/actions/runs/${pin.runId}`]: metadata.retainedRun,
+      [`/actions/runs/${pin.runId}/jobs?filter=all&per_page=100`]: metadata.jobs,
+      [`/actions/artifacts/${pin.artifactId}`]: metadata.artifact, [`/actions/runs/${run.run}`]: metadata.activeRun };
+    assert.ok(Object.hasOwn(values, path), `Unexpected retained metadata path: ${path}`);
+    return structuredClone(values[path]);
+  };
+  return { now, packet, env, event, context: active, metadata, read };
+}
+
+test('manual retained approval binds the new workflow without opening ordinary production gates', () => {
+  const f = retainedManualFixture();
+  assert.deepEqual(f.context.workflow, { revision: run.revision, run: run.run, ref: 'refs/heads/main',
+    workflowRef: `${repository}/.github/workflows/be-delivery.yml@refs/heads/main` });
+  assert.equal(f.context.packet.revision, retainedActivation.revision);
+  assert.notEqual(f.context.packet.revision, f.context.workflow.revision);
+  for (const enabled of [undefined, '', 'false']) {
+    assert.deepEqual(manualContext({ ...f.env, BE_DELIVERY_ENABLED: enabled }, f.event), f.context);
+    for (const event of ['push', 'workflow_dispatch']) for (const mode of ['current-schema-only', 'versioned-migration']) {
+      const env = { ...context(), GITHUB_EVENT_NAME: event, BE_DELIVERY_MODE: mode, BE_DELIVERY_ENABLED: enabled,
+        BE_ACTIVATION_ENABLED: 'true', BE_ACTIVATION_WORKFLOW_SHA: run.revision };
+      assert.throws(() => deliveryContext(env, run.tree), `${event}/${mode} remains broad-gated`);
+      assert.deepEqual(deliveryContext({ ...env, BE_DELIVERY_ENABLED: 'true' }, run.tree), run);
+    }
+  }
+});
+
+test('manual retained context refuses implicit activation, unreviewed workflows and untrusted attempts', () => {
+  const f = retainedManualFixture();
+  for (const change of [{ GITHUB_ACTIONS: 'false' }, { GITHUB_REPOSITORY: 'fork/esty-admin' },
+    { GITHUB_REF: 'refs/heads/topic' }, { GITHUB_REF: 'refs/tags/main' }, { GITHUB_EVENT_NAME: 'push' },
+    { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_RUN_ATTEMPT: '2' }, { GITHUB_RUN_ID: retainedActivation.runId },
+    { GITHUB_RUN_ID: '0' }, { GITHUB_SHA: 'invalid' },
+    { GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/other.yml@refs/heads/main` },
+    { BE_DELIVERY_ENVIRONMENT: 'preview' }, { BE_DELIVERY_MODE: 'current-schema-only' },
+    { BE_ACTIVATION_ENABLED: 'false' }, { BE_ACTIVATION_ENABLED: undefined },
+    { BE_ACTIVATION_WORKFLOW_SHA: retainedActivation.revision }, { BE_ACTIVATION_WORKFLOW_SHA: undefined }]) {
+    assert.throws(() => manualContext({ ...f.env, ...change }, f.event), JSON.stringify(change));
+  }
+  for (const event of [{}, { inputs: {} }, { inputs: { ...f.event.inputs, mode: 'current-schema-only' } },
+    { inputs: { mode: 'activation' } }, { inputs: { ...f.event.inputs, activation_artifact_id: '13587251016' } },
+    { inputs: { ...f.event.inputs, activation_artifact_id: Number(retainedActivation.artifactId) } }]) {
+    assert.throws(() => manualContext(f.env, event));
+  }
+});
+
+test('manual retained packet approval rejects substituted release pins and noncanonical bytes', () => {
+  const f = retainedManualFixture();
+  for (const change of [{ version: 2 }, { revision: run.revision }, { tree: run.tree }, { sourceDigest: sha256('different-source') },
+    { artifactDigest: sha256('different-artifact') }, { projectId: 'prj_other' }, { scopeId: 'team_other' }, { target: 'local' }]) {
+    const json = retainedCanonical({ ...f.packet, ...change });
+    assert.throws(() => manualContext({ ...f.env, BE_ACTIVATION_PACKET_JSON: json, BE_ACTIVATION_PACKET_SHA256: sha256(json) }, f.event));
+  }
+  for (const json of [JSON.stringify(f.packet, null, 2), `${f.env.BE_ACTIVATION_PACKET_JSON}\n`, '{', 'null']) {
+    assert.throws(() => manualContext({ ...f.env, BE_ACTIVATION_PACKET_JSON: json, BE_ACTIVATION_PACKET_SHA256: sha256(json) }, f.event));
+  }
+  assert.throws(() => manualContext({ ...f.env, BE_ACTIVATION_PACKET_SHA256: sha256('unapproved') }, f.event));
+});
+
+test('retained selection accepts successful exact checks despite failed old completion and keeps workflow identity separate', async () => {
+  const f = retainedManualFixture(Date.parse('2026-10-31T00:00:00.000Z'));
+  const selected = await selectRetained(f.context, f.read, f.now);
+  assert.deepEqual(selected.retained, retainedActivation);
+  assert.deepEqual(selected.workflow, { ...f.context.workflow, tree: run.tree });
+  assert.deepEqual(selected.checks, { id: retainedActivation.checksJobId, conclusion: 'success' });
+  assert.equal(selected.packetDigest, f.context.packetDigest);
+  assert.equal(selected.expiresAt, f.metadata.artifact.expires_at);
+  assert.equal(selected.selectedAt, new Date(f.now).toISOString());
+  await verifyWorkflowHead(selected, f.read);
+  f.metadata.main.sha = retainedActivation.revision;
+  await assert.rejects(verifyWorkflowHead(selected, f.read));
+  f.metadata.main.sha = run.revision;
+  f.metadata.main.commit.tree.sha = retainedActivation.tree;
+  await assert.rejects(verifyWorkflowHead(selected, f.read));
+  f.metadata.main.commit.tree.sha = run.tree;
+  f.metadata.source.commit.tree.sha = run.tree;
+  await assert.rejects(verifyWorkflowHead(selected, f.read));
+});
+
+test('retained selector refuses changed metadata, incomplete checks and expired transport before issuing approval', async () => {
+  const now = Date.parse('2026-10-31T00:00:00.000Z');
+  const changes: Array<[string, (metadata: RetainedMetadata) => void]> = [
+    ['live main changed', m => { m.main.sha = retainedActivation.revision; }],
+    ['source tree changed', m => { m.source.commit.tree.sha = run.tree; }],
+    ['retained run changed', m => { m.retainedRun.id++; }],
+    ['retained rerun', m => { m.retainedRun.run_attempt = 2; }],
+    ['retained source changed', m => { m.retainedRun.head_sha = run.revision; }],
+    ['retained branch changed', m => { m.retainedRun.head_branch = 'topic'; }],
+    ['retained pull request', m => { m.retainedRun.event = 'pull_request'; }],
+    ['retained workflow changed', m => { m.retainedRun.path = '.github/workflows/other.yml'; }],
+    ['retained fork', m => { m.retainedRun.head_repository = { full_name: 'fork/esty-admin' }; }],
+    ['retained incomplete', m => { m.retainedRun.status = 'in_progress'; }],
+    ['checks missing', m => { m.jobs.jobs = []; m.jobs.total_count = 0; }],
+    ['checks pagination incomplete', m => { m.jobs.total_count = 101; }],
+    ['checks duplicated', m => { m.jobs.jobs.push({ ...m.jobs.jobs[0]! }); m.jobs.total_count = 2; }],
+    ['checks renamed', m => { m.jobs.jobs[0]!.name = 'Different checks'; }],
+    ['checks failed', m => { m.jobs.jobs[0]!.conclusion = 'failure'; }],
+    ['checks incomplete', m => { m.jobs.jobs[0]!.status = 'in_progress'; }],
+    ['checks rerun', m => { m.jobs.jobs[0]!.run_attempt = 2; }],
+    ['checks different run', m => { m.jobs.jobs[0]!.run_id++; }],
+    ['checks different source', m => { m.jobs.jobs[0]!.head_sha = run.revision; }],
+    ['artifact substituted', m => { m.artifact.id++; }],
+    ['artifact renamed', m => { m.artifact.name = 'be-tested-other'; }],
+    ['artifact digest changed', m => { m.artifact.digest = `sha256:${sha256('different-zip')}`; }],
+    ['artifact expired flag', m => { m.artifact.expired = true; }],
+    ['artifact expiry boundary', m => { m.artifact.expires_at = new Date(now).toISOString(); }],
+    ['artifact invalid expiry', m => { m.artifact.expires_at = 'not-a-date'; }],
+    ['artifact from future', m => { m.artifact.created_at = new Date(now + 1).toISOString(); }],
+    ['artifact unbounded', m => { m.artifact.size_in_bytes = 64 * 1024 * 1024 + 1; }],
+    ['artifact empty', m => { m.artifact.size_in_bytes = 0; }],
+    ['artifact wrong run', m => { m.artifact.workflow_run.id++; }],
+    ['artifact wrong source', m => { m.artifact.workflow_run.head_sha = run.revision; }],
+    ['active run changed', m => { m.activeRun.id++; }],
+    ['active rerun', m => { m.activeRun.run_attempt = 2; }],
+    ['active push', m => { m.activeRun.event = 'push'; }],
+    ['active source impersonates release', m => { m.activeRun.head_sha = retainedActivation.revision; }],
+    ['active workflow changed', m => { m.activeRun.path = '.github/workflows/other.yml'; }],
+    ['active run completed', m => { m.activeRun.status = 'completed'; }],
+    ['active fork', m => { m.activeRun.repository = { full_name: 'fork/esty-admin' }; }],
+  ];
+  for (const [label, change] of changes) {
+    const f = retainedManualFixture(now); change(f.metadata);
+    await assert.rejects(selectRetained(f.context, f.read, now), label);
+  }
+});
+
+test('selection receipts cannot cross workflow, packet, artifact or expiry boundaries', async () => {
+  const f = retainedManualFixture(Date.parse('2026-10-31T00:00:00.000Z'));
+  const selected = await selectRetained(f.context, f.read, f.now);
+  for (const changed of [{ ...selected, version: 2 }, { ...selected, extra: true },
+    { ...selected, retained: { ...selected.retained, archiveDigest: sha256('substituted') } },
+    { ...selected, workflow: { ...selected.workflow, revision: retainedActivation.revision } },
+    { ...selected, workflow: { ...selected.workflow, run: '124' } },
+    { ...selected, workflow: { ...selected.workflow, tree: 'invalid' } },
+    { ...selected, packetDigest: sha256('different-packet') },
+    { ...selected, checks: { ...selected.checks, id: '128499919012' } },
+    { ...selected, checks: { ...selected.checks, conclusion: 'failure' } },
+    { ...selected, selectedAt: new Date(f.now + 1).toISOString() },
+    { ...selected, expiresAt: new Date(f.now).toISOString() }]) {
+    assert.throws(() => validateSelection(changed, f.context, f.now));
+  }
+  assert.throws(() => validateSelection(selected, f.context, Date.parse(selected.expiresAt)));
+});
+
+test('retained metadata reader refuses redirects and unsafe paths without exposing its credential', async () => {
+  const token = 'synthetic-retained-read-token';
+  let calls = 0;
+  const reader = githubReader(token, AbortSignal.timeout(10000), async (raw, init) => {
+    calls++;
+    assert.equal(new URL(String(raw)).origin, 'https://api.github.com');
+    assert.equal(init?.redirect, 'error');
+    assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${token}`);
+    return new Response(null, { status: 302, headers: { location: 'https://untrusted.invalid/credential-sink' } });
+  });
+  for (const path of ['https://untrusted.invalid', '/../deployments', '/commits/main#ignored', '/commits/ main', '/commits\\main']) {
+    await assert.rejects(reader(path));
+  }
+  assert.equal(calls, 0);
+  await assert.rejects(reader('/commits/main'), error => error instanceof Error && !error.message.includes(token));
+  assert.equal(calls, 1);
+});
+
+test('relay rejects substituted archive bytes, unbound receipts and symbolic-link selections', async t => {
+  const f = retainedManualFixture(), selected = await selectRetained(f.context, f.read, f.now);
+  const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-retained-relay-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, 'selection.json'), bytes = retainedCanonical(selected) + '\n', digest = sha256(bytes);
+  await writeFile(path, bytes, { mode: 0o600 });
+  assert.deepEqual(readSelection(path, digest, f.context), selected);
+  assert.throws(() => readSelection(path, sha256('wrong-receipt'), f.context));
+  await writeFile(join(directory, 'be-release.tar.gz'), 'substituted archive', { mode: 0o600 });
+  assert.throws(() => verifyRelay(directory, digest, f.context));
+  await writeFile(path, retainedCanonical({ ...selected, packetDigest: sha256('changed') }) + '\n');
+  const changedHash = sha256(readFileSync(path));
+  assert.throws(() => readSelection(path, changedHash, f.context));
+  await rm(path);
+  const target = join(directory, 'selection-target.json');
+  await writeFile(target, bytes, { mode: 0o600 });
+  await symlink(target, path);
+  assert.throws(() => readSelection(path, digest, f.context));
+});
+
+test('actual retained bundle manual reservation uses sealed provider and durable journal with unknown acknowledgements fenced',
+  { skip: !process.env.MANUAL_ACTIVATION_TEST_BUNDLE }, async t => {
+    const f = retainedManualFixture(), selected = await selectRetained(f.context, f.read, f.now);
+    const bundleRoot = realpathSync(process.env.MANUAL_ACTIVATION_TEST_BUNDLE!);
+    const bundle = await verifySelectedBundle(bundleRoot, selected, f.context);
+    assert.equal(bundle.artifact.digest, retainedActivation.artifactDigest);
+    assert.equal(bundle.artifact.manifest.source.revision, retainedActivation.revision);
+    assert.notEqual(bundle.context.workflow.revision, bundle.artifact.manifest.source.revision);
+    for (const changed of [{ ...f.packet, oldDigest: sha256('wrong-old') }, { ...f.packet, migrations: [] },
+      { ...f.packet, bridgeConfigDigest: f.packet.appConfigDigest }, { ...f.packet, extra: true }]) {
+      assert.throws(() => bundle.modules.journal.validateActivationPacket(changed, sha256(retainedCanonical(changed))));
+    }
+    const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-retained-manual-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const eventPath = join(directory, 'event.json');
+    await writeFile(eventPath, JSON.stringify(f.event), { mode: 0o600 });
+    const relay = join(directory, 'relay'); await mkdir(relay, { mode: 0o700 });
+    const selectionBytes = retainedCanonical(selected) + '\n';
+    await writeFile(join(relay, 'selection.json'), selectionBytes, { mode: 0o600 });
+    await cp(join(dirname(bundleRoot), 'be-release.tar.gz'), join(relay, 'be-release.tar.gz'));
+    assert.deepEqual(verifyRelay(relay, sha256(selectionBytes), f.context), selected);
+    await writeFile(join(relay, 'unexpected.json'), '{}', { mode: 0o600 });
+    assert.throws(() => verifyRelay(relay, sha256(selectionBytes), f.context));
+    const env = { ...f.env, GITHUB_EVENT_PATH: eventPath, GITHUB_TOKEN: credentials.github,
+      VERCEL_TOKEN: credentials.vercel, BE_PREVIEW_ACCESS_KEY: credentials.bearer };
+    for (const scenario of ['confirmed', 'lost-reservation-ack', 'changed-main', 'changed-predecessor']) {
+      const journalDirectory = join(directory, scenario);
+      bundle.modules.privateFiles.privateDirectory(journalDirectory);
+      bundle.modules.releaseJournal.writeReleaseEvidence(join(journalDirectory, 'packet-input.json'), bundle.packet);
+      let posts = 0;
+      const transport: typeof fetch = async (raw, init) => {
+        const url = new URL(String(raw)), headers = new Headers(init?.headers);
+        if (url.origin === 'https://api.github.com') {
+          assert.equal(headers.get('authorization'), `Bearer ${credentials.github}`);
+          const path = url.pathname.slice(`/repos/${repository}`.length);
+          if (path === '/commits/main') return Response.json(scenario === 'changed-main'
+            ? { ...f.metadata.main, sha: retainedActivation.revision } : f.metadata.main);
+          if (path === `/commits/${retainedActivation.revision}`) return Response.json(f.metadata.source);
+          if (path === '/deployments' && init?.method !== 'POST') return Response.json([]);
+          if (path === '/deployments' && init?.method === 'POST') {
+            posts++;
+            const lock = bundle.modules.releaseJournal.readEvidence(join(journalDirectory, 'operator.lock')).value;
+            assert.equal(lock.packetDigest, f.context.packetDigest);
+            const body = JSON.parse(String(init.body));
+            assert.equal(body.ref, retainedActivation.revision);
+            assert.equal(body.auto_merge, false);
+            assert.deepEqual(body.required_contexts, []);
+            assert.equal(body.payload.run, f.context.workflow.run);
+            assert.equal(body.payload.revision, retainedActivation.revision);
+            assert.equal(body.payload.tree, retainedActivation.tree);
+            assert.equal(body.payload.artifact, retainedActivation.artifactDigest);
+            assert.equal(body.payload.activationPacket, f.context.packetDigest);
+            for (const value of Object.values(credentials)) assert.equal(JSON.stringify(body).includes(value), false);
+            if (scenario === 'lost-reservation-ack') throw new Error('Synthetic lost reservation acknowledgement.');
+            return Response.json({ id: 45, sha: retainedActivation.revision,
+              task: 'deploy:esty-be-ci', environment: 'be-production' }, { status: 201 });
+          }
+        } else if (url.origin === 'https://api.vercel.com') {
+          assert.equal(headers.get('authorization'), `Bearer ${credentials.vercel}`);
+          assert.notEqual(init?.method, 'POST');
+          if (url.pathname === `/v9/projects/${retainedActivation.project}`) return Response.json({
+            id: retainedActivation.project, name: 'esty-admin-api', accountId: retainedActivation.scope,
+            rootDirectory: 'apps/api', framework: 'nestjs', nodeVersion: '24.x',
+            buildCommand: null, installCommand: null, outputDirectory: null,
+            link: { type: 'github', org: 'khuonghuyhieu', repo: 'esty-admin', productionBranch: 'main', repoId: 1, deployHooks: [] },
+          });
+          if (url.pathname === `/v9/projects/${retainedActivation.project}/domains/api.lovora.us`) {
+            return Response.json({ name: 'api.lovora.us', projectId: retainedActivation.project, verified: true });
+          }
+          if (url.pathname === '/v4/aliases/api.lovora.us') return Response.json({ alias: 'api.lovora.us',
+            projectId: retainedActivation.project, deploymentId: scenario === 'changed-predecessor' ? 'dpl_changed' : f.packet.predecessorId });
+        }
+        throw new Error(`Unexpected synthetic activation request: ${url.origin}${url.pathname}`);
+      };
+      const execute = () => executeManualAction(bundle, 'reserve', '-', env, journalDirectory,
+        join(directory, 'unused-vercel-cli.js'), AbortSignal.timeout(30000), transport);
+      if (scenario === 'confirmed') {
+        await execute();
+        const journal = bundle.modules.journal.readActivationJournal(journalDirectory, bundle.packet, f.context.packetDigest);
+        assert.equal(journal.journal, 45);
+        assert.equal(journal.next, 'bridge-config');
+        assert.deepEqual(journal.events, []);
+        await assert.rejects(execute());
+        assert.equal(posts, 1);
+      } else if (scenario === 'lost-reservation-ack') {
+        await assert.rejects(execute());
+        assert.equal(posts, 1);
+        assert.equal(existsSync(join(journalDirectory, 'operator.lock')), true);
+        assert.throws(() => bundle.modules.journal.readActivationJournal(journalDirectory, bundle.packet, f.context.packetDigest));
+        await assert.rejects(execute());
+        assert.equal(posts, 1);
+      } else {
+        await assert.rejects(execute());
+        assert.equal(posts, 0);
+        assert.equal(existsSync(join(journalDirectory, 'operator.lock')), false);
+      }
+    }
+  });
+
+test('private mutations recheck authorized main before spawning and keep provider credentials out of real children',
+  { skip: !process.env.MANUAL_ACTIVATION_TEST_BUNDLE || process.platform !== 'linux' }, async t => {
+    const base = retainedManualFixture(), selected = await selectRetained(base.context, base.read, base.now);
+    const bundle = await verifySelectedBundle(realpathSync(process.env.MANUAL_ACTIVATION_TEST_BUNDLE!), selected, base.context);
+    const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-private-main-guard-'));
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    const eventPath = join(directory, 'event.json');
+    await writeFile(eventPath, JSON.stringify(base.event), { mode: 0o600 });
+    const childObservations: Array<{ phase: string; providerNames: string[]; error?: unknown }> = [];
+    const originalSpawn = childProcess.spawn;
+    t.mock.method(childProcess, 'spawn', ((...args: Parameters<typeof childProcess.spawn>) => {
+      const child = Reflect.apply(originalSpawn, childProcess, args);
+      child.once('spawn', () => {
+        try {
+          // Read only this newly spawned synthetic worker, once, on its spawn event; never poll or inspect other processes.
+          const names = readFileSync(`/proc/${child.pid}/environ`, 'utf8').split('\0').map(item => item.split('=', 1)[0]!);
+          childObservations.push({ phase: args[1]![2]!, providerNames: names.filter(name =>
+            name.startsWith('GITHUB_') || ['VERCEL_TOKEN', 'VERCEL_API_TOKEN', 'BE_PREVIEW_ACCESS_KEY',
+              'VERCEL_AUTOMATION_BYPASS_SECRET'].includes(name)) });
+        } catch (error) { childObservations.push({ phase: args[1]![2]!, providerNames: [], error }); }
+      });
+      return child;
+    }) as typeof childProcess.spawn);
+    syncBuiltinESMExports();
+    t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+    const fields = { 'bridge-config': 'ACTIVATION_BRIDGE_INPUTS', roles: 'ACTIVATION_ROLE_INPUTS',
+      migration: 'ACTIVATION_MIGRATION_INPUTS', bootstrap: 'ACTIVATION_BOOTSTRAP_INPUTS', 'app-config': 'ACTIVATION_APP_INPUTS' };
+    for (const phase of Object.keys(fields) as Array<keyof typeof fields>) {
+      for (const scenario of ['unchanged', 'main-sha', 'main-tree', 'api-failure', 'missing-token', 'vercel-token']) {
+        await t.test(`${phase}/${scenario}`, async () => {
+          const f = retainedManualFixture(), journalDirectory = join(directory, `${phase}-${scenario}`);
+          const input = { directory: journalDirectory, packet: bundle.packet, digest: base.context.packetDigest };
+          const j = bundle.modules.journal;
+          j.createActivationJournal(journalDirectory, input.packet, input.digest);
+          j.reserveActivationJournal(journalDirectory, input.packet, input.digest, 45);
+          bundle.modules.releaseJournal.writeReleaseEvidence(join(journalDirectory, 'packet-input.json'), input.packet);
+          // Synthetic prior phases use the existing journal fixture protocol; no external phase is executed.
+          for (const prior of activationPhases) {
+            if (prior === phase) break;
+            const intent = j.appendActivationEvent(journalDirectory, input.packet, input.digest, prior, 'intent', { outcome: 'unknown' });
+            j.appendActivationEvent(journalDirectory, input.packet, input.digest, prior, 'authorized', { intentHash: intent.head });
+            j.appendActivationEvent(journalDirectory, input.packet, input.digest, prior, 'started', { outcome: 'unknown' });
+            const deploymentId = prior === 'bridge' || prior === 'app' ? `dpl_${prior}` : null;
+            if (deploymentId) {
+              j.appendActivationEvent(journalDirectory, input.packet, input.digest, prior, 'acknowledged', { deploymentId });
+              j.appendActivationEvent(journalDirectory, input.packet, input.digest, prior, 'candidate-attested',
+                { deploymentId, configDigest: prior === 'bridge' ? input.packet.bridgeConfigDigest : input.packet.appConfigDigest });
+              j.appendActivationEvent(journalDirectory, input.packet, input.digest, prior, 'promotion-intent', { deploymentId });
+            }
+            const result = prior === 'bridge-config' || prior === 'app-config'
+              ? j.saveActivationConfigurationReceipt(journalDirectory, input.packet, input.digest, prior, configurationReceiptFixture(input.packet, prior))
+              : { result: 'confirmed', databaseOutcome: ['roles', 'migration', 'bootstrap'].includes(prior) ? 'committed' : 'not_started',
+                count: prior === 'roles' || prior === 'migration' ? 2 : 1, deploymentId, reportDigest: sha256(prior) };
+            const completed = j.appendActivationEvent(journalDirectory, input.packet, input.digest, prior, 'outcome', result);
+            j.appendActivationEvent(journalDirectory, input.packet, input.digest, prior, 'confirming', { outcomeHash: completed.head });
+            j.appendActivationEvent(journalDirectory, input.packet, input.digest, prior, 'remote-confirmed', { outcomeHash: completed.head });
+          }
+          bundle.modules.releaseJournal.writeReleaseEvidence(join(journalDirectory, `${input.packet.runId}.initial.json`),
+            { version: 1, packetDigest: input.digest, inputDigest: input.packet.roleInputDigest,
+              history: input.packet.migrations.slice(0, 1).map((item: { name: string }) => item.name), roles: 'compatible-or-absent' });
+          if (phase === 'bootstrap' || phase === 'app-config') {
+            const started = j.readActivationJournal(journalDirectory, input.packet, input.digest).events
+              .find((event: { phase: string; kind: string }) => event.phase === 'migration' && event.kind === 'started');
+            bundle.modules.releaseJournal.writeReleaseEvidence(join(journalDirectory, `${input.packet.runId}.postflight.json`),
+              { version: 1, packetDigest: input.digest, inputDigest: input.packet.roleInputDigest, startedHash: started.sha256,
+                history: input.packet.migrations.map((item: { name: string }) => item.name), roles: 'target-confirmed' });
+          }
+          let authorization = '';
+          await bundle.modules.activation.authorizeActivationPhase(input, phase, {
+            currentMain: () => verifyWorkflowHead(selected, f.read),
+            async binding(id: string) { assert.equal(id, phase === 'bridge-config' ? input.packet.predecessorId : 'dpl_bridge'); },
+            async record(_id: number, _state: string, description: string) { authorization = description; },
+            async confirmJournal(_id: number, _state: string, description: string) { assert.equal(description, authorization); },
+          });
+          const before = j.readActivationJournal(journalDirectory, input.packet, input.digest);
+          assert.equal(before.events.at(-1).kind, 'authorized');
+          if (scenario === 'main-sha') f.metadata.main.sha = retainedActivation.revision;
+          if (scenario === 'main-tree') f.metadata.main.commit.tree.sha = retainedActivation.tree;
+          const env: NodeJS.ProcessEnv = { ...f.env, GITHUB_EVENT_PATH: eventPath, GITHUB_TOKEN: credentials.github,
+            [fields[phase]]: '{}' };
+          if (phase === 'bridge-config' || phase === 'app-config') env.VERCEL_CONFIGURATION_TOKEN = 'synthetic-config-token';
+          if (scenario === 'missing-token') delete env.GITHUB_TOKEN;
+          if (scenario === 'vercel-token') env.VERCEL_TOKEN = credentials.vercel;
+          let requests = 0;
+          const transport: typeof fetch = async (raw, init) => {
+            requests++;
+            assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${credentials.github}`);
+            assert.equal(init?.method ?? 'GET', 'GET');
+            if (scenario === 'api-failure') throw new Error('Synthetic metadata API unavailable.');
+            const url = new URL(String(raw));
+            assert.equal(url.origin, 'https://api.github.com');
+            return Response.json(await f.read(url.pathname.slice(`/repos/${repository}`.length)));
+          };
+          const childrenBefore = childObservations.length;
+          // Unchanged head admits the real sealed worker. Deliberately invalid synthetic phase inputs then fence it before external work.
+          await assert.rejects(executeManualAction(bundle, 'run', phase, env, journalDirectory,
+            join(directory, 'unused-cli.js'), AbortSignal.timeout(30000), transport));
+          const after = j.readActivationJournal(journalDirectory, input.packet, input.digest);
+          if (scenario === 'unchanged') {
+            assert.equal(requests, 2);
+            assert.equal(childObservations.length, childrenBefore + 1);
+            assert.deepEqual(childObservations.at(-1), { phase, providerNames: [] });
+            assert.ok(after.events.some((event: { phase: string; kind: string }) => event.phase === phase && event.kind === 'started'));
+          } else {
+            assert.equal(requests, scenario === 'missing-token' || scenario === 'vercel-token' ? 0 : 1);
+            assert.equal(childObservations.length, childrenBefore);
+            assert.equal(after.head, before.head);
+          }
+        });
+      }
+    }
+  });
