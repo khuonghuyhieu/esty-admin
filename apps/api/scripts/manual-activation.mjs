@@ -6,6 +6,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { canonical, githubReader, loadManualContext, readSelection, retainedActivation,
   validateSelection, verifySelectedBundle, verifyWorkflowHead } from './activation-retained.mjs';
+import { reserveManualActivation } from './activation-preflight-disposition.mjs';
 
 const privatePhases = new Set(['bridge-config', 'roles', 'migration', 'bootstrap', 'app-config']);
 const phases = new Set([...privatePhases, 'bridge', 'app']);
@@ -49,10 +50,12 @@ function activationProvider(bundle, phase, inputs, signal, transport) {
     { github: inputs.GITHUB_TOKEN ?? '', vercel: inputs.VERCEL_TOKEN ?? '', bearer: inputs.BE_PREVIEW_ACCESS_KEY ?? '' },
     signal, activation, transport);
   const read = githubReader(inputs.GITHUB_TOKEN ?? '', signal, transport);
-  return { ...provider, currentMain: async () => {
+  const currentMain = async () => {
     signal.throwIfAborted();
     await verifyWorkflowHead(bundle.selection, read);
-  } };
+  };
+  return { ...provider, currentMain,
+    reserve: () => reserveManualActivation(bundle, inputs, signal, transport, currentMain) };
 }
 function candidatePredecessor(bundle, current, phase) {
   if (phase === 'bridge') return current.packet.predecessorId;

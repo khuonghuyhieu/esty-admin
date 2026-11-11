@@ -275,6 +275,7 @@ jobs:
       cancel-in-progress: false
     permissions:
       contents: read
+      actions: read
       deployments: write
     env:
       BE_DELIVERY_ENVIRONMENT: be-production

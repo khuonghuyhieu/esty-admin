@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { gzipSync } from 'node:zlib';
+import { crc32, gzipSync } from 'node:zlib';
 import { readFileSync, realpathSync, existsSync } from 'node:fs';
 import { cp, chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -35,6 +35,8 @@ import type { MigrationReport } from '../scripts/migrations.js';
 import { canonical as retainedCanonical, githubReader, manualContext, readSelection, retainedActivation,
   selectRetained, validateSelection, verifyRelay, verifySelectedBundle, verifyWorkflowHead } from '../scripts/activation-retained.mjs';
 import { executeManualAction } from '../scripts/manual-activation.mjs';
+import { failedPreflightProof, manualGithubIo, reserveManualActivation,
+  validatePreflightReceiptArchive } from '../scripts/activation-preflight-disposition.mjs';
 const oldSchema: RoutineSchema = { digest: activationSchema.oldDigest };
 
 interface Fixture { artifact: VerifiedArtifact; dispose(): Promise<void> }
@@ -1046,7 +1048,7 @@ test('relay rejects substituted archive bytes, unbound receipts and symbolic-lin
   assert.throws(() => readSelection(path, digest, f.context));
 });
 
-test('actual retained bundle manual reservation uses sealed provider and durable journal with unknown acknowledgements fenced',
+test('actual retained bundle manual reservation uses the current controller with sealed preflight and durable unknown-ACK fences',
   { skip: !process.env.MANUAL_ACTIVATION_TEST_BUNDLE }, async t => {
     const f = retainedManualFixture(), selected = await selectRetained(f.context, f.read, f.now);
     const bundleRoot = realpathSync(process.env.MANUAL_ACTIVATION_TEST_BUNDLE!);
@@ -1257,3 +1259,125 @@ test('private mutations recheck authorized main before spawning and keep provide
       }
     }
   });
+
+function receiptZip(members: Array<[string, Buffer]>): Buffer {
+  const locals: Buffer[] = [], central: Buffer[] = [];
+  let offset = 0;
+  for (const [name, bytes] of members) {
+    const encoded = Buffer.from(name), local = Buffer.alloc(30), header = Buffer.alloc(46);
+    local.writeUInt32LE(0x04034b50); local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc32(bytes), 14); local.writeUInt32LE(bytes.length, 18); local.writeUInt32LE(bytes.length, 22);
+    local.writeUInt16LE(encoded.length, 26);
+    header.writeUInt32LE(0x02014b50); header.writeUInt16LE(20, 4); header.writeUInt16LE(20, 6);
+    header.writeUInt32LE(crc32(bytes), 16); header.writeUInt32LE(bytes.length, 20); header.writeUInt32LE(bytes.length, 24);
+    header.writeUInt16LE(encoded.length, 28); header.writeUInt32LE(offset, 42);
+    locals.push(local, encoded, bytes); central.push(header, encoded); offset += local.length + encoded.length + bytes.length;
+  }
+  const directory = Buffer.concat(central), end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(members.length, 8); end.writeUInt16LE(members.length, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
+}
+test('failed-preflight archive proves intact reservation and rejects events, initial proof, changed lock and incomplete inventory', async t => {
+  const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-terminal-archive-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const packet = activationPacket(), digest = sha256(canonical(packet)), root = join(directory, 'be-receipts');
+  createActivationJournal(root, packet, digest); reserveActivationJournal(root, packet, digest, 45);
+  writeReleaseEvidence(join(root, 'packet-input.json'), packet);
+  const archivePath = join(directory, 'receipts.tar.gz');
+  const pack = (inventoryDigest = sha256(canonical(inventory(root)))) => {
+    childProcess.execFileSync('tar', ['--format=ustar', '-czf', archivePath, '-C', directory, 'be-receipts'],
+      { stdio: ['ignore', 'pipe', 'pipe'], timeout: 10000 });
+    const bytes = readFileSync(archivePath);
+    return receiptZip([['be-delivery-receipts.tar.gz', bytes],
+      ['be-delivery-receipts.inventory-sha256', Buffer.from(inventoryDigest + '\n')],
+      ['be-delivery-receipts.archive-sha256', Buffer.from(`${sha256(bytes)}  /synthetic/be-delivery-receipts.tar.gz\n`)]]);
+  };
+  const validate = (zip: Buffer) => validatePreflightReceiptArchive(zip, sha256(zip), { runId: packet.runId, packetDigest: digest });
+  const original = pack(), proof = validate(original);
+  assert.equal(proof.journal, 45); assert.deepEqual(proof.packet, packet);
+  assert.equal(proof.inventoryDigest, sha256(canonical(inventory(root))));
+  assert.throws(() => validatePreflightReceiptArchive(original, sha256('substituted archive'), { runId: packet.runId, packetDigest: digest }));
+  assert.throws(() => validatePreflightReceiptArchive(original, sha256(original), { runId: randomUUID(), packetDigest: digest }));
+  assert.throws(() => validate(pack(sha256('incomplete inventory'))));
+  for (const name of [`activation/${packet.runId}/000.json`, 'initial-proof.json', 'candidate.json']) {
+    const path = join(root, name); writeReleaseEvidence(path, { unexpected: true });
+    assert.throws(() => validate(pack()), name); await rm(path);
+  }
+  const lockPath = join(root, 'operator.lock'), lock = readFileSync(lockPath);
+  await writeFile(lockPath, canonical({ version: 1, kind: 'activation', runId: packet.runId, packetDigest: sha256('other packet') }));
+  assert.throws(() => validate(pack())); await writeFile(lockPath, lock);
+  const reservation = join(root, 'activation', packet.runId, 'reservation.json'), bytes = readFileSync(reservation);
+  await rm(reservation); assert.throws(() => validate(pack())); await writeFile(reservation, bytes, { mode: 0o600 });
+  await chmod(lockPath, 0o640); assert.throws(() => validate(pack())); await chmod(lockPath, 0o600);
+  const changed = Buffer.from(original); changed[50] = changed[50]! ^ 1;
+  assert.throws(() => validatePreflightReceiptArchive(changed, sha256(original), { runId: packet.runId, packetDigest: digest }));
+  assert.deepEqual(validate(pack()).packet, packet);
+});
+test('manual reservation refuses missing, unrelated failed, cross-project and consumed execution history without POST', async t => {
+  const f = retainedManualFixture(), selected = await selectRetained(f.context, f.read, f.now);
+  const bundle = { context: f.context, packet: f.packet, selection: selected };
+  for (const scenario of ['no-status', 'unknown', 'unrelated-error', 'wrong-project', 'consumed-run', 'consumed-packet', 'success', 'changed-head', 'lost-ack']) {
+    await t.test(scenario, async () => {
+      let posts = 0, headChecks = 0;
+      const payload = { project: scenario === 'wrong-project' ? 'prj_other' : retainedActivation.project,
+        run: scenario === 'consumed-run' ? f.context.workflow.run : '42',
+        activationRun: scenario === 'consumed-packet' ? f.packet.runId : randomUUID() };
+      const transport: typeof fetch = async (raw, options) => {
+        const url = new URL(String(raw));
+        if (options?.method === 'POST') {
+          posts++;
+          if (scenario === 'lost-ack') throw new Error('Synthetic acknowledgement loss');
+          return Response.json({ id: 46, sha: retainedActivation.revision, task: 'deploy:esty-be-ci', environment: 'be-production' }, { status: 201 });
+        }
+        if (url.pathname.endsWith('/deployments')) return Response.json([{ id: 45, task: 'deploy:esty-be-ci', environment: 'be-production', payload }]);
+        if (url.pathname.endsWith('/statuses')) return Response.json(scenario === 'no-status' ? [] : [{ id: 1,
+          state: scenario === 'unknown' ? 'in_progress' : scenario === 'unrelated-error' ? 'error' : 'success', description: 'not an approved disposition' }]);
+        throw new Error('Unexpected proof lookup for an unrelated failed execution.');
+      };
+      const currentMain = async () => { headChecks++; if (scenario === 'changed-head' && headChecks === 2) throw new Error('Main advanced'); };
+      const operation = reserveManualActivation(bundle, { GITHUB_TOKEN: credentials.github }, AbortSignal.timeout(10000), transport, currentMain);
+      if (scenario === 'success') { assert.equal(await operation, 46); assert.equal(posts, 1); assert.equal(headChecks, 2); }
+      else { await assert.rejects(operation); assert.equal(posts, scenario === 'lost-ack' ? 1 : 0); }
+    });
+  }
+});
+test('fixed failed-preflight exception cannot be selected for another packet, run, repository or incomplete run', async () => {
+  const pin = retainedActivation, oldRun = '42847325668', revision = 'a'.repeat(40);
+  const intent = { id: 45, sha: pin.revision, task: 'deploy:esty-be-ci', environment: 'be-production', production_environment: true,
+    payload: { version: 1, revision: pin.revision, tree: pin.tree, run: oldRun, artifact: pin.artifactDigest,
+      sourceDigest: pin.sourceDigest, migrationDigest: activationSchema.targetDigest, project: pin.project,
+      activationPacket: '8385563025717633d77f7a2a38e3fc26f5b7e51ab9fb2b81086eee3edde15382',
+      activationRun: '36a0c3c3-0a74-4ccf-b6a3-8d5da26e4eed' } };
+  const run = { id: Number(oldRun), run_attempt: 1, status: 'completed', conclusion: 'failure', event: 'workflow_dispatch',
+    head_branch: 'main', head_sha: revision, path: pin.workflowPath, repository: { full_name: pin.repository }, head_repository: { full_name: pin.repository } };
+  for (const change of [{ status: 'in_progress' }, { run_attempt: 2 }, { conclusion: 'success' },
+    { repository: { full_name: 'fork/esty-admin' } }, { head_repository: { full_name: 'fork/esty-admin' } }, { path: '.github/workflows/other.yml' }]) {
+    let archiveReads = 0;
+    const io = { read: async (path: string) => path.startsWith('/deployments/') ? intent : { ...run, ...change },
+      download: async () => { archiveReads++; return Buffer.alloc(0); } };
+    await assert.rejects(failedPreflightProof(io, intent, async () => { throw new Error('Artifact must not be reached.'); }));
+    assert.equal(archiveReads, 0);
+  }
+  for (const payload of [{ ...intent.payload, run: '454' }, { ...intent.payload, activationPacket: sha256('other packet') },
+    { ...intent.payload, project: 'prj_other' }, { ...intent.payload, activationRun: randomUUID() }]) {
+    await assert.rejects(failedPreflightProof({ read: async () => { throw new Error('No lookup permitted.'); } },
+      { ...intent, payload }, async () => {}));
+  }
+});
+test('receipt download never forwards GitHub authorization to the signed artifact host or follows an arbitrary redirect', async () => {
+  const token = 'synthetic-github-artifact-read-token';
+  for (const location of ['https://synthetic.blob.core.windows.net/receipts?sig=synthetic', 'https://attacker.invalid/receipts',
+    'http://synthetic.blob.core.windows.net/receipts', 'https://user:password@synthetic.blob.core.windows.net/receipts']) {
+    const calls: Array<{ url: string; authorization: string | null }> = [];
+    const io = manualGithubIo(token, AbortSignal.timeout(10000), async (raw, init) => {
+      calls.push({ url: String(raw), authorization: new Headers(init?.headers).get('authorization') });
+      if (calls.length === 1) return new Response(null, { status: 302, headers: { location } });
+      return new Response(Buffer.from('synthetic zip'));
+    });
+    if (location.startsWith('https://synthetic.')) {
+      assert.equal((await io.download(1)).toString(), 'synthetic zip');
+      assert.deepEqual(calls.map(call => call.authorization), [`Bearer ${token}`, null]);
+    } else { await assert.rejects(io.download(1)); assert.equal(calls.length, 1); }
+  }
+});

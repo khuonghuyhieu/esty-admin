@@ -498,3 +498,105 @@ Coordinator t11c accepted the fresh parent main/source guard and child credentia
 
 The accepted fix receipt SHA256 is `72f909096dc5f98460f744d3d46ea2420e3f7adefeb00920cb2563f8d8f3d962`; adjacent `accepted-closeout.json` in `.openai/reports/retained-main-p2-9fmbq2yr/` binds this append-only documentation closeout and current hashes. **FIX_INSPECTION_ACCEPTED / NO_INFLIGHT / STOP WRITES.** Do not infer permission to consume or transfer existing real inputs, publish source, write secrets/variables, dispatch the workflow or perform provider/SQL/config/bootstrap/deployment work. Those gates, public packet/workflow approval, fresh retained-artifact preflight and final hosted/FE acceptance remain separate. No setup, input preparation, source/check/build or reviewer operation was repeated.
 
+## Protected prepared-input transfer adapter — local review gate
+
+The existing hash-guarded launcher now exposes two adapter actions. These are interface descriptions, not authorization to run against existing real inputs:
+
+| Action | Positional inputs after the action | Result |
+| --- | --- | --- |
+| `inspect-transfer` | Prepared directory; approved request digest; approved absolute gh executable; executable SHA256; explicit approved GH_CONFIG_DIR; separate owned0700 report directory | Validates all five phases and seven-file inventory; writes exclusive0600 `transfer-plan.json`; emits only plan/request/receipt and phase digests. No gh execution or profile discovery. |
+| `transfer-secrets` | Protected transfer-plan path; approved plan digest | Revalidates the immutable bindings, checks names-only absence, sends the fixed six payloads on stdin and records exact per-destination acknowledgements. |
+
+Only invocation through the approved executable manifest is accepted. The coordinator supplies nonsecret executable/profile/report bindings and obtains the public digest receipt through the supported helper; the owner does not write transfer or activation JSON. Neither an arbitrary absolute profile path nor a hash supplied by an unapproved caller constitutes owner approval. Do not use ambient GH_TOKEN/GITHUB_TOKEN, a secret value argument, shell echo, auth-token extraction or a copied provider credential to work around the protected path.
+
+On any collision, stop at the reported fixed destination. On nonzero exit, timeout, cancellation, output-limit or ambiguous write acknowledgement, preserve every attempt/started/ack record and stop at the exact UNKNOWN destination. Do not retry, overwrite, roll back, delete a receipt or infer equality from later name presence. Even successful completion is an acknowledgement record bound to the approved payloads, not a later GitHub value readback. GitHub does not provide atomic absent-only secret PUT; concurrent external writers remain an explicit risk.
+
+Current evidence: compilation0;30 helper tests passed/1 optional existing cross-platform test skipped; all13 new transfer cases passed. Actual sealed Darwin/arm64 CLI smoke used fake gh under denied networking for six exact stdin payloads, collision, lost ACK,30s timeout and64KiB output overflow, including replay refusal and redaction. New local manifest SHA256 `90fde59dade232f29014e37ff2bd76b6f7e2e834525a86d009361871a5336a52` and exact source/test/docs/provenance are in `.openai/reports/protected-transfer-44eqstxe/`. No Linux release, real transfer or production evidence is implied.
+
+**READY_FOR_REVIEW / NOT_READY_TO_CONSUME_EXISTING_INPUTS.** ONE adapter review belongs to t11c and remains pending. Existing real inputs and owner profile remain unopened. Coordinator constructs the activation packet from approved metadata and validated receipt digests; verify packet and current published workflow before any allowlisted variable preparation. Keep broad `BE_DELIVERY_ENABLED` false and withhold dispatch until packet/transfer/published-selection validation and separate authorization are complete. The three existing provider secrets and immutable f162 are not adapter destinations or rewrite targets.
+
+### Adapter P2 correction — caller hashes are not approval
+
+The scoped review found one P2 in the initial transfer adapter; fix-only coordinator inspection is now pending. `inspect-transfer` and `transfer-secrets` require the exact gh path/SHA256 in the independently approved guarded tool manifest's `transferGh` entry. The launcher verifies that entire manifest before the adapter uses this allowlist. Supplied CLI/plan fields cannot establish approval, even with a matching binary hash or recomputed plan digest. Missing anchors and unapproved executables refuse before prepared-payload access. Never self-generate a new manifest/digest from a caller-selected binary and treat it as independently accepted.
+
+Focused compilation and14/14 transfer tests passed; an actual sealed synthetic CLI smoke proved both approved six-payload success and self-consistent malicious executable/forged-plan/missing-anchor refusals with no extra gh execution or profile access. `.openai/reports/gh-trust-p2-ajej04pb/` contains exact fix evidence. Its corrected executable manifest is synthetic-only, not a real-gh approval. The prior review-ready executable remains pre-fix evidence, not usable corrected tooling. No real gh identity, profile or input was inspected; independent approval of a real tool manifest remains a separate gate before real consumption.
+
+**FIX_READY_FOR_INSPECTION / NOT_READY_TO_CONSUME_EXISTING_INPUTS / NO_INFLIGHT / STOP WRITES.** The coordinator performs fix-only inspection; no new review/full rerun or external operation. All receipt/UNKNOWN/no-retry and packet/workflow/variables/dispatch gates above remain unchanged.
+
+### T145 HOME/profile correction — source-local review gate
+
+The independently verified manifest's `transferGh` entry now requires exactly `path`, `sha256`, `home` and `configDirectory`. Caller and plan profile values must equal that approved profile before payload access. Only pinned gh receives approved HOME/GH_CONFIG_DIR; its cwd/TMPDIR stay in fresh owned0700 scratch. Cleanup targets scratch only, never HOME/profile. The helper's environment and all credential/stdin/target/receipt fences remain unchanged.
+
+This addresses the coordinator-reported HOME-dependent401; OMP did not repeat that real diagnostic. Current proof is synthetic only: compilation0,15/15 focused tests and actual guarded CLI success/refusal/canary/scratch checks under denied networking. See `.openai/reports/gh-home-context-3yph15xc/`. The original actual attempt remains NOT_STARTED and its plan/evidence are preserved, not retried.
+
+**READY_FOR_REVIEW / NO_REAL_INPUT_ACCESS / NO_INFLIGHT / STOP WRITES.** One coordinator-owned scoped Luna review remains pending. After acceptance only, use the root-selected real gh/HOME/profile in a new corrected executable binding and NEW plan against the existing prepared directory; do not rerun prepare or reuse the old invocation. Fresh names-only absence must pass before any secret write. No new credentials, activation variables or dispatch are authorized by this source-local receipt.
+
+### T145 ordinary gh state — bounded allowance, not sandboxing
+
+Root accepted the supported ordinary-state redirect instead of a general OS filesystem sandbox. Each pinned-gh child now receives `XDG_STATE_HOME=<owned scratch>/state`; HOME/profile remain the exact independently approved values, and TMPDIR/cwd remain scratch. The helper creates state0700, removes only that owned ordinary-state subtree, then removes scratch. No broader XDG cache/config override or credential export is added.
+
+This permits ordinary **noncredential** gh state in scratch only. Config/auth-profile writes remain prohibited/out of scope; the redirect and synthetic canaries do **not** establish universal filesystem write prevention. The coordinator's pinned-gh read-only preflight succeeded and observed `state/gh/device-id` in scratch; OMP did not repeat that query or inspect profile contents.
+
+Current correction evidence is compilation0,15/15 focused tests and actual guarded synthetic CLI proof of12 ordinary-state writes/cleanups with six payloads/ACKs and preserved canaries. `.openai/reports/gh-state-fix-vd3tg33z/` freezes exact source/test/docs/executable identities. The original review's one P2 and root's explicit narrower decision remain recorded.
+
+**FIX_READY_FOR_INSPECTION / NO_REAL_INPUT_ACCESS / NO_INFLIGHT / STOP WRITES.** Coordinator fix-only inspection is pending. No real query/input access, secret write, transfer retry, variables or dispatch; do not reuse the previous plan/invocation or rerun prepare.
+
+## Guarded ROLE diagnostic — review-gated local executable
+
+The diagnostic-only helper action is `diagnose-role <prepared-directory> <approved-request-sha256> <packet-path> <approved-packet-sha256>`. These are public path/digest arguments, never credentials. It must run through the unchanged hash-checked `guardedOwnerCommand`/launcher using the reviewed Linux/x64 Node24.22.1 runtime and full inventory; direct helper execution refuses. Reuse the existing prepared ROLE envelope after matching coordinator review/execution gates. Do not prepare/collect inputs again, invoke activation/preflight/reserve or repurpose a journal/proof-writing command.
+
+The current review candidate is `.openai/reports/role-diagnostic-uizb82x6/diagnostic-helper` plus `diagnostic-executable-02.json`, SHA256 `6b2172e98d8d7e77438a40ba7595bb9a2489113cd683e95b6867b0e00d7e1db4`. The coordinator binds actual mounted paths and approved request/packet digests; this documentation is not permission to consume real inputs or query Supabase. The snapshot is separate local development output, not a rebuilt/resealed f162 release.
+
+Output is `ROLE_DIAGNOSTIC {"stage":...,"category":...,"sqlstate":...}` using fixed enums/allowlisted SQLSTATE only; exit0 requires category `passed` after successful cleanup, otherwise exit1. No URL, query, raw error, value, credential or row is printed. Connect1s/statement10s/query12s/lock5s/overall30s plus bounded rollback/close fence the authority-only session. Only fixed read-only identity, OLD history, postgres privilege and required-column predicates run; no runtime/operator login or user-data query. PASS is **not** proof of the original workflow failure cause.
+
+Actual checks: isolated Linux compile0, focused46/46, and five real guarded synthetic TLS/pg-wire scenarios with no external network and unchanged fixture inputs/journal. Exact commands and failure disclosures are retained in the adjacent verification receipt and [plan evidence](plan.md#guarded-role-diagnostic--actual-sourcelocal-evidence). **READY_FOR_REVIEW; no real invocation before the coordinator's focused review and matching execution gates.**
+
+### Current pre-DB refusal schema and mount binding
+
+The corrected review candidate is `.openai/reports/role-diagnostic-substages-4a353xee/diagnostic-helper` with `diagnostic-executable.json`, SHA256 `80286f492d5806252006567e4714816c94dc3eef3391b7b2842362c353f6c9d5`. Pre-DB refusals now have exactly `{stage, category, sqlstate, field}`: category is `refused` or `aborted`, SQLSTATE is null, and `field` is a fixed code from the table below. No raw exception, input value or secret-bearing hash is output. DB-stage results remain exactly `{stage, category, sqlstate}` and are unchanged.
+
+| Pre-DB stage | Allowed static field codes |
+|---|---|
+| `guard` | `execution_guard`, `executable_recheck` |
+| `request` | `prepared_directory`, `prepared_files`, `request_validation` |
+| `packet` | `packet_binding` |
+| `receipt` | `receipt_binding` |
+| `role-input` | `role_envelope`, `role_schema_or_digest`, `role_public_binding` |
+| `migration-config` | `migration_configuration` |
+
+Preserve the prepared directory's basename when mounting it: use `/esty-activation-inputs-tPWoIx`, not `/inputs`; mount the existing directory read-only without renaming, resetting or preparing it again. Keep the same approved packet, its owner-only parent and approved request/packet digest arguments. All nine nonsecret static binding comparisons matched, but this does not establish complete envelope validity. Source/local checks passed compilation0,30/30 affected cases and six actual guarded CLI schema/basename refusals. **The single real diagnostic remains held until focused coordinator review and matching gates; no live DB query has been made by this correction.**
+
+### Guarded ROLE CA identity — no network or database
+
+The separate local diagnostic adds `check-role-ca <prepared-directory> <approved-request-sha256> <packet-path> <approved-packet-sha256>` through the unchanged pinned launcher and executable manifest. Preserve the existing prepared basename and owner-only packet parent with read-only mounts; run with network disabled. It reuses all executable/request/packet/receipt/ROLE digest checks and the existing configuration parser before returning exactly `{caMatches:boolean,present:boolean}`. Refusal is exit1 with no result record, not a false missing-CA observation.
+
+The fixed comparator is the parsed certificate identity of the root-approved public Supabase Root2021 CA. LF/CRLF PEM differences do not change the comparison. No certificate, ROLE value or private-derived digest is returned. Local compile0,38/38 functional cases and six guarded CLI cases passed; manifest `.openai/reports/role-ca-identity-tz4l4q_5/diagnostic-executable.json` SHA256 `27d6cf867e605bf317246cc5fa88d6ef8f1030dea0839f614427941e9ff5d667`. Coordinator delta inspection precedes the existing-input boolean check; no DB/provider/auth/status/journal effect is permitted. This command does not repair an envelope or determine the finer cause of `tls_error`.
+
+Actual authorized result after accepted coordinator delta inspection: `{"caMatches":false,"present":false}`, exit0, exactly one network-disabled invocation; retained `ca-result.json` contains no other field. Existing prepared inputs/packet/history were not changed. Do not run `prepare` to repair this: the current operation requires secret re-entry, and no supported secret-preserving successor is implemented. A separate correctly validated request/all-five-phase/receipt/packet successor must preserve all secrets and explicitly handle the existing immutable reservation without reset or a new reservation. No successor or additional DB probe was performed; absence of the configured CA alone does not identify the finer TLS failure category.
+
+### Fixed public CA diagnostic overlay — separate from production inputs
+
+The subsequent root grant permits `diagnose-role-ca-overlay <prepared-directory> <approved-request-sha256> <packet-path> <approved-packet-sha256> <public-ca-file>` only through the separately pinned local launcher/executable. Mount the existing inputs, owner-only packet parent and supplied public CA read-only. The helper hard-pins both the approved public-file digest and parsed certificate identity; there is no caller-selected digest or trust root. Any original CA is refused. Only the in-memory authority SSL object gains the public CA, with verified TLS and the exact approved Session servername; the existing diagnostic still fixes host/port/database/login and read-only/rollback/timeout/cancellation behavior.
+
+`ROLE_DIAGNOSTIC` adds only `caOverlay` and `publicCaAnchor:"supabase-root-2021"` to existing fixed fields. Pre-overlay failures report `caOverlay:false`, never claim an applied overlay. Source/local compile0,50/50 tests and six actual guarded loopback-only cases passed; manifest `.openai/reports/role-ca-overlay-6yk31ag8/diagnostic-executable.json` SHA256 `174993a339b2fb9a1a53426f507b85711c178d4b5a8a1f16e4034a819d94f837`. Coordinator delta inspection precedes the single network-enabled fixed-host authority diagnostic. Do not copy this overlay into production, alter original bindings, build a successor, retry activation or make a new reservation.
+
+Actual single overlay diagnostic after accepted coordinator delta inspection: `{"stage":"complete","category":"passed","sqlstate":null,"caOverlay":true,"publicCaAnchor":"supabase-root-2021"}`, exit0. Retained `.openai/reports/role-ca-overlay-6yk31ag8/actual-result.json`. This verifies the fixed read-only path under the in-memory public CA, including rollback/close; it does not change production CA, prepared inputs, packet/reservation/journal/status or authorize activation retry. No second live invocation was made. Preserve the earlier absent-CA and failed diagnostic evidence; do not rewrite the original workflow cause as proven.
+
+### Guarded CA successor and exact failed-preflight continuation — review held
+
+The later root grant supersedes the diagnostic-only stop solely for T159–T169. Do not repeat the diagnostic or rerun initial preparation/secret entry. Use the separately frozen `ca-successor-d1b7zvhm/activation-executable.json` through the unchanged approved launcher/runtime guard; its SHA256 is `d02721f629688c3f4977bbef68f3a747eb04554772a6e5883f2700e7f70c6e53`. Source/local evidence: compilation0,49 distinct affected cases across retained runs,15 actual guarded/manual CLI outcomes and YAML check0. Failures and limits are retained in the plan. These are synthetic local results, not review acceptance, actual proof acceptance or production activation.
+
+The bounded action interfaces are:
+
+| Action | Required approved bindings | Effect |
+| --- | --- | --- |
+| `inspect-failed-preflight` | Original completed transfer-plan path/digest; intact public f162 bundle root | Read only the exact historical run/intent/receipt artifact, verify archive/inventory/lock/packet/no-events and f162 bytes, then write a separate local proof record. |
+| `record-failed-preflight` | That proof-record path and independently accepted digest | Revalidate proof and absence of statuses, exclusively persist intent, POST one truthful `error`, and ACK only an exact response. Any ambiguity retains the fence. |
+| `prepare-ca-successor` | Original completed transfer-plan path/digest; original packet path/digest; fixed public CA file | Validate all originals in process and write a separate exclusive request/five envelopes/receipt/packet/control with a new execution UUID; preserve all secret and business identities. |
+| `inspect-ca-replacement` | The new `successor.json` | Revalidate its exact derivation and create one deterministic five-target replacement plan. |
+| `replace-ca-secrets` | That replacement-plan path and approved digest | Require all five destinations already present, send only their payloads through stdin, and persist each started/ACK pair. Never write configuration-token/provider-secret slots. |
+
+Keep the original transfer-plan and six ACK receipts read-only; they are lineage evidence, not permission to run the six-slot transfer again. Preserve all old packet/journal/lock/reservation files. The exception is only run42847325668/attempt1; arbitrary NO_STATUS/error/UNKNOWN histories, old81d4/454, another project or a consumed execution remain blocked. Missing/expired authoritative receipts refuse rather than infer safety. Do not copy or echo prepared envelope contents, reset partial successors, delete failed attempts or retry an unacknowledged status/slot.
+
+One coordinator-owned focused review precedes real input/provider use; accepted exact proof precedes its terminal status. The corrected current-workflow controller must actually be published and its exact workflow SHA/public packet variables aligned before the new manual dispatch. f162 stays immutable and ordinary delivery remains disabled. The existing shared noncancel gate, current-main checks, approved phase ordering and final FE acceptance still apply. No live operation or workflow publication has been performed by this increment, and no shared README/PROJECT_STATE lease is inferred.
+

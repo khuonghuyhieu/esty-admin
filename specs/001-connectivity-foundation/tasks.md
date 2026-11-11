@@ -447,3 +447,66 @@ T113 is now complete by explicit coordinator acceptance. The original one-findin
 - Docs-only closeout appends acceptance and records current hashes in `.openai/reports/retained-main-p2-9fmbq2yr/accepted-closeout.json`; the accepted fix manifest and verification remain immutable.
 - **FIX_INSPECTION_ACCEPTED / NO_INFLIGHT / STOP WRITES.** Real transfer, publication, secret/variable writes, dispatch and production/hosted/FE gates remain separate; no source/check/build/reviewer/provider/transfer/dispatch/Git action occurred in this closeout.
 
+## Protected prepared-input transfer adapter — source/local review scope
+
+- [x] T145 Inspect existing guarded snapshot/validator/launcher support and record the smallest fixed-six-destination, stdin-only transfer design; attribute published workflow/CI/names-only receipts without repeating account checks.
+- [x] T146 Reuse validated prepared snapshots behind the guarded launcher and add a local fixed-target gh adapter with isolated profile context, executable/receipt binding, immediate collision checks and durable per-destination unknown/acknowledgement fencing.
+- [x] T147 Extend existing helper tests with synthetic envelopes/fake gh and exercise actual guarded CLI success/refusal/redaction/isolation/partial-unknown behavior; freeze a new local executable without consuming real inputs or changing f162.
+- [x] T148 Record exact adapter/source/test/docs/executable manifest and actual evidence; stop READY_FOR_REVIEW for coordinator-owned ONE scoped adapter Luna review. No workflow re-review, real transfer, secret/variable write, dispatch, Git or production effect.
+
+Coordinator constructs the activation packet from existing approved fixed metadata and validated receipt digests; the owner does not author JSON. Packet/current workflow verification precedes allowlisted variables, broad `BE_DELIVERY_ENABLED` remains false, and dispatch is withheld until packet/transfer/published selection contract all validate. These later gates are not exercised by T145–T148.
+
+Actual evidence: compilation0; affected helper suite30 passed/0 failed/1 existing optional cross-platform skip, including all13 new transfer tests. Actual hash-guarded Darwin CLI smoke passed six-payload success, collision, lost-ACK/replay refusal,30s timeout and64KiB output-cap UNKNOWN fencing. `.openai/reports/protected-transfer-44eqstxe/handoff.json` freezes seven paths and the new local executable; adjacent verification/logs retain exact observations. Existing documents' pre-increment prefixes and prior accepted review evidence remain unchanged.
+
+**READY_FOR_REVIEW / NOT_READY_TO_CONSUME_EXISTING_INPUTS / NO_INFLIGHT / STOP WRITES.** Adapter review is pending and coordinator-owned, not completed by these checkmarks. No real prepared input/profile read, transfer, secret/variable write, dispatch or external operation; no workflow re-review or f162 mutation.
+
+## Guarded ROLE diagnostic — source/local increment
+
+- [x] T149 Reuse prepared ROLE/request/packet and executable/runtime/inventory guards in a diagnostic-only entrypoint with no phase/journal/proof/status effects.
+- [x] T150 Implement authority-only verified Session TLS, bounded READ ONLY identity/OLD-history/privilege/column predicates, rollback/close and allowlisted redacted outcomes.
+- [x] T151 Run focused synthetic guard/refusal/redaction/timeout/abort/no-write checks and actual guarded Linux Node24 smoke; preserve f162 and all real inputs/services.
+- [x] T152 Freeze exact source/checks/new local diagnostic executable and feature001 evidence; stop READY_FOR_REVIEW for the coordinator's focused available gpt-6-luna review. Diagnostic PASS is not proof of the original workflow cause; no live DB/input access before review and matching execution gates.
+
+Actual source/local evidence: final isolated Linux compilation0;46/46 focused functional cases, zero skips; five actual guarded synthetic TLS/pg scenarios passed, including28P01, non-OLD history, silent timeout and real SIGTERM cancellation. The plan retains the initial compilation/mount and smoke-wrapper failures plus the superseded incomplete local manifest. `.openai/reports/role-diagnostic-uizb82x6/diagnostic-executable-02.json` SHA256 `6b2172e98d8d7e77438a40ba7595bb9a2489113cd683e95b6867b0e00d7e1db4` is the exact local executable awaiting coordinator review, not f162 or live approval. Review/execution gates remain open; all protected inputs/journals/services are untouched.
+
+### Guarded diagnostic continuation — pre-DB substages
+
+- [x] T153 Compare the existing nonsecret packet/request bindings, add only real validation substages/static field codes, and freeze corrected source/test/local executable after affected synthetic verification.
+- [ ] T154 After coordinator focused source/test review and matching execution gates, perform exactly one guarded authority-only read-only diagnostic with the same input directory/packet and correct prepared-directory mount basename; preserve reservation, NO_STATUS and all prior history.
+
+T153 actual evidence: all nine static binding comparisons matched without ROLE payload access; Linux compilation0;30/30 affected functional cases; six actual guarded synthetic CLI schema/basename refusals with unchanged inputs/journal. DB implementation source/compiled bytes are unchanged. `.openai/reports/role-diagnostic-substages-4a353xee/diagnostic-executable.json` SHA256 `80286f492d5806252006567e4714816c94dc3eef3391b7b2842362c353f6c9d5` awaits focused review. T154 remains blocked by that external gate, not authorization to bypass it.
+
+### Guarded CA-identity continuation — boolean only
+
+- [x] T155 Add the minimal `check-role-ca` branch to the existing guarded validator, preserve exact request/packet/receipt/ROLE/executable/configuration checks, compare parsed public certificate identity and freeze a separate local executable after affected synthetic tests.
+- [x] T156 After coordinator delta-only inspection, return only `{caMatches,present}` from the existing prepared ROLE input in a network-disabled guarded process. Never output input values/digests or change any prepared input/packet/journal; report the supported successor binding requirement if missing/mismatched, or the unresolved finer TLS category if matched.
+
+T155 actual evidence: Linux compile0;38/38 affected cases; six actual guarded synthetic CLI cases passed with unchanged fixtures. Executable manifest `.openai/reports/role-ca-identity-tz4l4q_5/diagnostic-executable.json` SHA256 `27d6cf867e605bf317246cc5fa88d6ef8f1030dea0839f614427941e9ff5d667`. T156 is not another DB diagnostic or authorization to rebuild/reseal f162, reset/reprepare, dispatch, reserve or enter a generic approval/review loop.
+
+T156 actual: coordinator accepted the delta; one guarded network-none invocation exited0 with `{"caMatches":false,"present":false}` only. No mutation/retry/DB/provider effect. Current helper has no secret-preserving CA successor action: preparation requires credential re-entry and transfer preserves existing envelopes. No successor was prepared; the required separate request/all-five-phase/receipt/packet binding path and existing-reservation constraint were reported to t12p/t11c. Missing CA is observed; the finer TLS failure cause remains unproven.
+
+### Fixed public CA in-memory diagnostic overlay
+
+- [x] T157 Implement only the fixed public-file/certificate-pinned diagnostic overlay after original guards, refuse any original CA, preserve fixed authority/read-only/TLS controls, and freeze a separate executable after focused synthetic verification.
+- [x] T158 After coordinator delta-only inspection, perform exactly one fixed-host authority diagnostic with the in-memory public CA overlay and unchanged original bindings/read-only mounts; promptly report actual stage/category/sqlstate plus truthful overlay/public-anchor metadata without input/packet/journal/reservation/status or production changes.
+
+T157 actual: compile0;50/50 affected cases; six guarded CLI loopback-only cases passed. The real pg TLS path rejected an untrusted synthetic peer with one connection and zero application bytes; invalid public pins, original CA conflicts and wrong target refused without connecting. Manifest `.openai/reports/role-ca-overlay-6yk31ag8/diagnostic-executable.json` SHA256 `174993a339b2fb9a1a53426f507b85711c178d4b5a8a1f16e4034a819d94f837`. No f162 rebuild, envelope successor, live overlay attempt, new reservation, activation retry or general review cycle.
+
+T158 actual: accepted coordinator delta inspection, one guarded live invocation, exit0, `complete/passed/null`, `caOverlay:true`, `publicCaAnchor:"supabase-root-2021"`. Fixed read-only checks and rollback/close completed; actual-result.json retains only safe fields. No retry or original/production mutation. Coordinator received the exact result promptly; direct t12p delivery encountered its permission dialog, which OMP neither forced nor answered, and the coordinator was notified to relay safely. Diagnostic pass does not repair activation or establish its original failure cause.
+
+### CA successor and exact failed-preflight continuation
+
+- [x] T159 Implement the exact run42847325668 failed-preflight proof and truthful terminal-error persistence with durable attempt/ACK fencing; preserve all original journal/reservation and old81d4/454 UNKNOWN history.
+- [x] T160 Implement a separate guarded fixed-public-CA successor from validated original request/receipt/all phase envelopes, preserving every secret and business/Auth/workspace identity while issuing one new execution UUID.
+- [x] T161 Implement replacement of only the five existing `BE_ACTIVATION_*_INPUTS` slots through stdin with old six-slot ACK checks, exact targets, per-slot ACK and no token/provider-secret replacement or ambiguous retry.
+- [x] T162 Integrate the reviewed-current-workflow reservation controller at the actually invoked manual path and verify affected synthetic behavior, the complete guarded CLI and unchanged f162 exports.
+- [ ] T163 Obtain the single coordinator-owned coherent focused review of the frozen source/tests/executable/evidence; OMP does not start another worker or reviewer.
+- [ ] T164 After accepted code review, inspect the exact authoritative failed-preflight proof through the guarded action; after that proof is accepted, record only its one truthful targeted terminal error. Missing/incomplete evidence remains UNKNOWN.
+- [ ] T165 Prepare the real separate CA successor under the accepted original bindings; preserve all original inputs and expose no secret-bearing values.
+- [ ] T166 Replace exactly the five existing activation input slots using the approved successor/replacement plan and require every ACK before continuing.
+- [ ] T167 Align the reviewed current workflow and corrected public packet/workflow variables, then dispatch only the new serialized manual activation with immutable f162 and no broad enablement.
+- [ ] T168 Monitor the exact new run and execute only its approved phases, retaining every partial/unknown result without replay.
+- [ ] T169 Coordinate actual FE final acceptance and report end-to-end evidence without substituting local checks or the diagnostic pass.
+
+T159–T162 actual evidence: final isolated Linux compile0;49 distinct affected cases passed across disclosed runs;15 actual guarded/manual CLI outcomes passed; YAML/noncancel/permission check0. Retained report directory `.openai/reports/ca-successor-d1b7zvhm/`; exact development executable manifest SHA256 `d02721f629688c3f4977bbef68f3a747eb04554772a6e5883f2700e7f70c6e53`. Earlier typing/noexec/public-fixture-filename/manifest-order failures remain disclosed in the plan. T163 onward remains gated; no real input/provider/status/configuration/SQL/Git or repeated diagnostic operation occurred. The positive exact-real disposition proof is not claimed by the synthetic checks.
+
