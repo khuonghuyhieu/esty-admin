@@ -1,0 +1,46 @@
+name: BE candidate read-only probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      approved_revision:
+        description: Exact reviewed main commit approved for this one read-only request
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: be-candidate-probe-dpl_525LvEPCBud7nyAeFTcRx8iipTrk
+  cancel-in-progress: false
+
+jobs:
+  probe:
+    if: >-
+      github.repository == 'khuonghuyhieu/esty-admin' &&
+      github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
+      github.event_name == 'workflow_dispatch' && github.sha == inputs.approved_revision
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    environment: be-production
+    steps:
+      - name: Check out the exact approved probe without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.approved_revision }}
+          persist-credentials: false
+      - name: Set pinned Node without installation or dependency cache
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      - name: Request only the existing candidate health endpoint once
+        env:
+          BE_PROBE_ENVIRONMENT: be-production
+          BE_PROBE_WORKFLOW_SHA: ${{ inputs.approved_revision }}
+          BE_ACTIVATION_PACKET_JSON: ${{ vars.BE_ACTIVATION_PACKET_JSON }}
+          BE_ACTIVATION_PACKET_SHA256: ${{ vars.BE_ACTIVATION_PACKET_SHA256 }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+          BE_ACTIVATION_BRIDGE_INPUTS: ${{ secrets.BE_ACTIVATION_BRIDGE_INPUTS }}
+        run: node apps/api/scripts/activation-candidate-probe.mjs
