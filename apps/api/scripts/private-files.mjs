@@ -21,12 +21,21 @@ export function writePrivate(path, value) {
   catch (error) { unlinkSync(path); throw error; }
   finally { closeSync(fd); }
 }
-export function readPrivate(path) {
+export function readPrivateBytes(path, maximumBytes = 65536) {
+  if (!Number.isInteger(maximumBytes) || maximumBytes < 1 || maximumBytes > 262144) throw new Error('Private input size bound is invalid.');
   privateDirectory(dirname(path), false);
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const stat = fstatSync(fd);
-    if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o777) !== 0o600 || stat.size > 65536) throw new Error('Private file must be an owner-only regular file (0600).');
-    return JSON.parse(readFileSync(fd, 'utf8'));
+    if (!stat.isFile() || stat.uid !== process.getuid() || (stat.mode & 0o777) !== 0o600 || stat.size > maximumBytes) throw new Error('Private file must be an owner-only bounded regular file (0600).');
+    const bytes = readFileSync(fd), after = fstatSync(fd);
+    if (bytes.length !== stat.size || after.size !== stat.size || after.ino !== stat.ino
+      || after.mtimeMs !== stat.mtimeMs || after.ctimeMs !== stat.ctimeMs) throw new Error('Private file changed while being read.');
+    return bytes;
   } finally { closeSync(fd); }
+}
+export function readPrivate(path, maximumBytes = 65536) {
+  const bytes = readPrivateBytes(path, maximumBytes);
+  try { return JSON.parse(bytes.toString('utf8')); }
+  finally { bytes.fill(0); }
 }

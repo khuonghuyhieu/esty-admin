@@ -12,7 +12,7 @@ export interface ReleaseBinding {
   run_id: string; revision: string; artifact_digest: string; manifest_digest: string;
   target: string; schema_mode: SchemaMode;
 }
-interface FileIdentity {
+export interface FileIdentity {
   dev: string; ino: string; size: number; mtime_ns: string; ctime_ns: string; sha256: string;
 }
 export interface RetainedRun {

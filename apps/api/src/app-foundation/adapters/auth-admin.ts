@@ -5,21 +5,58 @@ import { authRequest, jsonObject } from './auth-http.js';
 
 export type DeliveryOutcome = 'confirmed' | 'failed' | 'unknown';
 
+export interface AuthUserObservation {
+  status: 'verified' | 'refused';
+  substage: 'input' | 'transport' | 'body' | 'json' | 'http-status' | 'schema' | 'user-id' | 'anonymous' | 'confirmed' | 'email' | 'complete';
+  httpStatus: number | null;
+  category: 'passed' | 'refused' | 'unavailable' | 'aborted';
+}
+
 export class AuthAdmin {
   constructor(private readonly config: AppFoundationConfig, private readonly operatorKey?: string) {}
 
   get deliveryEnabled(): boolean { return this.config.emailEnabled && Boolean(this.config.adminKey); }
 
-  async verifiedUser(userId: string, signal: AbortSignal): Promise<{ userId: string; email: string }> {
+  verifiedUser(userId: string, signal: AbortSignal): Promise<{ userId: string; email: string }> {
+    return this.verifyUser(userId, signal);
+  }
+
+  async inspectVerifiedUser(userId: string, signal: AbortSignal): Promise<AuthUserObservation> {
+    let substage: AuthUserObservation['substage'] = 'input', httpStatus: number | null = null;
+    try {
+      signal.throwIfAborted();
+      await this.verifyUser(userId, signal, (stage, status) => {
+        substage = stage;
+        if (status !== undefined) httpStatus = status;
+      });
+      signal.throwIfAborted();
+      return { status: 'verified', substage: 'complete', httpStatus, category: 'passed' };
+    } catch {
+      return { status: 'refused', substage, httpStatus, category: signal.aborted ? 'aborted'
+        : ['transport', 'body', 'json', 'http-status'].includes(substage) ? 'unavailable' : 'refused' };
+    }
+  }
+
+  private async verifyUser(userId: string, signal: AbortSignal,
+    observe?: (stage: AuthUserObservation['substage'], status?: number | null) => void): Promise<{ userId: string; email: string }> {
     const key = this.operatorKey;
     if (!key || !uuidPattern.test(userId)) throw new AppError('forbidden');
     const response = await authRequest(`${this.config.authUrl}/admin/users/${userId}`, {
       apikey: key, Authorization: `Bearer ${key}`,
-    }, signal);
+    }, signal, undefined, observe);
+    observe?.('http-status');
     if (response.status !== 200) throw new AppError('dependency_unavailable');
     const user = jsonObject(response.data);
-    if (user?.id !== userId || user.is_anonymous === true || typeof user.email_confirmed_at !== 'string'
+    observe?.('schema');
+    if (!user) throw new AppError('forbidden');
+    observe?.('user-id');
+    if (user.id !== userId) throw new AppError('forbidden');
+    observe?.('anonymous');
+    if (user.is_anonymous === true) throw new AppError('forbidden');
+    observe?.('confirmed');
+    if (typeof user.email_confirmed_at !== 'string'
       || !Number.isFinite(Date.parse(user.email_confirmed_at))) throw new AppError('forbidden');
+    observe?.('email');
     return { userId, email: email(user.email) };
   }
 

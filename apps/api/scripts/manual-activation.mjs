@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { canonical, githubReader, loadManualContext, readSelection, retainedActivation,
   validateSelection, verifySelectedBundle, verifyWorkflowHead } from './activation-retained.mjs';
 import { reserveManualActivation } from './activation-preflight-disposition.mjs';
+import { manualArchiveTransport } from './activation-archive-transport.mjs';
 
 const privatePhases = new Set(['bridge-config', 'roles', 'migration', 'bootstrap', 'app-config']);
 const phases = new Set([...privatePhases, 'bridge', 'app']);
@@ -48,7 +49,7 @@ function activationProvider(bundle, phase, inputs, signal, transport) {
   const release = { revision: retainedActivation.revision, tree: retainedActivation.tree, run: bundle.context.workflow.run };
   const provider = bundle.modules.provider.createActivationProvider(bundle.artifact, release,
     { github: inputs.GITHUB_TOKEN ?? '', vercel: inputs.VERCEL_TOKEN ?? '', bearer: inputs.BE_PREVIEW_ACCESS_KEY ?? '' },
-    signal, activation, transport);
+    signal, activation, manualArchiveTransport(transport));
   const read = githubReader(inputs.GITHUB_TOKEN ?? '', signal, transport);
   const currentMain = async () => {
     signal.throwIfAborted();

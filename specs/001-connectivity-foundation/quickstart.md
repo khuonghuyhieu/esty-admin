@@ -600,3 +600,12 @@ Keep the original transfer-plan and six ACK receipts read-only; they are lineage
 
 One coordinator-owned focused review precedes real input/provider use; accepted exact proof precedes its terminal status. The corrected current-workflow controller must actually be published and its exact workflow SHA/public packet variables aligned before the new manual dispatch. f162 stays immutable and ordinary delivery remains disabled. The existing shared noncancel gate, current-main checks, approved phase ordering and final FE acceptance still apply. No live operation or workflow publication has been performed by this increment, and no shared README/PROJECT_STATE lease is inferred.
 
+### Exact acknowledged-candidate recovery — combined review held
+
+The frozen development helper under `.openai/reports/bridge-recovery-combined-9oaszmks/` adds two guarded actions. Invoke only through its hash-verified launcher and accepted executable manifest, never directly through an unguarded source entrypoint. Each takes exactly four arguments: the original CA successor's `successor.json`, its independently approved canonical digest, the intact downloaded original receipt directory, and the retained f162 artifact directory.
+
+- `attest-bridge-recovery`: after accepted combined review only, validate lineage/ACKs and exact remote metadata/archive, derive the bearer from the validated bridge input in process, then issue exactly one bounded `/health/live` request. A failure or existing sidecar prevents retry. Do not read/export/paste the bearer or substitute a platform bypass token.
+- `promote-bridge-recovery`: only after that affirmative proof, revalidate all bindings and append one exclusive promotion intent before promoting the existing candidate. No prepared phase input is read. Lost/failed ACK remains UNKNOWN and cannot be replayed.
+
+The sidecar is fixed to `bridge-recovery-42970824679` within the original successor lineage; it cannot be redirected by an output-directory argument. It never replaces original events, reservation, journal or ACK, and never marks the BE accepted. Do not run the original bridge delivery path again: it creates a candidate. The current freeze has only synthetic/local proof; all real actions remain review-gated.
+

@@ -37,6 +37,7 @@ import { canonical as retainedCanonical, githubReader, manualContext, readSelect
 import { executeManualAction } from '../scripts/manual-activation.mjs';
 import { failedPreflightProof, manualGithubIo, reserveManualActivation,
   validatePreflightReceiptArchive } from '../scripts/activation-preflight-disposition.mjs';
+import { manualArchiveTransport } from '../scripts/activation-archive-transport.mjs';
 const oldSchema: RoutineSchema = { digest: activationSchema.oldDigest };
 
 interface Fixture { artifact: VerifiedArtifact; dispose(): Promise<void> }
@@ -392,6 +393,71 @@ test('provider archive attestation requires every exact file and canonical names
     if (scenario === 'exact') await provider.attest('dpl_candidate');
     else await assert.rejects(provider.attest('dpl_candidate'));
   }
+});
+
+test('manual CLI partition attestation preserves exact runtime bytes and rejects unsupported transport evidence', async t => {
+  const f = await activationArtifact(); t.after(f.dispose);
+  const records = f.artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/'));
+  const entries = records.map(file => ({ path: file.path, mode: file.mode, content: readArtifactFile(f.artifact.root, file.path, file) }));
+  const cases = ['exact', 'missing-part', 'extra-part', 'wrong-part-name', 'wrong-part-type', 'wrong-part-mode',
+    'wrong-directory-mode', 'wrong-root-mode', 'extra-root', 'extra-function', 'wrong-uid', 'changed-compressed',
+    'missing-runtime-file', 'extra-runtime-file', 'changed-runtime-file', 'bad-base64', 'denied', 'redirected'];
+  for (const scenario of cases) await t.test(scenario, async () => {
+    let uploaded = entries;
+    if (scenario === 'missing-runtime-file') uploaded = entries.slice(1);
+    if (scenario === 'extra-runtime-file') uploaded = [...entries, { path: '.vercel/output/extra', mode: 0o444, content: Buffer.from('extra') }];
+    if (scenario === 'changed-runtime-file') uploaded = entries.map((entry, index) => index ? entry : { ...entry, content: Buffer.from('changed') });
+    const bytes = tar(uploaded), uid = createHash('sha1').update(bytes).digest('hex');
+    const part = { name: scenario === 'wrong-part-name' ? 'source.tgz.part2' : 'source.tgz.part1',
+      type: scenario === 'wrong-part-type' ? 'file' : 'invalid', mode: scenario === 'wrong-part-mode' ? 0o644 : 0o666,
+      uid: scenario === 'wrong-uid' ? '0'.repeat(40) : uid };
+    const roots = [
+      { name: 'src', type: 'directory', mode: scenario === 'wrong-root-mode' ? 0o40777 : 0o40555,
+        children: [{ name: '.vercel', type: 'directory', mode: scenario === 'wrong-directory-mode' ? 0o40777 : 0o40555,
+          children: scenario === 'missing-part' ? [] : [part,
+            ...(scenario === 'extra-part' ? [{ ...part, name: 'source.tgz.part2' }] : [])] }] },
+      { name: 'out', type: 'directory', mode: 0o40555,
+        children: [{ name: 'index', type: 'lambda', mode: 0o140666 },
+          ...(scenario === 'extra-function' ? [{ name: 'extra', type: 'lambda', mode: 0o140666 }] : [])] },
+      ...(scenario === 'extra-root' ? [{ name: 'extra', type: 'directory', mode: 0o40555, children: [] }] : []),
+    ];
+    let contentReads = 0;
+    const transport: typeof fetch = async (raw, init) => {
+      const url = new URL(String(raw));
+      assert.equal(url.origin, 'https://api.vercel.com');
+      assert.equal(init?.method ?? 'GET', 'GET');
+      assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${credentials.vercel}`);
+      if (url.pathname === '/v6/deployments/dpl_candidate/files') {
+        if (scenario === 'denied') return Response.json(roots, { status: 403 });
+        if (scenario === 'redirected') return Response.redirect('https://untrusted.invalid/files', 302);
+        return Response.json(roots);
+      }
+      assert.equal(url.pathname, `/v8/deployments/dpl_candidate/files/${part.uid}`);
+      contentReads++;
+      return Response.json({ data: scenario === 'bad-base64' ? '!!'
+        : (scenario === 'changed-compressed' ? Buffer.from('changed archive') : bytes).toString('base64') });
+    };
+    const provider = createActivationProvider(f.artifact, run, credentials, AbortSignal.timeout(10000),
+      { packet: f.packet, packetDigest: sha256(canonical(f.packet)), phase: 'bridge' }, manualArchiveTransport(transport));
+    if (scenario === 'exact') {
+      await provider.attest('dpl_candidate');
+      assert.equal(contentReads, 1);
+    } else {
+      await assert.rejects(provider.attest('dpl_candidate'));
+      if (!['wrong-uid', 'changed-compressed', 'missing-runtime-file', 'extra-runtime-file',
+        'changed-runtime-file', 'bad-base64'].includes(scenario)) assert.equal(contentReads, 0);
+    }
+  });
+});
+
+test('manual archive metadata remains body-bounded before content retrieval', async () => {
+  let cancelled = false;
+  const transport = manualArchiveTransport(async () => new Response(new ReadableStream({
+    start(controller) { controller.enqueue(new Uint8Array(8 * 1024 * 1024 + 1)); },
+    cancel() { cancelled = true; },
+  })));
+  await assert.rejects(transport('https://api.vercel.com/v6/deployments/dpl_candidate/files', {}));
+  assert.equal(cancelled, true);
 });
 
 function activationPacket(): ActivationPacket {

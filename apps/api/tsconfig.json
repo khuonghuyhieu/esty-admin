@@ -18,5 +18,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "scripts/**/*.ts", "scripts/migration-files.mjs", "tests/**/*.ts"]
+  "include": ["src/**/*.ts", "scripts/**/*.ts", "scripts/migration-files.mjs", "scripts/activation-recovery-tool.mjs", "tests/**/*.ts"]
 }

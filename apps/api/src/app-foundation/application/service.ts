@@ -335,6 +335,7 @@ export class AppService {
         const bootstrap = await client.query('SELECT * FROM app_private.audit_events WHERE workspace_id = $1 AND action = $2 LIMIT 2',
           [this.config.workspaceId, 'workspace.bootstrap']);
         if (existing.rows[0].id !== this.config.workspaceId || owner?.role_code !== 'owner' || owner.status !== 'active'
+          || existing.rows[0].display_name !== expected.workspaceName || owner.display_name !== expected.profileName
           || existing.rows[0].bootstrap_request_id !== approvalId || existing.rows[0].bootstrap_fingerprint !== fingerprint
           || bootstrap.rowCount !== 1 || !bootstrapAuditMatches(bootstrap.rows[0], expected)) {
           throw new AppError('bootstrap_conflict');

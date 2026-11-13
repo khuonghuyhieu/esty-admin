@@ -1,5 +1,5 @@
 import { mkdirSync, readdirSync, openSync, closeSync, fsyncSync, unlinkSync, lstatSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { artifactTarget, canonical, inventory, sha256, verifyArtifact } from './artifact.js';
 import type { VerifiedArtifact } from './artifact.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
@@ -8,6 +8,8 @@ import { activationSchema, assertActivationManifest } from '../src/config/schema
 import { migrationManifest } from '../src/generated/migrations.js';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
 import type { ActivationConfigurationReceipt } from './activation-configuration.js';
+import { buildActivationRecoveryOrigin, readActivationRecoveryOrigin } from './activation-recovery-origin.js';
+import type { ActivationRecoveryBinding, ActivationRecoveryOrigin } from './activation-recovery-origin.js';
 
 export const activationPhases = ['bridge-config', 'bridge', 'roles', 'migration', 'bootstrap', 'app-config', 'app', 'fe'] as const;
 export type ActivationPhase = typeof activationPhases[number];
@@ -70,6 +72,7 @@ interface Event {
 export interface ActivationState {
   packet: ActivationPacket; packetDigest: string; head: string; journal: number;
   events: readonly Event[]; next: ActivationPhase | null;
+  recovery?: { executionId: string; bridgeId: string; originDigest: string };
 }
 function outcome(value: unknown): ActivationOutcome {
   const data = object(value, ['result', 'databaseOutcome', 'reportDigest', 'count', 'deploymentId']);
@@ -140,39 +143,80 @@ export function createActivationJournal(directory: string, packet: ActivationPac
   const identity = readEvidence(join(directory, 'operator.lock')).identity;
   writeReleaseEvidence(join(run, 'lock.json'), { packetDigest: digest, identity });
 }
+function recoveredLock(origin: ActivationRecoveryOrigin, originDigest: string) {
+  return { version: 1, kind: 'activation-recovery', runId: origin.packet.runId, packetDigest: origin.packetDigest,
+    executionId: origin.executionId, originDigest, journal: origin.journal };
+}
+function readOriginalJournal(directory: string, packet: ActivationPacket, digest: string): ActivationState {
+  return readJournal(directory, packet, digest, true);
+}
+export function createRecoveredActivationJournal(sourceDirectory: string, recoveryDirectory: string, directory: string,
+  packet: ActivationPacket, digest: string, executionId: string, rolesPredecessorHead?: string): void {
+  validateActivationPacket(packet, digest);
+  directory = resolve(directory);
+  privateDirectory(dirname(directory), false);
+  const origin = buildActivationRecoveryOrigin(sourceDirectory, recoveryDirectory, directory, packet, digest,
+    executionId, readOriginalJournal, rolesPredecessorHead);
+  const originDigest = sha256(canonical(origin));
+  // A separate exclusive root fences every partial initialization. The original lock and history stay untouched.
+  mkdirSync(directory, { mode: 0o700 }); syncDirectory(dirname(directory));
+  privateDirectory(join(directory, 'activation'));
+  const run = runPath(directory, packet);
+  mkdirSync(run, { mode: 0o700 }); syncDirectory(join(directory, 'activation'));
+  writeReleaseEvidence(join(run, 'packet.json'), packet);
+  writeReleaseEvidence(join(run, 'recovery-origin.json'), origin);
+  writeReleaseEvidence(join(directory, `${packet.runId}.initial.json`), origin.initialProof);
+  writeReleaseEvidence(join(directory, 'operator.lock'), recoveredLock(origin, originDigest));
+  const identity = readEvidence(join(directory, 'operator.lock')).identity;
+  const recoveryOriginIdentity = readEvidence(join(run, 'recovery-origin.json')).identity;
+  writeReleaseEvidence(join(run, 'lock.json'), { packetDigest: digest, identity, recoveryOriginIdentity });
+  reserveActivationJournal(directory, packet, digest, origin.journal);
+  readActivationJournal(directory, packet, digest);
+}
 export function reserveActivationJournal(directory: string, packet: ActivationPacket, digest: string, journal: number): void {
   if (!Number.isSafeInteger(journal) || journal <= 0) refuse();
-  checkLock(directory, packet, digest);
+  const recovery = checkLock(directory, packet, digest);
+  if (recovery && journal !== recovery.origin.journal) refuse();
   writeReleaseEvidence(join(runPath(directory, packet), 'reservation.json'), { packetDigest: digest, journal });
 }
-function checkLock(directory: string, packet: ActivationPacket, digest: string, transferred = false): void {
+function checkLock(directory: string, packet: ActivationPacket, digest: string, transferred = false): ActivationRecoveryBinding | undefined {
   validateActivationPacket(packet, digest);
   const run = runPath(directory, packet);
   if (canonical(readEvidence(join(run, 'packet.json')).value) !== canonical(packet)) refuse();
   const actual = readEvidence(join(directory, 'operator.lock'));
-  if (canonical(actual.value) !== canonical({ version: 1, kind: 'activation', runId: packet.runId, packetDigest: digest })) refuse();
-  const retained = object(readEvidence(join(run, 'lock.json')).value, ['packetDigest', 'identity']);
+  const recovery = (actual.value as { kind?: unknown } | null)?.kind === 'activation-recovery'
+    ? readActivationRecoveryOrigin(directory, packet, digest, readOriginalJournal) : undefined;
+  const expected = recovery ? recoveredLock(recovery.origin, recovery.originDigest)
+    : { version: 1, kind: 'activation', runId: packet.runId, packetDigest: digest };
+  if (canonical(actual.value) !== canonical(expected)) refuse();
+  const retained = object(readEvidence(join(run, 'lock.json')).value,
+    recovery ? ['packetDigest', 'identity', 'recoveryOriginIdentity'] : ['packetDigest', 'identity']);
+  if (recovery && canonical(retained.recoveryOriginIdentity) !== canonical(recovery.identity)) refuse();
   if (retained.packetDigest !== digest) refuse();
   if (transferred) {
     const original = object(retained.identity, ['dev', 'ino', 'size', 'mtime_ns', 'ctime_ns', 'sha256']);
     if (original.sha256 !== actual.identity.sha256 || original.size !== actual.identity.size) refuse();
   } else if (canonical(retained.identity) !== canonical(actual.identity)) refuse();
+  return recovery;
 }
 export function readActivationJournal(directory: string, packet: ActivationPacket, digest: string): ActivationState {
   return readJournal(directory, packet, digest, false);
 }
 function readJournal(directory: string, packet: ActivationPacket, digest: string, transferred: boolean): ActivationState {
-  checkLock(directory, packet, digest, transferred);
+  const recovery = checkLock(directory, packet, digest, transferred);
   const run = runPath(directory, packet);
   const reservation = object(readEvidence(join(run, 'reservation.json')).value, ['packetDigest', 'journal']);
   if (reservation.packetDigest !== digest || !Number.isSafeInteger(reservation.journal) || Number(reservation.journal) <= 0) refuse();
-  const names = readdirSync(run).filter(name => !['packet.json', 'lock.json', 'reservation.json'].includes(name)).sort();
-  const events: Event[] = []; let head = digest, phaseIndex = 0;
+  if (recovery && reservation.journal !== recovery.origin.journal) refuse();
+  const names = readdirSync(run).filter(name => !['packet.json', 'lock.json', 'reservation.json',
+    ...(recovery ? ['recovery-origin.json'] : [])].includes(name)).sort();
+  const events: Event[] = [];
+  let head = recovery?.originDigest ?? digest, phaseIndex = recovery ? activationPhases.indexOf('roles') : 0;
   let intent = false, authorized = false, started = false, id: string | null = null;
   let attested = false, promotion = false, completed: ActivationOutcome | null = null, reconciled = false;
   let confirmation: string | null = null;
   let startedHash = '';
-  const acknowledged = new Set<string>();
+  const acknowledged = new Set<string>(recovery ? [recovery.origin.bridgeId] : []);
   for (const [index, name] of names.entries()) {
     if (name !== `${String(index).padStart(3, '0')}.json`) refuse();
     const row = object(readEvidence(join(run, name)).value, ['version', 'packetDigest', 'previousHash', 'sequence', 'phase', 'kind', 'value', 'sha256']);
@@ -228,7 +272,8 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
     }
     head = recorded as string; events.push(row as unknown as Event);
   }
-  return { packet, packetDigest: digest, head, journal: Number(reservation.journal), events, next: activationPhases[phaseIndex] ?? null };
+  return { packet, packetDigest: digest, head, journal: Number(reservation.journal), events, next: activationPhases[phaseIndex] ?? null,
+    ...(recovery ? { recovery: { executionId: recovery.origin.executionId, bridgeId: recovery.origin.bridgeId, originDigest: recovery.originDigest } } : {}) };
 }
 export function appendActivationEvent(directory: string, packet: ActivationPacket, digest: string,
   phase: ActivationPhase, kind: Kind, value: unknown): ActivationState {
@@ -246,8 +291,8 @@ export function appendActivationEvent(directory: string, packet: ActivationPacke
     if (!['bridge', 'app'].includes(phase) || !matches(data.deploymentId, deployment)
       || active?.kind !== (kind === 'acknowledged' ? 'started' : 'candidate-attested')) refuse();
     if (kind === 'promotion-intent' && object(active.value, ['deploymentId', 'configDigest']).deploymentId !== data.deploymentId) refuse();
-    if (kind === 'acknowledged' && state.events.some(event => event.kind === 'acknowledged'
-      && object(event.value, ['deploymentId']).deploymentId === data.deploymentId)) refuse();
+    if (kind === 'acknowledged' && (state.recovery?.bridgeId === data.deploymentId || state.events.some(event => event.kind === 'acknowledged'
+      && object(event.value, ['deploymentId']).deploymentId === data.deploymentId))) refuse();
   } else if (kind === 'candidate-attested') {
     if (active?.kind !== 'acknowledged') refuse();
     const id = object(active.value, ['deploymentId']).deploymentId;

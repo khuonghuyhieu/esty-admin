@@ -30,7 +30,7 @@ function strings(value: unknown, allowed: readonly string[]): PrivateInputs {
 function bound(value: PrivateInputs, expected: string): void {
   if (sha256(canonical(value)) !== expected) refuse();
 }
-export function runtimeInputs(value: unknown, packet: ActivationPacket, phase: RuntimePhase): PrivateInputs {
+export function runtimeInputs(value: unknown, packet: Pick<ActivationPacket, 'bridgeConfigDigest' | 'appConfigDigest'>, phase: RuntimePhase): PrivateInputs {
   if (phase !== 'bridge' && phase !== 'app') refuse();
   const inputs = strings(value, phase === 'bridge' ? runtimeKeys : [...runtimeKeys, ...appKeys]);
   bound(inputs, phase === 'bridge' ? packet.bridgeConfigDigest : packet.appConfigDigest);
@@ -42,8 +42,12 @@ export function runtimeInputs(value: unknown, packet: ActivationPacket, phase: R
   if (phase === 'app' && !parsed.appFoundation) refuse();
   return inputs;
 }
-export function roleInputs(value: unknown, packet: ActivationPacket): PrivateInputs {
+export function roleInputEnvelope(value: unknown, packet: Pick<ActivationPacket, 'roleInputDigest'>): PrivateInputs {
   const inputs = strings(value, roleKeys); bound(inputs, packet.roleInputDigest);
+  return inputs;
+}
+export function roleInputs(value: unknown, packet: Pick<ActivationPacket, 'roleInputDigest' | 'target'>): PrivateInputs {
+  const inputs = roleInputEnvelope(value, packet);
   if (parseAppRoleInputs(inputs).target !== packet.target) refuse();
   return inputs;
 }
@@ -56,7 +60,7 @@ export function migrationInputs(value: unknown, packet: Pick<ActivationPacket, '
   if ((inputs.MIGRATION_TARGET === 'supabase' ? `supabase:${inputs.SUPABASE_PROJECT_REF}` : 'local') !== packet.target) refuse();
   return inputs;
 }
-export function bootstrapInputs(value: unknown, packet: ActivationPacket): PrivateInputs {
+export function bootstrapInputs(value: unknown, packet: Pick<ActivationPacket, 'bootstrapInputDigest' | 'bootstrapBindingDigest' | 'target'>): PrivateInputs {
   const inputs = strings(value, bootstrapKeys); bound(inputs, packet.bootstrapInputDigest);
   const parsed = parseAppOperatorConfig(inputs);
   if ((inputs.APP_OPERATOR_TARGET === 'supabase' ? `supabase:${inputs.SUPABASE_PROJECT_REF}` : 'local') !== packet.target

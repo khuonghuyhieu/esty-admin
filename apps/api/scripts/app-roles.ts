@@ -4,6 +4,9 @@ import approvedTarget from '../config/hosted-target.example.json' with { type: '
 import { ConfigurationError, parseMigrationConfig } from '../src/config/config.js';
 import type { AppFoundationConfig } from '../src/config/config.js';
 import { responseBytes } from './ci-tools.js';
+import { bounded, classify } from './activation-diagnostic.js';
+import type { DiagnosticCategory } from './activation-diagnostic.js';
+import { activationSchema, assertActivationManifest, exactHistory } from '../src/config/schema-transition.js';
 
 const roles = ['app_runtime', 'app_operator'] as const;
 type Role = typeof roles[number];
@@ -15,8 +18,12 @@ export interface AppRoleInputs {
   target: string;
 }
 export type RoleOutcome = 'not_started' | 'committed' | 'rolled_back' | 'unknown';
+export interface RoleProvisionDiagnostic {
+  stage: 'connect' | 'transaction' | 'lock' | 'roles' | 'create' | 'privileges' | 'commit' | 'credentials';
+  category: DiagnosticCategory; sqlstate: string | null;
+}
 export class AppRoleError extends Error {
-  constructor(readonly databaseOutcome: RoleOutcome) {
+  constructor(readonly databaseOutcome: RoleOutcome, readonly diagnostic?: RoleProvisionDiagnostic) {
     super('Application role state or effective privileges are unconfirmed.');
     this.name = 'AppRoleError';
   }
@@ -63,7 +70,8 @@ function permitted(role: Role, schema: string, table: string, privilege: string,
   if (privilege === 'INSERT') return role === 'app_runtime' ? table !== 'workspaces' : table !== 'invitations';
   return privilege === 'UPDATE' && column !== undefined && (updates[role][table]?.includes(column) ?? false);
 }
-function refuse(): never { throw new Error('Role preflight differs.'); }
+class RoleStateMismatch extends Error {}
+function refuse(): never { throw new RoleStateMismatch('Role preflight differs.'); }
 async function roleFlags(client: Client): Promise<number> {
   const result = await client.query(`SELECT rolname, rolcanlogin, rolinherit, rolsuper, rolcreatedb, rolcreaterole,
     rolreplication, rolbypassrls, rolvaliduntil IS NULL AS unlimited_validity
@@ -95,17 +103,20 @@ async function effectivePrivileges(client: Client, target: boolean): Promise<voi
     const database = await client.query(`SELECT has_database_privilege($1, current_database(), 'CREATE') AS can_create,
       pg_get_userbyid(datdba) = $1 AS is_owner FROM pg_database WHERE datname = current_database()`, [role]);
     if (database.rows[0]?.can_create || database.rows[0]?.is_owner) refuse();
+    // Sequence OID operations remain reachable without schema USAGE; ownership is unconditional.
     if ((await client.query(`SELECT 1 FROM pg_class WHERE relowner=(SELECT oid FROM pg_roles WHERE rolname=$1)
       UNION ALL SELECT 1 FROM pg_database WHERE datdba=(SELECT oid FROM pg_roles WHERE rolname=$1)
       UNION ALL SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
       WHERE n.nspname !~ '^pg_' AND CASE WHEN c.relkind='S'
         THEN has_sequence_privilege($1,c.oid,'USAGE,SELECT,UPDATE') ELSE false END
       LIMIT 1`, [role])).rowCount) refuse();
+    // Keep application/public/foundation policies ACL-strict; other schemas require role-specific reachability.
     const relations = await client.query(`SELECT n.nspname AS schema, c.relname AS name,
       pg_get_userbyid(c.relowner) AS owner, p.privilege
       FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
       CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER']) p(privilege)
       WHERE c.relkind IN ('r','p','v','m','f') AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+      AND (n.nspname IN ('app_private','public','foundation') OR has_schema_privilege($1,n.oid,'USAGE'))
       AND has_table_privilege($1,c.oid,p.privilege) LIMIT 1001`, [role]);
     if (relations.rows.length > 1000 || relations.rows.some(row => row.owner === role
       || !target || !permitted(role, row.schema, row.name, row.privilege))) refuse();
@@ -114,6 +125,7 @@ async function effectivePrivileges(client: Client, target: boolean): Promise<voi
       JOIN pg_attribute a ON a.attrelid=c.oid AND a.attnum>0 AND NOT a.attisdropped
       CROSS JOIN unnest(ARRAY['SELECT','INSERT','UPDATE','REFERENCES']) p(privilege)
       WHERE c.relkind IN ('r','p','v','m','f') AND n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
+      AND (n.nspname IN ('app_private','public','foundation') OR has_schema_privilege($1,n.oid,'USAGE'))
       AND has_column_privilege($1,c.oid,a.attnum,p.privilege) LIMIT 1001`, [role]);
     if (columns.rows.length > 1000 || columns.rows.some(row => !target
       || !permitted(role, row.schema, row.name, row.privilege, row.column))) refuse();
@@ -129,7 +141,9 @@ async function effectivePrivileges(client: Client, target: boolean): Promise<voi
       if (role === 'app_runtime' && !relations.rows.some(row => row.schema === 'public' && row.name === 'foundation_migrations' && row.privilege === 'SELECT')) refuse();
     }
     const functions = await client.query(`SELECT n.nspname AS schema,p.proname AS name,p.prosecdef,
-      pg_get_userbyid(p.proowner) AS owner,has_function_privilege($1,p.oid,'EXECUTE') AS can_execute
+      pg_get_userbyid(p.proowner) AS owner,
+      (has_function_privilege($1,p.oid,'EXECUTE')
+        AND (n.nspname IN ('app_private','public','foundation') OR has_schema_privilege($1,n.oid,'USAGE'))) AS can_execute
       FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
       WHERE n.nspname !~ '^pg_' AND n.nspname <> 'information_schema'
       AND (p.prosecdef OR n.nspname='app_private' OR p.proowner=(SELECT oid FROM pg_roles WHERE rolname=$1))`, [role]);
@@ -223,34 +237,100 @@ async function inspectRoleState(inputs: AppRoleInputs, mode: 'initial' | 'old' |
   } catch { throw new AppRoleError('not_started'); }
   finally { signal.removeEventListener('abort', abort); await client.end().catch(() => {}); }
 }
-export async function provisionAppRoles(inputs: AppRoleInputs, signal: AbortSignal): Promise<{ databaseOutcome: RoleOutcome; created: 0 | 2 }> {
+
+export interface RecoveredRoleInspection {
+  stage: 'configuration' | 'connect' | 'transaction' | 'identity' | 'history' | 'roles' | 'privileges'
+    | 'credentials' | 'rollback' | 'close' | 'complete';
+  category: DiagnosticCategory;
+  roles: 'committed' | 'absent' | 'partial_or_unexpected' | 'unavailable';
+}
+/** Reuse the provisioning predicates, but never invoke provisioning or issue a database write. */
+export async function inspectRecoveredAppRoles(inputs: AppRoleInputs, outerSignal: AbortSignal): Promise<RecoveredRoleInspection> {
+  const cancel = new AbortController(), signal = AbortSignal.any([outerSignal, cancel.signal, AbortSignal.timeout(30000)]);
+  const readonly = (config: ClientConfig): ClientConfig => ({ ...config,
+    options: '-c search_path=pg_catalog -c default_transaction_read_only=on',
+    connectionTimeoutMillis: 1000, statement_timeout: 10000, query_timeout: 12000, lock_timeout: 1000 });
+  const selected = { ...inputs, authority: readonly(inputs.authority), runtime: readonly(inputs.runtime), operator: readonly(inputs.operator) };
+  const client = new Client(selected.authority), deadline = performance.now() + 30000;
+  const operation = <T>(work: () => Promise<T>) => bounded(work, Math.max(0, deadline - performance.now()), signal);
+  client.on('error', () => {});
+  const abort = () => { void client.end().catch(() => {}); };
+  signal.addEventListener('abort', abort, { once: true });
+  let stage: RecoveredRoleInspection['stage'] = 'configuration', connected = false;
+  let result: RecoveredRoleInspection = { stage, category: 'refused', roles: 'unavailable' };
+  try {
+    signal.throwIfAborted(); assertActivationManifest();
+    stage = 'connect'; await bounded(() => client.connect(), 1000, signal); connected = true;
+    stage = 'transaction'; await operation(() => client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'));
+    stage = 'identity';
+    const identity = await operation(() => client.query("SELECT current_user::text AS name, current_database() AS database, current_setting('transaction_read_only') AS read_only"));
+    if (identity.rows.length !== 1 || identity.rows[0].name !== inputs.authority.user?.split('.')[0]
+      || identity.rows[0].database !== inputs.authority.database || identity.rows[0].read_only !== 'on') refuse();
+    stage = 'history';
+    const history = await operation(() => client.query('SELECT name FROM public.foundation_migrations ORDER BY id LIMIT 2'));
+    if (!exactHistory(history.rows, activationSchema.oldNames)) refuse();
+    stage = 'roles'; const present = await operation(() => roleFlags(client));
+    if (present === 0) result = { stage: 'complete', category: 'passed', roles: 'absent' };
+    else {
+      stage = 'privileges'; await operation(() => effectivePrivileges(client, false));
+      stage = 'credentials'; await operation(() => credentials(selected, false, signal));
+      result = { stage: 'complete', category: 'passed', roles: 'committed' };
+    }
+  } catch (error) {
+    let mismatch = false;
+    try { mismatch = error instanceof RoleStateMismatch; } catch {}
+    result = { stage, category: signal.aborted ? (outerSignal.aborted ? 'aborted' : 'timeout')
+      : mismatch ? 'refused' : classify('configuration', error).category,
+      roles: mismatch ? 'partial_or_unexpected' : 'unavailable' };
+  } finally {
+    if (connected) {
+      try { await bounded(() => client.query('ROLLBACK'), 1000); }
+      catch (error) { if (result.category === 'passed') result = { stage: 'rollback', category: classify('rollback', error).category, roles: 'unavailable' }; }
+    }
+    signal.removeEventListener('abort', abort); cancel.abort();
+    try { await bounded(() => client.end(), 1000); }
+    catch (error) {
+      try { client.connection.stream.destroy(); } catch {}
+      if (result.category === 'passed') result = { stage: 'close', category: classify('close', error).category, roles: 'unavailable' };
+    }
+    for (const config of [selected.authority, selected.runtime, selected.operator]) config.password = undefined;
+  }
+  if (outerSignal.aborted) return { stage, category: 'aborted', roles: 'unavailable' };
+  return result;
+}
+export async function provisionAppRoles(inputs: AppRoleInputs, signal: AbortSignal, requireAbsent = false): Promise<{ databaseOutcome: RoleOutcome; created: 0 | 2 }> {
   const client = new Client(inputs.authority);
   client.on('error', () => {});
   let outcome: RoleOutcome = 'not_started', begun = false, commitSent = false;
+  let stage: RoleProvisionDiagnostic['stage'] = 'connect';
   const abort = () => { void client.end().catch(() => {}); };
   signal.throwIfAborted(); signal.addEventListener('abort', abort, { once: true });
   try {
     await client.connect(); signal.throwIfAborted();
-    await client.query('BEGIN'); begun = true;
+    stage = 'transaction'; await client.query('BEGIN'); begun = true;
     await client.query("SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='1000ms'; SET LOCAL standard_conforming_strings=on");
-    await client.query('SELECT pg_advisory_xact_lock(5001,97)');
-    const present = await roleFlags(client);
+    stage = 'lock'; await client.query('SELECT pg_advisory_xact_lock(5001,97)');
+    stage = 'roles'; const present = await roleFlags(client);
+    if (requireAbsent && present !== 0) refuse();
     if (present === 0) for (const role of roles) {
       const password = (role === 'app_runtime' ? inputs.runtime : inputs.operator).password;
       if (typeof password !== 'string' || !password || /[\u0000-\u001f\u007f]/.test(password)) refuse();
+      stage = 'create';
       await client.query(`CREATE ROLE ${role} LOGIN NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS PASSWORD '${password.replace(/'/g, "''")}'`);
     }
-    await effectivePrivileges(client, false);
-    signal.throwIfAborted(); commitSent = true;
+    stage = 'privileges'; await effectivePrivileges(client, false);
+    signal.throwIfAborted(); stage = 'commit'; commitSent = true;
     await client.query('COMMIT'); outcome = 'committed';
-    await credentials(inputs, false, signal);
+    stage = 'credentials'; await credentials(inputs, false, signal);
     return { databaseOutcome: outcome, created: present === 0 ? 2 : 0 };
-  } catch {
+  } catch (error) {
+    const diagnostic = classify('configuration', error);
     if (outcome !== 'committed' && begun) {
       if (commitSent) outcome = 'unknown';
       else try { await client.query('ROLLBACK'); outcome = 'rolled_back'; } catch { outcome = 'unknown'; }
     }
-    throw new AppRoleError(outcome);
+    throw new AppRoleError(outcome, { stage, category: signal.aborted ? 'aborted'
+      : error instanceof RoleStateMismatch ? 'refused' : diagnostic.category, sqlstate: diagnostic.sqlstate });
   } finally { signal.removeEventListener('abort', abort); await client.end().catch(() => {}); }
 }
 

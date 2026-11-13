@@ -1,5 +1,11 @@
 # Current handoff
 
+## Activation checkpoint — 2026-11-13
+
+DB roles and the two application migrations are committed and verified; the separate TARGET-only migration no-op applied zero changes. Bootstrap returned and passed postflight, then stopped during environment cleanup. Task A's cleanup/read-only-inspector fix was accepted. Task B subsequently ran one guarded read-only inspection and confirmed the expected Hieu/Lovora/active-Owner/audit state, with cleanup successful and journal head/events unchanged. Bootstrap verification/ACK remains open; do not replay bootstrap.
+
+The next bounded packet is Task C, followed by strict BE app configuration/deployment and FE hosted acceptance. FE acceptance preparation is documentation only. See the [current compact handoff](specs/001-connectivity-foundation/production-activation-handoff.md#current-compact-resume), [Task B evidence](docs/task-b-bootstrap-verification.md), and [FE preparation](docs/fe-hosted-acceptance-prep.md). The dated records below remain historical evidence; publication alone does not execute a new production phase or establish hosted FE acceptance.
+
 Current Feature003 visual acceptance: the owner explicitly accepted the existing Application shell visuals. T013 is ACCEPTED; T001-T013 for feature003 are complete within the sample-data Application shell scope. Retain earlier pending-acceptance statements only as dated history, not current status. This acceptance does not establish feature001 connectivity, operational business functionality, hosted caller authentication, API integration, or publication/deployment authorization. The existing frame remains unchanged.
 
 ## Current BE delivery automation — scoped review accepted

@@ -43,16 +43,18 @@ export async function inspectAppBootstrap(env: NodeJS.ProcessEnv): Promise<'abse
   try {
     await client.connect(); signal.throwIfAborted();
     await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-    const workspace = await client.query('SELECT id,bootstrap_request_id,bootstrap_fingerprint FROM app_private.workspaces LIMIT 2');
+    const workspace = await client.query('SELECT id,display_name,bootstrap_request_id,bootstrap_fingerprint FROM app_private.workspaces LIMIT 2');
     const member = await client.query(`SELECT m.role_code,m.status FROM app_private.memberships m
       JOIN app_private.profiles p ON p.user_id=m.user_id WHERE m.workspace_id=$1 AND m.user_id=$2`,
     [expected.workspaceId, expected.userId]);
     const audit = await client.query('SELECT * FROM app_private.audit_events WHERE workspace_id=$1 AND action=$2 LIMIT 2',
       [expected.workspaceId, 'workspace.bootstrap']);
-    const profile = await client.query('SELECT 1 FROM app_private.profiles WHERE user_id=$1', [expected.userId]);
+    const profile = await client.query('SELECT display_name FROM app_private.profiles WHERE user_id=$1', [expected.userId]);
     let result: 'absent' | 'committed' | 'conflict' = 'conflict';
     if (!workspace.rowCount && !member.rowCount && !audit.rowCount && !profile.rowCount) result = 'absent';
     else if (workspace.rowCount === 1 && workspace.rows[0]?.id === expected.workspaceId
+      && workspace.rows[0].display_name === expected.workspaceName
+      && profile.rowCount === 1 && profile.rows[0]?.display_name === expected.profileName
       && workspace.rows[0].bootstrap_request_id === expected.approvalId && workspace.rows[0].bootstrap_fingerprint === expected.fingerprint
       && member.rowCount === 1 && member.rows[0]?.role_code === 'owner' && member.rows[0]?.status === 'active'
       && audit.rowCount === 1 && bootstrapAuditMatches(audit.rows[0], expected)) result = 'committed';
