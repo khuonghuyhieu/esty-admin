@@ -17,8 +17,8 @@ import type { ActivationOutcome } from '../scripts/activation-journal.js';
 import { authorizeActivationPhase, confirmActivationPhase, executeActivationPhase, reconcileActivationAcknowledgement,
   reconcileActivationEffect, runRecoveredActivationEffect, runRecoveredActivationPostflight, diagnoseRecoveredRoles,
   completeRecoveredRoles, reconcileRecoveredRolesAcknowledgement, diagnoseRecoveredRolePrivileges,
-  continueReachabilityBootstrap, continueReachabilityBootstrapPretransaction, continueReachabilityMigration, inspectRetainedReachabilityBootstrap, observeReachabilityBootstrapAuth } from '../scripts/activation.js';
-import { recoveredActivationProvider } from '../scripts/activation-recovered-provider.js';
+  continueReachabilityBootstrap, continueReachabilityBootstrapPretransaction, continueReachabilityMigration, finalizeRetainedReachabilityBootstrap, inspectRetainedReachabilityBootstrap, observeReachabilityBootstrapAuth } from '../scripts/activation.js';
+import { recoveredActivationProvider, taskCBootstrapProvider } from '../scripts/activation-recovered-provider.js';
 import { writeReleaseEvidence } from '../scripts/release-journal.js';
 import { Client } from 'pg';
 import type { AppRoleInputs } from '../scripts/app-roles.js';
@@ -48,7 +48,7 @@ function fixture(t: TestContext) {
   const unchanged = () => assert.deepEqual([canonical(inventory(source)), canonical(inventory(receipts))], before);
   return { root, source, receipts, run, create, state, unchanged };
 }
-function providerFixture() {
+function providerFixture(taskC = false) {
   const values: Record<string, unknown> = {
     '/commits/main': { sha: 'd3d2b0788d970377c9fee9d59c52e3d1baff7de2', commit: { tree: { sha: 'ff6611ac0eb82a250d8e3b44318468cfd15e2f42' } } },
     [`/v13/deployments/${target.candidate}`]: { id: target.candidate, projectId: target.project, ownerId: target.scope,
@@ -67,7 +67,9 @@ function providerFixture() {
   const writes: string[] = [];
   let loseAck = false;
   const read = async (path: string) => { assert.ok(Object.hasOwn(values, path), `Unexpected transport path ${path}`); return structuredClone(values[path]); };
-  const provider = recoveredActivationProvider({ digest: sha256('synthetic-executable'), verify() { return {}; } }, AbortSignal.timeout(60000),
+  if (taskC) values['/commits/main'] = { sha: '7ce06834010e4c113663c76e1ce937949c35d941',
+    commit: { tree: { sha: '6abbfe451e1a4e2198e85023336e72473c304f39' } } };
+  const provider = (taskC ? taskCBootstrapProvider : recoveredActivationProvider)({ digest: sha256('synthetic-executable'), verify() { return {}; } }, AbortSignal.timeout(60000),
     { github: read, vercel: read, async promote() { throw new Error('Bridge promotion is forbidden'); } },
     async (_journal, state, description) => {
       writes.push(description); values[statusPath] = [{ state, description, log_url }];
@@ -1465,6 +1467,124 @@ test('retained bootstrap inspection is exact, read-only and one-shot across fail
     const counts = [db, prepares, providerReads, disposals];
     assert.equal((await invoke()).status, 'STOP'); assert.deepEqual([db, prepares, providerReads, disposals], counts);
     assert.doesNotMatch(JSON.stringify(results), /private .* sentinel|SYNTHETIC_PRIVATE_KEY|Synthetic Owner/);
+    f.f.unchanged();
+  });
+});
+
+test('Task C provider pins current controller without rewriting historical workflow or widening status writes', async () => {
+  const p = providerFixture(true);
+  await p.provider.currentMain(); await p.provider.binding(target.candidate);
+  await assert.rejects(p.provider.record(target.journal, 'in_progress', `activation:roles:outcome:${sha256('outcome')}`));
+  await assert.rejects(p.provider.record(target.journal, 'in_progress', `activation:bootstrap:intent:${sha256('intent')}`));
+  assert.equal(p.writes.length, 0);
+  p.values['/commits/main'] = { sha: 'd3d2b0788d970377c9fee9d59c52e3d1baff7de2',
+    commit: { tree: { sha: 'ff6611ac0eb82a250d8e3b44318468cfd15e2f42' } } };
+  await assert.rejects(p.provider.currentMain());
+  const old = providerFixture();
+  await old.provider.currentMain();
+  old.values['/commits/main'] = { sha: '7ce06834010e4c113663c76e1ce937949c35d941',
+    commit: { tree: { sha: '6abbfe451e1a4e2198e85023336e72473c304f39' } } };
+  await assert.rejects(old.provider.currentMain());
+});
+
+test('Task C finalizes only exact retained committed proof and reconciles ACK without product replay', {
+  skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 240000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['success', 'concurrent', 'absent', 'conflict', 'unknown', 'wrong-name-proof', 'extra-audit-proof',
+    'observation-hash', 'claim-tamper', 'inventory-drift', 'provider-drift', 'cancelled', 'claim-partial',
+    'verification-partial', 'confirming-persist', 'lost-write-ack', 'lost-read-ack', 'remote-persist',
+    'terminal-partial', 'primary-and-terminal'] as const) await t.test(scenario, async sub => {
+    const f = await retainedInspectionFixture(sub, artifact), id = f.run.packet.runId;
+    const inspectionExecutable = sha256('synthetic-inspection-executable'), executable = sha256('synthetic-task-c');
+    const observed = await inspectRetainedReachabilityBootstrap(f.run, artifact, f.p.provider,
+      () => ({ env: { ...f.env }, dispose() {} }), f.evidence, inspectionExecutable, AbortSignal.timeout(30000),
+      f.expected, async () => 'committed');
+    assert.equal(observed.status, 'INSPECTED');
+    const observation = join(f.f.root, `${id}.bootstrap-retained-inspection-`);
+    const raw = (path: string) => sha256(readFileSync(path));
+    const expected = { ...f.expected, inspectionExecutable,
+      inspectionStarted: raw(`${observation}started.json`), inspectionResult: raw(`${observation}result.json`) };
+    const prefix = join(f.f.root, `${id}.bootstrap-finalization-`), proof = join(f.run.directory, `${id}.bootstrap-verification.json`);
+    const retained = f.state().events.map((_, i) => readFileSync(join(f.run.directory, `activation/${id}/${String(i).padStart(3, '0')}.json`)));
+    const originalObservation = ['started', 'result'].map(suffix => readFileSync(`${observation}${suffix}.json`));
+    if (['absent', 'conflict', 'unknown', 'wrong-name-proof', 'extra-audit-proof'].includes(scenario)) {
+      const receipt = JSON.parse(readFileSync(`${observation}result.json`, 'utf8'));
+      if (scenario === 'wrong-name-proof') receipt.result.profileName = 'Wrong Owner';
+      else if (scenario === 'extra-audit-proof') receipt.result.auditCount = 2;
+      else receipt.result.inspection = scenario;
+      writeFileSync(`${observation}result.json`, JSON.stringify(receipt, null, 2) + '\n');
+      expected.inspectionResult = raw(`${observation}result.json`); // Even a pinned malformed proof must refuse.
+    }
+    if (scenario === 'observation-hash') expected.inspectionResult = sha256('wrong receipt');
+    if (scenario === 'claim-tamper') writeFileSync(`${f.continuation}started.json`, '{}');
+    if (scenario === 'inventory-drift') writeReleaseEvidence(join(f.run.directory, 'unapproved.json'), {});
+    const cancel = new AbortController();
+    if (scenario === 'cancelled') cancel.abort();
+    let forbidden = 0, mainReads = 0, records = 0;
+    sub.mock.method(Client.prototype, 'connect', async () => { forbidden++; throw new Error('DB forbidden'); });
+    sub.mock.method(globalThis, 'fetch', async () => { forbidden++; throw new Error('Auth forbidden'); });
+    const p = providerFixture(true);
+    p.values[p.statusPath] = structuredClone(f.p.values[f.p.statusPath]);
+    let lostRead = scenario === 'lost-read-ack';
+    const provider = { ...p.provider, async currentMain() {
+      mainReads++;
+      if (scenario === 'provider-drift') writeReleaseEvidence(join(f.run.directory, 'provider-drift.json'), {});
+      await p.provider.currentMain();
+    }, async record(journal: number, status: Parameters<typeof p.provider.record>[1], description: string) {
+      records++;
+      if (scenario === 'primary-and-terminal') throw new Error('private primary sentinel');
+      await p.provider.record(journal, status, description);
+    }, async confirmJournal(journal: number, status: Parameters<typeof p.provider.confirmJournal>[1], description: string) {
+      if (lostRead && description.includes(':outcome:')) { lostRead = false; throw new Error('private read sentinel'); }
+      await p.provider.confirmJournal(journal, status, description);
+    } };
+    if (scenario === 'lost-write-ack') p.loseAck(true);
+    const open = fs.openSync;
+    sub.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => {
+      const path = String(args[0]);
+      const failure = scenario === 'claim-partial' && path === `${prefix}started.json`
+        || scenario === 'verification-partial' && path === proof
+        || scenario === 'confirming-persist' && path.endsWith(`/activation/${id}/016.json`)
+        || scenario === 'remote-persist' && path.endsWith(`/activation/${id}/017.json`)
+        || ['terminal-partial', 'primary-and-terminal'].includes(scenario) && path === `${prefix}result.json`;
+      if (failure && (Number(args[1]) & fs.constants.O_EXCL)) {
+        if (scenario.endsWith('partial') || scenario === 'primary-and-terminal') writeFileSync(path, '{', { mode: 0o600 });
+        throw new Error('private persistence sentinel');
+      }
+      return Reflect.apply(open, fs, args);
+    });
+    const invoke = (ack = false) => finalizeRetainedReachabilityBootstrap(f.run, artifact, provider,
+      f.evidence, executable, cancel.signal, ack, expected);
+    const results = scenario === 'concurrent' ? await Promise.all([invoke(), invoke()]) : [await invoke()];
+    const success = ['success', 'concurrent'].includes(scenario);
+    assert.equal(results.filter(item => item.status === 'BOOTSTRAP_COMPLETE').length, success ? 1 : 0);
+    assert.equal(forbidden, 0);
+    assert.deepEqual(retained.map((_, i) => readFileSync(join(f.run.directory, `activation/${id}/${String(i).padStart(3, '0')}.json`))), retained);
+    const beforeReplay = [mainReads, records];
+    assert.equal((await invoke()).status, 'STOP'); assert.deepEqual([mainReads, records], beforeReplay);
+    if (['lost-write-ack', 'lost-read-ack', 'remote-persist'].includes(scenario)) {
+      assert.equal(f.state().events.length, 17); assert.equal(f.state().next, 'bootstrap');
+      sub.mock.restoreAll();
+      const writes = records;
+      const reconciled = await invoke(true);
+      assert.equal(reconciled.status, 'BOOTSTRAP_COMPLETE'); assert.equal(records, writes);
+      assert.equal(f.state().next, 'app-config'); assert.equal(f.state().events.length, 18);
+      const replayCounts = [mainReads, records];
+      assert.equal((await invoke(true)).status, 'STOP'); assert.deepEqual([mainReads, records], replayCounts);
+    } else if (success || scenario === 'terminal-partial') {
+      assert.equal(f.state().events.length, 18); assert.equal(f.state().next, 'app-config');
+      assert.equal(records, 1);
+    } else if (['absent', 'conflict', 'unknown', 'wrong-name-proof', 'extra-audit-proof', 'observation-hash',
+      'claim-tamper', 'inventory-drift', 'cancelled', 'claim-partial'].includes(scenario)) {
+      assert.equal(mainReads, 0); assert.equal(records, 0); assert.equal(existsSync(proof), false);
+    }
+    if (scenario === 'primary-and-terminal') {
+      assert.equal(results[0]!.failedStage, 'confirmation'); assert.equal(results[0]!.stage, 'terminal-persist');
+    }
+    if (!['absent', 'conflict', 'unknown', 'wrong-name-proof', 'extra-audit-proof'].includes(scenario))
+      assert.deepEqual(['started', 'result'].map(suffix => readFileSync(`${observation}${suffix}.json`)), originalObservation);
+    assert.doesNotMatch(JSON.stringify(results), /private .* sentinel|SYNTHETIC_PRIVATE_KEY/);
     f.f.unchanged();
   });
 });

@@ -1675,3 +1675,17 @@ test('retained bootstrap inspection CLI refuses unguarded FIFOs and caller-selec
       { status: 'STOP', stage: 'guard', category: 'refused', inspection: null });
   }
 });
+
+test('Task C CLI refuses unguarded private FIFOs and extra lineage arguments before opening them', t => {
+  const f = fixture(t), fifo = join(f.root, 'must-not-open.fifo');
+  assert.equal(spawnSync('/usr/bin/mkfifo', [fifo], { encoding: 'utf8', timeout: 5000 }).status, 0);
+  for (const selector of ['finalize-retained-reachability-bootstrap', 'reconcile-retained-reachability-bootstrap-ack']) {
+    for (const suffix of [[], ['head-override']]) {
+      const result = spawnSync(process.execPath, [helper, selector, fifo, sha256('control'), fifo, fifo, ...suffix],
+        { encoding: 'utf8', timeout: 5000, env: { PATH: '/usr/bin:/bin', HOME: f.root } });
+      assert.equal(result.error, undefined); assert.equal(result.status, 1); assert.equal(result.stderr, '');
+      assert.deepEqual(JSON.parse(result.stdout.slice('BOOTSTRAP_FINALIZATION '.length)),
+        { status: 'STOP', stage: 'guard', category: 'refused' });
+    }
+  }
+});

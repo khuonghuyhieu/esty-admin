@@ -49,3 +49,29 @@ export function recoveredActivationProvider(guard: RecoveryGuard, signal: AbortS
     },
   };
 }
+
+// Task C controller provenance is distinct from the retained activation/workflow/artifact identities.
+export function taskCBootstrapProvider(guard: RecoveryGuard, signal: AbortSignal,
+  io: RecoveryIo = recoveryIo(guard, signal), record = recoveryGithubStatus): ActivationPhaseProvider {
+  const retained = recoveredActivationProvider(guard, signal, io, record);
+  const bootstrapStatus = (description: string) => {
+    if (!/^activation:bootstrap:(intent|outcome):[a-f0-9]{64}$/.test(description)) refuse();
+  };
+  return {
+    ...retained,
+    async currentMain() {
+      signal.throwIfAborted();
+      const main = object(await io.github('/commits/main'));
+      if (main.sha !== '7ce06834010e4c113663c76e1ce937949c35d941'
+        || object(object(main.commit).tree).sha !== '6abbfe451e1a4e2198e85023336e72473c304f39') refuse();
+    },
+    async record(journal, state, description) {
+      if (!/^activation:bootstrap:outcome:[a-f0-9]{64}$/.test(description)) refuse();
+      await retained.record(journal, state, description);
+    },
+    async confirmJournal(journal, state, description) {
+      bootstrapStatus(description);
+      await retained.confirmJournal(journal, state, description);
+    },
+  };
+}

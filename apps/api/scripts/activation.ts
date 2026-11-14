@@ -963,6 +963,168 @@ export async function inspectRetainedReachabilityBootstrap(run: ActivationRun, a
   }
 }
 
+const taskCBootstrapLineage = {
+  ...retainedBootstrapLineage,
+  inspectionExecutable: 'ff8e58e2e9b2389e1026a73caf6898ab25bb045d945d7bd2dc9008bafb19878b',
+  inspectionStarted: '294d0d8c0da60985965632768279a54b4a735a2f0a7980125e8d50511bddf7ea',
+  inspectionResult: '339f3ee097d4a25542e87f5d4c65ccfc29ee61bb6ab63e99987fb86faa5a3ef9',
+};
+type BootstrapFinalizationStage = 'guard' | 'assets' | 'claim-persist' | 'provider-main' | 'provider-binding'
+  | 'provider-intent' | 'post-provider' | 'verification-persist' | 'confirmation' | 'ack-reconciliation'
+  | 'terminal-persist' | 'complete';
+export interface BootstrapFinalizationResult {
+  status: 'BOOTSTRAP_COMPLETE' | 'STOP'; stage: BootstrapFinalizationStage; failedStage: BootstrapFinalizationStage | null;
+  category: 'passed' | 'refused' | 'aborted'; head: string | null; events: number | null;
+  next: ActivationPhase | null; databaseOutcome: 'committed' | null; count: 1 | null;
+}
+export async function finalizeRetainedReachabilityBootstrap(run: ActivationRun, artifact: VerifiedArtifact,
+  provider: ActivationPhaseProvider, evidenceDirectory: string, executableDigest: string, outerSignal: AbortSignal,
+  reconcile = false, expected = taskCBootstrapLineage): Promise<BootstrapFinalizationResult> {
+  const signal = AbortSignal.any([outerSignal, AbortSignal.timeout(120000)]), parent = dirname(run.directory), id = run.packet.runId;
+  const prefix = `${id}.bootstrap-finalization-`, observation = `${id}.bootstrap-retained-inspection-`;
+  const continuation = `${id}.bootstrap-pretransaction-continuation-`, proofName = `${id}.bootstrap-verification.json`;
+  const binding = { version: 1, executionId: rolesReachability.executionId, packetDigest: run.digest,
+    head: expected.head, continuationClaimSha256: expected.claim, executableDigest };
+  const claim = { ...binding, kind: 'retained-bootstrap-finalization', inventoryDigest: expected.inventory,
+    inspectionStartedSha256: expected.inspectionStarted, inspectionResultSha256: expected.inspectionResult };
+  let stage: BootstrapFinalizationStage = 'guard', failedStage: BootstrapFinalizationStage | null = null;
+  let claimed = false, terminalAttempted = false, verified = false;
+  const ownedSiblings = new Map<string, string>();
+  const baseline = () => bootstrapBaseline(run, expected);
+  const proof = (current: ActivationState) => ({ version: 1, executionId: rolesReachability.executionId,
+    packetDigest: run.digest, migrationHead: expected.migration, bootstrapBindingDigest: run.packet.bootstrapBindingDigest,
+    startedHash: current.events[14]!.sha256, inspection: 'exact-committed-profile-workspace-active-owner-audit' });
+  const result = (status: BootstrapFinalizationResult['status']): BootstrapFinalizationResult => {
+    let current: ActivationState | undefined;
+    try { current = baseline(); } catch { /* Partial persistence cannot certify journal state. */ }
+    return { status, stage, failedStage, category: status === 'BOOTSTRAP_COMPLETE' ? 'passed' : signal.aborted ? 'aborted' : 'refused',
+      head: current?.head ?? null, events: current?.events.length ?? null, next: current?.next ?? null,
+      databaseOutcome: verified ? 'committed' : null, count: verified ? 1 : null };
+  };
+  const persist = (suffix: string, value: unknown) => {
+    const name = `${prefix}${suffix}.json`, digest = sha256(JSON.stringify(value, null, 2) + '\n');
+    writeReleaseEvidence(join(parent, name), value);
+    if (readEvidence(join(parent, name)).identity.sha256 !== digest) refuse();
+    ownedSiblings.set(name, digest);
+  };
+  const check = () => {
+    signal.throwIfAborted();
+    const current = baseline(), names = readdirSync(parent);
+    if (current.events.length < 16 || current.events.length > 18 || current.events[15]!.sha256 !== expected.head
+      || current.events[13]!.sha256 !== expected.authorized || current.events[14]!.kind !== 'started'
+      || current.events[15]!.kind !== 'outcome'
+      || canonical(current.events[15]!.value) !== canonical(publicOutcome({
+        bootstrap: 'exact-committed', binding: run.packet.bootstrapBindingDigest }, 'committed', 1))) refuse();
+    for (const [index, kind] of [[16, 'confirming'], [17, 'remote-confirmed']] as const) {
+      const event = current.events[index];
+      if (event && (event.kind !== kind || canonical(event.value) !== canonical({ outcomeHash: expected.head }))) refuse();
+    }
+    const additions = new Set(current.events.slice(16).map(event => `activation/${id}/${String(event.sequence).padStart(3, '0')}.json`));
+    if (existsSync(join(run.directory, proofName))) {
+      if (canonical(readEvidence(join(run.directory, proofName)).value) !== canonical(proof(current))) refuse();
+      additions.add(proofName);
+    } else if (current.events.length > 16) refuse();
+    const actual = inventory(run.directory);
+    if (actual.files.some(file => additions.has(file.path) && file.mode !== 0o600)
+      || sha256(canonical({ files: actual.files.filter(file => !additions.has(file.path)), directories: actual.directories })) !== expected.inventory) refuse();
+    for (const [path, digest] of Object.entries(expected.receipts)) verifyImmutableBootstrapReceipt(join(evidenceDirectory, path), digest);
+    for (const [path, digest] of [
+      [`${id}.bootstrap-attempt.json`, expected.attempt], [`${id}.bootstrap-ready.json`, expected.ready],
+      [`activation/${id}/014.json`, expected.startedFile], [`activation/${id}/015.json`, expected.outcomeFile],
+    ]) if (readEvidence(join(run.directory, path!)).identity.sha256 !== digest) refuse();
+    const auth = `${id}.bootstrap-auth-observation-`;
+    if (canonical(names.filter(name => name.startsWith(auth)).sort()) !== canonical([`${auth}started.json`])
+      || readEvidence(join(parent, `${auth}started.json`)).identity.sha256 !== expected.observationStarted
+      || canonical(names.filter(name => name.startsWith(continuation)).sort())
+        !== canonical(['ready', 'result', 'started'].map(suffix => `${continuation}${suffix}.json`))) refuse();
+    const productClaim = readEvidence(join(parent, `${continuation}started.json`));
+    const ready = readEvidence(join(parent, `${continuation}ready.json`));
+    const terminal = readEvidence(join(parent, `${continuation}result.json`));
+    if (productClaim.identity.sha256 !== expected.claim || ready.identity.sha256 !== expected.readyLink
+      || terminal.identity.sha256 !== expected.terminal || object(productClaim.value).executableDigest !== expected.productExecutable
+      || object(ready.value).claimDigest !== expected.claim || object(ready.value).readySha256 !== expected.ready
+      || object(terminal.value).claimDigest !== expected.claim
+      || canonical(object(terminal.value).result) !== canonical({ status: 'STOP', stage: 'input-dispose',
+        failedStage: 'input-dispose', category: 'refused', head: expected.head, events: 16, next: 'bootstrap',
+        databaseOutcome: 'unknown', count: null })) refuse();
+    if (canonical(names.filter(name => name.startsWith(observation)).sort())
+      !== canonical(['result', 'started'].map(suffix => `${observation}${suffix}.json`))) refuse();
+    const inspectedBinding = { ...binding, executableDigest: expected.inspectionExecutable };
+    const started = readEvidence(join(parent, `${observation}started.json`));
+    const inspected = readEvidence(join(parent, `${observation}result.json`));
+    if (started.identity.sha256 !== expected.inspectionStarted || inspected.identity.sha256 !== expected.inspectionResult
+      || canonical(started.value) !== canonical({ ...inspectedBinding,
+        kind: 'retained-bootstrap-read-only-inspection', inventoryDigest: expected.inventory })
+      || canonical(inspected.value) !== canonical({ ...inspectedBinding, result: {
+        status: 'INSPECTED', stage: 'complete', failedStage: null, category: 'passed', inspection: 'committed',
+        cleanupFailed: false, head: expected.head, events: 16, next: 'bootstrap' } })) refuse();
+    if (canonical(names.filter(name => name.startsWith(prefix)).sort()) !== canonical([...ownedSiblings.keys()].sort())) refuse();
+    for (const [name, digest] of ownedSiblings) if (readEvidence(join(parent, name)).identity.sha256 !== digest) refuse();
+    return current;
+  };
+  const terminalSuffix = reconcile ? 'ack-result' : 'result';
+  try {
+    if (!/^[a-f0-9]{64}$/.test(executableDigest)) refuse();
+    if (reconcile) {
+      // Only the existing finalization's exact durable claim and STOP can authorize ACK-only recovery.
+      const previous = readEvidence(join(parent, `${prefix}started.json`));
+      const stopped = readEvidence(join(parent, `${prefix}result.json`)), value = object(stopped.value), outcome = object(value.result);
+      if (canonical(previous.value) !== canonical(claim) || value.claimDigest !== previous.identity.sha256
+        || canonical(value.binding) !== canonical(binding) || outcome.status !== 'STOP'
+        || outcome.failedStage !== 'confirmation' || outcome.events !== 17 || outcome.next !== 'bootstrap'
+        || outcome.databaseOutcome !== 'committed' || outcome.count !== 1) refuse();
+      ownedSiblings.set(`${prefix}started.json`, previous.identity.sha256);
+      ownedSiblings.set(`${prefix}result.json`, stopped.identity.sha256);
+    }
+    const before = check();
+    if (before.events.length !== (reconcile ? 17 : 16) || before.next !== 'bootstrap'
+      || (!reconcile && existsSync(join(run.directory, proofName)))) refuse();
+    if (reconcile && object(object(readEvidence(join(parent, `${prefix}result.json`)).value).result).head !== before.head) refuse();
+    verified = true;
+    stage = 'assets'; verifyRecoveredRoleAssets(artifact, run.packet);
+    stage = 'claim-persist';
+    persist(reconcile ? 'ack-started' : 'started', reconcile ? { ...binding, kind: 'retained-bootstrap-ack-only', confirmingHead: before.head } : claim);
+    claimed = true;
+    stage = 'provider-main'; await provider.currentMain();
+    stage = 'provider-binding'; await provider.binding(bridgeRecovery.candidate);
+    if (!reconcile) {
+      stage = 'provider-intent'; await provider.confirmJournal(before.journal, 'in_progress',
+        `activation:bootstrap:intent:${before.events[12]!.sha256}`);
+    }
+    stage = 'post-provider'; if (check().head !== before.head) refuse();
+    if (!reconcile) {
+      stage = 'verification-persist'; writeReleaseEvidence(join(run.directory, proofName), proof(before));
+      check();
+    }
+    // Recheck the exact local proof at each asynchronous provider boundary inside the existing state machine.
+    const guarded: Pick<ActivationPhaseProvider, 'record' | 'confirmJournal'> = {
+      async record(journal, status, description) {
+        check(); await provider.record(journal, status, description); check();
+      },
+      async confirmJournal(journal, status, description) {
+        check(); await provider.confirmJournal(journal, status, description); check();
+      },
+    };
+    stage = reconcile ? 'ack-reconciliation' : 'confirmation';
+    if (reconcile) await reconcileActivationAcknowledgement(run, 'bootstrap', guarded);
+    else await confirmActivationPhase(run, 'bootstrap', guarded);
+    const completed = check();
+    if (completed.events.length !== 18 || completed.next !== 'app-config') refuse();
+    stage = 'terminal-persist'; terminalAttempted = true;
+    persist(terminalSuffix, { binding, claimDigest: ownedSiblings.get(`${prefix}started.json`),
+      result: { ...result('BOOTSTRAP_COMPLETE'), stage: 'complete' } });
+    stage = 'complete'; return result('BOOTSTRAP_COMPLETE');
+  } catch {
+    failedStage ??= stage;
+    if (claimed && !terminalAttempted) {
+      terminalAttempted = true;
+      try { persist(terminalSuffix, { binding, claimDigest: ownedSiblings.get(`${prefix}started.json`), result: result('STOP') }); }
+      catch { stage = 'terminal-persist'; }
+    }
+    return result('STOP');
+  }
+}
+
 export type RecoveredRolesDiagnosticStage = RecoveredRoleInspection['stage'] | 'guard' | 'provider' | 'artifact'
   | 'request' | 'packet' | 'receipt' | 'role-input' | 'role-validation' | 'reconciliation';
 export interface RecoveredRolesDiagnostic extends Omit<RecoveredRoleInspection, 'stage'> {

@@ -1,5 +1,11 @@
 # Current handoff
 
+## Bootstrap verification/ACK complete — 2026-11-14
+
+Task C passed the scoped review and one actual guarded finalization: BOOTSTRAP_COMPLETE, 18 events, head9046ca2e2e8d67710c63cc99a4a3ff82f24c6a2c8ff4d6b101b40643315acdbf, next=app-config. Normal verification and provider ACK are present; the original16-event prefix remains unchanged. No bootstrap/product/Auth/DB replay or later phase ran. The retained count1 describes the existing committed bootstrap, not another creation. [Actual completion and local receipt digests](specs/001-connectivity-foundation/plan.md#actual-task-c-completion--2026-11-14) supersede the pending-ACK wording in dated records below.
+
+The next bounded task is D1/T185, strict BE application configuration. D2 deployment, FE hosted acceptance and routine CI/CD remain open; do not enable delivery or infer FE readiness from this checkpoint.
+
 ## Activation checkpoint — 2026-11-13
 
 DB roles and the two application migrations are committed and verified; the separate TARGET-only migration no-op applied zero changes. Bootstrap returned and passed postflight, then stopped during environment cleanup. Task A's cleanup/read-only-inspector fix was accepted. Task B subsequently ran one guarded read-only inspection and confirmed the expected Hieu/Lovora/active-Owner/audit state, with cleanup successful and journal head/events unchanged. Bootstrap verification/ACK remains open; do not replay bootstrap.

@@ -19,12 +19,12 @@ import { parseAppRoleInputs } from './app-roles.js';
 import { attestBridgeRecovery, bridgeRecovery, continueBridgeRecovery, promoteBridgeRecovery } from './activation-candidate-recovery.js';
 import { recoveryIo } from './activation-recovery-io.js';
 import { activationRecoveryExecution, activationRolesSuccessor, rolesReachability } from './activation-recovery-origin.js';
-import { recoveredActivationProvider } from './activation-recovered-provider.js';
+import { recoveredActivationProvider, taskCBootstrapProvider } from './activation-recovered-provider.js';
 import { authorizeActivationPhase, confirmActivationPhase, executeActivationPhase, reconcileActivationAcknowledgement,
   reconcileActivationEffect, runRecoveredActivationEffect, runRecoveredActivationPostflight, diagnoseRecoveredRoles,
   completeRecoveredRoles, reconcileRecoveredRolesAcknowledgement, diagnoseRecoveredRolePrivileges } from './activation.js';
 import type { RecoveredRolesDiagnosticStage } from './activation.js';
-import { continueReachabilityBootstrap, continueReachabilityBootstrapPretransaction, continueReachabilityMigration, inspectRetainedReachabilityBootstrap, observeReachabilityBootstrapAuth } from './activation.js';
+import { continueReachabilityBootstrap, continueReachabilityBootstrapPretransaction, continueReachabilityMigration, finalizeRetainedReachabilityBootstrap, inspectRetainedReachabilityBootstrap, observeReachabilityBootstrapAuth } from './activation.js';
 import { migrationsDirectory } from './migrations.js';
 import { verifyMigrationFiles } from './migration-files.mjs';
 
@@ -848,6 +848,25 @@ async function preparedReachabilityBootstrap(args: string[], signal: AbortSignal
     : continueReachabilityBootstrap(run, action, artifact, provider, prepare, signal);
 }
 
+async function preparedRetainedBootstrapFinalization(args: string[], signal: AbortSignal, reconcile: boolean) {
+  const guard = launcherBinding();
+  if (args.length !== 4 || !guard || !args[3]) refuse();
+  signal = AbortSignal.any([signal, AbortSignal.timeout(120000)]);
+  guard.verify(); signal.throwIfAborted();
+  canonicalPath(args[3]);
+  const artifact = verifyArtifact(args[3], bridgeRecovery.artifactDigest);
+  verifyMigrationFiles(migrationsDirectory, artifact.manifest.migrations);
+  const { context, packetPath } = await preparedRecoveryContext(args, signal);
+  const packet = validateActivationPacket(readPrivate(packetPath), bridgeRecovery.packetDigest);
+  verifyActivationArtifact(artifact, packet);
+  const run = { directory: join(dirname(context.directory), `activation-recovered-${rolesReachability.executionId}`),
+    packet, digest: bridgeRecovery.packetDigest };
+  const evidence = join(resolve(args[2]!, '../../..'), 'recovered-activation-zc_q5vob/bootstrap-continuation');
+  // No prepared phase, credentials, Auth or database capability is passed to finalization.
+  return finalizeRetainedReachabilityBootstrap(run, artifact, taskCBootstrapProvider(guard, signal),
+    evidence, guard.digest, signal, reconcile);
+}
+
 async function recoveredPreparedActivation(args: string[], signal: AbortSignal) {
   const [action, phase, ...contextArgs] = args;
   if (!action || !['initialize', 'state', 'authorize', 'run', 'postflight', 'confirm', 'reconcile-ack', 'inspect'].includes(action)
@@ -951,6 +970,18 @@ async function diagnosePreparedRecoveredRoles(args: string[], signal: AbortSigna
 
 export async function inputHelperMain(args: string[], signal: AbortSignal): Promise<void> {
   const [action, path, digest, phaseArg] = args;
+  if (action === 'finalize-retained-reachability-bootstrap' || action === 'reconcile-retained-reachability-bootstrap-ack') {
+    try {
+      const result = await preparedRetainedBootstrapFinalization(args.slice(1), signal,
+        action === 'reconcile-retained-reachability-bootstrap-ack');
+      console.info(`BOOTSTRAP_FINALIZATION ${JSON.stringify(result)}`);
+      if (result.status !== 'BOOTSTRAP_COMPLETE') process.exitCode = 1;
+    } catch {
+      console.info('BOOTSTRAP_FINALIZATION {"status":"STOP","stage":"guard","category":"refused"}');
+      process.exitCode = 1;
+    }
+    return;
+  }
   if (action === 'inspect-retained-reachability-bootstrap') {
     try {
       const result = await preparedReachabilityBootstrap(['inspect-retained', ...args.slice(1)], signal, 'inspect-retained');
