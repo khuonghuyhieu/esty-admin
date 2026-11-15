@@ -11,11 +11,11 @@
     "sourceDigest": "73e8f1f5cb7683da2f337b6f3092d6cdcd6dd42ea15a224ce35aa3ea0b77c3e8",
     "project": "prj_uITHKLUGGE98VxrEcs5FoktBbcls",
     "scope": "team_k2Hk4wx5XAb9Mgc6lP5AjVhf",
-    "candidate": "dpl_HLphsTUF8dW32Hi4jdUKeW8puJRB",
-    "origin": "https://esty-admin-5pcfgtk0m-khuonghuyhieu0705s-projects.vercel.app",
+    "candidate": "dpl_D2pywKiNjekAMxzTHoFEyWJ5AaGh",
+    "origin": "https://esty-admin-riy9gbbv2-khuonghuyhieu0705s-projects.vercel.app",
     "configDigest": "249e18e93eb01e5fa1f66117c82a8cca2e0777938655308cc43af437095e7892",
-    "createClaimDigest": "068c33cbefd91af29fcb9685fe8ab868381559489945399c246a9c4e814caaa2",
-    "createAckDigest": "96e6c981fca2277e71cae90897f28c5e0fc8f2e2c33f47edb5b56e3a2b5a815e",
-    "heldReceiptDigest": "aa0df8efc9398fe9ed35a9ca9832414ce2e7ded2e4c68e988bad23a54c5a11d3"
+    "createClaimDigest": "1600b1591b1e78bfbe87728e9fc83a99081bb3461369eeef2fbd4c6333718fb4",
+    "createAckDigest": "e00e34545f12435972bdbbec1715e00f537a90271973086e1f2226ea9b734fec",
+    "heldReceiptDigest": "98e30772b94824f8b99143fff11066f7281ccd4b636b18591b8f7910c2d81a77"
   }
 }
