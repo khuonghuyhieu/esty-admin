@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { executableInventory, guardedOwnerCommand } from '../scripts/activation-input-launcher.mjs';
+import { heldCorrection, heldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
 
 const sha = value => createHash('sha256').update(value).digest('hex');
 const runtimeHash = sha(readFileSync(process.execPath));
@@ -122,4 +123,41 @@ test('configuration capability permits bounded held, import and missing-five act
   const mixed = f.seal({ heldAppCapability: capability, diagnosticSelector: 'diagnose-app-schema-exposure',
     diagnosticContextDigest: capability.contextDigest });
   refused(run(['held-app-configuration', 'create-held', ...context], mixed.digest));
+});
+
+test('fixed correction launcher refuses unsealed publication and authority substitution before entry', t => {
+  const f = fixture(t), base = '/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin/.openai/reports';
+  for (const name of ['activation-held-correction-contract.mjs', 'activation-held-contract.mjs'])
+    cpSync(fileURLToPath(new URL(`../scripts/${name}`, import.meta.url)), join(f.scripts, name));
+  const context = [
+    `${base}/protected-real-transfer-state-vd3tg33z/ca-successor-36a0c3c3-0a74-4ccf-b6a3-8d5da26e4eed/successor.json`,
+    '756f9802100c9c86a75f24d3e688e6a5f57d745b6f7f96b88555c2acd105d559',
+    `${base}/bridge-reconciliation-fn1_56_z/receipt-copy/be-receipts`,
+    `${base}/first-production-f162-h9czirsk/verified-transfer/artifact`,
+  ];
+  const capability = heldCorrectionCapability({ revision: 'a'.repeat(40), tree: 'c'.repeat(40) });
+  const run = (changes, args = [heldCorrection.selector, 'create', ...context]) => {
+    const sealed = f.seal(changes);
+    return spawnSync(process.execPath, [f.launcher, f.manifestPath, sealed.digest, ...args],
+      { encoding: 'utf8', env: {}, timeout: 10000 });
+  };
+  for (const args of [[heldCorrection.selector, 'create', ...context], [heldCorrection.selector, 'import-proof', '123', ...context]]) {
+    const result = run({ heldCorrectionCapability: capability }, args);
+    assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /HIDDEN_PROMPT/);
+  }
+  for (const invalid of [
+    heldCorrectionCapability(null),
+    { ...capability, controllerPublication: { revision: heldCorrection.sourceRevision, tree: heldCorrection.sourceTree } },
+    { ...capability, controllerPublication: { ...capability.controllerPublication, unsealed: true } },
+    { ...capability, sourceDigests: {} },
+  ]) refused(run({ heldCorrectionCapability: invalid }));
+  refused(run({}));
+  refused(run({ heldCorrectionCapability: capability, heldAppCapability: { selector: 'held-app-configuration' } }));
+  for (const args of [
+    ['held-app-configuration', 'create-held', ...context],
+    [heldCorrection.selector, 'correct-missing-five', ...context],
+    [heldCorrection.selector, 'create', ...context, 'dpl_CallerOverride'],
+    [heldCorrection.selector, 'create', ...context.slice(0, 3), '/different/artifact'],
+    [heldCorrection.selector, 'import-proof', '0', ...context],
+  ]) refused(run({ heldCorrectionCapability: capability }, args));
 });

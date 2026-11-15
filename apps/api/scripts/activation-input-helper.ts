@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { artifactTarget, canonical, readArtifactFile, sha256, verifyArtifact } from './artifact.js';
-import { createRecoveredActivationJournal, readActivationJournal, validateActivationPacket, verifyActivationArtifact } from './activation-journal.js';
+import { createRecoveredActivationJournal, readActivationJournal, validateActivationPacket, verifyActivationArtifact, verifyHeldCorrectionFailedProbe } from './activation-journal.js';
 import { bootstrapInputs, decodePhaseInput, migrationInputs, phaseInputEnvironment, roleInputEnvelope, roleInputs, runtimeInputs } from './activation-inputs.js';
 import { bootstrapIdentity } from '../src/app-foundation/application/service.js';
 import { uuidPattern as authUserUuidPattern } from '../src/app-foundation/application/validation.js';
@@ -19,7 +19,7 @@ import { parseAppRoleInputs } from './app-roles.js';
 import { attestBridgeRecovery, bridgeRecovery, continueBridgeRecovery, promoteBridgeRecovery } from './activation-candidate-recovery.js';
 import { heldCandidateCreate, recoveryIo } from './activation-recovery-io.js';
 import { activationRecoveryExecution, activationRolesSuccessor, rolesReachability } from './activation-recovery-origin.js';
-import { heldAppReadProvider, recoveredActivationProvider, taskCBootstrapProvider, taskD1ConfigurationProvider } from './activation-recovered-provider.js';
+import { heldAppReadProvider, heldCorrectionReadProvider, recoveredActivationProvider, taskCBootstrapProvider, taskD1ConfigurationProvider } from './activation-recovered-provider.js';
 import { authorizeActivationPhase, confirmActivationPhase, executeActivationPhase, reconcileActivationAcknowledgement,
   reconcileActivationEffect, runRecoveredActivationEffect, runRecoveredActivationPostflight, diagnoseRecoveredRoles,
   completeRecoveredRoles, reconcileRecoveredRolesAcknowledgement, diagnoseRecoveredRolePrivileges } from './activation.js';
@@ -33,6 +33,10 @@ import { observeAppMetadata, observeMissingFiveMetadata, postMissingFive, verify
 import { verifyHeldAppProbe } from './activation-held-proof.js';
 import { heldProbeSources } from './activation-held-contract.mjs';
 import { heldProbeGithubIo } from './activation-input-transfer.js';
+import { createHeldCorrection, importHeldCorrectionProof } from './activation-held-correction.js';
+import { heldCorrection, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
+import type { HeldAppProbeProof } from './activation-held-proof.js';
+import type { PreparedHeldMetadata } from './activation-held.js';
 
 export const inputPhases = ['bridge-config', 'roles', 'migration', 'bootstrap', 'app-config'] as const;
 export type InputPhase = typeof inputPhases[number];
@@ -899,19 +903,24 @@ async function preparedAppSchemaDiagnostic(args: string[], outerSignal: AbortSig
   }, () => guard.verify(), signal);
 }
 
-async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSignal) {
+async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSignal, correction = false) {
   const action = args[0], importing = action === 'import-proof', correcting = action === 'correct-missing-five', guard = launcherBinding();
   const contextArgs = args.slice(importing ? 2 : 1), workflowRun = importing ? args[1] : undefined;
-  if (!guard || !['create-held', 'attest-held', 'import-proof', 'correct-missing-five'].includes(action ?? '') || contextArgs.length !== 4 || !contextArgs[3]
+  const actions = correction ? ['create', 'import-proof'] : ['create-held', 'attest-held', 'import-proof', 'correct-missing-five'];
+  if (!guard || !actions.includes(action ?? '') || contextArgs.length !== 4 || !contextArgs[3]
     || (importing && !/^[1-9][0-9]{0,19}$/.test(workflowRun ?? ''))) refuse();
   const manifest = guard.verify();
-  if (!recoveryRecord(manifest) || !recoveryRecord(manifest.heldAppCapability)) refuse();
-  const capability = manifest.heldAppCapability;
-  if (!exactKeys(capability, ['selector', 'contextDigest', 'sourceDigests']) || capability.selector !== 'held-app-configuration'
+  if (!recoveryRecord(manifest)) refuse();
+  const correctionCapability = correction ? validateHeldCorrectionCapability(manifest.heldCorrectionCapability) : undefined;
+  const capability = correctionCapability ?? manifest.heldAppCapability;
+  if (!recoveryRecord(capability) || (!correction && (!exactKeys(capability, ['selector', 'contextDigest', 'sourceDigests'])
+      || capability.selector !== 'held-app-configuration'))
     || capability.contextDigest !== 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02'
     || sha256(JSON.stringify(contextArgs)) !== capability.contextDigest || !recoveryRecord(capability.sourceDigests)
     || canonical(Object.keys(capability.sourceDigests).sort()) !== canonical([...heldProbeSources].sort())
     || Object.values(capability.sourceDigests).some(value => typeof value !== 'string' || !hex.test(value))) refuse();
+  if (correction && (manifest.heldAppCapability !== undefined || manifest.diagnosticSelector !== undefined)) refuse();
+  if (correction) verifyHeldCorrectionFailedProbe();
   const signal = AbortSignal.any([outerSignal, AbortSignal.timeout(600000)]);
   signal.throwIfAborted(); canonicalPath(contextArgs[3]);
   const artifact = verifyArtifact(contextArgs[3], bridgeRecovery.artifactDigest);
@@ -921,12 +930,18 @@ async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSi
   verifyActivationArtifact(artifact, packet);
   const run = { directory: join(dirname(context.directory), `activation-recovered-${rolesReachability.executionId}`),
     packet, digest: bridgeRecovery.packetDigest };
+  let correctionProof: HeldAppProbeProof | undefined;
   const controller = { run, artifact, signal, executableDigest: guard.digest, verifyExecutable: () => guard.verify(),
-    provider: heldAppReadProvider(run, artifact, guard, signal, !importing) };
+    provider: correctionCapability ? heldCorrectionReadProvider(run, artifact, guard, signal, correctionCapability,
+      importing ? () => correctionProof : undefined) : heldAppReadProvider(run, artifact, guard, signal, !importing) };
   if (action === 'attest-held') return attestHeldApp(controller);
   if (importing) {
     // No phase envelope, configuration token, CREATE capability or local HTTP probe is opened for import.
     const io = heldProbeGithubIo(workflowRun!, guard, signal);
+    if (correctionCapability) return importHeldCorrectionProof({ ...controller, capability: correctionCapability }, workflowRun!, async target => {
+      correctionProof = await verifyHeldAppProbe(workflowRun!, target, io, correctionCapability.sourceDigests, signal);
+      return correctionProof;
+    });
     return importHeldAppProof(controller, workflowRun!, target =>
       verifyHeldAppProbe(workflowRun!, target, io, capability.sourceDigests as Record<string, string>, signal));
   }
@@ -955,11 +970,15 @@ async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSi
       dispose: prepared.dispose,
     };
   });
-  return createHeldApp(controller, () => {
+  const observe = (): PreparedHeldMetadata => {
     const prepared = prepare();
     return { observe: dispatched => observeAppMetadata(prepared.inputs, packet, prepared.token(), signal,
       (url, init) => { dispatched(); return fetch(url, init); }), dispose: prepared.dispose };
-  }, () => heldCandidateCreate(guard, artifact, { packet, packetDigest: run.digest, phase: 'app' }, signal));
+  };
+  if (correctionCapability) return createHeldCorrection({ ...controller, capability: correctionCapability }, observe,
+    () => heldCandidateCreate(guard, artifact, { packet, packetDigest: run.digest, phase: 'app' }, signal, heldCorrection.selector));
+  return createHeldApp(controller, observe,
+    () => heldCandidateCreate(guard, artifact, { packet, packetDigest: run.digest, phase: 'app' }, signal));
 }
 
 async function preparedReachabilityAppConfiguration(args: string[], signal: AbortSignal) {
@@ -1211,10 +1230,11 @@ export async function inputHelperMain(args: string[], signal: AbortSignal): Prom
   } else if (action === 'recovered-activation') {
     try { console.info(`RECOVERED_ACTIVATION ${JSON.stringify(await recoveredPreparedActivation(args.slice(1), signal))}`); }
     catch { console.info('RECOVERED_ACTIVATION {"category":"refused"}'); process.exitCode = 1; }
-  } else if (action === 'held-app-configuration') {
-    const label = args[1] === 'correct-missing-five' ? 'APP_MISSING_FIVE_CONFIGURATION' : 'HELD_APP_CONFIGURATION';
+  } else if (action === 'held-app-configuration' || action === heldCorrection.selector) {
+    const label = action === heldCorrection.selector ? 'HELD_CONFIG_CORRECTION'
+      : args[1] === 'correct-missing-five' ? 'APP_MISSING_FIVE_CONFIGURATION' : 'HELD_APP_CONFIGURATION';
     try {
-      const result = await preparedHeldAppConfiguration(args.slice(1), signal);
+      const result = await preparedHeldAppConfiguration(args.slice(1), signal, action === heldCorrection.selector);
       console.info(`${label} ${JSON.stringify(result)}`);
       if (result.status === 'STOP') process.exitCode = 1;
     } catch {

@@ -9,6 +9,11 @@ import type { VerifiedArtifact } from './artifact.js';
 import type { HeldAppReadProvider } from './activation-held.js';
 import { inspectCandidate, uploadedCandidatePartition, verifyCandidateArchive } from './ci-provider.js';
 import { normalizeManualArchive } from './activation-archive-transport.mjs';
+import { canonical } from './artifact.js';
+import { readHeldCorrectionPending } from './activation-journal.js';
+import { heldCorrection, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
+import type { HeldCorrectionCapability } from './activation-held-correction-contract.mjs';
+import type { HeldAppProbeProof } from './activation-held-proof.js';
 
 const mainRevision = 'd3d2b0788d970377c9fee9d59c52e3d1baff7de2';
 const mainTree = 'ff6611ac0eb82a250d8e3b44318468cfd15e2f42';
@@ -119,6 +124,51 @@ export function heldAppReadProvider(run: ActivationRun, artifact: VerifiedArtifa
       if (current.events.length !== 22 || current.next !== 'app-config' || intent?.phase !== 'app-config' || intent.kind !== 'intent') refuse();
       // Import verifies the independently approved probe revision as current main, not the historical CREATE controller.
       if (creating) await retained.currentMain();
+      await retained.binding(bridgeRecovery.candidate);
+      await retained.confirmJournal(current.journal, 'in_progress', `activation:app-config:intent:${intent.sha256}`);
+    },
+    async inspect(id) {
+      verifyActivationArtifact(artifact, run.packet);
+      return inspectCandidate(await read(id, `/v13/deployments/${id}`), id, artifact, identity, activation);
+    },
+    async attest(id) {
+      verifyActivationArtifact(artifact, run.packet);
+      const uid = uploadedCandidatePartition(normalizeManualArchive(await read(id, `/v6/deployments/${id}/files`)));
+      return verifyCandidateArchive(await read(id, `/v8/deployments/${id}/files/${uid}`), uid, artifact);
+    },
+  };
+}
+
+// CREATE has its own sealed publication authority; the historical c0 guard is not bypassed or changed.
+export function heldCorrectionReadProvider(run: ActivationRun, artifact: VerifiedArtifact, guard: RecoveryGuard,
+  signal: AbortSignal, capability: HeldCorrectionCapability, importedProof?: () => HeldAppProbeProof | undefined,
+  io: RecoveryIo = recoveryIo(guard, signal)): HeldAppReadProvider {
+  validateHeldCorrectionCapability(capability);
+  const retained = recoveredActivationProvider(guard, signal, io);
+  const activation = { packet: run.packet, packetDigest: run.digest, phase: 'app' as const };
+  const identity = { revision: run.packet.revision, tree: run.packet.tree, run: bridgeRecovery.workflowRun };
+  const read = (id: string, path: string) => readHeldCandidate(guard, signal, id, path);
+  return {
+    async preflight() {
+      signal.throwIfAborted(); guard.verify(); verifyActivationArtifact(artifact, run.packet);
+      validateHeldCorrectionCapability(capability);
+      const current = readActivationJournal(run.directory, run.packet, run.digest), intent = current.events[18];
+      if (current.events.length !== 22 || current.next !== 'app-config' || intent?.phase !== 'app-config' || intent.kind !== 'intent') refuse();
+      const main = object(await io.github('/commits/main'));
+      if (!importedProof) {
+        if (main.sha !== capability.controllerPublication.revision
+          || object(object(main.commit).tree).sha !== capability.controllerPublication.tree) refuse();
+      } else {
+        // A later import uses the independently verified probe/data commit, never the CREATE commit.
+        const proof = importedProof(), lineage = readHeldCorrectionPending(run.directory, run.packet, run.digest, current.head);
+        if (!proof || proof.kind !== 'github-held-app-live' || proof.workflowRun === heldCorrection.failedProbeRun
+          || proof.binding.workflowRevision === capability.controllerPublication.revision
+          || proof.binding.workflowRevision === heldCorrection.sourceRevision
+          || canonical(proof.sourceDigests) !== canonical(capability.sourceDigests)
+          || canonical(lineage.capability) !== canonical(capability)
+          || main.sha !== proof.binding.workflowRevision
+          || canonical(proof.binding) !== canonical({ ...lineage.target, workflowRevision: main.sha })) refuse();
+      }
       await retained.binding(bridgeRecovery.candidate);
       await retained.confirmJournal(current.journal, 'in_progress', `activation:app-config:intent:${intent.sha256}`);
     },

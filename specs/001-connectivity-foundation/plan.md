@@ -2,6 +2,88 @@
 
 Updated: 2026-11-01 · Actual branch: `main` · [Spec](spec.md) · [Tasks](tasks.md) · [Validation guide](quickstart.md)
 
+## T185/T186 fixed second held attempt after owner configuration reset
+
+**Root design accepted; SOURCE/LOCAL only.** The owner reports Production `APP_FOUNDATION_ENABLED=true`, `APP_SCHEMA_MODE=strict` and public expected `APP_ACTIVATION_CONFIG_DIGEST=249e18e93eb01e5fa1f66117c82a8cca2e0777938655308cc43af437095e7892`. This is not decrypted-value evidence or a diagnosis of the old failure. Preserve the original held candidate, CREATE/ACK/STOP, attestation/pending, UNKNOWN22 and all previous seals. Probe `43683728143` on approved source `2a08578d7ce1867ec63612b4402d21fa51619e5f` returned HTTP500/configDigestMatch=false; the public safe-result file SHA256 is `b257a4dbf216e95865e339dba441944ec3ee2ef3da71542a13748d29598d5b25`. The old bounded log retrieval returned one unrecognized record; retention expired before the additional projection attempt, which made no request. Neither observation establishes a historical configuration, digest, DB or TLS cause.
+
+### Fixed action and immutable lineage
+
+- Add only `held-config-correction-01`, a one-shot namespace outside the existing `<run>.held-app-*` namespace. Its exclusive fsynced claim binds exact old CREATE/ACK/STOP, attestation/pending, failed probe/source/safe-result hash, owner-reported public reset, UNKNOWN22/head/inventory/bootstrap, immutable f162 artifact, approved controller publication and the newly consumed executable seal. No arbitrary execution, head, deployment or generic STOP replay.
+- Reuse exact prebuilt staging and native CLI; add `--force` only for this action beside `--prebuilt --archive=tgz --prod --regions icn1 --skip-domain --no-wait --json --no-guidance`. Native redeploy/clone is rejected: its supported options lack skip-domain and its prebuilt reuse branch does not apply latest project settings. No pull/build, source compilation, env override or promotion is part of delivery.
+- Persist a syntactically valid ACK-derived ID before cancellation, validation or cleanup can discard it. The ID must differ from the old held candidate and bridge. Unknown/partial/lost ACK permanently consumes the correction claim; no retry or replacement ID. Preserve the earliest error and awaited owned-stage cleanup.
+- Require exact new-candidate identity and archive contents, then write a separate pending/target with its actual archive digest. The staged f162 `.vc-config.json` has `environment={}`; this is not runtime-value proof. Archive attestation proves every manifest file/path/mode/size/hash, not automatic equality of compressed TGZ container bytes across creations.
+- Keep old actions/readers unchanged. A fixed new-lineage reader must make the new pending consumable by the existing independent GitHub proof verifier and a separately released import, including journal consumption. The current CREATE release performs no import/event/confirm/promotion.
+
+### Root-operated publication and observation sequence
+
+The old D1 provider's c0/eb966 current-main guard stays intact. The correction-specific provider independently checks an exact root-approved controller publication SHA/tree held in its sealed capability, plus the existing bridge/exclusion/journal bindings; it must not use `creating=false` to bypass the historical guard. Source approval base2a/85d5, CREATE-controller publication, later probe/data-pin publication and artifact f162 are distinct identities. A source/local freeze is not a published runtime seal; root supplies the actual publication binding only after publication, without an invented future commit.
+
+The owner subsequently narrowed START: no new parent/orchestration framework, pipeline, collector or generic recovery. Root manually executes the later approved sequence: source publication → seal bound to the actual CREATE-controller publication → one CREATE/ACK/archive → validate and publish only the new enabled target data pin → protected binding with `workflowRevision` equal to that resulting containing commit → exactly one existing held GitHub probe → the existing bounded redacted log wrapper immediately on failure. Both repository pin and protected variable must match before credentials/HTTP. Never substitute a precomputed future ID or only update the variable.
+
+Root must arrange the full manual sequence and enough time before CREATE, derive any log window from the actual named held-request step, and stop with retained known-held/unknown evidence if publication, binding, request-step evidence or time is unavailable. No retry loop or new observation code is part of this increment. Existing probe/source-hash/metadata/archive/cleanup behavior is reused unchanged. The earlier parent-budget/receipt/documentation draft is preserved under `.openai/task-d1/held-config-correction01/paused-draft/`; it is paused, not part of the executable or review closure.
+
+### Source/local verification and stopping point
+
+Run only focused new-attempt/current-main/ACK-loss/no-second-CREATE/pending-consumption tests and one narrow emitted synthetic proof consuming the frozen helper. No broad CI/controller/requester rerun, PG/roles/migration/bootstrap suite, artifact rebuild, package install, new framework, worker or reviewer. Preserve historical dates, failed checks, seals, original receipts and old scratch. Record actual checks and freeze the smallest coherent source/tests/consumed closure at **READY_FOR_FOCUSED_REVIEW** with the exact next root action; root alone starts review and later publication/runtime grants.
+
+### Failed-probe P2 fix-only receipt
+
+**READY_FOR_FIX_ONLY_INSPECTION; publication/runtime HELD.** The original scoped Luna review reported **one confirmed P2**: the failed-probe digest was declared but its retained public file was not read before CREATE. Root accepted that finding and authorized only this fix; the original review is not a no-findings review and no new reviewer was started.
+
+`verifyHeldCorrectionFailedProbe()` now reads only the fixed approved MAIN checkout's `.openai/reports/d1-held-probe-2a08578/probe-safe-result.json` through existing bounded, owner-only, mode600, no-symlink/stable-identity `readEvidence`. It requires the unchanged raw SHA256 `b257a4dbf216e95865e339dba441944ec3ee2ef3da71542a13748d29598d5b25` and the complete exact root receipt, including run43683728143, failure, held-app-live/HTTP500/configDigestMatch=false/bodyStatus=unavailable, revision2a08578, workflow run/binding digest, completed-run-log provenance and additionalDispatches0. No caller path or raw-log/private/network read is introduced. The helper checks before prepared-context/input access; existing lineage checks repeat it before provider/input/CREATE and immediately before dispatch.
+
+Native isolated compilation passed. The only test selector was `fixed correction (failed-probe|consumes)`: **15/15 passed, zero skips**, covering absent/partial/hash-only/field/provenance tampering with provider/input/CREATE0, pre-dispatch drift with CREATE0, and the existing valid retained-receipt synthetic lifecycle. A native emitted public-reader smoke validated the actual immutable 487-byte receipt and confirmed the new null-publication seal refuses before entry; provider/private/CREATE/event0. No full suite ran.
+
+New blocked manifest: `cc5610a62cf71945862e6b35d7c1b74453f9332dfbc1bb564223e68ab61cba23`. Exact fix-only delta (two source files, two existing test/fixture files and three feature documents), commands/results and original one-P2 history are frozen in `.openai/task-d1/held-config-correction01/failed-probe-fix01/handoff.json`; prior seals/evidence remain untouched. **Next: root inspects only this confirmed finding and fix.** Publication, real inputs/provider/API/Git/CREATE/probe/log/import/event/deploy remain unreleased.
+
+
+### Fixed correction focused review receipt
+
+**READY_FOR_FOCUSED_REVIEW; no runtime release.** The active delta is seven API source files, four existing test/fixture files and these three feature documents. No parent runner, pipeline, log collector, probe-source edit, target-pin edit or generic recovery API was added. The paused broader draft is excluded from this closure. Exact file hashes, commands and retained outcomes are in `.openai/task-d1/held-config-correction01/handoff.json`.
+
+- Native Node24.22.1 isolated TypeScript emission passed. The first compile found a test-only nonexistent `CommandResult.stderr` assertion; it was corrected before execution.
+- The focused selector is `--test-name-pattern='fixed correction'`. Initial execution passed main SHA/tree binding and pre-entry launcher fencing, but exposed a synthetic ACK shape error and a missing public OpenAPI test fixture in the isolated helper. Both fixture issues were corrected; partial-ACK and cleanup assertions were strengthened. The affected-only recheck passed **13/13**, with no skips; the two unaffected checks retain their initial passes. No broad CI/controller/PG/roles/migration/bootstrap suite ran.
+- One emitted native scenario passed with **32 full executable guard checks**, one synthetic metadata read and one native synthetic CLI command using immutable f162, `--force`, `--prebuilt` and `--skip-domain`. It produced a distinct pending, blocked another CREATE, consumed the existing independent synthetic proof and reached only an owned-overlay event23/next-app while preserving the original22-event prefix. Actual network/SQL/CREATE/import/event/promotion counts were zero.
+- Source-local manifest `be9b6895153ae2275fae67854bdee0d88da983cded8e1075bc6c316af10de22a` covers 8,399 files/916 directories and deliberately has `controllerPublication:null`. The actual emitted launcher refused that seal before helper entry. The consumed synthetic seal `67f6eb948c9aed6aa59cf5a863673fe19b9d5020704ee4c629ea32c39f908af3` uses explicitly synthetic publication/tool identities and is not a runtime release.
+- Initial failures are retained in `focused-tests01.json`; corrected checks in `focused-tests02.json`; the single emitted scenario in `emitted-proof.json`. A first packaging import attempted Node's `registerHooks` under Bun and stopped before sealing/execution; native Node then performed inventory/sealing successfully. The existing real CLI/auth/private inputs and old scratch were not opened or cleaned.
+
+**Exact next action:** root performs one focused review of this closure. Only after acceptance may root separately authorize publication, bind a new runtime seal to the actual published controller SHA/tree and release the one fixed CREATE. Do not invoke either source-local or synthetic seals against real inputs.
+
+### Root manual commands after separate release
+
+These are individual root-operated steps, not a script or authorization. All identifiers below must come from the actual released outputs; no future SHA, candidate or run is supplied by this source/local increment.
+
+1. Root publishes the reviewed source through its existing approved Git procedure, then compares the published controller pair with `git rev-parse HEAD`, `git rev-parse 'HEAD^{tree}'` and:
+
+   ```sh
+   gh api repos/khuonghuyhieu/esty-admin/commits/main --jq '{revision:.sha,tree:.commit.tree.sha}'
+   ```
+
+   Root's existing sealer sets only the new `heldCorrectionCapability` from `heldCorrectionCapability({ revision: actualControllerSha, tree: actualControllerTree })`, replacing the source-local null publication and excluding `heldAppCapability`/diagnostic capabilities. Keep the reviewed helper bytes, pinned runtime and actual approved tool identities; record the new complete manifest digest. Generate the existing `guardedOwnerCommand` with arguments `['held-config-correction-01', 'create', ...canonicalFourContextArguments]`. Never call old `create-held`, use a synthetic publication, or amend the c0 guard.
+
+2. After the separately released command returns `HELD_PROBE_PENDING`, root validates its exact new receipt lineage and saves the controller's structured JSON as `$NEW_CREATE_RESULT` (not raw native CLI output). Generate only the data pin:
+
+   ```sh
+   jq -e '.status == "HELD_PROBE_PENDING" and .createCommands == 1 and .target.candidate != "dpl_HLphsTUF8dW32Hi4jdUKeW8puJRB"' "$NEW_CREATE_RESULT"
+   jq '{version:1,enabled:true,target:.target}' "$NEW_CREATE_RESULT" > apps/api/config/held-app-probe-binding.json
+   ```
+
+   Root publishes this data-only change separately, records its actual containing commit as `$PROBE_REVISION`, and verifies current main equals it. The three executable probe sources remain at the fixed hashes in `activation-held-correction-contract.mjs`; controller publication and probe publication must differ.
+
+3. Set the existing protected variable to the exact target plus that containing commit, then verify the resource before dispatch:
+
+   ```sh
+   NEW_BINDING_JSON="$(jq -c --arg workflowRevision "$PROBE_REVISION" '.target + {workflowRevision:$workflowRevision}' "$NEW_CREATE_RESULT")"
+   gh variable set BE_D1_HELD_APP_BINDING --repo khuonghuyhieu/esty-admin --env be-production --body "$NEW_BINDING_JSON"
+   gh api repos/khuonghuyhieu/esty-admin/environments/be-production/variables/BE_D1_HELD_APP_BINDING
+   gh workflow run be-candidate-probe.yml --repo khuonghuyhieu/esty-admin --ref main -f approved_revision="$PROBE_REVISION" -f mode=held-app
+   ```
+
+4. Record the actual new run ID; do not redispatch. Use `gh run view "$NEW_PROBE_RUN" --repo khuonghuyhieu/esty-admin --json headSha,event,attempt,status,conclusion,jobs` to bind the exact named held-request step. On failure, root immediately invokes its existing approved bounded/redacted log command for this new candidate and actual step window. The expired old retrieval01/02 commands are not reusable authority. Arrange that command and retention eligibility before CREATE; if unavailable, stop rather than add a collector or retry.
+
+5. Success is evidence for a separately released `['held-config-correction-01', 'import-proof', actualNewProbeRun, ...canonicalFourContextArguments]` guarded command using the same actual CREATE seal. The importer independently verifies the later probe publication/current main, protected variable, source pin, exact three source hashes, new candidate and receipt lineage. Import/event/confirm/promotion remain unreleased; live/config proof alone is not TARGET/Auth/membership/final-domain acceptance.
+
+
 ## Current T185/T186 actual pending and publication data pin
 
 Root t12p accepted the combined focused Luna review with no actionable findings, preserving prior review history, then separately released exactly one sealed `attest-held`. Actual result: **HELD_PROBE_PENDING**, complete/exit0/firstErrornull, same ACK-derived `dpl_HLphsTUF8dW32Hi4jdUKeW8puJRB`; no CREATE, ENV GET/POST or candidate HTTP. Actual handoff `.openai/task-d1/held-cleanup01/actual-attest01/handoff.json`, SHA256 `2d305b3c03696e3295c3287a21b80ad0108c8cfa42ab6496d5f84a759f008fd8`, retains pending `aa0df8efc9398fe9ed35a9ca9832414ce2e7ded2e4c68e988bad23a54c5a11d3` and passing preservation evidence. Original c19/claim/ACK/STOP, correction4 and UNKNOWN22/head75333c/inventory205e remain unchanged. Raw stdout's prefix-parser bookkeeping is preserved separately from the successful decoded result; no rerun occurred.

@@ -40,6 +40,11 @@ import { heldProofFixture, heldReceiptOverlay } from './held-app-fixture.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { AppMetadataError, appMissingFiveKeys, currentAppMetadata } from '../scripts/activation-configuration.js';
 import type { MissingFiveAck } from '../scripts/activation-configuration.js';
+import { createHeldCorrection, importHeldCorrectionProof } from '../scripts/activation-held-correction.js';
+import { readHeldCorrectionPending } from '../scripts/activation-journal.js';
+import { heldCorrection } from '../scripts/activation-held-correction-contract.mjs';
+import { heldCorrectionReadProvider } from '../scripts/activation-recovered-provider.js';
+import { heldCorrectionFixture } from './held-app-fixture.js';
 
 // These are retained nonsecret journal/receipt fixtures, never prepared inputs or auth stores.
 const original = process.env.RECOVERY_ORIGIN_TEST_ORIGINAL;
@@ -2347,4 +2352,199 @@ test('fixed held pending imports only independent same-ID proof with separate at
       if (scenario !== 'proof-target') { assert.deepEqual(f.counts, beforeCalls); assert.equal(independentReads, 0); }
     }
   });
+});
+
+const correctionOriginal = process.env.RECOVERY_ORIGIN_TEST_CORRECTION;
+const correctionOptions = { skip: !correctionOriginal || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 180000 };
+test('fixed correction consumes new pending proof without rewriting old held lineage or permitting another CREATE', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  const f = heldCorrectionFixture(t, correctionOriginal!, artifact);
+  t.mock.method(globalThis, 'fetch', async () => assert.fail('No live HTTP'));
+  t.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
+  const created = await createHeldCorrection(f.context, f.prepare, f.cli);
+  assert.equal(created.status, 'HELD_PROBE_PENDING', JSON.stringify(created));
+  assert.equal(created.createCommands, 1); assert.equal(created.metadataRequests, 1);
+  assert.equal(created.envPosts, 0); assert.equal(created.promotions, 0); assert.equal(created.candidateRequests, 0);
+  const pending = readHeldCorrectionPending(f.run.directory, f.run.packet, f.run.digest, retainedUnknown.head);
+  assert.deepEqual(created.target, pending.target);
+  assert.notEqual(pending.target.candidate, f.original.target.candidate);
+  assert.notEqual(pending.target.createClaimDigest, f.original.target.createClaimDigest);
+  assert.notEqual(pending.target.createAckDigest, f.original.target.createAckDigest);
+  assert.notEqual(pending.target.heldReceiptDigest, f.original.target.heldReceiptDigest);
+  assert.deepEqual(readHeldAppPending(f.run.directory, f.run.packet, f.run.digest, retainedUnknown.head).target, f.original.target);
+  const replay = await createHeldCorrection(f.context, f.prepare, f.cli);
+  assert.equal(replay.status, 'STOP'); assert.equal(replay.createCommands, 0); assert.equal(replay.metadataRequests, 0);
+  assert.equal(f.counts.create, 1); assert.equal(f.counts.prepare, 1);
+  const sourceBytes = Object.fromEntries(Object.keys(heldCorrection.sourceDigests).map(path => [path, readFileSync(join(process.cwd(), path))]));
+  const proof = heldProofFixture(pending.target, sourceBytes);
+  const p = providerFixture();
+  p.values['/commits/main'] = { sha: proof.revision };
+  p.values[p.statusPath] = [{ state: 'in_progress', description: `activation:app-config:intent:${f.originalEvents[18]}`,
+    log_url: `https://github.com/khuonghuyhieu/esty-admin/actions/runs/${target.workflowRun}` }];
+  let verified: Awaited<ReturnType<typeof verifyHeldAppProbe>> | undefined;
+  const read = async (path: string) => {
+    assert.ok(verified, 'Import provider preflight follows independent proof verification.');
+    assert.ok(Object.hasOwn(p.values, path)); return structuredClone(p.values[path]);
+  };
+  f.context.provider.preflight = heldCorrectionReadProvider(f.run, artifact,
+    { digest: f.context.executableDigest, verify() { return {}; } }, f.context.signal, f.capability, () => verified,
+    { github: read, vercel: read, async promote() { assert.fail('No promotion'); } }).preflight;
+  const imported = await importHeldCorrectionProof(f.context, proof.workflowRun, async target => {
+    verified = await verifyHeldAppProbe(proof.workflowRun, target, proof.io, f.capability.sourceDigests, f.context.signal);
+    return verified;
+  });
+  assert.equal(imported.status, 'CURRENT_CONFIG_ATTESTED', JSON.stringify(imported));
+  const state = readActivationJournal(f.run.directory, f.run.packet, f.run.digest);
+  assert.equal(state.events.length, 23); assert.equal(state.next, 'app');
+  assert.equal(state.heldCandidate?.deploymentId, f.candidate.id);
+  assert.deepEqual(state.events.slice(0, 22).map(event => event.sha256), f.originalEvents);
+  assert.equal((state.events[22]!.value as Record<string, unknown>).correction, heldCorrection.selector);
+  const again = await importHeldCorrectionProof(f.context, proof.workflowRun, async () => assert.fail('No repeated proof read'));
+  assert.equal(again.status, 'STOP');
+  assert.equal((await createHeldCorrection(f.context, f.prepare, f.cli)).createCommands, 0);
+  assert.equal(f.counts.create, 1);
+});
+
+test('fixed correction ACK loss, aborted ACK and partial evidence permanently fence the second attempt', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['ack-loss', 'aborted-ack', 'partial-ack', 'cleanup-failure', 'old-candidate', 'old-lineage-drift']) {
+    await t.test(scenario, async sub => {
+      const f = heldCorrectionFixture(sub, correctionOriginal!, artifact), base = f.cli();
+      sub.mock.method(globalThis, 'fetch', async () => assert.fail('No live HTTP'));
+      sub.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
+      if (scenario === 'old-lineage-drift') {
+        const path = heldEvidencePath(f.run.directory, f.run.packet, 'pending');
+        f.overlay.override(path, readFileSync(path, 'utf8') + ' ');
+      }
+      if (scenario === 'old-candidate') f.candidate.id = f.original.target.candidate;
+      if (scenario === 'partial-ack') {
+        const write = fs.writeFileSync;
+        sub.mock.method(fs, 'writeFileSync', (file: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions) => {
+          if (typeof data === 'string' && data.includes('"kind": "held-config-correction-ack"')) {
+            write(file, '{"partial":', options); throw new Error('Synthetic partial ACK');
+          }
+          write(file, data, options);
+        }); syncBuiltinESMExports();
+      }
+      const cli = () => ({ async create(dispatched: () => void) {
+        const result = await base.create(dispatched);
+        if (scenario === 'ack-loss') return { ...result, code: 1, stdout: '' };
+        if (scenario === 'aborted-ack') { f.abort.abort(); return { ...result, code: 1, aborted: true }; }
+        return result;
+      }, async dispose() {
+        await base.dispose(); if (scenario === 'cleanup-failure') throw new Error('Synthetic disposal failure');
+      } });
+      const result = await createHeldCorrection(f.context, f.prepare, cli);
+      assert.equal(result.status, 'STOP'); assert.equal(result.target, null);
+      assert.equal(existsSync(f.path('pending')), false);
+      assert.equal(result.createCommands, scenario === 'old-lineage-drift' ? 0 : 1);
+      if (scenario === 'aborted-ack') {
+        const ack = readEvidence(f.path('create-ack')).value as Record<string, unknown>;
+        assert.equal(ack.deploymentId, f.candidate.id); assert.equal(ack.aborted, true); assert.equal(ack.code, 1);
+      }
+      if (scenario === 'partial-ack') assert.equal(readFileSync(f.path('create-ack'), 'utf8'), '{"partial":');
+      if (scenario === 'ack-loss') assert.equal(existsSync(f.path('create-ack')), false);
+      if (scenario === 'cleanup-failure') {
+        assert.equal(result.firstError?.stage, 'cleanup'); assert.equal(f.counts.dispose, 1); assert.equal(f.counts.archive, 1);
+      }
+      if (scenario === 'old-candidate') assert.equal(result.candidateId, f.original.target.candidate);
+      if (scenario !== 'old-lineage-drift') assert.equal(existsSync(f.path('create-started')), true);
+      const replay = await createHeldCorrection({ ...f.context, signal: new AbortController().signal }, f.prepare, cli);
+      assert.equal(replay.status, 'STOP'); assert.equal(replay.createCommands, 0); assert.equal(replay.metadataRequests, 0);
+      assert.equal(f.counts.create, scenario === 'old-lineage-drift' ? 0 : 1);
+      assert.deepEqual(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.map(event => event.sha256), f.originalEvents);
+    });
+  }
+});
+
+test('fixed correction pending cannot consume an old probe, changed pending bytes or mismatched new target', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['old-probe', 'pending-drift', 'old-target']) await t.test(scenario, async sub => {
+    const f = heldCorrectionFixture(sub, correctionOriginal!, artifact);
+    const created = await createHeldCorrection(f.context, f.prepare, f.cli);
+    assert.equal(created.status, 'HELD_PROBE_PENDING');
+    if (scenario === 'pending-drift') f.overlay.override(f.path('pending'), readFileSync(f.path('pending'), 'utf8') + ' ');
+    const sourceBytes = Object.fromEntries(Object.keys(heldCorrection.sourceDigests).map(path => [path, readFileSync(join(process.cwd(), path))]));
+    const proof = heldProofFixture(scenario === 'old-target' ? f.original.target : created.target!, sourceBytes);
+    let reads = 0;
+    const result = await importHeldCorrectionProof(f.context, scenario === 'old-probe' ? heldCorrection.failedProbeRun : proof.workflowRun,
+      async target => { reads++; return verifyHeldAppProbe(proof.workflowRun, target, proof.io, f.capability.sourceDigests, f.context.signal); });
+    assert.equal(result.status, 'STOP');
+    if (scenario !== 'old-target') assert.equal(reads, 0);
+    assert.deepEqual(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.map(event => event.sha256), f.originalEvents);
+    assert.equal(f.counts.create, 1);
+  });
+});
+
+test('fixed correction CREATE requires both actual sealed main SHA and tree while the old c0 gate remains closed', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  const f = heldCorrectionFixture(t, correctionOriginal!, artifact), p = providerFixture();
+  const current = readActivationJournal(f.run.directory, f.run.packet, f.run.digest);
+  p.values[p.statusPath] = [{ state: 'in_progress', description: `activation:app-config:intent:${current.events[18]!.sha256}`,
+    log_url: `https://github.com/khuonghuyhieu/esty-admin/actions/runs/${target.workflowRun}` }];
+  const read = async (path: string) => { assert.ok(Object.hasOwn(p.values, path)); return structuredClone(p.values[path]); };
+  const io = { github: read, vercel: read, async promote() { assert.fail('No promotion'); } };
+  const guard = { digest: f.context.executableDigest, verify() { return {}; } };
+  const provider = heldCorrectionReadProvider(f.run, artifact, guard, f.context.signal, f.capability, undefined, io);
+  for (const main of [
+    { sha: heldCorrection.sourceRevision, commit: { tree: { sha: heldCorrection.sourceTree } } },
+    { sha: 'c0e6d435b7d4bb4c65b50a540097a317f080bcac', commit: { tree: { sha: 'eb966a64f350211920152ceccab3b71c43874bff' } } },
+    { sha: f.capability.controllerPublication.revision, commit: { tree: { sha: '0'.repeat(40) } } },
+  ]) { p.values['/commits/main'] = main; await assert.rejects(provider.preflight()); }
+  p.values['/commits/main'] = { sha: f.capability.controllerPublication.revision, commit: { tree: { sha: f.capability.controllerPublication.tree } } };
+  await provider.preflight();
+  await assert.rejects(taskD1ConfigurationProvider(guard, f.context.signal, io).currentMain());
+  assert.equal(p.writes.length, 0);
+});
+
+test('fixed correction failed-probe receipt rejects absent or changed public evidence before any effect', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['missing', 'partial', 'raw-hash', 'run', 'conclusion', 'status', 'workflow-revision',
+    'workflow-run', 'binding', 'provenance', 'dispatches', 'extra-field']) await t.test(scenario, async sub => {
+    const f = heldCorrectionFixture(sub, correctionOriginal!, artifact);
+    const path = join(dirname(dirname(dirname(f.run.directory))), 'd1-held-probe-2a08578/probe-safe-result.json');
+    const bytes = readFileSync(path, 'utf8'), value = JSON.parse(bytes);
+    if (scenario === 'missing') {
+      const open = fs.openSync;
+      sub.mock.method(fs, 'openSync', (file: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
+        if (file === path) throw Object.assign(new Error('Synthetic missing public receipt'), { code: 'ENOENT' });
+        return open(file, flags, mode);
+      }); syncBuiltinESMExports();
+    } else {
+      if (scenario === 'run') value.runId = '123';
+      if (scenario === 'conclusion') value.conclusion = 'success';
+      if (scenario === 'status') value.safeResult.status = 200;
+      if (scenario === 'workflow-revision') value.safeResult.workflowRevision = 'a'.repeat(40);
+      if (scenario === 'workflow-run') value.safeResult.workflowRun = '123';
+      if (scenario === 'binding') value.safeResult.bindingDigest = '0'.repeat(64);
+      if (scenario === 'provenance') value.source = 'unapproved observation';
+      if (scenario === 'dispatches') value.additionalDispatches = 1;
+      if (scenario === 'extra-field') value.unapproved = true;
+      f.overlay.override(path, scenario === 'partial' ? '{"partial":' : scenario === 'raw-hash' ? bytes + ' '
+        : JSON.stringify(value, null, 2) + '\n');
+    }
+    const result = await createHeldCorrection(f.context, f.prepare, f.cli);
+    assert.equal(result.status, 'STOP'); assert.equal(result.firstError?.stage, 'guard');
+    assert.deepEqual(f.counts, { prepare: 0, metadata: 0, create: 0, dispose: 0, preflight: 0, inspect: 0, archive: 0 });
+    assert.equal(existsSync(f.path('create-started')), false);
+    assert.deepEqual(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.map(event => event.sha256), f.originalEvents);
+  });
+});
+
+test('fixed correction failed-probe receipt is rechecked immediately before native dispatch', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  const f = heldCorrectionFixture(t, correctionOriginal!, artifact), base = f.cli();
+  const path = join(dirname(dirname(dirname(f.run.directory))), 'd1-held-probe-2a08578/probe-safe-result.json');
+  const bytes = readFileSync(path, 'utf8');
+  const result = await createHeldCorrection(f.context, f.prepare, () => ({
+    async create(dispatched: () => void) {
+      f.overlay.override(path, bytes + ' ');
+      return base.create(dispatched);
+    },
+    dispose: base.dispose,
+  }));
+  assert.equal(result.status, 'STOP'); assert.equal(result.createCommands, 0); assert.equal(f.counts.create, 0);
+  assert.equal(f.counts.prepare, 1); assert.equal(f.counts.metadata, 1); assert.equal(f.counts.preflight, 2);
+  assert.equal(existsSync(f.path('create-started')), true);
+  assert.equal(existsSync(f.path('create-ack')), false); assert.equal(existsSync(f.path('pending')), false);
 });

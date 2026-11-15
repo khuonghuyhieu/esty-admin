@@ -11,6 +11,7 @@ import type { CommandResult } from './ci-tools.js';
 import { command } from './ci-tools.js';
 import { bridgeRecovery } from './activation-candidate-recovery.js';
 import type { RecoveryGuard, RecoveryIo } from './activation-candidate-recovery.js';
+import { heldCorrection, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
 
 function refuse(): never { throw new Error('Recovery transport identity or acknowledgement differs.'); }
 function record(value: unknown): value is Record<string, unknown> {
@@ -128,12 +129,18 @@ function heldCommandContext(guard: RecoveryGuard): HeldCommandContext {
   return { tool, root, env, dispose: () => removeArtifactTree(root) };
 }
 export function heldCandidateCreate(guard: RecoveryGuard, artifact: VerifiedArtifact,
-  activation: ActivationDeliveryContext, signal: AbortSignal): { create(beforeDispatch: () => void): Promise<CommandResult>; dispose(): Promise<void> } {
+  activation: ActivationDeliveryContext, signal: AbortSignal, correction?: typeof heldCorrection.selector):
+  { create(beforeDispatch: () => void): Promise<CommandResult>; dispose(): Promise<void> } {
   let attempted = false;
   let context: HeldCommandContext | undefined;
   return {
     async create(beforeDispatch) {
       if (attempted || activation.phase !== 'app') refuse();
+      if (correction !== undefined) {
+        const manifest = guard.verify();
+        if (correction !== heldCorrection.selector || !record(manifest)) refuse();
+        validateHeldCorrectionCapability(manifest.heldCorrectionCapability);
+      }
       attempted = true; signal.throwIfAborted(); context = heldCommandContext(guard);
       const stage = join(context.root, 'stage'); mkdirSync(stage, { mode: 0o700 });
       await stagePrebuiltOutput(artifact, stage);
@@ -142,7 +149,8 @@ export function heldCandidateCreate(guard: RecoveryGuard, artifact: VerifiedArti
       guard.verify(); signal.throwIfAborted();
       const cli = fileURLToPath(new URL('./activation-recovery-tool.mjs', import.meta.url));
       const args = prebuiltCreateArguments(artifact,
-        ['--cwd', stage, '--scope', bridgeRecovery.scope, '--global-config', context.tool.configDirectory, '--non-interactive'], activation);
+        [...(correction ? ['--force'] : []), '--cwd', stage, '--scope', bridgeRecovery.scope,
+          '--global-config', context.tool.configDirectory, '--non-interactive'], activation);
       // Never throw away stdout on failed/aborted CREATE. The controller persists any returned ID before cleanup.
       beforeDispatch();
       return command(process.execPath, [cli, context.tool.root, ...args], stage, context.env,

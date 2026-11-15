@@ -41,6 +41,7 @@ import { executeManualAction } from '../scripts/manual-activation.mjs';
 import { failedPreflightProof, manualGithubIo, reserveManualActivation,
   validatePreflightReceiptArchive } from '../scripts/activation-preflight-disposition.mjs';
 import { verifyHeldAppProbe } from '../scripts/activation-held-proof.js';
+import { heldCorrection, heldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
 import { heldPinPath, heldProbeSources } from '../scripts/activation-held-contract.mjs';
 import { heldProofFixture } from './held-app-fixture.js';
 import { manualArchiveTransport } from '../scripts/activation-archive-transport.mjs';
@@ -1053,6 +1054,36 @@ test('held CLI awaits readonly stage disposal, preserves outside symlinks and re
   syncBuiltinESMExports();
   await assert.rejects(readHeldCandidate(guard, AbortSignal.timeout(30000),
     'dpl_SyntheticRead', '/v13/deployments/dpl_SyntheticRead'), SyntaxError);
+});
+
+test('fixed correction native CREATE alone forces fresh deployment while retaining prebuilt skip-domain staging', async t => {
+  const f = await activationArtifact(), owned = await mkdtemp(join(realpathSync(tmpdir()), 'esty-correction-native-test-'));
+  t.after(async () => { await removeArtifactTree(owned); await f.dispose(); });
+  const tool = join(owned, 'tool'), cliPath = join(tool, 'vercel/dist/vc.js');
+  await mkdir(dirname(cliPath), { recursive: true });
+  await writeFile(join(tool, 'vercel/package.json'), JSON.stringify({ version: '65.4.0', type: 'module' }));
+  await writeFile(cliPath, 'import { readdirSync } from "node:fs"; console.log(JSON.stringify({ id:"dpl_SyntheticNativeCorrection", args:process.argv.slice(2), files:readdirSync(process.cwd()) }));\n');
+  const guard = { digest: sha256('synthetic correction native transport'), verify: () => ({
+    heldCorrectionCapability: heldCorrectionCapability({ revision: 'a'.repeat(40), tree: 'c'.repeat(40) }),
+    recoveryVercel: { root: tool, home: join(owned, 'home'), configDirectory: join(owned, 'profile'), inventoryDigest: recoveryToolInventory(tool) },
+  }) };
+  const before = canonical(inventory(f.artifact.root));
+  for (const correction of [undefined, heldCorrection.selector]) {
+    const cli = heldCandidateCreate(guard, f.artifact,
+      { packet: f.packet, packetDigest: sha256(canonical(f.packet)), phase: 'app' }, AbortSignal.timeout(30000), correction);
+    let dispatches = 0;
+    try {
+      const result = await cli.create(() => { dispatches++; });
+      assert.equal(result.code, 0, result.stdout); assert.equal(result.aborted, false);
+      const observed = JSON.parse(result.stdout) as { args: string[]; files: string[] };
+      assert.equal(observed.args.filter(arg => arg === '--force').length, correction ? 1 : 0);
+      for (const flag of ['--prebuilt', '--archive=tgz', '--prod', '--skip-domain', '--no-wait']) assert.ok(observed.args.includes(flag));
+      assert.deepEqual(observed.files.sort(), ['.vercel', 'apps']);
+      await assert.rejects(cli.create(() => { dispatches++; }));
+      assert.equal(dispatches, 1);
+    } finally { await cli.dispose(); }
+  }
+  assert.equal(canonical(inventory(f.artifact.root)), before);
 });
 
 test('activation preserves known IDs and refuses promotion after unknown acknowledgement or runtime attestation failure', async t => {
