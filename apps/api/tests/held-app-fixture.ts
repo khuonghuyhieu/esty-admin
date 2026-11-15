@@ -11,7 +11,7 @@ import type { HeldAppTarget, HeldProbeIo } from '../scripts/activation-held-proo
 import { receiptZip } from './artifact-fixture.js';
 import { heldCorrection, validateHeldCorrectionCapability, heldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
 import { correctionReceiptSuffixes, heldCorrectionEvidencePath, readActivationJournal, readHeldCorrectionOriginal,
-  validateActivationPacket } from '../scripts/activation-journal.js';
+  validateActivationPacket, heldPostRepair, validateHeldDeploymentCapability } from '../scripts/activation-journal.js';
 import { bridgeRecovery } from '../scripts/activation-candidate-recovery.js';
 import { retainedUnknown } from '../scripts/activation-schema-diagnostic.js';
 import type { HeldCorrectionContext } from '../scripts/activation-held-correction.js';
@@ -76,7 +76,8 @@ export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, direc
   const allowed = new Set(['attest-started', 'attest-result', 'pending', 'import-started', 'current-proof', 'import-result']
     .map(suffix => join(parent, `${runId}.held-app-${suffix}.json`)));
   allowed.add(join(events, '022.json'));
-  for (const suffix of correctionReceiptSuffixes) allowed.add(join(parent, `${runId}.${heldCorrection.selector}-${suffix}.json`));
+  for (const selector of [heldCorrection.selector, heldPostRepair.selector])
+    for (const suffix of correctionReceiptSuffixes) allowed.add(join(parent, `${runId}.${selector}-${suffix}.json`));
   for (const suffix of ['started', 'ack', 'verified', 'result'])
     allowed.add(join(parent, `${runId}.${heldDatabaseRepair.selector}-${suffix}.json`));
   const target = (path: fs.PathLike | number) => typeof path === 'string' ? mapped.get(path) ?? path : path;
@@ -128,7 +129,7 @@ export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, direc
   };
 }
 
-export function heldCorrectionFixture(t: Pick<TestContext, 'mock' | 'after'>, directory: string, artifact: VerifiedArtifact) {
+export function heldCorrectionFixture(t: Pick<TestContext, 'mock' | 'after'>, directory: string, artifact: VerifiedArtifact, postRepair = false) {
   const packet = validateActivationPacket(JSON.parse(fs.readFileSync(
     join(directory, 'activation', bridgeRecovery.activationRun, 'packet.json'), 'utf8')), bridgeRecovery.packetDigest);
   const run = { directory, packet, digest: bridgeRecovery.packetDigest };
@@ -136,11 +137,12 @@ export function heldCorrectionFixture(t: Pick<TestContext, 'mock' | 'after'>, di
   const overlay = heldReceiptOverlay(t, directory, packet.runId);
   const original = readHeldCorrectionOriginal(directory, packet, run.digest, retainedUnknown.head);
   // These are explicitly synthetic publication identities, never a claim about published main.
-  const capability = validateHeldCorrectionCapability(heldCorrectionCapability({ revision: 'a'.repeat(40), tree: 'c'.repeat(40) }));
+  const capability = validateHeldDeploymentCapability({ ...heldCorrectionCapability({ revision: 'a'.repeat(40), tree: 'c'.repeat(40) }),
+    selector: postRepair ? heldPostRepair.selector : heldCorrection.selector });
   const abort = new AbortController(), counts = { prepare: 0, metadata: 0, create: 0, dispose: 0, preflight: 0, inspect: 0, archive: 0 };
   const candidate = { id: 'dpl_SyntheticCorrection01', origin: 'https://synthetic-correction-01.vercel.app', ready: true };
   const context: HeldCorrectionContext = { run, artifact, capability, executableDigest: sha256('synthetic fixed correction executable'),
-    signal: abort.signal, verifyExecutable() {}, provider: {
+    signal: abort.signal, verifyExecutable: () => postRepair ? { heldPostRepairCapability: capability } : undefined, provider: {
       async preflight() { counts.preflight++; },
       async inspect(id) { assert.equal(id, candidate.id); counts.inspect++; return candidate; },
       async attest(id) { assert.equal(id, candidate.id); counts.archive++; return sha256('synthetic correction archive'); },
@@ -148,13 +150,13 @@ export function heldCorrectionFixture(t: Pick<TestContext, 'mock' | 'after'>, di
   const prepare = () => {
     counts.prepare++;
     return { async observe(dispatched: () => void) {
-      dispatched(); counts.metadata++; return { metadataDigest: sha256('synthetic current metadata'), keyCount: 37 };
+      dispatched(); counts.metadata++; return { metadataDigest: sha256('synthetic current metadata'), keyCount: postRepair ? 17 : 37 };
     }, dispose() {} };
   };
   const cli = () => ({ async create(dispatched: () => void) {
     dispatched(); counts.create++; return { code: 0, aborted: false, stdout: JSON.stringify({ deployment: { id: candidate.id } }) };
   }, async dispose() { counts.dispose++; } });
-  const path = (suffix: string) => heldCorrectionEvidencePath(directory, packet, suffix);
+  const path = (suffix: string) => heldCorrectionEvidencePath(directory, packet, suffix, capability.selector);
   return { run, context, capability, original, originalEvents, overlay, abort, counts, candidate, prepare, cli, path };
 }
 

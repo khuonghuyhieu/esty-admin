@@ -48,6 +48,7 @@ import { heldPinPath, heldProbeSources } from '../scripts/activation-held-contra
 import { heldProofFixture } from './held-app-fixture.js';
 import { manualArchiveTransport } from '../scripts/activation-archive-transport.mjs';
 import { heldCandidateCreate, readHeldCandidate, recoveryToolInventory } from '../scripts/activation-recovery-io.js';
+import { heldPostRepair } from '../scripts/activation-journal.js';
 const oldSchema: RoutineSchema = { digest: activationSchema.oldDigest };
 
 interface Fixture { artifact: VerifiedArtifact; dispose(): Promise<void> }
@@ -1176,19 +1177,22 @@ test('held CLI awaits readonly stage disposal, preserves outside symlinks and re
     'dpl_SyntheticRead', '/v13/deployments/dpl_SyntheticRead'), SyntaxError);
 });
 
-test('fixed correction native CREATE alone forces fresh deployment while retaining prebuilt skip-domain staging', async t => {
+test('post-repair and fixed correction native CREATE preserve forced prebuilt staging and capability isolation', async t => {
   const f = await activationArtifact(), owned = await mkdtemp(join(realpathSync(tmpdir()), 'esty-correction-native-test-'));
   t.after(async () => { await removeArtifactTree(owned); await f.dispose(); });
   const tool = join(owned, 'tool'), cliPath = join(tool, 'vercel/dist/vc.js');
   await mkdir(dirname(cliPath), { recursive: true });
   await writeFile(join(tool, 'vercel/package.json'), JSON.stringify({ version: '65.4.0', type: 'module' }));
   await writeFile(cliPath, 'import { readdirSync } from "node:fs"; console.log(JSON.stringify({ id:"dpl_SyntheticNativeCorrection", args:process.argv.slice(2), files:readdirSync(process.cwd()) }));\n');
-  const guard = { digest: sha256('synthetic correction native transport'), verify: () => ({
-    heldCorrectionCapability: heldCorrectionCapability({ revision: 'a'.repeat(40), tree: 'c'.repeat(40) }),
-    recoveryVercel: { root: tool, home: join(owned, 'home'), configDirectory: join(owned, 'profile'), inventoryDigest: recoveryToolInventory(tool) },
-  }) };
+  const capability = heldCorrectionCapability({ revision: 'a'.repeat(40), tree: 'c'.repeat(40) });
+  const postCapability = { ...capability, selector: heldPostRepair.selector };
+  const toolIdentity = { root: tool, home: join(owned, 'home'), configDirectory: join(owned, 'profile'), inventoryDigest: recoveryToolInventory(tool) };
   const before = canonical(inventory(f.artifact.root));
-  for (const correction of [undefined, heldCorrection.selector]) {
+  for (const correction of [undefined, heldCorrection.selector, heldPostRepair.selector]) {
+    const guard = { digest: sha256('synthetic correction native transport'), verify: () => ({
+      ...(correction === heldPostRepair.selector ? { heldPostRepairCapability: postCapability } : { heldCorrectionCapability: capability }),
+      recoveryVercel: toolIdentity,
+    }) };
     const cli = heldCandidateCreate(guard, f.artifact,
       { packet: f.packet, packetDigest: sha256(canonical(f.packet)), phase: 'app' }, AbortSignal.timeout(30000), correction);
     let dispatches = 0;
@@ -1202,6 +1206,19 @@ test('fixed correction native CREATE alone forces fresh deployment while retaini
       await assert.rejects(cli.create(() => { dispatches++; }));
       assert.equal(dispatches, 1);
     } finally { await cli.dispose(); }
+  }
+  for (const authority of [
+    {}, { heldCorrectionCapability: capability }, { heldPostRepairCapability: capability },
+    { heldPostRepairCapability: { ...postCapability, controllerPublication: null } },
+    { heldPostRepairCapability: postCapability, heldCorrectionCapability: capability },
+  ]) {
+    const cli = heldCandidateCreate({ digest: sha256('synthetic refused transport'), verify: () => ({
+      ...authority, recoveryVercel: toolIdentity,
+    }) }, f.artifact, { packet: f.packet, packetDigest: sha256(canonical(f.packet)), phase: 'app' },
+    AbortSignal.timeout(30000), heldPostRepair.selector);
+    let dispatched = false;
+    try { await assert.rejects(cli.create(() => { dispatched = true; })); assert.equal(dispatched, false); }
+    finally { await cli.dispose(); }
   }
   assert.equal(canonical(inventory(f.artifact.root)), before);
 });

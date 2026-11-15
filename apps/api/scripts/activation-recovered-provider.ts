@@ -10,8 +10,8 @@ import type { HeldAppReadProvider } from './activation-held.js';
 import { inspectCandidate, uploadedCandidatePartition, verifyCandidateArchive } from './ci-provider.js';
 import { normalizeManualArchive } from './activation-archive-transport.mjs';
 import { canonical } from './artifact.js';
-import { readHeldCorrectionPending } from './activation-journal.js';
-import { heldCorrection, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
+import { readHeldCorrectionPending, heldPostRepair, validateHeldDeploymentCapability } from './activation-journal.js';
+import { heldCorrection } from './activation-held-correction-contract.mjs';
 import type { HeldCorrectionCapability } from './activation-held-correction-contract.mjs';
 import type { HeldAppProbeProof } from './activation-held-proof.js';
 
@@ -143,7 +143,7 @@ export function heldAppReadProvider(run: ActivationRun, artifact: VerifiedArtifa
 export function heldCorrectionReadProvider(run: ActivationRun, artifact: VerifiedArtifact, guard: RecoveryGuard,
   signal: AbortSignal, capability: HeldCorrectionCapability, importedProof?: () => HeldAppProbeProof | undefined,
   io: RecoveryIo = recoveryIo(guard, signal)): HeldAppReadProvider {
-  validateHeldCorrectionCapability(capability);
+  validateHeldDeploymentCapability(capability);
   const retained = recoveredActivationProvider(guard, signal, io);
   const activation = { packet: run.packet, packetDigest: run.digest, phase: 'app' as const };
   const identity = { revision: run.packet.revision, tree: run.packet.tree, run: bridgeRecovery.workflowRun };
@@ -151,7 +151,7 @@ export function heldCorrectionReadProvider(run: ActivationRun, artifact: Verifie
   return {
     async preflight() {
       signal.throwIfAborted(); guard.verify(); verifyActivationArtifact(artifact, run.packet);
-      validateHeldCorrectionCapability(capability);
+      validateHeldDeploymentCapability(capability);
       const current = readActivationJournal(run.directory, run.packet, run.digest), intent = current.events[18];
       if (current.events.length !== 22 || current.next !== 'app-config' || intent?.phase !== 'app-config' || intent.kind !== 'intent') refuse();
       const main = object(await io.github('/commits/main'));
@@ -160,10 +160,13 @@ export function heldCorrectionReadProvider(run: ActivationRun, artifact: Verifie
           || object(object(main.commit).tree).sha !== capability.controllerPublication.tree) refuse();
       } else {
         // A later import uses the independently verified probe/data commit, never the CREATE commit.
-        const proof = importedProof(), lineage = readHeldCorrectionPending(run.directory, run.packet, run.digest, current.head);
+        const proof = importedProof(), lineage = readHeldCorrectionPending(run.directory, run.packet, run.digest, current.head, capability.selector);
         if (!proof || proof.kind !== 'github-held-app-live' || proof.workflowRun === heldCorrection.failedProbeRun
           || proof.binding.workflowRevision === capability.controllerPublication.revision
           || proof.binding.workflowRevision === heldCorrection.sourceRevision
+          || (capability.selector === heldPostRepair.selector && (proof.workflowRun === heldPostRepair.failedProbeRun
+            || proof.binding.workflowRevision === heldPostRepair.failedProbeRevision
+            || proof.binding.workflowRevision === heldPostRepair.repairControllerRevision))
           || canonical(proof.sourceDigests) !== canonical(capability.sourceDigests)
           || canonical(lineage.capability) !== canonical(capability)
           || main.sha !== proof.binding.workflowRevision

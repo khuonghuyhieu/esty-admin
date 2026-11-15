@@ -41,11 +41,11 @@ import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { AppMetadataError, appMissingFiveKeys, currentAppMetadata } from '../scripts/activation-configuration.js';
 import type { MissingFiveAck } from '../scripts/activation-configuration.js';
 import { createHeldCorrection, importHeldCorrectionProof } from '../scripts/activation-held-correction.js';
-import { readHeldCorrectionPending } from '../scripts/activation-journal.js';
+import { readHeldCorrectionPending, heldCorrectionEvidencePath, heldPostRepair, readHeldPostRepairBasis } from '../scripts/activation-journal.js';
 import { heldCorrection } from '../scripts/activation-held-correction-contract.mjs';
 import { heldCorrectionReadProvider } from '../scripts/activation-recovered-provider.js';
 import { heldCorrectionFixture, heldDatabaseRepairFixture } from './held-app-fixture.js';
-import { heldDatabaseRepair, repairHeldDatabase } from '../scripts/activation-held-database-repair.js';
+import { heldDatabaseRepair, repairHeldDatabase, verifyHeldDatabaseRepairBasis } from '../scripts/activation-held-database-repair.js';
 import type { PreparedHeldDatabaseRepair } from '../scripts/activation-held-database-repair.js';
 import type { AppDatabasePairAck } from '../scripts/activation-configuration.js';
 import { heldCorrectionCapability, validateHeldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
@@ -2362,22 +2362,29 @@ test('fixed held pending imports only independent same-ID proof with separate at
 
 const correctionOriginal = process.env.RECOVERY_ORIGIN_TEST_CORRECTION;
 const correctionOptions = { skip: !correctionOriginal || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 180000 };
-test('fixed correction consumes new pending proof without rewriting old held lineage or permitting another CREATE', correctionOptions, async t => {
+for (const postRepair of [false, true]) {
+const generation = postRepair ? 'post-repair' : 'fixed correction';
+test(`${generation} consumes new pending proof without rewriting old held lineage or permitting another CREATE`, correctionOptions, async t => {
   const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
-  const f = heldCorrectionFixture(t, correctionOriginal!, artifact);
+  const f = heldCorrectionFixture(t, correctionOriginal!, artifact, postRepair);
   t.mock.method(globalThis, 'fetch', async () => assert.fail('No live HTTP'));
   t.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
   const created = await createHeldCorrection(f.context, f.prepare, f.cli);
   assert.equal(created.status, 'HELD_PROBE_PENDING', JSON.stringify(created));
   assert.equal(created.createCommands, 1); assert.equal(created.metadataRequests, 1);
   assert.equal(created.envPosts, 0); assert.equal(created.promotions, 0); assert.equal(created.candidateRequests, 0);
-  const pending = readHeldCorrectionPending(f.run.directory, f.run.packet, f.run.digest, retainedUnknown.head);
+  const pending = readHeldCorrectionPending(f.run.directory, f.run.packet, f.run.digest, retainedUnknown.head, f.capability.selector);
   assert.deepEqual(created.target, pending.target);
   assert.notEqual(pending.target.candidate, f.original.target.candidate);
   assert.notEqual(pending.target.createClaimDigest, f.original.target.createClaimDigest);
   assert.notEqual(pending.target.createAckDigest, f.original.target.createAckDigest);
   assert.notEqual(pending.target.heldReceiptDigest, f.original.target.heldReceiptDigest);
   assert.deepEqual(readHeldAppPending(f.run.directory, f.run.packet, f.run.digest, retainedUnknown.head).target, f.original.target);
+  if (postRepair) {
+    const prior = readHeldPostRepairBasis(f.run.directory, f.run.packet, f.run.digest, retainedUnknown.head);
+    assert.equal(prior.target.candidate, heldDatabaseRepair.candidate);
+    assert.notEqual(pending.target.candidate, prior.target.candidate);
+  }
   const replay = await createHeldCorrection(f.context, f.prepare, f.cli);
   assert.equal(replay.status, 'STOP'); assert.equal(replay.createCommands, 0); assert.equal(replay.metadataRequests, 0);
   assert.equal(f.counts.create, 1); assert.equal(f.counts.prepare, 1);
@@ -2404,18 +2411,21 @@ test('fixed correction consumes new pending proof without rewriting old held lin
   assert.equal(state.events.length, 23); assert.equal(state.next, 'app');
   assert.equal(state.heldCandidate?.deploymentId, f.candidate.id);
   assert.deepEqual(state.events.slice(0, 22).map(event => event.sha256), f.originalEvents);
-  assert.equal((state.events[22]!.value as Record<string, unknown>).correction, heldCorrection.selector);
+  const event = state.events[22]!.value;
+  assert.ok(event && typeof event === 'object' && 'correction' in event);
+  assert.equal(event.correction, f.capability.selector);
   const again = await importHeldCorrectionProof(f.context, proof.workflowRun, async () => assert.fail('No repeated proof read'));
   assert.equal(again.status, 'STOP');
   assert.equal((await createHeldCorrection(f.context, f.prepare, f.cli)).createCommands, 0);
   assert.equal(f.counts.create, 1);
 });
 
-test('fixed correction ACK loss, aborted ACK and partial evidence permanently fence the second attempt', correctionOptions, async t => {
+test(`${generation} ACK loss, aborted ACK and partial evidence permanently fence the attempt`, correctionOptions, async t => {
   const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
-  for (const scenario of ['ack-loss', 'aborted-ack', 'partial-ack', 'cleanup-failure', 'old-candidate', 'old-lineage-drift']) {
+  for (const scenario of ['ack-loss', 'aborted-ack', 'partial-ack', 'cleanup-failure', 'old-candidate', 'old-lineage-drift',
+    ...(postRepair ? ['previous-candidate'] : [])]) {
     await t.test(scenario, async sub => {
-      const f = heldCorrectionFixture(sub, correctionOriginal!, artifact), base = f.cli();
+      const f = heldCorrectionFixture(sub, correctionOriginal!, artifact, postRepair), base = f.cli();
       sub.mock.method(globalThis, 'fetch', async () => assert.fail('No live HTTP'));
       sub.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
       if (scenario === 'old-lineage-drift') {
@@ -2423,6 +2433,7 @@ test('fixed correction ACK loss, aborted ACK and partial evidence permanently fe
         f.overlay.override(path, readFileSync(path, 'utf8') + ' ');
       }
       if (scenario === 'old-candidate') f.candidate.id = f.original.target.candidate;
+      if (scenario === 'previous-candidate') f.candidate.id = heldDatabaseRepair.candidate;
       if (scenario === 'partial-ack') {
         const write = fs.writeFileSync;
         sub.mock.method(fs, 'writeFileSync', (file: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions) => {
@@ -2463,28 +2474,32 @@ test('fixed correction ACK loss, aborted ACK and partial evidence permanently fe
   }
 });
 
-test('fixed correction pending cannot consume an old probe, changed pending bytes or mismatched new target', correctionOptions, async t => {
+test(`${generation} pending cannot consume an old probe, changed pending bytes or mismatched new target`, correctionOptions, async t => {
   const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
-  for (const scenario of ['old-probe', 'pending-drift', 'old-target']) await t.test(scenario, async sub => {
-    const f = heldCorrectionFixture(sub, correctionOriginal!, artifact);
+  for (const scenario of ['old-probe', 'pending-drift', 'old-target', ...(postRepair ? ['previous-probe', 'previous-target'] : [])]) await t.test(scenario, async sub => {
+    const f = heldCorrectionFixture(sub, correctionOriginal!, artifact, postRepair);
     const created = await createHeldCorrection(f.context, f.prepare, f.cli);
     assert.equal(created.status, 'HELD_PROBE_PENDING');
     if (scenario === 'pending-drift') f.overlay.override(f.path('pending'), readFileSync(f.path('pending'), 'utf8') + ' ');
     const sourceBytes = Object.fromEntries(Object.keys(heldCorrection.sourceDigests).map(path => [path, readFileSync(join(process.cwd(), path))]));
-    const proof = heldProofFixture(scenario === 'old-target' ? f.original.target : created.target!, sourceBytes);
+    const proofTarget = scenario === 'previous-target'
+      ? readHeldPostRepairBasis(f.run.directory, f.run.packet, f.run.digest, retainedUnknown.head).target
+      : scenario === 'old-target' ? f.original.target : created.target!;
+    const proof = heldProofFixture(proofTarget, sourceBytes);
     let reads = 0;
-    const result = await importHeldCorrectionProof(f.context, scenario === 'old-probe' ? heldCorrection.failedProbeRun : proof.workflowRun,
+    const result = await importHeldCorrectionProof(f.context, scenario === 'old-probe' ? heldCorrection.failedProbeRun
+      : scenario === 'previous-probe' ? heldPostRepair.failedProbeRun : proof.workflowRun,
       async target => { reads++; return verifyHeldAppProbe(proof.workflowRun, target, proof.io, f.capability.sourceDigests, f.context.signal); });
     assert.equal(result.status, 'STOP');
-    if (scenario !== 'old-target') assert.equal(reads, 0);
+    if (scenario !== 'old-target' && scenario !== 'previous-target') assert.equal(reads, 0);
     assert.deepEqual(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.map(event => event.sha256), f.originalEvents);
     assert.equal(f.counts.create, 1);
   });
 });
 
-test('fixed correction CREATE requires both actual sealed main SHA and tree while the old c0 gate remains closed', correctionOptions, async t => {
+test(`${generation} CREATE requires both actual sealed main SHA and tree while the old c0 gate remains closed`, correctionOptions, async t => {
   const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
-  const f = heldCorrectionFixture(t, correctionOriginal!, artifact), p = providerFixture();
+  const f = heldCorrectionFixture(t, correctionOriginal!, artifact, postRepair), p = providerFixture();
   const current = readActivationJournal(f.run.directory, f.run.packet, f.run.digest);
   p.values[p.statusPath] = [{ state: 'in_progress', description: `activation:app-config:intent:${current.events[18]!.sha256}`,
     log_url: `https://github.com/khuonghuyhieu/esty-admin/actions/runs/${target.workflowRun}` }];
@@ -2502,6 +2517,7 @@ test('fixed correction CREATE requires both actual sealed main SHA and tree whil
   await assert.rejects(taskD1ConfigurationProvider(guard, f.context.signal, io).currentMain());
   assert.equal(p.writes.length, 0);
 });
+}
 
 test('fixed correction failed-probe receipt rejects absent or changed public evidence before any effect', correctionOptions, async t => {
   const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
@@ -2707,5 +2723,66 @@ test('database-pair requires sealed current publication, bridge and exclusion be
     const result = await repairHeldDatabase(f.context, () => { f.counts.prepare++; throw new Error('Synthetic stop at input boundary'); });
     assert.equal(f.counts.prepare, scenario === 'valid' ? 1 : 0); assert.equal(result.envPosts, 0);
     assert.equal(result.stage, scenario === 'valid' ? 'input' : 'preflight'); assert.equal(p.writes.length, 0);
+  });
+});
+
+test('post-repair refuses incomplete repair receipts, changed basis and substituted capability before inputs or CREATE', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['started', 'ack', 'verified', 'result', 'missing-result', 'previous-pending', 'failed-probe', 'log',
+    'wrong-seal', 'mixed-capability']) await t.test(scenario, async sub => {
+    const f = heldCorrectionFixture(sub, correctionOriginal!, artifact, true);
+    sub.mock.method(globalThis, 'fetch', async () => assert.fail('No live HTTP'));
+    sub.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
+    const parent = dirname(f.run.directory);
+    const repairPath = join(parent, `${f.run.packet.runId}.${heldPostRepair.repairSelector}-${scenario === 'missing-result' ? 'result' : scenario}.json`);
+    if (scenario === 'missing-result') {
+      const open = fs.openSync;
+      sub.mock.method(fs, 'openSync', (path: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
+        if (path === repairPath) throw Object.assign(new Error('Synthetic missing receipt'), { code: 'ENOENT' });
+        return open(path, flags, mode);
+      }); syncBuiltinESMExports();
+    } else if (scenario === 'wrong-seal') {
+      f.context.verifyExecutable = () => ({ heldPostRepairCapability: { ...f.capability, contextDigest: '0'.repeat(64) } });
+    } else if (scenario === 'mixed-capability') {
+      f.context.verifyExecutable = () => ({ heldPostRepairCapability: f.capability, heldCorrectionCapability: f.capability });
+    } else {
+      const basis = verifyHeldDatabaseRepairBasis(f.run);
+      const path = scenario === 'previous-pending'
+        ? heldCorrectionEvidencePath(f.run.directory, f.run.packet, 'pending')
+        : scenario === 'failed-probe'
+          ? join(dirname(dirname(parent)), 'd1-held-correction-f5d330c/corrected-probe-safe-result.json')
+          : scenario === 'log'
+            ? join(process.cwd(), '.openai/task-d1/held-config-correction01/log-retrieval01/safe-result.json')
+            : repairPath;
+      assert.equal(basis.lineage.target.candidate, heldDatabaseRepair.candidate);
+      f.overlay.override(path, readFileSync(path, 'utf8') + ' ');
+    }
+    const result = await createHeldCorrection(f.context, f.prepare, f.cli);
+    assert.equal(result.status, 'STOP'); assert.equal(result.firstError?.stage, 'guard');
+    assert.equal(f.counts.prepare, 0); assert.equal(f.counts.preflight, 0); assert.equal(f.counts.create, 0);
+    assert.equal(existsSync(f.path('create-started')), false);
+    assert.deepEqual(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.map(event => event.sha256), f.originalEvents);
+  });
+});
+
+test('post-repair exclusive claim and final dispatch guard prevent duplicate or stale CREATE', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['concurrent', 'dispatch-drift']) await t.test(scenario, async sub => {
+    const f = heldCorrectionFixture(sub, correctionOriginal!, artifact, true);
+    if (scenario === 'concurrent') {
+      const results = await Promise.all([createHeldCorrection(f.context, f.prepare, f.cli), createHeldCorrection(f.context, f.prepare, f.cli)]);
+      assert.deepEqual(results.map(result => result.status).sort(), ['HELD_PROBE_PENDING', 'STOP']);
+      assert.equal(f.counts.create, 1);
+    } else {
+      const base = f.cli(), path = join(dirname(f.run.directory), `${f.run.packet.runId}.${heldPostRepair.repairSelector}-result.json`);
+      const result = await createHeldCorrection(f.context, f.prepare, () => ({ ...base, async create(dispatched) {
+        f.overlay.override(path, readFileSync(path, 'utf8') + ' ');
+        return base.create(dispatched);
+      } }));
+      assert.equal(result.status, 'STOP'); assert.equal(f.counts.create, 0);
+      assert.equal(existsSync(f.path('create-started')), true);
+      assert.equal(existsSync(f.path('pending')), false);
+    }
+    assert.deepEqual(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.map(event => event.sha256), f.originalEvents);
   });
 });

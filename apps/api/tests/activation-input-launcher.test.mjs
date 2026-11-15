@@ -198,3 +198,45 @@ test('database-pair launcher admits only the sealed fixed repair and rejects pub
     ['prepare', ...context],
   ]) refused(run({ heldDatabaseRepairCapability: capability }, args));
 });
+
+test('post-repair launcher binds only the new sealed generation and preserves old capability isolation', {
+  skip: !process.env.HELD_POST_REPAIR_TEST_HELPER,
+}, t => {
+  const f = fixture(t), helper = process.env.HELD_POST_REPAIR_TEST_HELPER;
+  const entry = readFileSync(f.entry);
+  cpSync(join(helper, 'apps/api/build'), join(f.root, 'apps/api/build'), { recursive: true });
+  cpSync(join(helper, 'node_modules'), join(f.root, 'node_modules'), { recursive: true });
+  writeFileSync(f.entry, entry);
+  const base = '/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin/.openai/reports';
+  const context = [
+    `${base}/protected-real-transfer-state-vd3tg33z/ca-successor-36a0c3c3-0a74-4ccf-b6a3-8d5da26e4eed/successor.json`,
+    '756f9802100c9c86a75f24d3e688e6a5f57d745b6f7f96b88555c2acd105d559',
+    `${base}/bridge-reconciliation-fn1_56_z/receipt-copy/be-receipts`,
+    `${base}/first-production-f162-h9czirsk/verified-transfer/artifact`,
+  ];
+  const capability = { ...heldCorrectionCapability({ revision: 'a'.repeat(40), tree: 'c'.repeat(40) }), selector: 'held-post-db-repair-01' };
+  const run = (changes, args = [capability.selector, 'create', ...context]) => {
+    const sealed = f.seal(changes);
+    return spawnSync(process.execPath, [f.launcher, f.manifestPath, sealed.digest, ...args],
+      { encoding: 'utf8', env: {}, timeout: 30000 });
+  };
+  for (const action of [['create'], ['import-proof', '123']]) {
+    const result = run({ heldPostRepairCapability: capability }, [capability.selector, ...action, ...context]);
+    assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /HIDDEN_PROMPT/);
+  }
+  for (const publication of [null,
+    { revision: 'bd9e2611a3b0338aa8b7d3678a31e8d6cbeefdd3', tree: 'c'.repeat(40) },
+    { revision: '4c2c5a2a7834905d3942880acc3fbebbb0f2751d', tree: 'c'.repeat(40) }]) {
+    refused(run({ heldPostRepairCapability: { ...capability, controllerPublication: publication } }));
+  }
+  refused(run({}));
+  refused(run({ heldPostRepairCapability: { ...capability, namespace: 'caller-generation' } }));
+  refused(run({ heldPostRepairCapability: capability, heldCorrectionCapability: heldCorrectionCapability(capability.controllerPublication) }));
+  refused(run({ heldCorrectionCapability: heldCorrectionCapability(capability.controllerPublication) }));
+  for (const args of [
+    ['held-config-correction-01', 'create', ...context], ['held-db-config-repair-01', ...context],
+    [capability.selector, 'correct-missing-five', ...context], [capability.selector, 'create', ...context, 'dpl_Override'],
+    [capability.selector, 'create', ...context.slice(0, 3), '/different/artifact'],
+    [capability.selector, 'import-proof', '0', ...context],
+  ]) refused(run({ heldPostRepairCapability: capability }, args));
+});

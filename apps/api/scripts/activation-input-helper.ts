@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { artifactTarget, canonical, readArtifactFile, sha256, verifyArtifact } from './artifact.js';
-import { createRecoveredActivationJournal, readActivationJournal, validateActivationPacket, verifyActivationArtifact, verifyHeldCorrectionFailedProbe } from './activation-journal.js';
+import { createRecoveredActivationJournal, readActivationJournal, validateActivationPacket, verifyActivationArtifact,
+  verifyHeldCorrectionFailedProbe, heldPostRepair, readHeldPostRepairBasis, validateHeldDeploymentCapability } from './activation-journal.js';
 import { bootstrapInputs, decodePhaseInput, migrationInputs, phaseInputEnvironment, roleInputEnvelope, roleInputs, runtimeInputs } from './activation-inputs.js';
 import { bootstrapIdentity } from '../src/app-foundation/application/service.js';
 import { uuidPattern as authUserUuidPattern } from '../src/app-foundation/application/validation.js';
@@ -906,7 +907,8 @@ async function preparedAppSchemaDiagnostic(args: string[], outerSignal: AbortSig
   }, () => guard.verify(), signal);
 }
 
-async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSignal, correction = false) {
+async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSignal, correction: boolean | 'post-repair' = false) {
+  const postRepair = correction === 'post-repair';
   const action = args[0], importing = action === 'import-proof', correcting = action === 'correct-missing-five', guard = launcherBinding();
   const contextArgs = args.slice(importing ? 2 : 1), workflowRun = importing ? args[1] : undefined;
   const actions = correction ? ['create', 'import-proof'] : ['create-held', 'attest-held', 'import-proof', 'correct-missing-five'];
@@ -914,7 +916,9 @@ async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSi
     || (importing && !/^[1-9][0-9]{0,19}$/.test(workflowRun ?? ''))) refuse();
   const manifest = guard.verify();
   if (!recoveryRecord(manifest)) refuse();
-  const correctionCapability = correction ? validateHeldCorrectionCapability(manifest.heldCorrectionCapability) : undefined;
+  const correctionCapability = correction ? validateHeldDeploymentCapability(
+    postRepair ? manifest.heldPostRepairCapability : manifest.heldCorrectionCapability) : undefined;
+  if (correctionCapability && correctionCapability.selector !== (postRepair ? heldPostRepair.selector : heldCorrection.selector)) refuse();
   const capability = correctionCapability ?? manifest.heldAppCapability;
   if (!recoveryRecord(capability) || (!correction && (!exactKeys(capability, ['selector', 'contextDigest', 'sourceDigests'])
       || capability.selector !== 'held-app-configuration'))
@@ -923,15 +927,20 @@ async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSi
     || canonical(Object.keys(capability.sourceDigests).sort()) !== canonical([...heldProbeSources].sort())
     || Object.values(capability.sourceDigests).some(value => typeof value !== 'string' || !hex.test(value))) refuse();
   if (correction && (manifest.heldAppCapability !== undefined || manifest.diagnosticSelector !== undefined)) refuse();
+  if (postRepair && ['heldAppCapability', 'heldCorrectionCapability', 'heldDatabaseRepairCapability', 'diagnosticSelector', 'diagnosticContextDigest']
+    .some(key => key in manifest)) refuse();
   if (correction) verifyHeldCorrectionFailedProbe();
   const signal = AbortSignal.any([outerSignal, AbortSignal.timeout(600000)]);
+  const publicBasis = postRepair ? verifyHeldDatabaseRepairBasis() : undefined;
+  if (publicBasis) readHeldPostRepairBasis(publicBasis.run.directory, publicBasis.run.packet,
+    publicBasis.run.digest, publicBasis.lineage.target.unknownHead);
   signal.throwIfAborted(); canonicalPath(contextArgs[3]);
   const artifact = verifyArtifact(contextArgs[3], bridgeRecovery.artifactDigest);
   verifyMigrationFiles(migrationsDirectory, artifact.manifest.migrations);
-  const { context, directory, requestDigest, packetPath } = await preparedRecoveryContext(contextArgs, signal);
-  const packet = validateActivationPacket(readPrivate(packetPath), bridgeRecovery.packetDigest);
+  let recovery = postRepair ? undefined : await preparedRecoveryContext(contextArgs, signal);
+  const packet = publicBasis?.run.packet ?? validateActivationPacket(readPrivate(recovery!.packetPath), bridgeRecovery.packetDigest);
   verifyActivationArtifact(artifact, packet);
-  const run = { directory: join(dirname(context.directory), `activation-recovered-${rolesReachability.executionId}`),
+  const run = publicBasis?.run ?? { directory: join(dirname(recovery!.context.directory), `activation-recovered-${rolesReachability.executionId}`),
     packet, digest: bridgeRecovery.packetDigest };
   let correctionProof: HeldAppProbeProof | undefined;
   const controller = { run, artifact, signal, executableDigest: guard.digest, verifyExecutable: () => guard.verify(),
@@ -949,6 +958,8 @@ async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSi
       verifyHeldAppProbe(workflowRun!, target, io, capability.sourceDigests as Record<string, string>, signal));
   }
   const prepare = () => {
+    if (!recovery) refuse();
+    const { directory, requestDigest, packetPath } = recovery;
     const prepared = preparedRecoveryPhase(directory, requestDigest, packetPath, run.digest, 'app-config', guard, signal);
     let inputs: Record<string, string> | undefined;
     const dispose = () => {
@@ -978,8 +989,16 @@ async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSi
     return { observe: dispatched => observeAppMetadata(prepared.inputs, packet, prepared.token(), signal,
       (url, init) => { dispatched(); return fetch(url, init); }), dispose: prepared.dispose };
   };
-  if (correctionCapability) return createHeldCorrection({ ...controller, capability: correctionCapability }, observe,
-    () => heldCandidateCreate(guard, artifact, { packet, packetDigest: run.digest, phase: 'app' }, signal, heldCorrection.selector));
+  if (correctionCapability) return createHeldCorrection({ ...controller, capability: correctionCapability }, async () => {
+    // Post-repair input access follows public receipt and actual publication/exclusion gates.
+    if (postRepair) {
+      recovery = await preparedRecoveryContext(contextArgs, signal);
+      validateActivationPacket(readPrivate(recovery.packetPath), run.digest);
+      if (join(dirname(recovery.context.directory), `activation-recovered-${rolesReachability.executionId}`) !== run.directory) refuse();
+    }
+    return observe();
+  }, () => heldCandidateCreate(guard, artifact, { packet, packetDigest: run.digest, phase: 'app' }, signal,
+    postRepair ? heldPostRepair.selector : heldCorrection.selector));
   return createHeldApp(controller, observe,
     () => heldCandidateCreate(guard, artifact, { packet, packetDigest: run.digest, phase: 'app' }, signal));
 }
@@ -1286,11 +1305,12 @@ export async function inputHelperMain(args: string[], signal: AbortSignal): Prom
       console.info('HELD_DATABASE_REPAIR {"status":"STOP","stage":"context","metadataRequests":0,"envPosts":0,"createCommands":0,"candidateRequests":0,"promotions":0,"journalTransitions":0}');
       process.exitCode = 1;
     }
-  } else if (action === 'held-app-configuration' || action === heldCorrection.selector) {
-    const label = action === heldCorrection.selector ? 'HELD_CONFIG_CORRECTION'
+  } else if (action === 'held-app-configuration' || action === heldCorrection.selector || action === heldPostRepair.selector) {
+    const label = action === heldPostRepair.selector ? 'HELD_POST_REPAIR' : action === heldCorrection.selector ? 'HELD_CONFIG_CORRECTION'
       : args[1] === 'correct-missing-five' ? 'APP_MISSING_FIVE_CONFIGURATION' : 'HELD_APP_CONFIGURATION';
     try {
-      const result = await preparedHeldAppConfiguration(args.slice(1), signal, action === heldCorrection.selector);
+      const result = await preparedHeldAppConfiguration(args.slice(1), signal,
+        action === heldPostRepair.selector ? 'post-repair' : action === heldCorrection.selector);
       console.info(`${label} ${JSON.stringify(result)}`);
       if (result.status === 'STOP') process.exitCode = 1;
     } catch {

@@ -12,6 +12,7 @@ import { command } from './ci-tools.js';
 import { bridgeRecovery } from './activation-candidate-recovery.js';
 import type { RecoveryGuard, RecoveryIo } from './activation-candidate-recovery.js';
 import { heldCorrection, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
+import { heldPostRepair, validateHeldDeploymentCapability } from './activation-journal.js';
 
 function refuse(): never { throw new Error('Recovery transport identity or acknowledgement differs.'); }
 function record(value: unknown): value is Record<string, unknown> {
@@ -129,7 +130,7 @@ function heldCommandContext(guard: RecoveryGuard): HeldCommandContext {
   return { tool, root, env, dispose: () => removeArtifactTree(root) };
 }
 export function heldCandidateCreate(guard: RecoveryGuard, artifact: VerifiedArtifact,
-  activation: ActivationDeliveryContext, signal: AbortSignal, correction?: typeof heldCorrection.selector):
+  activation: ActivationDeliveryContext, signal: AbortSignal, correction?: typeof heldCorrection.selector | typeof heldPostRepair.selector):
   { create(beforeDispatch: () => void): Promise<CommandResult>; dispose(): Promise<void> } {
   let attempted = false;
   let context: HeldCommandContext | undefined;
@@ -138,8 +139,13 @@ export function heldCandidateCreate(guard: RecoveryGuard, artifact: VerifiedArti
       if (attempted || activation.phase !== 'app') refuse();
       if (correction !== undefined) {
         const manifest = guard.verify();
-        if (correction !== heldCorrection.selector || !record(manifest)) refuse();
-        validateHeldCorrectionCapability(manifest.heldCorrectionCapability);
+        if (!record(manifest)) refuse();
+        if (correction === heldCorrection.selector) validateHeldCorrectionCapability(manifest.heldCorrectionCapability);
+        else if (correction === heldPostRepair.selector) {
+          if (validateHeldDeploymentCapability(manifest.heldPostRepairCapability).selector !== heldPostRepair.selector
+            || ['heldAppCapability', 'heldCorrectionCapability', 'heldDatabaseRepairCapability', 'diagnosticSelector', 'diagnosticContextDigest']
+              .some(key => key in manifest)) refuse();
+        } else refuse();
       }
       attempted = true; signal.throwIfAborted(); context = heldCommandContext(guard);
       const stage = join(context.root, 'stage'); mkdirSync(stage, { mode: 0o700 });

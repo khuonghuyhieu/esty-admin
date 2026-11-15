@@ -215,11 +215,37 @@ function currentConfigurationProof(directory: string, packet: ActivationPacket, 
   return { receiptDigest: proofFile.identity.sha256, deploymentId: target.candidate, configDigest: packet.appConfigDigest, origin: target.origin };
 }
 
+// One admitted generation after the acknowledged DB-pair repair, not a retry counter.
+export const heldPostRepair = Object.freeze({
+  selector: 'held-post-db-repair-01',
+  repairSelector: 'held-db-config-repair-01',
+  repairExecutableDigest: '432f066814e4e193d89ea1a134adea51134155de0b65aab381ed22fa8a53048e',
+  repairControllerRevision: 'bd9e2611a3b0338aa8b7d3678a31e8d6cbeefdd3',
+  failedProbeRun: '43704277229',
+  failedProbeRevision: '4c2c5a2a7834905d3942880acc3fbebbb0f2751d',
+  receipts: Object.freeze({
+    started: 'ed666841e8aabe0c96298c842a0225d8359f6c1e81e058eb6532c120ce3fac63',
+    ack: '4f9a0611f2d95f1bc729f92b135c19899cef734e7c38ccd0f4e7871d6aa06478',
+    verified: 'b4dcedfdb22bcc3057c7934261f82f0681edb5a0fc061c78aad5aa605a64d0cc',
+    result: 'c9e76f2ea47d9a668707de349b20cfac9254891bccc01e146f71577b999640ff',
+  }),
+});
+export function validateHeldDeploymentCapability(value: unknown): HeldCorrectionCapability {
+  const data = object(value, ['selector', 'contextDigest', 'controllerPublication', 'sourceDigests']);
+  if (data.selector !== heldPostRepair.selector) return validateHeldCorrectionCapability(value);
+  const capability = validateHeldCorrectionCapability({ ...data, selector: heldCorrection.selector });
+  if ([heldPostRepair.repairControllerRevision, heldPostRepair.failedProbeRevision,
+    'f5d330c9784ec9d87df197ff780d30fde7073060'].includes(capability.controllerPublication.revision)) refuse();
+  return { ...capability, selector: heldPostRepair.selector };
+}
+
 export const correctionReceiptSuffixes = ['create-started', 'create-ack', 'pending', 'create-result',
   'import-started', 'current-proof', 'import-result'] as const;
-export function heldCorrectionEvidencePath(directory: string, packet: ActivationPacket, suffix: string): string {
-  if (!(correctionReceiptSuffixes as readonly string[]).includes(suffix)) refuse();
-  return join(dirname(directory), `${packet.runId}.${heldCorrection.selector}-${suffix}.json`);
+export function heldCorrectionEvidencePath(directory: string, packet: ActivationPacket, suffix: string,
+  selector: string = heldCorrection.selector): string {
+  if (!(correctionReceiptSuffixes as readonly string[]).includes(suffix)
+    || (selector !== heldCorrection.selector && selector !== heldPostRepair.selector)) refuse();
+  return join(dirname(directory), `${packet.runId}.${selector}-${suffix}.json`);
 }
 export function verifyHeldCorrectionFailedProbe(): void {
   // This is the fixed approved MAIN checkout, not the helper/worktree or a caller-supplied receipt.
@@ -249,7 +275,7 @@ export function readHeldCorrectionOriginal(directory: string, packet: Activation
   return original;
 }
 export interface HeldCorrectionClaim {
-  version: 1; kind: 'held-config-correction-create'; basis: typeof heldCorrection;
+  version: 1; kind: 'held-config-correction-create'; basis: typeof heldCorrection | typeof heldPostRepair;
   executionId: string; packetDigest: string; unknownHead: string; inventoryDigest: string; bootstrapProofDigest: string;
   artifactDigest: string; executableDigest: string; capability: HeldCorrectionCapability;
   metadataDigest: string; keyCount: number;
@@ -258,31 +284,37 @@ export interface HeldCorrectionPending {
   version: 1; kind: 'held-config-correction-pending'; claimDigest: string; ackDigest: string;
   candidate: { id: string; origin: string }; archiveDigest: string;
 }
-export function readHeldCorrectionPending(directory: string, packet: ActivationPacket, digest: string, unknownHead: string) {
+export function readHeldCorrectionPending(directory: string, packet: ActivationPacket, digest: string, unknownHead: string,
+  selector: string = heldCorrection.selector) {
   const original = readHeldCorrectionOriginal(directory, packet, digest, unknownHead);
-  const path = (suffix: string) => heldCorrectionEvidencePath(directory, packet, suffix);
+  const prior = selector === heldPostRepair.selector ? readHeldPostRepairBasis(directory, packet, digest, unknownHead) : undefined;
+  const path = (suffix: string) => heldCorrectionEvidencePath(directory, packet, suffix, selector);
   const claimFile = readEvidence(path('create-started')), pendingFile = readEvidence(path('pending'));
   const claim = object(claimFile.value, ['version', 'kind', 'basis', 'executionId', 'packetDigest', 'unknownHead',
     'inventoryDigest', 'bootstrapProofDigest', 'artifactDigest', 'executableDigest', 'capability', 'metadataDigest', 'keyCount']);
-  const capability = validateHeldCorrectionCapability(claim.capability);
-  if (claim.version !== 1 || claim.kind !== 'held-config-correction-create' || canonical(claim.basis) !== canonical(heldCorrection)
+  const capability = validateHeldDeploymentCapability(claim.capability);
+  if (capability.selector !== selector || claim.version !== 1 || claim.kind !== 'held-config-correction-create'
+    || canonical(claim.basis) !== canonical(prior ? heldPostRepair : heldCorrection)
     || claim.executionId !== original.target.executionId || claim.packetDigest !== digest || claim.unknownHead !== unknownHead
     || claim.inventoryDigest !== original.pending.inventoryDigest || claim.bootstrapProofDigest !== original.pending.bootstrapProofDigest
     || claim.artifactDigest !== packet.artifactDigest || !matches(claim.executableDigest, hex)
     || claim.executableDigest === original.proofExecutableDigest || claim.executableDigest === original.pending.executableDigest
     || !matches(claim.metadataDigest, hex) || !Number.isInteger(claim.keyCount) || Number(claim.keyCount) < 1 || Number(claim.keyCount) > 64) refuse();
+  if (prior && (claim.executableDigest === prior.proofExecutableDigest || claim.executableDigest === heldPostRepair.repairExecutableDigest
+    || claim.keyCount !== 17)) refuse();
   const value = object(pendingFile.value, ['version', 'kind', 'claimDigest', 'ackDigest', 'candidate', 'archiveDigest']);
   const candidate = object(value.candidate, ['id', 'origin']), ackFile = readEvidence(path('create-ack'));
   if (value.version !== 1 || value.kind !== 'held-config-correction-pending' || value.claimDigest !== claimFile.identity.sha256
     || value.ackDigest !== ackFile.identity.sha256 || !matches(value.archiveDigest, hex)
     || !matches(candidate.id, deployment) || candidate.id === original.target.candidate || candidate.id === packet.predecessorId
     || candidate.id === 'dpl_525LvEPCBud7nyAeFTcRx8iipTrk'
+    || (prior && candidate.id === prior.target.candidate)
     || !matches(candidate.origin, /^https:\/\/[a-z0-9-]+\.vercel\.app$/)
     || canonical(ackFile.value) !== canonical({ version: 1, kind: 'held-config-correction-ack',
       claimDigest: claimFile.identity.sha256, deploymentId: candidate.id, code: 0, aborted: false })
     || canonical(readEvidence(path('create-result')).value) !== canonical({ version: 1, kind: 'held-config-correction-result',
       claimDigest: claimFile.identity.sha256, pendingDigest: pendingFile.identity.sha256, status: 'HELD_PROBE_PENDING' })) refuse();
-  const prefix = `${packet.runId}.${heldCorrection.selector}-`;
+  const prefix = `${packet.runId}.${selector}-`;
   const allowed = new Set(correctionReceiptSuffixes.map(suffix => `${prefix}${suffix}.json`));
   if (readdirSync(dirname(directory)).some(name => name.startsWith(prefix) && !allowed.has(name))) refuse();
   const target: HeldAppTarget = { ...original.target, candidate: candidate.id, origin: candidate.origin,
@@ -291,9 +323,38 @@ export function readHeldCorrectionPending(directory: string, packet: ActivationP
     pending: value as unknown as HeldCorrectionPending, target, proofExecutableDigest: claim.executableDigest as string };
 }
 
-function correctionConfigurationProof(directory: string, packet: ActivationPacket, digest: string, unknownHead: string) {
-  const { target, proofExecutableDigest, capability } = readHeldCorrectionPending(directory, packet, digest, unknownHead);
-  const path = (suffix: string) => heldCorrectionEvidencePath(directory, packet, suffix);
+export function readHeldPostRepairBasis(directory: string, packet: ActivationPacket, digest: string, unknownHead: string):
+  { target: HeldAppTarget; proofExecutableDigest: string; claim: HeldCorrectionClaim } {
+  const prior = readHeldCorrectionPending(directory, packet, digest, unknownHead);
+  const prefix = `${packet.runId}.${heldPostRepair.repairSelector}-`;
+  const files = Object.fromEntries(Object.entries(heldPostRepair.receipts).map(([suffix, hash]) => {
+    const file = readEvidence(join(dirname(directory), `${prefix}${suffix}.json`));
+    if (file.identity.sha256 !== hash) refuse();
+    return [suffix, file];
+  }));
+  if (canonical(readdirSync(dirname(directory)).filter(name => name.startsWith(prefix)).sort())
+    !== canonical(Object.keys(heldPostRepair.receipts).map(suffix => `${prefix}${suffix}.json`).sort())) refuse();
+  const started = object(files.started!.value, ['version', 'kind', 'basis', 'executionId', 'packetDigest', 'unknownHead',
+    'inventoryDigest', 'bootstrapProofDigest', 'pendingDigest', 'configDigest', 'executableDigest', 'capability',
+    'metadataDigest', 'keyCount', 'historicalWrite', 'historicalPostAck']);
+  const ack = object(files.ack!.value, ['version', 'kind', 'claimDigest', 'acknowledgement']);
+  const verified = object(files.verified!.value, ['version', 'kind', 'claimDigest', 'ackDigest', 'metadataDigest', 'keyCount',
+    'historicalWrite', 'historicalPostAck', 'valueProof']);
+  const result = object(files.result!.value, ['version', 'kind', 'claimDigest', 'status', 'result']);
+  if (started.packetDigest !== digest || started.unknownHead !== unknownHead || started.configDigest !== packet.appConfigDigest
+    || started.pendingDigest !== prior.target.heldReceiptDigest || started.executionId !== prior.target.executionId
+    || started.bootstrapProofDigest !== prior.claim.bootstrapProofDigest || started.inventoryDigest !== prior.claim.inventoryDigest
+    || started.executableDigest !== heldPostRepair.repairExecutableDigest || started.keyCount !== 17
+    || ack.claimDigest !== files.started!.identity.sha256 || verified.claimDigest !== ack.claimDigest
+    || verified.ackDigest !== files.ack!.identity.sha256 || verified.metadataDigest !== started.metadataDigest
+    || verified.keyCount !== 17 || result.claimDigest !== ack.claimDigest || result.status !== 'DATABASE_PAIR_REPAIRED') refuse();
+  return prior;
+}
+
+function correctionConfigurationProof(directory: string, packet: ActivationPacket, digest: string, unknownHead: string,
+  selector: string = heldCorrection.selector) {
+  const { target, proofExecutableDigest, capability } = readHeldCorrectionPending(directory, packet, digest, unknownHead, selector);
+  const path = (suffix: string) => heldCorrectionEvidencePath(directory, packet, suffix, selector);
   const proofFile = readEvidence(path('current-proof'));
   const value = object(proofFile.value, ['version', 'kind', 'executionId', 'packetDigest', 'unknownHead', 'pendingDigest',
     'importClaimDigest', 'probe', 'historicalWrite', 'historicalPostAck', 'scope', 'promotion']);
@@ -306,8 +367,11 @@ function correctionConfigurationProof(directory: string, packet: ActivationPacke
     || value.promotion !== 'not_started' || proof.version !== 1 || proof.kind !== 'github-held-app-live'
     || !Object.entries(target).every(([key, entry]) => binding[key] === entry) || !matches(binding.workflowRevision, commit)
     || binding.workflowRevision === capability.controllerPublication.revision || binding.workflowRevision === heldCorrection.sourceRevision
+    || (selector === heldPostRepair.selector && (binding.workflowRevision === heldPostRepair.failedProbeRevision
+      || binding.workflowRevision === heldPostRepair.repairControllerRevision))
     || proof.bindingDigest !== sha256(canonical(binding)) || !matches(proof.workflowRun, /^[1-9][0-9]{0,19}$/)
     || proof.workflowRun === heldCorrection.failedProbeRun || !Number.isSafeInteger(proof.artifactId) || Number(proof.artifactId) < 1
+    || (selector === heldPostRepair.selector && proof.workflowRun === heldPostRepair.failedProbeRun)
     || !['archiveDigest', 'receiptDigest', 'sourcePinDigest'].every(key => matches(proof[key], hex))
     || canonical(proof.sourceDigests) !== canonical(capability.sourceDigests)
     || canonical(proof.checks) !== canonical({ live: 'passed', computedRuntimeDigest: 'passed', target: 'not-proved', authMembership: 'not-proved' })
@@ -318,14 +382,15 @@ function correctionConfigurationProof(directory: string, packet: ActivationPacke
     version: 1, kind: 'held-config-correction-import', unknownHead, pendingDigest: target.heldReceiptDigest,
     workflowRun: proof.workflowRun, executableDigest: proofExecutableDigest })) refuse();
   return { receiptDigest: proofFile.identity.sha256, deploymentId: target.candidate, configDigest: packet.appConfigDigest,
-    origin: target.origin, correction: heldCorrection.selector };
+    origin: target.origin, correction: selector };
 }
 function selectedConfigurationProof(directory: string, packet: ActivationPacket, digest: string, unknownHead: string, value: unknown) {
-  // The old reader is unchanged. Only this exact typed marker selects the fixed new lineage.
-  const correction = !!value && typeof value === 'object' && 'correction' in value;
-  if (correction && (value as Record<string, unknown>).correction !== heldCorrection.selector) refuse();
-  return correction ? correctionConfigurationProof(directory, packet, digest, unknownHead)
-    : currentConfigurationProof(directory, packet, digest, unknownHead);
+  // The historical reader remains the default; only a fixed typed marker selects the new lineage.
+  if (value && typeof value === 'object' && 'correction' in value) {
+    if (value.correction !== heldCorrection.selector && value.correction !== heldPostRepair.selector) refuse();
+    return correctionConfigurationProof(directory, packet, digest, unknownHead, value.correction);
+  }
+  return currentConfigurationProof(directory, packet, digest, unknownHead);
 }
 function outcome(value: unknown): ActivationOutcome {
   const data = object(value, ['result', 'databaseOutcome', 'reportDigest', 'count', 'deploymentId']);

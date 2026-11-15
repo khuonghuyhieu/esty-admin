@@ -2,6 +2,14 @@
 
 Updated: 2026-11-01 · Actual branch main · [Plan](plan.md)
 
+## T185 actual repair / T186 post-repair admission — current increment
+
+Root accepted the separately reviewed and released actual DB-pair repair: `DATABASE_PAIR_REPAIRED`, HTTP201/two ACKs, unchanged17 metadata identities, no follow-on deployment or event. Actual handoff `3ce61689a89bda7db0c23df9a96be90b087d415553bcc639665666d035581dfe`; original UNKNOWN22 and earlier failures remain unchanged. This is structural configuration evidence, not runtime/DB acceptance and not a reason to check off T185/T186.
+
+Root authorized [one fixed post-repair generation](plan.md#t186-post-database-repair-held-deployment-admission), SOURCE/LOCAL only. The initial maximum-five scope was explicitly amended to six existing source files after the native forced transport's separate old-capability guard was identified. Validate the new capability directly; never fabricate an old capability. Keep existing T185/T186 identities, old claims/reader defaults, three workflow/requester/probe sources and correction contract unchanged. Focused checks and one emitted synthetic proof precede `READY_FOR_FOCUSED_REVIEW`; coordinator alone owns review, publication and a later runtime grant. No UI redeploy or owner credential re-entry is required by this source design.
+
+**READY_FOR_FOCUSED_REVIEW:** [actual focused receipt](plan.md#post-repair-focused-review-receipt), six source/four tests/three documents. Native compile passed after the retained typing correction; controller30/30, native transport1/1 and launcher3/3 passed. One consumed emitted synthetic lifecycle passed with exact1 native CREATE, all1087 artifact files, ACK-before-cleanup, new pending→independent proof→owned event23 and original22 preservation. Null-publication seal `4db768e1d313350aeb249e24a05ff240096693054bbf1e1a04b9160281ecde6b`; exact closure `.openai/task-d1/held-post-db-repair01/handoff.json`. T185/T186 remain unchecked. Root review, publication and every actual effect remain separate gates.
+
 ## T185 retained APP database-pair repair — current source/local increment
 
 Root t12p accepts only the fixed `DATABASE_URL` + `SUPABASE_DATABASE_USER` repair described in [the agreed design](plan.md#t185-fixed-retained-app-database-pair-repair), not a third CREATE or a new task identity. Actual probe43704277229 and bounded `DB_CONFIG/config/SUPABASE_DATABASE_USER` evidence are retained; current values and DB/password/SQL behavior are unproved. Keep the original one-P2 review and accepted fix history unchanged.

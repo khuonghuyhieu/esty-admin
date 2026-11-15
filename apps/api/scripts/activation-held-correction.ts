@@ -5,7 +5,7 @@ import { canonical, sha256 } from './artifact.js';
 import { retainedD1BootstrapPins, verifyRecoveredRoleAssets } from './activation.js';
 import { retainedUnknown, verifyRetainedAppUnknown } from './activation-schema-diagnostic.js';
 import { appendActivationEvent, heldCorrectionEvidencePath, readActivationJournal, readHeldCorrectionOriginal,
-  readHeldCorrectionPending } from './activation-journal.js';
+  readHeldCorrectionPending, heldPostRepair, readHeldPostRepairBasis, validateHeldDeploymentCapability } from './activation-journal.js';
 import type { HeldCorrectionClaim, HeldCorrectionPending } from './activation-journal.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
 import { acknowledgedId } from './ci-delivery.js';
@@ -14,28 +14,40 @@ import type { CurrentAppMetadata } from './activation-configuration.js';
 import type { Candidate } from './ci-provider.js';
 import type { HeldAppControllerContext, HeldAppResult, HeldCreateCli, PreparedHeldMetadata } from './activation-held.js';
 import type { HeldAppProbeProof, HeldAppTarget } from './activation-held-proof.js';
-import { heldCorrection, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
+import { heldCorrection } from './activation-held-correction-contract.mjs';
 import type { HeldCorrectionCapability } from './activation-held-correction-contract.mjs';
+import { verifyHeldDatabaseRepairBasis } from './activation-held-database-repair.js';
 
 export interface HeldCorrectionContext extends Omit<HeldAppControllerContext, 'expected'> {
   capability: HeldCorrectionCapability;
 }
 export interface HeldCorrectionResult extends HeldAppResult {
-  correction: 'held-config-correction-01'; target: HeldAppTarget | null;
+  correction: string; target: HeldAppTarget | null;
 }
 function refuse(): never { throw new Error('Fixed held configuration correction refused; preserve consumed evidence.'); }
 function session(context: HeldCorrectionContext, importing = false) {
-  const capability = validateHeldCorrectionCapability(context.capability), capabilityBytes = canonical(capability);
+  const capability = validateHeldDeploymentCapability(context.capability), capabilityBytes = canonical(capability);
+  const postRepair = capability.selector === heldPostRepair.selector;
   const { run, signal } = context, owned = new Map<string, string>();
-  const prefix = `${run.packet.runId}.${heldCorrection.selector}-`;
-  const result: HeldCorrectionResult = { correction: 'held-config-correction-01', status: 'STOP', stage: 'guard', firstError: null,
+  const prefix = `${run.packet.runId}.${capability.selector}-`;
+  const result: HeldCorrectionResult = { correction: capability.selector, status: 'STOP', stage: 'guard', firstError: null,
     target: null, candidateId: null, metadataRequests: 0, createCommands: 0, candidateRequests: 0, envPosts: 0,
     promotions: 0, disposition: 'not-started', historicalWrite: 'unknown', historicalPostAck: 'absent' };
-  const path = (suffix: string) => heldCorrectionEvidencePath(run.directory, run.packet, suffix);
+  const path = (suffix: string) => heldCorrectionEvidencePath(run.directory, run.packet, suffix, capability.selector);
   const check = () => {
-    signal.throwIfAborted(); context.verifyExecutable();
-    if ('expected' in context || canonical(validateHeldCorrectionCapability(context.capability)) !== capabilityBytes
+    signal.throwIfAborted();
+    const manifest = context.verifyExecutable();
+    if ('expected' in context || canonical(validateHeldDeploymentCapability(context.capability)) !== capabilityBytes
       || !/^[a-f0-9]{64}$/.test(context.executableDigest)) refuse();
+    if (postRepair) {
+      if (!manifest || typeof manifest !== 'object' || !('heldPostRepairCapability' in manifest)
+        || canonical(validateHeldDeploymentCapability(manifest.heldPostRepairCapability)) !== capabilityBytes
+        || ['heldAppCapability', 'heldCorrectionCapability', 'heldDatabaseRepairCapability', 'diagnosticSelector', 'diagnosticContextDigest']
+          .some(key => key in manifest)) refuse();
+      verifyHeldDatabaseRepairBasis(run);
+      const prior = readHeldPostRepairBasis(run.directory, run.packet, run.digest, retainedUnknown.head);
+      if (context.executableDigest === prior.proofExecutableDigest || context.executableDigest === heldPostRepair.repairExecutableDigest) refuse();
+    }
     verifyRetainedAppUnknown(run);
     const original = readHeldCorrectionOriginal(run.directory, run.packet, run.digest, retainedUnknown.head);
     if (context.executableDigest === original.proofExecutableDigest || context.executableDigest === original.pending.executableDigest) refuse();
@@ -67,10 +79,10 @@ function session(context: HeldCorrectionContext, importing = false) {
       ...(result.stage === 'metadata' && error instanceof AppMetadataError ? { metadata: error.diagnostic } : {}) };
     result.stage = result.firstError.stage;
   };
-  return { result, capability, check, persist, fail, owned, prefix };
+  return { result, capability, check, persist, fail, owned, prefix, postRepair };
 }
 
-export async function createHeldCorrection(context: HeldCorrectionContext, prepare: () => PreparedHeldMetadata,
+export async function createHeldCorrection(context: HeldCorrectionContext, prepare: () => PreparedHeldMetadata | Promise<PreparedHeldMetadata>,
   makeCli: () => HeldCreateCli): Promise<HeldCorrectionResult> {
   const s = session(context), result = s.result, { run, artifact, provider, signal } = context;
   let prepared: PreparedHeldMetadata | undefined, cli: HeldCreateCli | undefined, claimDigest: string | undefined;
@@ -79,15 +91,16 @@ export async function createHeldCorrection(context: HeldCorrectionContext, prepa
     const original = s.check();
     result.stage = 'assets'; verifyRecoveredRoleAssets(artifact, run.packet); s.check();
     result.stage = 'preflight'; await provider.preflight(); s.check();
-    result.stage = 'input'; prepared = prepare(); s.check();
+    result.stage = 'input'; prepared = await prepare(); s.check();
     result.stage = 'metadata'; const metadata: CurrentAppMetadata = await prepared.observe(() => {
       s.check(); if (result.metadataRequests) refuse(); result.metadataRequests++;
     });
     if (result.metadataRequests !== 1 || !/^[a-f0-9]{64}$/.test(metadata.metadataDigest)
       || !Number.isInteger(metadata.keyCount) || metadata.keyCount < 1 || metadata.keyCount > 64) refuse();
+    if (s.postRepair && metadata.keyCount !== 17) refuse();
     s.check(); result.stage = 'cleanup'; prepared.dispose(); prepared = undefined; s.check();
     result.stage = 'claim';
-    const claim: HeldCorrectionClaim = { version: 1, kind: 'held-config-correction-create', basis: heldCorrection,
+    const claim: HeldCorrectionClaim = { version: 1, kind: 'held-config-correction-create', basis: s.postRepair ? heldPostRepair : heldCorrection,
       executionId: original.target.executionId, packetDigest: run.digest, unknownHead: retainedUnknown.head,
       inventoryDigest: original.pending.inventoryDigest, bootstrapProofDigest: original.pending.bootstrapProofDigest,
       artifactDigest: artifact.digest, executableDigest: context.executableDigest, capability: s.capability,
@@ -107,7 +120,8 @@ export async function createHeldCorrection(context: HeldCorrectionContext, prepa
         deploymentId: id, code: created.code, aborted: created.aborted });
     }
     if (!id || !ackDigest || created.code !== 0 || created.aborted || result.createCommands !== 1
-      || id === original.target.candidate || id === run.packet.predecessorId || id === 'dpl_525LvEPCBud7nyAeFTcRx8iipTrk') refuse();
+      || id === original.target.candidate || id === run.packet.predecessorId || id === 'dpl_525LvEPCBud7nyAeFTcRx8iipTrk'
+      || (s.postRepair && id === readHeldPostRepairBasis(run.directory, run.packet, run.digest, retainedUnknown.head).target.candidate)) refuse();
     s.check(); result.stage = 'ready';
     for (let attempt = 0; attempt < 30; attempt++) {
       candidate = await provider.inspect(id); s.check();
@@ -137,7 +151,7 @@ export async function createHeldCorrection(context: HeldCorrectionContext, prepa
     const pendingDigest = s.persist('pending', pending); s.check();
     result.stage = 'terminal'; s.persist('create-result', { version: 1, kind: 'held-config-correction-result',
       claimDigest, pendingDigest, status: 'HELD_PROBE_PENDING' });
-    s.check(); result.target = readHeldCorrectionPending(run.directory, run.packet, run.digest, retainedUnknown.head).target;
+    s.check(); result.target = readHeldCorrectionPending(run.directory, run.packet, run.digest, retainedUnknown.head, s.capability.selector).target;
     result.status = 'HELD_PROBE_PENDING'; result.disposition = 'held-probe-pending'; result.stage = 'complete';
   } catch (error) {
     s.fail(error);
@@ -155,8 +169,9 @@ export async function importHeldCorrectionProof(context: HeldCorrectionContext, 
   let importClaimDigest: string | undefined;
   try {
     s.check();
-    if (!/^[1-9][0-9]{0,19}$/.test(workflowRun) || workflowRun === heldCorrection.failedProbeRun) refuse();
-    const lineage = readHeldCorrectionPending(run.directory, run.packet, run.digest, retainedUnknown.head);
+    if (!/^[1-9][0-9]{0,19}$/.test(workflowRun) || workflowRun === heldCorrection.failedProbeRun
+      || (s.postRepair && workflowRun === heldPostRepair.failedProbeRun)) refuse();
+    const lineage = readHeldCorrectionPending(run.directory, run.packet, run.digest, retainedUnknown.head, s.capability.selector);
     if (lineage.proofExecutableDigest !== context.executableDigest || canonical(lineage.capability) !== canonical(s.capability)) refuse();
     const { target, pending } = lineage;
     result.target = target;
@@ -167,7 +182,9 @@ export async function importHeldCorrectionProof(context: HeldCorrectionContext, 
     s.check(); result.stage = 'proof'; const proof = await verifyProof(target); s.check();
     if (proof.workflowRun !== workflowRun || canonical(proof.sourceDigests) !== canonical(s.capability.sourceDigests)
       || proof.binding.workflowRevision === s.capability.controllerPublication.revision
-      || proof.binding.workflowRevision === heldCorrection.sourceRevision) refuse();
+      || proof.binding.workflowRevision === heldCorrection.sourceRevision
+      || (s.postRepair && (proof.binding.workflowRevision === heldPostRepair.failedProbeRevision
+        || proof.binding.workflowRevision === heldPostRepair.repairControllerRevision))) refuse();
     result.stage = 'preflight'; await provider.preflight(); s.check();
     result.stage = 'ready'; const candidate = await provider.inspect(target.candidate); s.check();
     if (!candidate.ready || candidate.id !== target.candidate || candidate.origin !== target.origin) refuse();
@@ -179,7 +196,7 @@ export async function importHeldCorrectionProof(context: HeldCorrectionContext, 
       scope: 'held-deployment-runtime', promotion: 'not_started' });
     s.check(); result.stage = 'event';
     const current = appendActivationEvent(run.directory, run.packet, run.digest, 'app-config', 'configuration-attested', {
-      receiptDigest, deploymentId: target.candidate, configDigest: run.packet.appConfigDigest, correction: heldCorrection.selector });
+      receiptDigest, deploymentId: target.candidate, configDigest: run.packet.appConfigDigest, correction: s.capability.selector });
     context.verifyExecutable();
     if (current.events.length !== 23 || current.next !== 'app' || current.heldCandidate?.deploymentId !== target.candidate
       || readActivationJournal(run.directory, run.packet, run.digest).head !== current.head) refuse();
