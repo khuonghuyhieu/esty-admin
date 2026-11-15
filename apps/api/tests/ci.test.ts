@@ -81,6 +81,73 @@ test('untrusted, stale-attempt and unactivated contexts cannot enter production'
   assert.throws(() => checksContext({ ...context(), GITHUB_REF: 'refs/heads/not-main' }));
 });
 
+test('completion Bash distinguishes checks-only, eligible delivery and manual acceptance', async t => {
+  let repositoryRoot = process.cwd();
+  const workflowPath = '.github/workflows/be-delivery.yml';
+  while (!existsSync(join(repositoryRoot, workflowPath)) && dirname(repositoryRoot) !== repositoryRoot) {
+    repositoryRoot = dirname(repositoryRoot);
+  }
+  const workflow = readFileSync(join(repositoryRoot, workflowPath), 'utf8');
+  const completion = workflow.split('\n  completion:\n')[1];
+  const script = completion?.match(/        run: \|\n((?:          .*(?:\n|$))*)/)?.[1]
+    ?.replace(/^          /gm, '');
+  assert.ok(script, 'The completion job must expose its executable Bash');
+  const directory = await mkdtemp(join(tmpdir(), 'esty-completion-gate-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const baseline = {
+    MANUAL_ACTIVATION: 'false', PRODUCTION_ELIGIBLE: 'false', CHECKS_RESULT: 'success',
+    DELIVERY_RESULT: 'skipped', DELIVERY_ACCEPTED: '', RETRIEVAL_RESULT: 'skipped',
+    ACTIVATION_RESULT: 'skipped', ACTIVATION_ACCEPTED: '',
+  };
+  type CompletionCase = { name: string; env: Partial<typeof baseline>; result: 'checks-only' | 'delivery' | 'activation' | 'failure' };
+  const cases: CompletionCase[] = [
+    { name: 'owner-reported intentionally disabled delivery', env: {}, result: 'checks-only' },
+    { name: 'eligible accepted delivery', env: { PRODUCTION_ELIGIBLE: 'true', DELIVERY_RESULT: 'success', DELIVERY_ACCEPTED: 'true' }, result: 'delivery' },
+    { name: 'unknown eligibility cannot claim checks-only', env: { PRODUCTION_ELIGIBLE: '' }, result: 'failure' },
+    { name: 'skipped delivery cannot claim acceptance', env: { DELIVERY_ACCEPTED: 'true' }, result: 'failure' },
+    { name: 'ineligible unexpected delivery cannot claim checks-only', env: { DELIVERY_RESULT: 'success', DELIVERY_ACCEPTED: 'true' }, result: 'failure' },
+  ];
+  for (const result of ['failure', 'cancelled', 'skipped']) {
+    cases.push({ name: `checks-only checks ${result}`, env: { CHECKS_RESULT: result }, result: 'failure' });
+    cases.push({ name: `eligible checks ${result}`, env: { PRODUCTION_ELIGIBLE: 'true', CHECKS_RESULT: result,
+      DELIVERY_RESULT: 'success', DELIVERY_ACCEPTED: 'true' }, result: 'failure' });
+    cases.push({ name: `eligible delivery ${result}`, env: { PRODUCTION_ELIGIBLE: 'true', DELIVERY_RESULT: result,
+      DELIVERY_ACCEPTED: 'true' }, result: 'failure' });
+  }
+  for (const accepted of ['', 'false']) cases.push({ name: `eligible delivery unaccepted ${JSON.stringify(accepted)}`,
+    env: { PRODUCTION_ELIGIBLE: 'true', DELIVERY_RESULT: 'success', DELIVERY_ACCEPTED: accepted }, result: 'failure' });
+  for (const result of ['failure', 'cancelled']) cases.push({ name: `ineligible delivery unexpectedly ${result}`,
+    env: { DELIVERY_RESULT: result }, result: 'failure' });
+  const manual = { MANUAL_ACTIVATION: 'true', CHECKS_RESULT: 'skipped', RETRIEVAL_RESULT: 'success',
+    ACTIVATION_RESULT: 'success', ACTIVATION_ACCEPTED: 'true' };
+  cases.push({ name: 'manual accepted independently of skipped routine jobs', env: manual, result: 'activation' });
+  for (const field of ['RETRIEVAL_RESULT', 'ACTIVATION_RESULT'] as const) {
+    for (const result of ['failure', 'cancelled', 'skipped']) cases.push({ name: `manual ${field} ${result}`,
+      env: { ...manual, [field]: result }, result: 'failure' });
+  }
+  for (const accepted of ['', 'false']) cases.push({ name: `manual unaccepted ${JSON.stringify(accepted)}`,
+    env: { ...manual, ACTIVATION_ACCEPTED: accepted }, result: 'failure' });
+  for (const [index, entry] of cases.entries()) await t.test(entry.name, async () => {
+    const summary = join(directory, `summary-${index}`);
+    await writeFile(summary, '');
+    const result = childProcess.spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script], {
+      env: { PATH: '/usr/bin:/bin', ...baseline, ...entry.env, GITHUB_STEP_SUMMARY: summary },
+      encoding: 'utf8', timeout: 5000,
+    });
+    assert.ifError(result.error);
+    assert.equal(result.signal, null);
+    assert.equal(result.status, entry.result === 'failure' ? 1 : 0, result.stderr);
+    const reported = readFileSync(summary, 'utf8');
+    if (entry.result === 'failure') {
+      assert.equal(reported, '', 'A rejected aggregate must not publish a success summary');
+    } else {
+      assert.equal(reported, result.stdout, 'The Actions summary must report the same outcome as the job log');
+      if (entry.result === 'checks-only') assert.match(reported, /not deployed; delivery not accepted/);
+      else assert.match(reported, new RegExp(`BE ${entry.result} accepted`));
+    }
+  });
+});
+
 function harness(artifact: VerifiedArtifact, failure?: string) {
   const events: string[] = []; let creates = 0, promotions = 0, mainChecks = 0, alias = 'dpl_previous';
   const step = (name: string) => { events.push(name); if (failure === name) throw new Error('synthetic confidential failure'); };

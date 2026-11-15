@@ -2,6 +2,12 @@
 
 Updated: 2026-11-01 · Actual branch: `main` · [Spec](spec.md) · [Tasks](tasks.md) · [Validation guide](quickstart.md)
 
+## CI completion gate — deployment paused
+
+**READY_FOR_CI_GATE_REVIEW; runtime remains PAUSED.** The owner-reported checks-success/production-skipped run is intentionally checks-only when the unchanged production eligibility predicate is false. `.github/workflows/be-delivery.yml` shares that exact predicate through a YAML anchor; it does not enable `BE_DELIVERY_ENABLED`. Job identifier `completion` is preserved; its neutral display is `BE completion`. Success explicitly reports **not deployed; delivery not accepted**. Failed/cancelled/skipped checks, ineligible non-skipped production, eligible skipped/failed/cancelled/unaccepted delivery and unaccepted manual retrieval/activation still fail. Manual activation still requires successful retrieval, successful activation and accepted output.
+
+Scope is exactly the workflow, existing `apps/api/tests/ci.test.ts`, and this note. Native Node24.22.1 isolated compilation passed; the extracted actual Bash matrix passed **27 scenarios plus its parent test (28/28, zero skips)**, including execution from the API workspace. A local parsed-YAML smoke resolved the shared eligibility anchor, checked nine synthetic contexts, and executed the supplied checks-only case with exit0 and matching truthful log/step-summary text. Initial optional-capture typing failure is retained; the corrected compile passed, then workspace-safe workflow lookup was verified. No broad suite, hosted Actions execution, DB/provider/private input, deployment, Git or helper/manifest change occurred. Evidence and exact three-file hashes: `.openai/task-d1/ci-completion01/handoff.json`. Coordinator owns focused review/publication; no runtime release is inferred.
+
 ## T186 post-database-repair held deployment admission
 
 **Agreed job and SOURCE/LOCAL boundary:** root t12p accepted actual DB-pair repair handoff `3ce61689a89bda7db0c23df9a96be90b087d415553bcc639665666d035581dfe` and requested exactly one fresh held deployment of the retained f162 artifact with current project configuration. The actual repair on published bd9e2611a3b0338aa8b7d3678a31e8d6cbeefdd3/treec946c5a7f49c9a0ce21f4940a16756edbaa97249 returned `DATABASE_PAIR_REPAIRED`, HTTP201/two ACKs, two metadata reads and unchanged17 IDs/types/targets. It did not redeploy, prove runtime values or connect to the database. Historical UNKNOWN22 and both failed held candidates remain immutable.

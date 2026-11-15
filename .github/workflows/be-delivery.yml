@@ -88,12 +88,12 @@ jobs:
   production:
     name: BE production delivery
     needs: checks
-    if: >-
-      github.repository == 'khuonghuyhieu/esty-admin' &&
+    if: &production-eligible >-
+      ${{ github.repository == 'khuonghuyhieu/esty-admin' &&
       github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
       (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
       vars.BE_DELIVERY_ENABLED == 'true' &&
-      (inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only') != 'activation'
+      (inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only') != 'activation' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: be-production
@@ -556,16 +556,17 @@ jobs:
           overwrite: false
 
   completion:
-    name: BE delivery accepted
+    name: BE completion
     needs: [checks, production, manual_retrieval, manual_activation]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
     permissions: {}
     steps:
-      - name: Require successful exact-artifact delivery, never a skipped job
+      - name: Report checks-only success or require accepted delivery
         env:
           MANUAL_ACTIVATION: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'activation' }}
+          PRODUCTION_ELIGIBLE: *production-eligible
           CHECKS_RESULT: ${{ needs.checks.result }}
           DELIVERY_RESULT: ${{ needs.production.result }}
           DELIVERY_ACCEPTED: ${{ needs.production.outputs.accepted }}
@@ -579,8 +580,16 @@ jobs:
               printf '%s\n' 'BE activation not accepted: retained retrieval, activation and final BE acceptance must all succeed.' >&2
               exit 1
             fi
-          elif [[ "$CHECKS_RESULT" != success || "$DELIVERY_RESULT" != success || "$DELIVERY_ACCEPTED" != true ]]; then
-            printf '%s\n' 'BE delivery not accepted: checks, production and final delivery acceptance must all succeed.' >&2
+            message='Exact-artifact BE activation accepted. First-activation FE acceptance remains a separate gate.'
+          elif [[ "$CHECKS_RESULT" != success ]]; then
+            printf '%s\n' 'BE completion failed: required checks did not succeed.' >&2
+            exit 1
+          elif [[ "$PRODUCTION_ELIGIBLE" == false && "$DELIVERY_RESULT" == skipped && -z "$DELIVERY_ACCEPTED" ]]; then
+            message='BE checks-only succeeded: production intentionally ineligible; not deployed; delivery not accepted.'
+          elif [[ "$PRODUCTION_ELIGIBLE" == true && "$DELIVERY_RESULT" == success && "$DELIVERY_ACCEPTED" == true ]]; then
+            message='Exact-artifact BE delivery accepted. First-activation FE acceptance remains a separate gate.'
+          else
+            printf '%s\n' 'BE delivery not accepted: eligible production and final delivery acceptance must both succeed.' >&2
             exit 1
           fi
-          printf '%s\n' 'Exact-artifact BE delivery accepted. First-activation FE acceptance remains a separate gate.'
+          printf '%s\n' "$message" | tee -a "$GITHUB_STEP_SUMMARY"
