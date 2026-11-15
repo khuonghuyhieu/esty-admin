@@ -10,6 +10,7 @@ import fsPromises from 'node:fs/promises';
 import { cp, chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { rootCertificates } from 'node:tls';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
 import { artifactFixture, receiptZip, routineMigrationFixture } from './artifact-fixture.js';
@@ -27,7 +28,8 @@ import type { ActivationPacket, ActivationPhase } from '../scripts/activation-jo
 import { completeActivation, confirmActivationPhase, executeActivationPhase, reconcileActivationAcknowledgement, reconcileActivationEffect } from '../scripts/activation.js';
 import { phaseInputEnvironment } from '../scripts/activation-inputs.js';
 import { configureActivation, observeAppMetadata, AppMetadataError, ActivationConfigurationError,
-  appMissingFiveKeys, observeMissingFiveMetadata, postMissingFive, verifyMissingFiveMetadata } from '../scripts/activation-configuration.js';
+  appMissingFiveKeys, observeMissingFiveMetadata, postMissingFive, verifyMissingFiveMetadata,
+  observeAppDatabasePair, postAppDatabasePair, verifyAppDatabasePair } from '../scripts/activation-configuration.js';
 import type { ActivationConfigurationReceipt } from '../scripts/activation-configuration.js';
 import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
 import { activationSchema } from '../src/config/schema-transition.js';
@@ -731,6 +733,124 @@ test('missing-five final metadata binds both new ACK identities and untouched ex
     if (scenario === 'verified') assert.equal((await result).keyCount, entries.length);
     else await assert.rejects(result, AppMetadataError);
     assert.equal(gets, 1);
+  });
+});
+
+function databasePairConfiguration() {
+  const { values, packet } = secretConfiguration('app');
+  values.DATABASE_CA_PEM = rootCertificates[0]!;
+  packet.appConfigDigest = sha256(canonical(values));
+  const entries = Object.keys({ ...values, APP_ACTIVATION_CONFIG_DIGEST: packet.appConfigDigest }).map((key, index) =>
+    ({ id: `env_pair_${index}`, key, type: 'sensitive', visibility: 'secret', target: ['production'], value: 'PRIVATE_DB_PAIR' }));
+  return { values, packet, entries };
+}
+test('database-pair requires all17 existing Production Secret bindings and least-privilege APP inputs', async t => {
+  for (const scenario of ['valid', 'missing-url', 'missing-user', 'missing-other', 'encrypted', 'preview',
+    'duplicate-id', 'privileged', 'hidden', 'paginated', 'postgres', 'operator', 'url-mismatch', 'digest']) {
+    await t.test(scenario, async () => {
+      const { values, packet, entries } = databasePairConfiguration();
+      const rows: Array<Record<string, unknown>> = [...entries];
+      if (scenario.startsWith('missing-')) {
+        const key = scenario === 'missing-url' ? 'DATABASE_URL' : scenario === 'missing-user' ? 'SUPABASE_DATABASE_USER' : 'DATABASE_CA_PEM';
+        rows.splice(rows.findIndex(row => row.key === key), 1);
+      }
+      if (scenario === 'encrypted') rows[0]!.type = 'encrypted';
+      if (scenario === 'preview') rows[0]!.target = ['preview'];
+      if (scenario === 'duplicate-id') rows[1]!.id = rows[0]!.id;
+      if (scenario === 'privileged') rows.push({ key: 'SUPABASE_SERVICE_ROLE_KEY', value: 'PRIVATE_DB_PAIR' });
+      if (scenario === 'postgres' || scenario === 'operator' || scenario === 'url-mismatch') {
+        const user = scenario === 'operator' ? 'app_operator' : 'postgres';
+        values.DATABASE_URL = values.DATABASE_URL!.replace('app_runtime.', `${user}.`);
+        if (scenario !== 'url-mismatch') values.SUPABASE_DATABASE_USER = `${user}.eotmpaliqcxxcotrcols`;
+        packet.appConfigDigest = sha256(canonical(values));
+      }
+      if (scenario === 'digest') packet.appConfigDigest = sha256('unapproved input envelope');
+      let gets = 0;
+      const observed = observeAppDatabasePair(values, packet, 'synthetic-config-token', AbortSignal.timeout(10000),
+        async (url, init) => {
+          gets++; assert.equal(init?.method, 'GET'); assert.equal(new URL(String(url)).searchParams.get('decrypt'), 'false');
+          return Response.json({ envs: rows, hiddenProductionEnvCount: scenario === 'hidden' ? 1 : 0,
+            pagination: { next: scenario === 'paginated' ? 'more' : null } });
+        });
+      if (scenario === 'valid') {
+        const result = await observed;
+        assert.equal(result.keyCount, 17); assert.equal(result.bindings.DATABASE_URL!.id, entries.find(row => row.key === 'DATABASE_URL')!.id);
+        assert.doesNotMatch(JSON.stringify(result), /PRIVATE_DB_PAIR|synthetic-only|BEGIN CERTIFICATE/);
+      } else await assert.rejects(observed, error => error instanceof Error && !JSON.stringify(error).includes('PRIVATE_DB_PAIR'));
+      assert.equal(gets, ['postgres', 'operator', 'url-mismatch', 'digest'].includes(scenario) ? 0 : 1);
+    });
+  }
+});
+test('database-pair updates only the existing approved pair and retains partial or lost ACK without replay or secret output', async t => {
+  for (const scenario of ['success', 'partial', 'lost-ack', 'http-error', 'extra-key', 'missing-before']) await t.test(scenario, async () => {
+    const { values, packet, entries } = databasePairConfiguration(), canary = 'PRIVATE_DB_PAIR';
+    const before = await observeAppDatabasePair(values, packet, 'synthetic-config-token', AbortSignal.timeout(10000),
+      async () => Response.json({ envs: entries }));
+    const pair = ['DATABASE_URL', 'SUPABASE_DATABASE_USER'];
+    const rows = pair.map(key => entries.find(row => row.key === key)!);
+    const providerValues = new Map(entries.map(row => [row.key, `untouched:${row.key}`])), original = new Map(providerValues);
+    if (scenario === 'missing-before') {
+      const bindings = { ...before.bindings }; delete bindings.DATABASE_URL;
+      before.bindings = bindings;
+    }
+    let posts = 0;
+    const outcome = postAppDatabasePair(values, packet, 'synthetic-config-token', before, AbortSignal.timeout(10000),
+      async (url, init) => {
+        posts++; assert.equal(init?.method, 'POST'); assert.equal(init?.redirect, 'error');
+        const parsed = new URL(String(url));
+        assert.equal(parsed.origin, 'https://api.vercel.com'); assert.equal(parsed.pathname, `/v10/projects/${packet.projectId}/env`);
+        assert.deepEqual(Object.fromEntries(parsed.searchParams), { upsert: 'true', teamId: packet.scopeId, slug: artifactTarget.scope });
+        const sent = JSON.parse(String(init?.body)) as Array<{ key: string; value: string }>;
+        assert.deepEqual(sent, pair.map(key => ({ key, value: values[key], type: 'sensitive', target: ['production'] })));
+        for (const row of sent) { assert.ok(providerValues.has(row.key)); providerValues.set(row.key, row.value); }
+        if (scenario === 'lost-ack') throw new Error(canary);
+        if (scenario === 'http-error') return Response.json({ error: { message: canary, value: canary } }, { status: 403 });
+        if (scenario === 'partial') return Response.json({ created: [rows[0]], failed: [
+          { error: { envVarKey: 'SUPABASE_DATABASE_USER', envVarId: rows[1]!.id, message: canary, value: canary } },
+        ] }, { status: 201 });
+        return Response.json({ created: scenario === 'extra-key' ? [...rows, entries[0]] : rows, failed: [] }, { status: 201 });
+      });
+    if (scenario === 'missing-before') { await assert.rejects(outcome, AppMetadataError); assert.equal(posts, 0); return; }
+    const ack = await outcome;
+    assert.equal(posts, 1); assert.equal(ack.outcome, scenario === 'success' ? 'acknowledged' : 'unknown');
+    assert.equal(providerValues.get('DATABASE_URL'), values.DATABASE_URL);
+    assert.equal(providerValues.get('SUPABASE_DATABASE_USER'), 'app_runtime.eotmpaliqcxxcotrcols');
+    for (const [key, value] of original) if (!pair.includes(key)) assert.equal(providerValues.get(key), value);
+    assert.deepEqual(Object.keys(ack.keys), pair);
+    assert.doesNotMatch(JSON.stringify(ack), /PRIVATE_DB_PAIR|synthetic-only|synthetic-config-token|BEGIN CERTIFICATE|postgresql/);
+    if (scenario === 'partial') {
+      assert.deepEqual(ack.keys.DATABASE_URL, { status: 'acknowledged', ids: [rows[0]!.id] });
+      assert.deepEqual(ack.keys.SUPABASE_DATABASE_USER, { status: 'failed', ids: [rows[1]!.id] });
+    }
+    if (scenario === 'lost-ack') {
+      assert.equal(ack.httpStatus, null);
+      assert.deepEqual(ack.keys, { DATABASE_URL: { status: 'unknown', ids: [] }, SUPABASE_DATABASE_USER: { status: 'unknown', ids: [] } });
+    }
+  });
+});
+test('database-pair verifies only full ACKs and unchanged17 identities, types and targets, never decrypted values', async t => {
+  for (const scenario of ['verified', 'partial', 'ack-id', 'pair-id', 'other-id', 'type', 'target', 'missing']) await t.test(scenario, async () => {
+    const { values, packet, entries } = databasePairConfiguration();
+    const before = await observeAppDatabasePair(values, packet, 'synthetic-config-token', AbortSignal.timeout(10000),
+      async () => Response.json({ envs: entries }));
+    const ack = await postAppDatabasePair(values, packet, 'synthetic-config-token', before, AbortSignal.timeout(10000),
+      async () => Response.json({ created: entries.filter(row => ['DATABASE_URL', 'SUPABASE_DATABASE_USER'].includes(row.key)), failed: [] }, { status: 201 }));
+    if (scenario === 'partial') ack.outcome = 'unknown';
+    if (scenario === 'ack-id') ack.keys.DATABASE_URL.ids = ['env_replaced'];
+    const after = structuredClone(entries), pair = after.find(row => row.key === 'DATABASE_URL')!;
+    if (scenario === 'pair-id') pair.id = 'env_replaced';
+    if (scenario === 'other-id') after[0]!.id = 'env_replaced';
+    if (scenario === 'type') pair.type = 'encrypted';
+    if (scenario === 'target') pair.target = ['preview'];
+    if (scenario === 'missing') after.splice(after.indexOf(pair), 1);
+    after.forEach(row => { row.value = 'OTHER_PRIVATE_VALUE'; });
+    let gets = 0;
+    const verify = () => verifyAppDatabasePair(values, packet, 'synthetic-config-token', before, ack, AbortSignal.timeout(10000),
+      async (url, init) => { gets++; assert.equal(init?.method, 'GET');
+        assert.equal(new URL(String(url)).searchParams.get('decrypt'), 'false'); return Response.json({ envs: after }); });
+    if (scenario === 'verified') assert.deepEqual(await verify(), { metadataDigest: before.metadataDigest, keyCount: 17 });
+    else await assert.rejects(async () => verify(), AppMetadataError);
+    assert.equal(gets, ['partial', 'ack-id'].includes(scenario) ? 0 : 1);
   });
 });
 

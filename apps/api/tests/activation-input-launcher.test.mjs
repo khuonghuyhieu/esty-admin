@@ -161,3 +161,40 @@ test('fixed correction launcher refuses unsealed publication and authority subst
     [heldCorrection.selector, 'import-proof', '0', ...context],
   ]) refused(run({ heldCorrectionCapability: capability }, args));
 });
+
+test('database-pair launcher admits only the sealed fixed repair and rejects publication, context or action substitution before entry', t => {
+  const f = fixture(t), base = '/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin/.openai/reports';
+  for (const name of ['activation-held-correction-contract.mjs', 'activation-held-contract.mjs'])
+    cpSync(fileURLToPath(new URL(`../scripts/${name}`, import.meta.url)), join(f.scripts, name));
+  const context = [
+    `${base}/protected-real-transfer-state-vd3tg33z/ca-successor-36a0c3c3-0a74-4ccf-b6a3-8d5da26e4eed/successor.json`,
+    '756f9802100c9c86a75f24d3e688e6a5f57d745b6f7f96b88555c2acd105d559',
+    `${base}/bridge-reconciliation-fn1_56_z/receipt-copy/be-receipts`,
+    `${base}/first-production-f162-h9czirsk/verified-transfer/artifact`,
+  ];
+  const capability = { selector: 'held-db-config-repair-01', contextDigest: heldCorrection.contextDigest,
+    controllerPublication: { revision: 'a'.repeat(40), tree: 'c'.repeat(40) } };
+  const run = (changes, args = [capability.selector, ...context]) => {
+    const sealed = f.seal(changes);
+    return spawnSync(process.execPath, [f.launcher, f.manifestPath, sealed.digest, ...args],
+      { encoding: 'utf8', env: {}, timeout: 10000 });
+  };
+  const valid = run({ heldDatabaseRepairCapability: capability });
+  assert.equal(valid.status, 0, valid.stderr); assert.match(valid.stdout, /HIDDEN_PROMPT/);
+  for (const publication of [null, { revision: 'f5d330c9784ec9d87df197ff780d30fde7073060', tree: 'c'.repeat(40) },
+    { revision: '4c2c5a2a7834905d3942880acc3fbebbb0f2751d', tree: 'c'.repeat(40) },
+    { revision: heldCorrection.sourceRevision, tree: heldCorrection.sourceTree },
+    { ...capability.controllerPublication, extra: true }]) {
+    refused(run({ heldDatabaseRepairCapability: { ...capability, controllerPublication: publication } }));
+  }
+  refused(run({}));
+  refused(run({ heldDatabaseRepairCapability: { ...capability, keys: ['DATABASE_URL'] } }));
+  refused(run({ heldDatabaseRepairCapability: capability, heldCorrectionCapability: heldCorrectionCapability(capability.controllerPublication) }));
+  refused(run({ heldDatabaseRepairCapability: capability, heldAppCapability: { selector: 'held-app-configuration' } }));
+  for (const args of [
+    [capability.selector, 'create', ...context], [capability.selector, ...context, 'SUPABASE_DATABASE_USER'],
+    [capability.selector, ...context.slice(0, 3), '/different/artifact'],
+    ['held-config-correction-01', 'create', ...context], ['held-app-configuration', 'correct-missing-five', ...context],
+    ['prepare', ...context],
+  ]) refused(run({ heldDatabaseRepairCapability: capability }, args));
+});

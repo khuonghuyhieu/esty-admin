@@ -104,6 +104,19 @@ export async function launchVerified(args) {
       || context.length !== 4 || hash(canonical(context)) !== 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02'
       || (importing && !/^[1-9][0-9]{0,19}$/.test(helperArgs[2] ?? ''))) refuse();
   }
+  const repairingDatabase = manifest.heldDatabaseRepairCapability !== undefined;
+  if (helperArgs[0] === 'held-db-config-repair-01' && !repairingDatabase) refuse();
+  if (repairingDatabase) {
+    const capability = manifest.heldDatabaseRepairCapability, publication = capability?.controllerPublication;
+    if (!capability || Object.keys(capability).sort().join(',') !== 'contextDigest,controllerPublication,selector'
+      || capability.selector !== 'held-db-config-repair-01'
+      || capability.contextDigest !== 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02'
+      || helperArgs.length !== 5 || helperArgs[0] !== capability.selector
+      || hash(canonical(helperArgs.slice(1))) !== capability.contextDigest
+      || manifest.heldAppCapability !== undefined || correcting || manifest.diagnosticSelector !== undefined
+      || !publication || ['f5d330c9784ec9d87df197ff780d30fde7073060', '4c2c5a2a7834905d3942880acc3fbebbb0f2751d']
+        .includes(publication.revision)) refuse();
+  }
   const runtime = manifest.runtimes.find(runtime => runtime.platform === process.platform && runtime.arch === process.arch);
   // Every ESM/CJS resolution stays within the complete verified tree, including package.json exports and generated JS/JSON.
   registerHooks({ resolve(specifier, context, nextResolve) {
@@ -118,6 +131,11 @@ export async function launchVerified(args) {
     const { validateHeldCorrectionCapability } = await import(pathToFileURL(join(root,
       'apps/api/build/scripts/activation-held-correction-contract.mjs')).href);
     validateHeldCorrectionCapability(manifest.heldCorrectionCapability);
+  }
+  if (repairingDatabase) {
+    const { heldCorrectionCapability, validateHeldCorrectionCapability } = await import(pathToFileURL(join(root,
+      'apps/api/build/scripts/activation-held-correction-contract.mjs')).href);
+    validateHeldCorrectionCapability(heldCorrectionCapability(manifest.heldDatabaseRepairCapability.controllerPublication));
   }
   const launcher = join(root, 'launch.mjs'), launcherHash = manifest.files.find(file => file.path === 'launch.mjs').sha256;
   Object.defineProperty(globalThis, Symbol.for('esty.activation.input.launcher'), { value: Object.freeze({

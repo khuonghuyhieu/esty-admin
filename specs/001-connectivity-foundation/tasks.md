@@ -2,6 +2,12 @@
 
 Updated: 2026-11-01 · Actual branch main · [Plan](plan.md)
 
+## T185 retained APP database-pair repair — current source/local increment
+
+Root t12p accepts only the fixed `DATABASE_URL` + `SUPABASE_DATABASE_USER` repair described in [the agreed design](plan.md#t185-fixed-retained-app-database-pair-repair), not a third CREATE or a new task identity. Actual probe43704277229 and bounded `DB_CONFIG/config/SUPABASE_DATABASE_USER` evidence are retained; current values and DB/password/SQL behavior are unproved. Keep the original one-P2 review and accepted fix history unchanged.
+
+**SOURCE/LOCAL READY_FOR_ROOT_INSPECTION.** Implemented in exactly four source files, plus four existing test/fixture files and three feature documents. Reused retained APP preparation and shared missing-five metadata/POST/ACK behavior; no provider/journal/roles/migration/bootstrap change. Isolated compile passed; focused configuration63/63, launcher3/3, controller31/31 and one network-denied consumed emitted synthetic repair passed. [Actual evidence, retained failures and limits](plan.md#database-pair-sourcelocal-inspection-receipt); exact closure in `.openai/task-d1/held-db-config-repair01/handoff.json`. Source-local seal1ac3 has null publication and refuses entry. No live inputs/provider effects, publication, new execution/journal/reviewer or later phase is released; the next operational action is strictly DB configuration repair.
+
 ## Retained-artifact manual activation — bounded source/local authorization
 
 - [x] T140 Inspect exact existing governance/workflow/sealed interfaces and align the two-identity, separate-permission retained-artifact design in plan. Attribute coordinator gh-lovora names-only clearance without repeating it or transferring inputs.

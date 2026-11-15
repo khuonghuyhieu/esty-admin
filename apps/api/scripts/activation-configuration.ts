@@ -149,14 +149,17 @@ export function observeAppMetadata(value: unknown, packet: ActivationPacket, tok
 export const appMissingFiveKeys = ['APP_AUTH_API_KEY', 'APP_AUTH_URL', 'APP_EMAIL_ENABLED',
   'APP_RETENTION_POLICY_ID', 'APP_WORKSPACE_ID'] as const;
 type MissingFiveKey = typeof appMissingFiveKeys[number];
+export const appDatabasePairKeys = ['DATABASE_URL', 'SUPABASE_DATABASE_USER'] as const;
 export interface MissingFiveMetadata extends CurrentAppMetadata {
   bindings: Readonly<Record<string, EnvironmentBinding>>;
 }
-export interface MissingFiveAck {
+interface AppCorrectionAck<Key extends string> {
   outcome: 'acknowledged' | 'unknown'; httpStatus: number | null;
   issue: 'none' | 'transport' | 'http' | 'body' | 'json' | 'partial-ack' | 'invalid-ack';
-  keys: Record<MissingFiveKey, { status: 'acknowledged' | 'failed' | 'unknown'; ids: string[] }>;
+  keys: Record<Key, { status: 'acknowledged' | 'failed' | 'unknown'; ids: string[] }>;
 }
+export type MissingFiveAck = AppCorrectionAck<MissingFiveKey>;
+export type AppDatabasePairAck = AppCorrectionAck<typeof appDatabasePairKeys[number]>;
 export function observeMissingFiveMetadata(value: unknown, packet: ActivationPacket, token: string,
   signal: AbortSignal, transport: typeof fetch = fetch): Promise<MissingFiveMetadata> {
   return readAppMetadata(value, packet, token, signal, transport, (body, expected) => {
@@ -171,23 +174,30 @@ export function observeMissingFiveMetadata(value: unknown, packet: ActivationPac
     return { bindings, metadataDigest: sha256(canonical(bindings)), keyCount: entries.size };
   });
 }
-export async function postMissingFive(value: unknown, packet: ActivationPacket, token: string,
-  signal: AbortSignal, transport: typeof fetch = fetch): Promise<MissingFiveAck> {
+async function postAppSelection<Key extends MissingFiveKey | typeof appDatabasePairKeys[number]>(
+  value: unknown, packet: ActivationPacket, token: string, signal: AbortSignal, transport: typeof fetch,
+  keys: readonly Key[], before?: MissingFiveMetadata): Promise<AppCorrectionAck<Key>> {
   if (packet.projectId !== artifactTarget.project || packet.scopeId !== artifactTarget.owner
     || !/^[\x21-\x7e]{16,512}$/.test(token)) throw new Error('Invalid correction authority.');
   const inputs = runtimeInputs(value, packet, 'app');
-  const result: MissingFiveAck = { outcome: 'unknown', httpStatus: null, issue: 'transport',
-    keys: Object.fromEntries(appMissingFiveKeys.map((key): [MissingFiveKey, MissingFiveAck['keys'][MissingFiveKey]] =>
-      [key, { status: 'unknown', ids: [] }])) as MissingFiveAck['keys'] };
+  const selection: readonly string[] = keys, updating = selection === appDatabasePairKeys;
+  if (updating && (!before || canonical(databasePairMetadata({ envs: Object.values(before.bindings) },
+    { ...inputs, APP_ACTIVATION_CONFIG_DIGEST: packet.appConfigDigest })) !== canonical(before))) {
+    throw new AppMetadataError('target-binding-mismatch');
+  }
+  const result: AppCorrectionAck<Key> = { outcome: 'unknown', httpStatus: null, issue: 'transport',
+    keys: Object.fromEntries(keys.map((key): [Key, AppCorrectionAck<Key>['keys'][Key]] =>
+      [key, { status: 'unknown', ids: [] }])) as AppCorrectionAck<Key>['keys'] };
   const url = new URL(`/v10/projects/${packet.projectId}/env`, 'https://api.vercel.com');
-  // The provider's documented create-only boundary is intentional: never send upsert.
+  // Missing-five stays create-only. Only the approved existing database pair uses documented upsert.
+  if (updating) url.searchParams.set('upsert', 'true');
   url.searchParams.set('teamId', packet.scopeId); url.searchParams.set('slug', artifactTarget.scope);
   let response: Response;
   try {
     signal.throwIfAborted();
     response = await transport(url.href, { method: 'POST', redirect: 'error',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
-      body: JSON.stringify(appMissingFiveKeys.map(key => ({ key, value: inputs[key], type: 'sensitive', target: ['production'] }))),
+      body: JSON.stringify(keys.map(key => ({ key, value: inputs[key], type: 'sensitive', target: ['production'] }))),
       signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) });
   } catch { return result; }
   result.httpStatus = response.status;
@@ -200,11 +210,10 @@ export async function postMissingFive(value: unknown, packet: ActivationPacket, 
   catch { result.issue = httpOk ? 'json' : 'http'; return result; }
   const created = Array.isArray(body.created) ? body.created : [];
   const failed = Array.isArray(body.failed) ? body.failed : [];
-  const seen = new Map<string, number>(), rejected = new Set<string>(), ids = new Map<string, MissingFiveKey>();
+  const seen = new Map<string, number>(), rejected = new Set<string>(), ids = new Map<string, Key>();
   let valid = Array.isArray(body.created) && Array.isArray(body.failed);
-  const keyOf = (key: unknown): MissingFiveKey | undefined =>
-    appMissingFiveKeys.find(candidate => candidate === key);
-  const retainId = (key: MissingFiveKey, id: unknown) => {
+  const keyOf = (key: unknown): Key | undefined => keys.find(candidate => candidate === key);
+  const retainId = (key: Key, id: unknown) => {
     if (typeof id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(id)
       && !result.keys[key].ids.includes(id)) result.keys[key].ids.push(id);
   };
@@ -229,17 +238,53 @@ export async function postMissingFive(value: unknown, packet: ActivationPacket, 
     } catch { valid = false; }
   }
   // Error messages and provider value fields are never copied, logged or hashed.
-  for (const key of appMissingFiveKeys) {
+  for (const key of keys) {
     if ((seen.get(key) ?? 0) > 1 || (seen.has(key) && rejected.has(key))) {
       result.keys[key].status = 'unknown'; valid = false;
     } else if (rejected.has(key)) result.keys[key].status = 'failed';
   }
-  const complete = valid && created.length === 5 && failed.length === 0
-    && appMissingFiveKeys.every(key => result.keys[key].status === 'acknowledged' && result.keys[key].ids.length === 1);
+  const complete = valid && created.length === keys.length && failed.length === 0
+    && keys.every(key => result.keys[key].status === 'acknowledged' && result.keys[key].ids.length === 1);
   result.outcome = httpOk && complete ? 'acknowledged' : 'unknown';
   result.issue = !httpOk ? 'http' : !valid ? 'invalid-ack' : !complete ? 'partial-ack' : 'none';
   return result;
 }
+export function postMissingFive(value: unknown, packet: ActivationPacket, token: string,
+  signal: AbortSignal, transport: typeof fetch = fetch): Promise<MissingFiveAck> {
+  return postAppSelection(value, packet, token, signal, transport, appMissingFiveKeys);
+}
+
+function databasePairMetadata(body: unknown, expected: Readonly<Record<string, string>>): MissingFiveMetadata {
+  const entries = metadata(body, expected, true, true);
+  if (entries.size !== 17 || appDatabasePairKeys.some(key => !entries.has(key))) {
+    throw new AppMetadataError('controlled-key-mismatch');
+  }
+  if ([...entries.values()].some(entry => entry.type !== 'sensitive')) throw new AppMetadataError('secret-type-mismatch');
+  const bindings = Object.fromEntries(entries);
+  return { bindings, metadataDigest: sha256(canonical(bindings)), keyCount: entries.size };
+}
+export function observeAppDatabasePair(value: unknown, packet: ActivationPacket, token: string,
+  signal: AbortSignal, transport: typeof fetch = fetch): Promise<MissingFiveMetadata> {
+  return readAppMetadata(value, packet, token, signal, transport, databasePairMetadata);
+}
+export function postAppDatabasePair(value: unknown, packet: ActivationPacket, token: string,
+  before: MissingFiveMetadata, signal: AbortSignal, transport: typeof fetch = fetch): Promise<AppDatabasePairAck> {
+  return postAppSelection(value, packet, token, signal, transport, appDatabasePairKeys, before);
+}
+export function verifyAppDatabasePair(value: unknown, packet: ActivationPacket, token: string,
+  before: MissingFiveMetadata, ack: AppDatabasePairAck, signal: AbortSignal,
+  transport: typeof fetch = fetch): Promise<CurrentAppMetadata> {
+  if (ack.outcome !== 'acknowledged' || appDatabasePairKeys.some(key => ack.keys[key].status !== 'acknowledged'
+    || ack.keys[key].ids.length !== 1 || ack.keys[key].ids[0] !== before.bindings[key]?.id)) {
+    throw new AppMetadataError('target-binding-mismatch');
+  }
+  return readAppMetadata(value, packet, token, signal, transport, (body, expected) => {
+    const observed = databasePairMetadata(body, expected);
+    if (canonical(observed.bindings) !== canonical(before.bindings)) throw new AppMetadataError('target-binding-mismatch');
+    return { metadataDigest: observed.metadataDigest, keyCount: observed.keyCount };
+  });
+}
+
 export function verifyMissingFiveMetadata(value: unknown, packet: ActivationPacket, token: string,
   before: MissingFiveMetadata, ack: MissingFiveAck, signal: AbortSignal,
   transport: typeof fetch = fetch): Promise<CurrentAppMetadata> {

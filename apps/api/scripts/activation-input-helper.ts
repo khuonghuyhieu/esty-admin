@@ -29,12 +29,15 @@ import { diagnoseAppSchemaExposure } from './activation-schema-diagnostic.js';
 import { migrationsDirectory } from './migrations.js';
 import { verifyMigrationFiles } from './migration-files.mjs';
 import { attestHeldApp, correctMissingFiveApp, createHeldApp, importHeldAppProof } from './activation-held.js';
-import { observeAppMetadata, observeMissingFiveMetadata, postMissingFive, verifyMissingFiveMetadata } from './activation-configuration.js';
+import { observeAppMetadata, observeMissingFiveMetadata, postMissingFive, verifyMissingFiveMetadata,
+  observeAppDatabasePair, postAppDatabasePair, verifyAppDatabasePair } from './activation-configuration.js';
 import { verifyHeldAppProbe } from './activation-held-proof.js';
 import { heldProbeSources } from './activation-held-contract.mjs';
 import { heldProbeGithubIo } from './activation-input-transfer.js';
 import { createHeldCorrection, importHeldCorrectionProof } from './activation-held-correction.js';
-import { heldCorrection, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
+import { heldCorrection, heldCorrectionCapability, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
+import { heldDatabaseRepair, repairHeldDatabase, validateHeldDatabaseRepairCapability,
+  verifyHeldDatabaseRepairBasis } from './activation-held-database-repair.js';
 import type { HeldAppProbeProof } from './activation-held-proof.js';
 import type { PreparedHeldMetadata } from './activation-held.js';
 
@@ -981,6 +984,50 @@ async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSi
     () => heldCandidateCreate(guard, artifact, { packet, packetDigest: run.digest, phase: 'app' }, signal));
 }
 
+async function preparedHeldDatabaseRepair(args: string[], outerSignal: AbortSignal) {
+  const guard = launcherBinding();
+  if (!guard || args.length !== 4 || !args[3] || sha256(JSON.stringify(args)) !== heldCorrection.contextDigest) refuse();
+  const manifest = guard.verify();
+  if (!recoveryRecord(manifest) || manifest.heldAppCapability !== undefined || manifest.heldCorrectionCapability !== undefined
+    || manifest.diagnosticSelector !== undefined) refuse();
+  const capability = validateHeldDatabaseRepairCapability(manifest.heldDatabaseRepairCapability);
+  const signal = AbortSignal.any([outerSignal, AbortSignal.timeout(600000)]);
+  signal.throwIfAborted();
+  const { run } = verifyHeldDatabaseRepairBasis();
+  canonicalPath(args[3]);
+  const artifact = verifyArtifact(args[3], bridgeRecovery.artifactDigest);
+  verifyMigrationFiles(migrationsDirectory, artifact.manifest.migrations); verifyActivationArtifact(artifact, run.packet);
+  // Reuse the exact published-main/bridge/exclusion read provider, never its later proof-import bypass.
+  const provider = heldCorrectionReadProvider(run, artifact, guard, signal,
+    validateHeldCorrectionCapability(heldCorrectionCapability(capability.controllerPublication)));
+  return repairHeldDatabase({ run, artifact, provider, signal, capability,
+    executableDigest: guard.digest, verifyExecutable: () => guard.verify() }, async () => {
+    // Even prepared-context access follows the public lineage and remote publication/exclusion preflight.
+    const { context, directory, requestDigest, packetPath } = await preparedRecoveryContext(args, signal);
+    if (join(dirname(context.directory), `activation-recovered-${rolesReachability.executionId}`) !== run.directory) refuse();
+    const packet = validateActivationPacket(readPrivate(packetPath), run.digest);
+    const prepared = preparedRecoveryPhase(directory, requestDigest, packetPath, run.digest, 'app-config', guard, signal);
+    let inputs: Record<string, string> | undefined;
+    const dispose = () => {
+      if (inputs) for (const key of Object.keys(inputs)) delete inputs[key];
+      prepared.dispose();
+    };
+    try {
+      const decoded = decodePhaseInput(prepared.values.ACTIVATION_APP_INPUTS);
+      if (!recoveryEnvironment(decoded)) refuse();
+      inputs = decoded; runtimeInputs(inputs, packet, 'app');
+      const token = () => prepared.values.VERCEL_CONFIGURATION_TOKEN ?? '';
+      const transport = (dispatched: () => void): typeof fetch => (url, init) => { dispatched(); return fetch(url, init); };
+      return {
+        observe: dispatched => observeAppDatabasePair(inputs, packet, token(), signal, transport(dispatched)),
+        post: (before, dispatched) => postAppDatabasePair(inputs, packet, token(), before, signal, transport(dispatched)),
+        verify: (before, ack, dispatched) => verifyAppDatabasePair(inputs, packet, token(), before, ack, signal, transport(dispatched)),
+        dispose,
+      };
+    } catch { dispose(); refuse(); }
+  });
+}
+
 async function preparedReachabilityAppConfiguration(args: string[], signal: AbortSignal) {
   const [action, phase, ...contextArgs] = args, guard = launcherBinding();
   if (args.length !== 6 || phase !== 'app-config' || !action || !guard || !contextArgs[3]
@@ -1230,6 +1277,15 @@ export async function inputHelperMain(args: string[], signal: AbortSignal): Prom
   } else if (action === 'recovered-activation') {
     try { console.info(`RECOVERED_ACTIVATION ${JSON.stringify(await recoveredPreparedActivation(args.slice(1), signal))}`); }
     catch { console.info('RECOVERED_ACTIVATION {"category":"refused"}'); process.exitCode = 1; }
+  } else if (action === heldDatabaseRepair.selector) {
+    try {
+      const result = await preparedHeldDatabaseRepair(args.slice(1), signal);
+      console.info(`HELD_DATABASE_REPAIR ${JSON.stringify(result)}`);
+      if (result.status === 'STOP') process.exitCode = 1;
+    } catch {
+      console.info('HELD_DATABASE_REPAIR {"status":"STOP","stage":"context","metadataRequests":0,"envPosts":0,"createCommands":0,"candidateRequests":0,"promotions":0,"journalTransitions":0}');
+      process.exitCode = 1;
+    }
   } else if (action === 'held-app-configuration' || action === heldCorrection.selector) {
     const label = action === heldCorrection.selector ? 'HELD_CONFIG_CORRECTION'
       : args[1] === 'correct-missing-five' ? 'APP_MISSING_FIVE_CONFIGURATION' : 'HELD_APP_CONFIGURATION';

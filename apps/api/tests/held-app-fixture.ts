@@ -16,6 +16,8 @@ import { bridgeRecovery } from '../scripts/activation-candidate-recovery.js';
 import { retainedUnknown } from '../scripts/activation-schema-diagnostic.js';
 import type { HeldCorrectionContext } from '../scripts/activation-held-correction.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
+import { heldDatabaseRepair, validateHeldDatabaseRepairCapability, verifyHeldDatabaseRepairBasis } from '../scripts/activation-held-database-repair.js';
+import type { HeldDatabaseRepairContext } from '../scripts/activation-held-database-repair.js';
 
 // Public synthetic GitHub responses; no token, account access or candidate HTTP.
 export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, candidate: 'dpl_SyntheticHeldApp',
@@ -66,10 +68,17 @@ export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, direc
   const root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-held-receipt-overlay-'));
   const parent = dirname(directory), events = join(directory, 'activation', runId), mapped = new Map<string, string>();
   const failedProbe = join(dirname(dirname(parent)), 'd1-held-probe-2a08578/probe-safe-result.json');
+  const failedCorrection = join(dirname(dirname(parent)), 'd1-held-correction-f5d330c/corrected-probe-safe-result.json');
+  const logDirectory = join(dirname(dirname(dirname(dirname(dirname(parent))))),
+    'esty-admin-worktrees/task-d1-strict-api-config/.openai/task-d1/held-config-correction01/log-retrieval01');
+  const repairPublicFiles = new Set([failedCorrection, join(logDirectory, 'safe-result.json'),
+    join(dirname(dirname(logDirectory)), 'held-db-config-repair01/log-handoff.json')]);
   const allowed = new Set(['attest-started', 'attest-result', 'pending', 'import-started', 'current-proof', 'import-result']
     .map(suffix => join(parent, `${runId}.held-app-${suffix}.json`)));
   allowed.add(join(events, '022.json'));
   for (const suffix of correctionReceiptSuffixes) allowed.add(join(parent, `${runId}.${heldCorrection.selector}-${suffix}.json`));
+  for (const suffix of ['started', 'ack', 'verified', 'result'])
+    allowed.add(join(parent, `${runId}.${heldDatabaseRepair.selector}-${suffix}.json`));
   const target = (path: fs.PathLike | number) => typeof path === 'string' ? mapped.get(path) ?? path : path;
   let sequence = 0;
   t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); native.remove(root, { recursive: true, force: true }); });
@@ -112,7 +121,7 @@ export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, direc
     root,
     output: (path: string) => mapped.get(path),
     override(path: string, bytes: string | Buffer) {
-      assert.ok(path.startsWith(`${parent}/`) || path === failedProbe);
+      assert.ok(path.startsWith(`${parent}/`) || path === failedProbe || repairPublicFiles.has(path));
       const owned = mapped.get(path) ?? join(root, `${sequence++}.json`);
       native.write(owned, bytes, { mode: 0o600 }); mapped.set(path, owned);
     },
@@ -147,4 +156,23 @@ export function heldCorrectionFixture(t: Pick<TestContext, 'mock' | 'after'>, di
   }, async dispose() { counts.dispose++; } });
   const path = (suffix: string) => heldCorrectionEvidencePath(directory, packet, suffix);
   return { run, context, capability, original, originalEvents, overlay, abort, counts, candidate, prepare, cli, path };
+}
+
+export function heldDatabaseRepairFixture(t: Pick<TestContext, 'mock' | 'after'>, directory: string, artifact: VerifiedArtifact) {
+  const packet = validateActivationPacket(JSON.parse(fs.readFileSync(
+    join(directory, 'activation', bridgeRecovery.activationRun, 'packet.json'), 'utf8')), bridgeRecovery.packetDigest);
+  const run = { directory, packet, digest: bridgeRecovery.packetDigest };
+  const overlay = heldReceiptOverlay(t, directory, packet.runId), basis = verifyHeldDatabaseRepairBasis(run);
+  const capability = validateHeldDatabaseRepairCapability({ selector: heldDatabaseRepair.selector,
+    contextDigest: heldCorrection.contextDigest, controllerPublication: { revision: 'a'.repeat(40), tree: 'c'.repeat(40) } });
+  const abort = new AbortController(), counts = { prepare: 0, preflight: 0, observe: 0, post: 0, verify: 0, dispose: 0 };
+  const context: HeldDatabaseRepairContext = { run, artifact, capability, signal: abort.signal,
+    executableDigest: sha256('synthetic fixed database repair executable'),
+    verifyExecutable: () => ({ heldDatabaseRepairCapability: capability }), provider: {
+      async preflight() { counts.preflight++; },
+      async inspect() { assert.fail('Database repair cannot inspect a candidate.'); },
+      async attest() { assert.fail('Database repair cannot attest an archive.'); },
+    } };
+  const path = (suffix: string) => join(dirname(directory), `${packet.runId}.${heldDatabaseRepair.selector}-${suffix}.json`);
+  return { run, context, overlay, basis, capability, abort, counts, path };
 }

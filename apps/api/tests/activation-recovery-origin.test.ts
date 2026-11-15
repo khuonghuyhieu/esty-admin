@@ -44,7 +44,13 @@ import { createHeldCorrection, importHeldCorrectionProof } from '../scripts/acti
 import { readHeldCorrectionPending } from '../scripts/activation-journal.js';
 import { heldCorrection } from '../scripts/activation-held-correction-contract.mjs';
 import { heldCorrectionReadProvider } from '../scripts/activation-recovered-provider.js';
-import { heldCorrectionFixture } from './held-app-fixture.js';
+import { heldCorrectionFixture, heldDatabaseRepairFixture } from './held-app-fixture.js';
+import { heldDatabaseRepair, repairHeldDatabase } from '../scripts/activation-held-database-repair.js';
+import type { PreparedHeldDatabaseRepair } from '../scripts/activation-held-database-repair.js';
+import type { AppDatabasePairAck } from '../scripts/activation-configuration.js';
+import { heldCorrectionCapability, validateHeldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
+import { activationRuntimeKeys } from '../src/config/activation-config.js';
+import { retainedD1BootstrapPins } from '../scripts/activation.js';
 
 // These are retained nonsecret journal/receipt fixtures, never prepared inputs or auth stores.
 const original = process.env.RECOVERY_ORIGIN_TEST_ORIGINAL;
@@ -2547,4 +2553,159 @@ test('fixed correction failed-probe receipt is rechecked immediately before nati
   assert.equal(f.counts.prepare, 1); assert.equal(f.counts.metadata, 1); assert.equal(f.counts.preflight, 2);
   assert.equal(existsSync(f.path('create-started')), true);
   assert.equal(existsSync(f.path('create-ack')), false); assert.equal(existsSync(f.path('pending')), false);
+});
+
+test('database-pair controller consumes one claim, retains ACK before cleanup and never replays uncertain outcomes', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['success', 'partial', 'lost-ack', 'aborted-ack', 'ack-id', 'claim-disk', 'ack-disk',
+    'cleanup', 'verification', 'guard-before-post', 'preflight-before-input', 'preflight-before-post']) await t.test(scenario, async sub => {
+    const f = heldDatabaseRepairFixture(sub, correctionOriginal!, artifact);
+    const originalEvents = readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.map(event => event.sha256);
+    const bindings = Object.fromEntries([...activationRuntimeKeys, 'APP_ACTIVATION_CONFIG_DIGEST'].map(key =>
+      [key, { id: `env_${key}`, key, type: 'sensitive', visibility: 'secret' as const, target: ['production'] as ['production'] }]));
+    const before = { bindings, metadataDigest: sha256(canonical(bindings)), keyCount: 17 };
+    const pendingPath = join(dirname(f.run.directory), `${f.run.packet.runId}.${heldCorrection.selector}-pending.json`);
+    const pendingBytes = readFileSync(pendingPath, 'utf8');
+    sub.mock.method(globalThis, 'fetch', async () => assert.fail('No live HTTP'));
+    sub.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
+    const preflight = f.context.provider.preflight;
+    f.context.provider.preflight = async () => {
+      await preflight();
+      if ((scenario === 'preflight-before-input' && f.counts.preflight === 1)
+        || (scenario === 'preflight-before-post' && f.counts.preflight === 2)) throw new Error('PRIVATE_PREFLIGHT');
+    };
+    if (scenario === 'claim-disk' || scenario === 'ack-disk') {
+      const write = fs.writeFileSync, kind = scenario === 'claim-disk' ? 'held-db-config-repair-started' : 'held-db-config-repair-ack';
+      sub.mock.method(fs, 'writeFileSync', (path: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions) => {
+        if (typeof data === 'string' && data.includes(`"kind": "${kind}"`)) {
+          write(path, '{"partial":', options); throw new Error('PRIVATE_DISK');
+        }
+        write(path, data, options);
+      }); syncBuiltinESMExports();
+    }
+    let returnedAck: AppDatabasePairAck | undefined;
+    const prepare = (): PreparedHeldDatabaseRepair => {
+      f.counts.prepare++;
+      return {
+        async observe(dispatched) { dispatched(); f.counts.observe++; return before; },
+        async post(observed, dispatched) {
+          const claim = readEvidence(f.path('started')).value;
+          assert.ok(claim && typeof claim === 'object' && 'kind' in claim);
+          assert.equal(claim.kind, 'held-db-config-repair-started');
+          assert.equal(observed, before);
+          if (scenario === 'guard-before-post') f.overlay.override(pendingPath, pendingBytes + ' ');
+          dispatched(); f.counts.post++;
+          if (scenario === 'lost-ack') throw new Error('PRIVATE_LOST_ACK');
+          const ack: AppDatabasePairAck = { outcome: 'acknowledged', httpStatus: 201, issue: 'none', keys: {
+            DATABASE_URL: { status: 'acknowledged', ids: [bindings.DATABASE_URL!.id] },
+            SUPABASE_DATABASE_USER: { status: 'acknowledged', ids: [bindings.SUPABASE_DATABASE_USER!.id] },
+          } };
+          if (scenario === 'partial') {
+            ack.outcome = 'unknown'; ack.issue = 'partial-ack'; ack.keys.SUPABASE_DATABASE_USER.status = 'failed';
+          }
+          if (scenario === 'ack-id') ack.keys.DATABASE_URL.ids = ['env_replaced'];
+          if (scenario === 'aborted-ack') f.abort.abort();
+          returnedAck = ack;
+          return ack;
+        },
+        async verify(_before, _ack, dispatched) {
+          dispatched(); f.counts.verify++;
+          if (scenario === 'verification') throw new AppMetadataError('target-binding-mismatch');
+          return { metadataDigest: before.metadataDigest, keyCount: 17 };
+        },
+        dispose() {
+          f.counts.dispose++;
+          if (f.counts.post && !['lost-ack', 'ack-disk'].includes(scenario)) {
+            assert.deepEqual(readEvidence(f.path('ack')).value, { version: 1, kind: 'held-db-config-repair-ack',
+              claimDigest: readEvidence(f.path('started')).identity.sha256, acknowledgement: returnedAck });
+          }
+          if (scenario === 'cleanup') throw new Error('PRIVATE_CLEANUP');
+        },
+      };
+    };
+    const result = await repairHeldDatabase(f.context, prepare);
+    const noPost = ['claim-disk', 'guard-before-post', 'preflight-before-input', 'preflight-before-post'].includes(scenario);
+    assert.equal(result.status, scenario === 'success' ? 'DATABASE_PAIR_REPAIRED' : 'STOP');
+    assert.equal(result.envPosts, noPost ? 0 : 1); assert.equal(f.counts.post, result.envPosts);
+    assert.equal(f.counts.prepare, scenario === 'preflight-before-input' ? 0 : 1);
+    assert.equal(f.counts.dispose, f.counts.prepare);
+    assert.equal(f.counts.verify, ['success', 'cleanup', 'verification'].includes(scenario) ? 1 : 0);
+    assert.equal(result.journalTransitions + result.createCommands + result.candidateRequests + result.promotions, 0);
+    assert.equal(result.historicalWrite, 'unknown'); assert.equal(result.historicalPostAck, 'absent');
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_|postgresql|password/);
+    if (scenario === 'success') {
+      const verified = readEvidence(f.path('verified')).value;
+      assert.ok(verified && typeof verified === 'object' && 'keyCount' in verified && 'valueProof' in verified && 'ackDigest' in verified);
+      assert.equal(verified.keyCount, 17); assert.equal(verified.valueProof, 'pending-candidate-runtime');
+      assert.equal(verified.ackDigest, readEvidence(f.path('ack')).identity.sha256);
+    } else assert.equal(existsSync(f.path('verified')), false);
+    if (scenario === 'partial' || scenario === 'aborted-ack') {
+      assert.deepEqual(readEvidence(f.path('ack')).value, { version: 1, kind: 'held-db-config-repair-ack',
+        claimDigest: readEvidence(f.path('started')).identity.sha256, acknowledgement: returnedAck });
+    }
+    if (existsSync(f.path('started'))) {
+      const posts = f.counts.post, repeat = await repairHeldDatabase(f.context, prepare);
+      assert.equal(repeat.status, 'STOP'); assert.equal(repeat.envPosts, 0); assert.equal(repeat.metadataRequests, 0);
+      assert.equal(f.counts.post, posts);
+    }
+    assert.deepEqual(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.map(event => event.sha256), originalEvents);
+  });
+});
+
+test('database-pair refuses changed pending, failure, log, UNKNOWN or bootstrap evidence before inputs or provider access', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['pending', 'ack', 'failed-probe-missing', 'failed-probe-changed', 'log-missing', 'log-changed',
+    'log-handoff', 'old-lineage', 'unknown', 'bootstrap', 'override']) await t.test(scenario, async sub => {
+    const f = heldDatabaseRepairFixture(sub, correctionOriginal!, artifact), parent = dirname(f.run.directory);
+    const reports = dirname(dirname(parent)), checkoutParent = dirname(dirname(dirname(reports)));
+    const log = join(checkoutParent, 'esty-admin-worktrees/task-d1-strict-api-config/.openai/task-d1/held-config-correction01/log-retrieval01');
+    const bootstrapSuffix = Object.keys(retainedD1BootstrapPins()).find(key => key !== 'bootstrap-verification')!;
+    const paths: Record<string, string> = {
+      pending: join(parent, `${f.run.packet.runId}.${heldCorrection.selector}-pending.json`),
+      ack: join(parent, `${f.run.packet.runId}.${heldCorrection.selector}-create-ack.json`),
+      'failed-probe-missing': join(reports, 'd1-held-correction-f5d330c/corrected-probe-safe-result.json'),
+      'failed-probe-changed': join(reports, 'd1-held-correction-f5d330c/corrected-probe-safe-result.json'),
+      'log-missing': join(log, 'safe-result.json'), 'log-changed': join(log, 'safe-result.json'),
+      'log-handoff': join(dirname(dirname(log)), 'held-db-config-repair01/log-handoff.json'),
+      'old-lineage': heldEvidencePath(f.run.directory, f.run.packet, 'create-ack'),
+      unknown: join(f.run.directory, 'activation', f.run.packet.runId, '021.json'),
+      bootstrap: join(parent, `${f.run.packet.runId}.${bootstrapSuffix}.json`),
+    };
+    if (scenario === 'override') Object.assign(f.context, { expected: retainedUnknown });
+    else if (scenario.endsWith('-missing')) {
+      const open = fs.openSync;
+      sub.mock.method(fs, 'openSync', (path: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
+        if (path === paths[scenario]) throw Object.assign(new Error('Synthetic absent public evidence'), { code: 'ENOENT' });
+        return open(path, flags, mode);
+      }); syncBuiltinESMExports();
+    } else f.overlay.override(paths[scenario]!, readFileSync(paths[scenario]!, 'utf8') + ' ');
+    const result = await repairHeldDatabase(f.context, () => { assert.fail('No prepared input read'); });
+    assert.equal(result.status, 'STOP'); assert.equal(result.stage, 'guard');
+    assert.equal(f.counts.preflight, 0); assert.equal(result.envPosts, 0); assert.equal(result.metadataRequests, 0);
+    assert.equal(existsSync(f.path('started')), false);
+  });
+});
+
+test('database-pair requires sealed current publication, bridge and exclusion before prepared input access', correctionOptions, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['valid', 'revision', 'tree', 'bridge', 'exclusion']) await t.test(scenario, async sub => {
+    const f = heldDatabaseRepairFixture(sub, correctionOriginal!, artifact), p = providerFixture();
+    const current = readActivationJournal(f.run.directory, f.run.packet, f.run.digest);
+    p.values['/commits/main'] = { sha: scenario === 'revision' ? heldDatabaseRepair.failedProbeRevision : f.capability.controllerPublication.revision,
+      commit: { tree: { sha: scenario === 'tree' ? '0'.repeat(40) : f.capability.controllerPublication.tree } } };
+    p.values[p.statusPath] = [{ state: scenario === 'exclusion' ? 'success' : 'in_progress',
+      description: `activation:app-config:intent:${current.events[18]!.sha256}`,
+      log_url: `https://github.com/khuonghuyhieu/esty-admin/actions/runs/${target.workflowRun}` }];
+    if (scenario === 'bridge') p.values[`/v4/aliases/api.lovora.us?projectId=${target.project}`] = {
+      alias: 'api.lovora.us', projectId: target.project, deploymentId: 'dpl_DifferentBridge',
+    };
+    const read = async (path: string) => { assert.ok(Object.hasOwn(p.values, path)); return structuredClone(p.values[path]); };
+    f.context.provider = heldCorrectionReadProvider(f.run, artifact,
+      { digest: f.context.executableDigest, verify: f.context.verifyExecutable }, f.context.signal,
+      validateHeldCorrectionCapability(heldCorrectionCapability(f.capability.controllerPublication)), undefined,
+      { github: read, vercel: read, async promote() { assert.fail('No promotion'); } });
+    const result = await repairHeldDatabase(f.context, () => { f.counts.prepare++; throw new Error('Synthetic stop at input boundary'); });
+    assert.equal(f.counts.prepare, scenario === 'valid' ? 1 : 0); assert.equal(result.envPosts, 0);
+    assert.equal(result.stage, scenario === 'valid' ? 'input' : 'preflight'); assert.equal(p.writes.length, 0);
+  });
 });
