@@ -3,7 +3,7 @@ import { cpSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync, r
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { spawnSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
@@ -17,9 +17,9 @@ import type { ActivationOutcome } from '../scripts/activation-journal.js';
 import { authorizeActivationPhase, confirmActivationPhase, executeActivationPhase, reconcileActivationAcknowledgement,
   reconcileActivationEffect, runRecoveredActivationEffect, runRecoveredActivationPostflight, diagnoseRecoveredRoles,
   completeRecoveredRoles, reconcileRecoveredRolesAcknowledgement, diagnoseRecoveredRolePrivileges,
-  continueReachabilityBootstrap, continueReachabilityBootstrapPretransaction, continueReachabilityMigration, finalizeRetainedReachabilityBootstrap, inspectRetainedReachabilityBootstrap, observeReachabilityBootstrapAuth } from '../scripts/activation.js';
-import { recoveredActivationProvider, taskCBootstrapProvider } from '../scripts/activation-recovered-provider.js';
-import { writeReleaseEvidence } from '../scripts/release-journal.js';
+  continueReachabilityAppConfiguration, continueReachabilityBootstrap, continueReachabilityBootstrapPretransaction, continueReachabilityMigration, finalizeRetainedReachabilityBootstrap, inspectRetainedReachabilityBootstrap, observeReachabilityBootstrapAuth } from '../scripts/activation.js';
+import { recoveredActivationProvider, taskCBootstrapProvider, taskD1ConfigurationProvider } from '../scripts/activation-recovered-provider.js';
+import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
 import { Client } from 'pg';
 import type { AppRoleInputs } from '../scripts/app-roles.js';
 import { AppRoleError } from '../scripts/app-roles.js';
@@ -29,6 +29,17 @@ import { inspectAppBootstrap, runAppOperator } from '../scripts/bootstrap-app-ow
 import { AuthAdmin } from '../src/app-foundation/adapters/auth-admin.js';
 import { parseAppOperatorConfig } from '../src/config/config.js';
 import { bootstrapIdentity } from '../src/app-foundation/application/service.js';
+import { diagnoseAppSchemaExposure, retainedUnknown } from '../scripts/activation-schema-diagnostic.js';
+import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
+import { attestHeldApp, correctMissingFiveApp, createHeldApp, importHeldAppProof } from '../scripts/activation-held.js';
+import type { HeldAppControllerContext } from '../scripts/activation-held.js';
+import { heldEvidencePath, readHeldAppCleanup, readHeldAppPending } from '../scripts/activation-journal.js';
+import { verifyHeldAppProbe } from '../scripts/activation-held-proof.js';
+import { heldAppPolicy } from '../scripts/activation-held-contract.mjs';
+import { heldProofFixture, heldReceiptOverlay } from './held-app-fixture.js';
+import type { VerifiedArtifact } from '../scripts/artifact.js';
+import { AppMetadataError, appMissingFiveKeys, currentAppMetadata } from '../scripts/activation-configuration.js';
+import type { MissingFiveAck } from '../scripts/activation-configuration.js';
 
 // These are retained nonsecret journal/receipt fixtures, never prepared inputs or auth stores.
 const original = process.env.RECOVERY_ORIGIN_TEST_ORIGINAL;
@@ -1589,6 +1600,190 @@ test('Task C finalizes only exact retained committed proof and reconciles ACK wi
   });
 });
 
+test('Task D1 provider separates current controller and configuration-only status capability', async () => {
+  const p = providerFixture(), reads: string[] = [];
+  const provider = taskD1ConfigurationProvider({ digest: sha256('D1'), verify() {} }, AbortSignal.timeout(30000),
+    { async github(path) { reads.push(path); return structuredClone(p.values[path]); },
+      async vercel() { throw new Error('Not used'); }, async promote() { throw new Error('Forbidden'); } },
+    async (_id, _state, description) => { p.writes.push(description); });
+  for (const sha of ['d3d2b0788d970377c9fee9d59c52e3d1baff7de2', '7ce06834010e4c113663c76e1ce937949c35d941']) {
+    p.values['/commits/main'] = { sha, commit: { tree: { sha: 'eb966a64f350211920152ceccab3b71c43874bff' } } };
+    await assert.rejects(provider.currentMain());
+  }
+  p.values['/commits/main'] = { sha: 'c0e6d435b7d4bb4c65b50a540097a317f080bcac',
+    commit: { tree: { sha: 'eb966a64f350211920152ceccab3b71c43874bff' } } };
+  await provider.currentMain();
+  for (const phase of ['roles', 'migration', 'bootstrap', 'app', 'fe'])
+    await assert.rejects(provider.record(target.journal, 'in_progress', `activation:${phase}:outcome:${sha256('outcome')}`));
+  await provider.record(target.journal, 'in_progress', `activation:app-config:intent:${sha256('intent')}`);
+  assert.deepEqual(p.writes, [`activation:app-config:intent:${sha256('intent')}`]);
+  p.values['/commits/main'] = { sha: 'c0e6d435b7d4bb4c65b50a540097a317f080bcac', commit: { tree: { sha: '0'.repeat(40) } } };
+  await assert.rejects(provider.currentMain());
+});
+
+test('Task D1 exact bootstrap prefix gates one-way configuration and normal ACK without replay', {
+  skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 240000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['success', 'concurrent', 'inventory', 'task-c-tamper', 'public-mode', 'live-mode',
+    'extra-receipt', 'cancelled', 'provider-drift', 'claim-partial', 'secret-unknown', 'receipt-partial',
+    'lost-status-ack', 'wrong-order', 'claim-tamper', 'orphan-configuration', 'missing-claim', 'assets', 'cancel-during-write'] as const) await t.test(scenario, async sub => {
+    const f = await retainedInspectionFixture(sub, artifact), id = f.run.packet.runId;
+    const raw = (path: string) => sha256(readFileSync(path));
+    const inspectionExecutable = sha256('synthetic-inspection'), executable = sha256('synthetic-D1');
+    assert.equal((await inspectRetainedReachabilityBootstrap(f.run, artifact, f.p.provider,
+      () => ({ env: { ...f.env }, dispose() {} }), f.evidence, inspectionExecutable, AbortSignal.timeout(30000),
+      f.expected, async () => 'committed')).status, 'INSPECTED');
+    const observation = join(f.f.root, `${id}.bootstrap-retained-inspection-`);
+    const cExpected = { ...f.expected, inspectionExecutable,
+      inspectionStarted: raw(`${observation}started.json`), inspectionResult: raw(`${observation}result.json`) };
+    assert.equal((await finalizeRetainedReachabilityBootstrap(f.run, artifact, f.p.provider, f.evidence,
+      sha256('synthetic-C'), AbortSignal.timeout(30000), false, cExpected)).status, 'BOOTSTRAP_COMPLETE');
+    const finalization = join(f.f.root, `${id}.bootstrap-finalization-`);
+    const expected = { ...cExpected, completedHead: f.state().head,
+      finalizationStarted: raw(`${finalization}started.json`), finalizationResult: raw(`${finalization}result.json`),
+      verification: raw(join(f.run.directory, `${id}.bootstrap-verification.json`)),
+      confirming: raw(join(f.run.directory, `activation/${id}/016.json`)),
+      confirmed: raw(join(f.run.directory, `activation/${id}/017.json`)) };
+    const retained = f.state().events.map((_, i) => readFileSync(join(f.run.directory, `activation/${id}/${String(i).padStart(3, '0')}.json`)));
+    let effects = 0, preparations = 0, disposals = 0, forbidden = 0;
+    sub.mock.method(Client.prototype, 'connect', async () => { forbidden++; throw new Error('DB forbidden'); });
+    sub.mock.method(globalThis, 'fetch', async () => { forbidden++; throw new Error('Network forbidden'); });
+    const abort = new AbortController(), prefix = join(f.f.root, `${id}.app-configuration-`);
+    if (scenario === 'inventory') writeReleaseEvidence(join(f.run.directory, 'extra.json'), {});
+    if (scenario === 'task-c-tamper') writeFileSync(`${finalization}result.json`, '{}');
+    if (scenario === 'public-mode') fs.chmodSync(join(f.evidence, Object.keys(expected.receipts)[0]!), 0o600);
+    if (scenario === 'live-mode') fs.chmodSync(`${finalization}result.json`, 0o400);
+    if (scenario === 'extra-receipt') writeReleaseEvidence(`${finalization}ack-result.json`, {});
+    if (scenario === 'cancelled') abort.abort();
+    if (scenario === 'provider-drift') sub.mock.method(f.p.provider, 'currentMain', async () => {
+      writeReleaseEvidence(join(f.run.directory, 'drift.json'), {});
+    });
+    if (scenario === 'orphan-configuration') writeReleaseEvidence(join(f.run.directory, `${id}.app-config.configuration.json`), {});
+    const open = fs.openSync;
+    sub.mock.method(fs, 'openSync', (...args: Parameters<typeof fs.openSync>) => {
+      const path = String(args[0]);
+      if ((Number(args[1]) & fs.constants.O_EXCL)
+        && (scenario === 'claim-partial' && path === `${prefix}authorize-started.json`
+          || scenario === 'receipt-partial' && path.endsWith('.app-config.configuration.json'))) {
+        writeFileSync(path, '{', { mode: 0o600 }); throw new Error('private persistence sentinel');
+      }
+      return Reflect.apply(open, fs, args);
+    });
+    const invoke = (action: string) => continueReachabilityAppConfiguration(f.run, action,
+      scenario === 'assets' ? { ...artifact, digest: sha256('wrong artifact') } : artifact, f.p.provider,
+      () => { preparations++; return { values: {}, dispose() { disposals++; } }; },
+      f.evidence, executable, abort.signal, expected, async run => {
+        effects++;
+        if (scenario === 'secret-unknown') throw new Error('private lost Secret ACK');
+        if (scenario === 'cancel-during-write') { abort.abort(); throw new Error('private cancelled write'); }
+        return saveActivationConfigurationReceipt(run.directory, run.packet, run.digest, 'app-config', {
+          version: 2, runId: id, phase: 'app-config', projectId: run.packet.projectId, scopeId: run.packet.scopeId,
+          packetDigest: run.digest, revision: run.packet.revision, tree: run.packet.tree, sourceDigest: run.packet.sourceDigest,
+          artifactDigest: run.packet.artifactDigest, configDigest: run.packet.appConfigDigest,
+          metadataDigest: sha256('synthetic write ACK'), count: 15, valueProof: 'pending-candidate-runtime' });
+      });
+    if (scenario === 'wrong-order') {
+      assert.equal((await invoke('run')).status, 'STOP');
+      assert.equal((await invoke('confirm')).status, 'STOP');
+      assert.equal(preparations, 0); return;
+    }
+    const authorized = await invoke('authorize');
+    const valid = ['success', 'concurrent', 'secret-unknown', 'receipt-partial', 'lost-status-ack', 'claim-tamper', 'missing-claim', 'cancel-during-write'].includes(scenario);
+    assert.equal(authorized.status, valid ? 'CONTINUED' : 'STOP');
+    if (!valid) { assert.equal(effects, 0); assert.equal(preparations, 0); return; }
+    if (scenario === 'claim-tamper') {
+      const path = `${prefix}authorize-started.json`, value = JSON.parse(readFileSync(path, 'utf8'));
+      value.head = sha256('wrong head'); writeFileSync(path, JSON.stringify(value, null, 2) + '\n');
+      assert.equal((await invoke('run')).status, 'STOP'); assert.equal(effects, 0); return;
+    }
+    if (scenario === 'missing-claim') {
+      fs.unlinkSync(`${prefix}authorize-started.json`); fs.unlinkSync(`${prefix}authorize-result.json`);
+      assert.equal((await invoke('run')).status, 'STOP'); assert.equal(effects, 0); return;
+    }
+    const outcomes = scenario === 'concurrent' ? await Promise.all([invoke('run'), invoke('run')]) : [await invoke('run')];
+    const unknown = ['secret-unknown', 'receipt-partial', 'cancel-during-write'].includes(scenario);
+    assert.equal(outcomes.filter(item => item.status === 'CONTINUED').length, unknown ? 0 : 1);
+    assert.equal(effects, 1); assert.equal(preparations, 1); assert.equal(disposals, 1);
+    if (unknown) {
+      for (const action of ['run', 'confirm', 'inspect', 'reconcile-ack']) assert.equal((await invoke(action)).status, 'STOP');
+      assert.equal(effects, 1);
+    } else {
+      if (scenario === 'lost-status-ack') f.p.loseAck(true);
+      const confirmed = await invoke('confirm');
+      assert.equal(confirmed.status, scenario === 'lost-status-ack' ? 'STOP' : 'APP_CONFIG_COMPLETE');
+      if (scenario === 'lost-status-ack') {
+        const writes = f.p.writes.length;
+        assert.equal((await invoke('reconcile-ack')).status, 'APP_CONFIG_COMPLETE');
+        assert.equal(f.p.writes.length, writes); assert.equal(effects, 1);
+      }
+      assert.equal(f.state().next, 'app'); assert.equal(f.state().events.length, 24);
+      assert.equal((await invoke('run')).status, 'STOP');
+    }
+    assert.equal(forbidden, 0);
+    assert.deepEqual(retained.map((_, i) => readFileSync(join(f.run.directory, `activation/${id}/${String(i).padStart(3, '0')}.json`))), retained);
+    assert.doesNotMatch(JSON.stringify(outcomes), /private|credential|password/);
+    f.f.unchanged();
+  });
+});
+
+test('Task D1 schema diagnostic preserves UNKNOWN and refuses drift before any read-only request', {
+  skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 180000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['passed', 'head', 'inventory', 'claim', 'extra-claim', 'input', 'before-request', 'dispatch-guard',
+    'after-request', 'cleanup', 'cancelled', 'http'] as const) await t.test(scenario, async sub => {
+    const f = await authorizedBootstrapFixture(sub), id = f.run.packet.runId;
+    const raw = (path: string) => sha256(readFileSync(path));
+    await executeActivationPhase(f.run, 'bootstrap', async () => ({ ...committed, count: 1 }));
+    await confirmActivationPhase(f.run, 'bootstrap', f.p.provider);
+    await authorizeActivationPhase(f.run, 'app-config', f.p.provider);
+    await assert.rejects(executeActivationPhase(f.run, 'app-config', async () => { throw new Error('synthetic private UNKNOWN'); }));
+    for (const suffix of ['authorize-started', 'authorize-result', 'run-started', 'run-result']) {
+      writeReleaseEvidence(join(f.f.root, `${id}.app-configuration-${suffix}.json`), { fixture: suffix, head: f.state().head });
+    }
+    const retainedHead = f.state().head;
+    const expected = { head: retainedHead, inventory: sha256(canonical(inventory(f.run.directory))),
+      claims: Object.fromEntries(['authorize-started', 'authorize-result', 'run-started', 'run-result'].map(suffix =>
+        [suffix, raw(join(f.f.root, `${id}.app-configuration-${suffix}.json`))])) as {
+          'authorize-started': string; 'authorize-result': string; 'run-started': string; 'run-result': string } };
+    let requests = 0, preparations = 0, disposals = 0, verifies = 0;
+    const before = canonical(inventory(f.run.directory)), statusWrites = f.p.writes.length, abort = new AbortController();
+    const drift = () => writeReleaseEvidence(join(f.run.directory, 'unapproved.json'), {});
+    if (scenario === 'head') expected.head = sha256('wrong');
+    if (scenario === 'inventory') drift();
+    if (scenario === 'claim') writeFileSync(join(f.f.root, `${id}.app-configuration-run-result.json`), '{}');
+    if (scenario === 'extra-claim') writeReleaseEvidence(join(f.f.root, `${id}.app-configuration-confirm-started.json`), {});
+    if (scenario === 'cancelled') abort.abort('private-abort');
+    sub.mock.method(Client.prototype, 'connect', async () => assert.fail('SQL forbidden'));
+    sub.mock.method(globalThis, 'fetch', async () => assert.fail('Unbound network forbidden'));
+    const result = await diagnoseAppSchemaExposure(f.run, artifact, () => {
+      preparations++;
+      if (scenario === 'input') throw new Error('private-input');
+      if (scenario === 'before-request') drift();
+      return { config: { authUrl: `https://${approvedTarget.SUPABASE_PROJECT_REF}.supabase.co/auth/v1`, apiKey: 'private-key' },
+        dispose() { disposals++; if (scenario === 'cleanup') throw new Error('private-cleanup'); } };
+    }, () => { if (++verifies === 2 && scenario === 'dispatch-guard') throw new Error('private-guard'); },
+    abort.signal, expected, async () => {
+      requests++; if (scenario === 'after-request') drift();
+      return new Response('{"code":"PGRST106"}', { status: scenario === 'http' ? 401 : 406 });
+    });
+    const observed = ['passed', 'http'].includes(scenario);
+    assert.equal(result.status, observed ? 'OBSERVED' : 'STOP');
+    assert.equal(result.requests, ['passed', 'http', 'cleanup', 'after-request'].includes(scenario) ? 1 : 0);
+    assert.equal(requests, result.requests);
+    assert.equal(preparations, ['head', 'inventory', 'claim', 'extra-claim', 'cancelled'].includes(scenario) ? 0 : 1);
+    assert.equal(disposals, preparations && scenario !== 'input' ? 1 : 0);
+    assert.equal(result.configuration, 'unknown'); assert.equal(result.historicalCause, 'unresolved');
+    if (observed) assert.equal(result.category, scenario === 'passed' ? 'passed' : 'http-status');
+    if (!['inventory', 'before-request', 'after-request'].includes(scenario)) assert.equal(canonical(inventory(f.run.directory)), before);
+    assert.equal(f.state().head, retainedHead);
+    assert.equal(f.state().events.length, 22); assert.equal(f.state().next, 'app-config');
+    assert.equal(f.p.writes.length, statusWrites); assert.doesNotMatch(JSON.stringify(result), /private-|https:|apikey|postgres|PGRST106/);
+    f.f.unchanged();
+  });
+});
+
 test('retained bootstrap native inspection reads exact state without Auth or writes', {
   skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT || !process.env.MIGRATION_POSTGRES_BIN, timeout: 120000,
 }, async t => {
@@ -1677,5 +1872,479 @@ test('retained bootstrap native inspection reads exact state without Auth or wri
     assert.equal((await invoke()).status, 'STOP'); assert.equal(connections, 1); assert.equal(statements.length, 6);
     assert.equal(existsSync(join(f.run.directory, `${f.run.packet.runId}.bootstrap-verification.json`)), false);
     f.f.unchanged();
+  });
+});
+
+async function heldControllerFixture(t: TestContext, artifact: VerifiedArtifact) {
+  const f = await authorizedBootstrapFixture(t), id = f.run.packet.runId;
+  await executeActivationPhase(f.run, 'bootstrap', async () => ({ ...committed, count: 1 }));
+  await confirmActivationPhase(f.run, 'bootstrap', f.p.provider);
+  await authorizeActivationPhase(f.run, 'app-config', f.p.provider);
+  await assert.rejects(executeActivationPhase(f.run, 'app-config', async () => { throw new Error('synthetic UNKNOWN'); }));
+  const claims: Record<string, string> = {};
+  for (const suffix of ['authorize-started', 'authorize-result', 'run-started', 'run-result']) {
+    const path = join(f.f.root, `${id}.app-configuration-${suffix}.json`);
+    writeReleaseEvidence(path, { fixture: suffix, head: f.state().head }); claims[suffix] = sha256(readFileSync(path));
+  }
+  const bootstrapPath = join(f.f.root, `${id}.bootstrap-auth-observation-started.json`);
+  writeReleaseEvidence(bootstrapPath, { fixture: 'retained-bootstrap' });
+  const expected = { head: f.state().head, inventory: sha256(canonical(inventory(f.run.directory))), claims,
+    bootstrapPins: { 'bootstrap-auth-observation-started': sha256(readFileSync(bootstrapPath)) } };
+  const candidate = { id: 'dpl_SyntheticHeldApp', origin: 'https://synthetic-held-app.vercel.app', ready: true };
+  const counts = { metadata: 0, creates: 0, preflight: 0, archive: 0, cleanup: 0 };
+  const context: HeldAppControllerContext = { run: f.run, artifact, expected, executableDigest: sha256('synthetic sealed helper'),
+    verifyExecutable() {}, signal: AbortSignal.timeout(60000), provider: {
+      async preflight() { counts.preflight++; },
+      async inspect(requested) { assert.equal(requested, candidate.id); return candidate; },
+      async attest(requested) { assert.equal(requested, candidate.id); counts.archive++; return sha256('verified uploaded archive'); },
+    } };
+  const prepare = () => ({
+    async observe(dispatched: () => void) { dispatched(); counts.metadata++; return { metadataDigest: sha256('sensitive metadata'), keyCount: 17 }; },
+    dispose() {},
+  });
+  const cli = () => ({
+    async create(dispatched: () => void) { dispatched(); counts.creates++; return {
+      code: 0, aborted: false, stdout: JSON.stringify({ deployment: { id: candidate.id } }) }; },
+    async dispose() { counts.cleanup++; },
+  });
+  return { f, context, expected, candidate, counts, prepare, cli, bootstrapPath };
+}
+
+test('held APP CREATE preserves UNKNOWN22, persists failed and aborted IDs and never replays consumed claims', {
+  skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 180000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['pending', 'metadata', 'bootstrap-drift', 'staging', 'lost-ack', 'failed-id', 'aborted-id',
+    'partial-ack', 'archive', 'cleanup', 'first-error']) await t.test(scenario, async sub => {
+    const f = await heldControllerFixture(sub, artifact), before = canonical(inventory(f.f.run.directory));
+    sub.mock.method(globalThis, 'fetch', async () => assert.fail('No unbound HTTP'));
+    sub.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
+    if (scenario === 'bootstrap-drift') writeFileSync(f.bootstrapPath, '{}');
+    if (scenario === 'archive' || scenario === 'first-error') f.context.provider.attest = async () => { throw new Error('private-archive'); };
+    if (scenario === 'partial-ack') {
+      const write = fs.writeFileSync;
+      sub.mock.method(fs, 'writeFileSync', (path: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions) => {
+        if (typeof data === 'string' && data.includes('\"kind\": \"held-app-create-ack\"')) {
+          write(path, '{\"partial\":', options); throw new Error('private-disk-failure');
+        }
+        write(path, data, options);
+      });
+    }
+    const result = await createHeldApp(f.context, () => {
+      const input = f.prepare();
+      return { ...input, async observe(dispatched) {
+        const value = await input.observe(dispatched);
+        if (scenario === 'metadata') throw new Error('private-metadata'); return value;
+      } };
+    }, () => {
+      const cli = f.cli();
+      return { async create(dispatched) {
+        if (scenario === 'staging') throw new Error('private-staging');
+        const value = await cli.create(dispatched);
+        if (scenario === 'lost-ack') return { ...value, code: 1, stdout: '' };
+        if (scenario === 'failed-id') return { ...value, code: 1 };
+        if (scenario === 'aborted-id') return { ...value, aborted: true };
+        return value;
+      }, async dispose() {
+        await cli.dispose(); if (scenario === 'cleanup' || scenario === 'first-error') throw new Error('private-cleanup');
+      } };
+    });
+    assert.equal(result.status, scenario === 'pending' ? 'HELD_PROBE_PENDING' : 'STOP');
+    const attempted = !['metadata', 'bootstrap-drift', 'staging'].includes(scenario);
+    assert.equal(result.createCommands, Number(attempted)); assert.equal(f.counts.creates, Number(attempted));
+    assert.equal(result.metadataRequests, scenario === 'bootstrap-drift' ? 0 : 1);
+    assert.equal(result.candidateId, attempted && scenario !== 'lost-ack' ? f.candidate.id : null);
+    assert.equal(result.candidateRequests, 0); assert.equal(result.envPosts, 0); assert.equal(result.promotions, 0);
+    assert.equal(result.historicalWrite, 'unknown'); assert.equal(result.historicalPostAck, 'absent');
+    assert.equal(canonical(inventory(f.f.run.directory)), before);
+    assert.equal(f.f.state().events.length, 22); assert.equal(f.f.state().head, f.expected.head);
+    assert.equal(f.f.state().next, 'app-config');
+    if (['failed-id', 'aborted-id'].includes(scenario)) {
+      const ack = JSON.parse(readFileSync(heldEvidencePath(f.f.run.directory, f.f.run.packet, 'create-ack'), 'utf8'));
+      assert.equal(ack.deploymentId, f.candidate.id);
+      assert.equal(ack.aborted, scenario === 'aborted-id'); assert.equal(ack.code, scenario === 'failed-id' ? 1 : 0);
+    }
+    if (scenario === 'partial-ack') assert.equal(readFileSync(heldEvidencePath(f.f.run.directory, f.f.run.packet, 'create-ack'), 'utf8'), '{\"partial\":');
+    if (scenario === 'first-error') assert.deepEqual(result.firstError, { stage: 'archive', category: 'refused' });
+    if (!['metadata', 'bootstrap-drift'].includes(scenario)) {
+      const calls = { ...f.counts }, replay = await createHeldApp(f.context, f.prepare, f.cli);
+      assert.equal(replay.status, 'STOP'); assert.equal(replay.createCommands, 0); assert.equal(replay.metadataRequests, 0);
+      assert.deepEqual(f.counts, calls);
+    }
+    assert.doesNotMatch(JSON.stringify(result), /private-|postgres|Bearer/); f.f.f.unchanged();
+  });
+});
+
+test('held APP import advances only a typed current-runtime fact and fences every ordinary APP CREATE or promotion', {
+  skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 180000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['attested', 'proof-mismatch', 'alias-drift', 'archive-drift', 'ready-origin-drift']) await t.test(scenario, async sub => {
+    const f = await heldControllerFixture(sub, artifact);
+    const created = await createHeldApp(f.context, f.prepare, f.cli); assert.equal(created.status, 'HELD_PROBE_PENDING');
+    const originalEvents = f.f.state().events.map(event => event.sha256), effects = { metadata: f.counts.metadata, creates: f.counts.creates };
+    if (scenario === 'alias-drift') f.context.provider.preflight = async () => { throw new Error('Changed alias'); };
+    if (scenario === 'archive-drift') f.context.provider.attest = async () => sha256('different archive');
+    if (scenario === 'ready-origin-drift') f.context.provider.inspect = async () => ({ ...f.candidate, origin: 'https://other.vercel.app' });
+    let imports = 0;
+    const result = await importHeldAppProof(f.context, '123', async held => {
+      imports++;
+      const proof = heldProofFixture(held);
+      if (scenario === 'proof-mismatch') proof.setReceipt({ ...proof.receipt, configDigestMatch: false });
+      return verifyHeldAppProbe('123', held, proof.io, proof.sourceDigests, f.context.signal,
+        { ...heldAppPolicy, unknownHead: f.expected.head });
+    });
+    assert.equal(result.status, scenario === 'attested' ? 'CURRENT_CONFIG_ATTESTED' : 'STOP');
+    assert.equal(imports, ['attested', 'proof-mismatch'].includes(scenario) ? 1 : 0);
+    assert.deepEqual({ metadata: f.counts.metadata, creates: f.counts.creates }, effects);
+    assert.equal(result.metadataRequests + result.createCommands + result.candidateRequests + result.envPosts + result.promotions, 0);
+    const state = f.f.state();
+    assert.deepEqual(state.events.slice(0, 22).map(event => event.sha256), originalEvents);
+    assert.deepEqual(state.events[21]!.value, { result: 'unknown', databaseOutcome: 'not_started', count: 0,
+      deploymentId: null, reportDigest: sha256(canonical({ phase: 'app-config', error: 'unconfirmed' })) });
+    if (scenario === 'attested') {
+      assert.equal(state.events.length, 23); assert.equal(state.next, 'app');
+      assert.equal(state.events[22]!.kind, 'configuration-attested');
+      assert.equal(state.heldCandidate?.deploymentId, f.candidate.id);
+      assert.equal(state.heldCandidate?.configurationBasis, 'current-runtime-attestation');
+      await assert.rejects(authorizeActivationPhase(f.f.run, 'app', f.f.p.provider));
+      await assert.rejects(executeActivationPhase(f.f.run, 'app', async () => assert.fail('No second CREATE')));
+      assert.equal(f.f.state().events.length, 23);
+    } else { assert.equal(state.events.length, 22); assert.equal(state.next, 'app-config'); }
+    const replay = await importHeldAppProof(f.context, '123', async () => assert.fail('No repeated proof import'));
+    assert.equal(replay.status, 'STOP');
+    const recreate = await createHeldApp(f.context, f.prepare, f.cli);
+    assert.equal(recreate.status, 'STOP'); assert.equal(recreate.createCommands, 0); f.f.f.unchanged();
+  });
+});
+
+test('concurrent held APP CREATE contenders can consume at most one exclusive CREATE claim', {
+  skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 60000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  const f = await heldControllerFixture(t, artifact);
+  const results = await Promise.all([createHeldApp(f.context, f.prepare, f.cli), createHeldApp(f.context, f.prepare, f.cli)]);
+  assert.equal(f.counts.creates, 1); assert.equal(results.filter(result => result.status === 'HELD_PROBE_PENDING').length, 1);
+  assert.equal(results.filter(result => result.status === 'STOP').length, 1);
+  assert.equal(f.f.state().events.length, 22); assert.equal(f.f.state().head, f.expected.head);
+});
+
+test('held APP metadata diagnostics preserve the first refusal through cleanup without CREATE or journal changes', {
+  skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 60000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['missing-key', 'privileged']) await t.test(scenario, async sub => {
+    const f = await heldControllerFixture(sub, artifact), before = canonical(inventory(f.f.run.directory));
+    let requests = 0, cleanups = 0;
+    const result = await createHeldApp(f.context, () => ({
+      async observe(dispatched) {
+        dispatched(); requests++;
+        const rows: Array<Record<string, unknown>> = [{ id: 'PRIVATE_ID', key: 'API_RUNTIME', type: 'sensitive',
+          target: ['production'], value: 'PRIVATE_VALUE' }];
+        if (scenario === 'privileged') rows.push({ key: 'ACTIVATION_PRIVATE_UNTRUSTED_NAME', value: 'PRIVATE_VALUE' });
+        return currentAppMetadata({ envs: rows }, { API_RUNTIME: 'vercel', APP_ACTIVATION_CONFIG_DIGEST: f.f.run.packet.appConfigDigest });
+      },
+      dispose() { cleanups++; throw new Error('PRIVATE_CLEANUP_ERROR'); },
+    }), () => assert.fail('CREATE capability must not be prepared after metadata refusal'));
+    assert.equal(result.status, 'STOP');
+    assert.deepEqual(result.firstError, { stage: 'metadata', category: 'refused', metadata: {
+      issue: scenario === 'missing-key' ? 'controlled-key-mismatch' : 'privileged-name', httpStatus: null,
+      missingKeys: scenario === 'missing-key' ? ['APP_ACTIVATION_CONFIG_DIGEST'] : [], unexpectedKeys: [],
+    } });
+    assert.equal(result.stage, 'metadata'); assert.equal(requests, 1); assert.equal(cleanups, 1);
+    assert.equal(result.metadataRequests, 1);
+    assert.equal(result.createCommands + result.candidateRequests + result.envPosts + result.promotions, 0);
+    assert.equal(canonical(inventory(f.f.run.directory)), before);
+    assert.equal(f.f.state().events.length, 22); assert.equal(f.f.state().head, f.expected.head);
+    assert.equal(existsSync(heldEvidencePath(f.f.run.directory, f.f.run.packet, 'create-started')), false);
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_|UNTRUSTED|metadataDigest|reportDigest/);
+    f.f.f.unchanged();
+  });
+});
+
+test('missing-five controller preserves UNKNOWN22 and one-shot correction evidence across refusal and uncertain outcomes', {
+  skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 180000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['success', 'bootstrap-drift', 'held-exclusion', 'target-present', 'preflight-drift',
+    'partial', 'lost-ack', 'verification-drift', 'cleanup', 'first-error', 'abort-after-ack', 'ack-disk', 'claim-disk']) {
+    await t.test(scenario, async sub => {
+      const f = await heldControllerFixture(sub, artifact), before = canonical(inventory(f.f.run.directory));
+      const base = join(f.f.f.root, `${f.f.run.packet.runId}.app-missing-five-`);
+      const abort = new AbortController(); f.context.signal = abort.signal;
+      sub.mock.method(globalThis, 'fetch', async () => assert.fail('No unbound HTTP'));
+      sub.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
+      let posts = 0, verified = 0, cleanup = 0;
+      if (scenario === 'bootstrap-drift') writeFileSync(f.bootstrapPath, '{}');
+      if (scenario === 'held-exclusion') writeReleaseEvidence(heldEvidencePath(f.f.run.directory, f.f.run.packet, 'create-started'), { existing: true });
+      if (scenario === 'preflight-drift') f.context.provider.preflight = async () => {
+        if (++f.counts.preflight === 2) throw new Error('PRIVATE_MAIN_DRIFT');
+      };
+      if (scenario === 'ack-disk' || scenario === 'claim-disk') {
+        const write = fs.writeFileSync, kind = scenario === 'ack-disk' ? 'app-missing-five-ack' : 'app-missing-five-started';
+        sub.mock.method(fs, 'writeFileSync', (path: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions) => {
+          if (typeof data === 'string' && data.includes(`"kind": "${kind}"`)) {
+            write(path, '{"partial":', options); throw new Error('PRIVATE_DISK_ERROR');
+          }
+          write(path, data, options);
+        });
+        syncBuiltinESMExports();
+        sub.after(() => { sub.mock.restoreAll(); syncBuiltinESMExports(); });
+      }
+      const prepare = () => ({
+        async observe(dispatched: () => void) {
+          dispatched();
+          if (scenario === 'target-present' || scenario === 'first-error') {
+            throw new AppMetadataError('controlled-key-mismatch', 200, [], ['APP_AUTH_API_KEY']);
+          }
+          return { bindings: {}, metadataDigest: sha256('synthetic missing-five metadata'), keyCount: 12 };
+        },
+        async post(dispatched: () => void): Promise<MissingFiveAck> {
+          const claim = JSON.parse(readFileSync(`${base}started.json`, 'utf8'));
+          assert.equal(claim.packetDigest, f.f.run.digest); assert.equal(claim.unknownHead, f.expected.head);
+          assert.equal(claim.inventoryDigest, f.expected.inventory);
+          dispatched(); posts++;
+          if (scenario === 'lost-ack') throw new Error('PRIVATE_LOST_ACK');
+          const ack: MissingFiveAck = { outcome: 'acknowledged', httpStatus: 201, issue: 'none',
+            keys: Object.fromEntries(appMissingFiveKeys.map((key, index) =>
+              [key, { status: 'acknowledged', ids: [`env_added_${index}`] }])) as MissingFiveAck['keys'] };
+          if (scenario === 'partial') {
+            ack.outcome = 'unknown'; ack.issue = 'partial-ack';
+            ack.keys.APP_WORKSPACE_ID = { status: 'unknown', ids: [] };
+          }
+          if (scenario === 'abort-after-ack') abort.abort();
+          return ack;
+        },
+        async verify(_before: unknown, _ack: unknown, dispatched: () => void) {
+          dispatched(); verified++;
+          if (scenario === 'verification-drift') throw new AppMetadataError('target-binding-mismatch', 200);
+          return { metadataDigest: sha256('synthetic complete metadata'), keyCount: 17 };
+        },
+        dispose() {
+          cleanup++;
+          if (scenario === 'cleanup' || scenario === 'first-error') throw new Error('PRIVATE_CLEANUP_ERROR');
+        },
+      });
+      const result = await correctMissingFiveApp(f.context, prepare);
+      const noPost = ['bootstrap-drift', 'held-exclusion', 'target-present', 'preflight-drift', 'first-error', 'claim-disk'].includes(scenario);
+      assert.equal(result.status, scenario === 'success' ? 'MISSING_FIVE_CORRECTED' : 'STOP');
+      assert.equal(result.envPosts, noPost ? 0 : 1); assert.equal(posts, result.envPosts);
+      assert.equal(verified, ['success', 'verification-drift', 'cleanup'].includes(scenario) ? 1 : 0);
+      assert.equal(cleanup, ['bootstrap-drift', 'held-exclusion'].includes(scenario) ? 0 : 1);
+      assert.equal(result.createCommands + result.candidateRequests + result.promotions + result.journalTransitions, 0);
+      assert.equal(result.historicalWrite, 'unknown'); assert.equal(result.historicalPostAck, 'absent');
+      assert.equal(canonical(inventory(f.f.run.directory)), before);
+      assert.equal(f.f.state().events.length, 22); assert.equal(f.f.state().head, f.expected.head);
+      assert.equal(f.f.state().next, 'app-config');
+      if (scenario === 'partial' || scenario === 'lost-ack') assert.equal(result.disposition, 'unknown');
+      if (scenario === 'partial' || scenario === 'abort-after-ack' || scenario === 'cleanup') {
+        const ack = JSON.parse(readFileSync(`${base}ack.json`, 'utf8'));
+        assert.deepEqual(ack.acknowledgement.keys.APP_AUTH_API_KEY.ids, ['env_added_0']);
+        assert.equal(ack.acknowledgement.keys.APP_WORKSPACE_ID.status, scenario === 'partial' ? 'unknown' : 'acknowledged');
+      }
+      if (scenario === 'ack-disk' || scenario === 'claim-disk') {
+        assert.equal(readFileSync(`${base}${scenario === 'ack-disk' ? 'ack' : 'started'}.json`, 'utf8'), '{"partial":');
+      }
+      if (scenario === 'first-error') assert.equal(result.firstError?.stage, 'metadata');
+      if (scenario === 'abort-after-ack') assert.equal(result.firstError?.category, 'aborted');
+      if (existsSync(`${base}started.json`)) {
+        const calls = posts, repeat = await correctMissingFiveApp(f.context, prepare);
+        assert.equal(repeat.status, 'STOP'); assert.equal(repeat.envPosts, 0);
+        assert.equal(repeat.metadataRequests, 0); assert.equal(posts, calls);
+      } else assert.equal(noPost, true);
+      assert.doesNotMatch(JSON.stringify(result), /PRIVATE_|postgresql|Bearer/);
+      f.f.f.unchanged();
+    });
+  }
+});
+
+test('missing-five concurrent contenders cannot duplicate the POST or replace winner evidence', {
+  skip: !original || !promotion || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 60000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  const f = await heldControllerFixture(t, artifact);
+  let posts = 0;
+  const prepare = () => ({
+    async observe(dispatched: () => void) { dispatched(); return { bindings: {}, metadataDigest: sha256('before'), keyCount: 12 }; },
+    async post(dispatched: () => void): Promise<MissingFiveAck> {
+      dispatched(); posts++;
+      return { outcome: 'acknowledged', httpStatus: 201, issue: 'none',
+        keys: Object.fromEntries(appMissingFiveKeys.map((key, index) =>
+          [key, { status: 'acknowledged', ids: [`env_${index}`] }])) as MissingFiveAck['keys'] };
+    },
+    async verify(_before: unknown, _ack: unknown, dispatched: () => void) {
+      dispatched(); return { metadataDigest: sha256('after'), keyCount: 17 };
+    },
+    dispose() {},
+  });
+  const results = await Promise.all([correctMissingFiveApp(f.context, prepare), correctMissingFiveApp(f.context, prepare)]);
+  assert.equal(posts, 1);
+  assert.equal(results.filter(result => result.status === 'MISSING_FIVE_CORRECTED').length, 1);
+  assert.equal(results.filter(result => result.status === 'STOP' && result.envPosts === 0).length, 1);
+  const receipt = JSON.parse(readFileSync(join(f.f.f.root, `${f.f.run.packet.runId}.app-missing-five-result.json`), 'utf8'));
+  assert.equal(receipt.status, 'MISSING_FIVE_CORRECTED');
+  assert.equal(f.f.state().events.length, 22); assert.equal(f.f.state().head, f.expected.head);
+  f.f.f.unchanged();
+});
+
+const heldOriginal = process.env.RECOVERY_ORIGIN_TEST_HELD;
+function retainedHeldFixture(t: TestContext, artifact: VerifiedArtifact) {
+  assert.ok(heldOriginal);
+  const packet = validateActivationPacket(JSON.parse(readFileSync(
+    join(heldOriginal, 'activation', target.activationRun, 'packet.json'), 'utf8')), target.packetDigest);
+  const run = { directory: heldOriginal, packet, digest: target.packetDigest };
+  const originalEvents = readActivationJournal(run.directory, packet, run.digest).events.map(event => event.sha256);
+  const before = canonical(inventory(run.directory));
+  const overlay = heldReceiptOverlay(t, run.directory, packet.runId);
+  const lineage = readHeldAppCleanup(run.directory, packet, run.digest, retainedUnknown.head);
+  const path = (suffix: string) => heldEvidencePath(run.directory, packet, suffix);
+  const candidate = { id: lineage.candidateId, origin: 'https://synthetic-fresh-held.vercel.app', ready: true };
+  const counts = { preflight: 0, inspect: 0, archive: 0 };
+  const context: HeldAppControllerContext = { run, artifact, executableDigest: sha256('synthetic new cleanup attestor'),
+    verifyExecutable() {}, signal: AbortSignal.timeout(60000), provider: {
+      async preflight() {
+        assert.ok(overlay.output(path('attest-started')), 'Exclusive claim must precede every provider read.');
+        counts.preflight++;
+      },
+      async inspect(id) { assert.equal(id, lineage.candidateId); counts.inspect++; return candidate; },
+      async attest(id) { assert.equal(id, lineage.candidateId); counts.archive++; return sha256('synthetic fresh candidate archive'); },
+    } };
+  const replace = (file: string, change: (value: Record<string, unknown>) => void) => {
+    const value: unknown = JSON.parse(readFileSync(file, 'utf8'));
+    assert.ok(value && typeof value === 'object' && !Array.isArray(value));
+    change(value as Record<string, unknown>);
+    overlay.override(file, JSON.stringify(value, null, 2) + '\n');
+  };
+  t.mock.method(globalThis, 'fetch', async () => assert.fail('No live HTTP'));
+  t.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
+  return { run, context, counts, candidate, lineage, path, before, originalEvents, overlay, replace };
+}
+
+test('fixed held cleanup attestation claims before reads, binds exact evidence and never replays partial outcomes', {
+  skip: !heldOriginal || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 180000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['pending', 'claim-hash', 'ack-id', 'stop-hash', 'head-drift', 'correction-hash',
+    'correction-extra', 'old-executable', 'partial-namespace', 'pending-extra', 'claim-disk', 'pending-disk',
+    'terminal-disk', 'wrong-id', 'not-ready', 'bad-origin', 'archive-error', 'bad-archive', 'postflight', 'source-drift']) {
+    await t.test(scenario, async sub => {
+      const f = retainedHeldFixture(sub, artifact), parent = dirname(f.run.directory), id = f.run.packet.runId;
+      if (scenario === 'claim-hash') f.overlay.override(f.path('create-started'), readFileSync(f.path('create-started'), 'utf8') + ' ');
+      if (scenario === 'ack-id') f.replace(f.path('create-ack'), value => { value.deploymentId = 'dpl_Wrong'; });
+      if (scenario === 'stop-hash') f.overlay.override(f.path('create-result'), readFileSync(f.path('create-result'), 'utf8') + ' ');
+      if (scenario === 'head-drift') f.replace(join(f.run.directory, 'activation', id, '021.json'), value => { value.sha256 = '0'.repeat(64); });
+      if (scenario === 'correction-hash') {
+        const file = join(parent, `${id}.app-missing-five-verified.json`);
+        f.overlay.override(file, readFileSync(file, 'utf8') + ' ');
+      }
+      if (scenario === 'correction-extra') f.overlay.override(join(parent, `${id}.app-missing-five-extra.json`), '{}');
+      if (scenario === 'old-executable') f.context.executableDigest = f.lineage.claim.executableDigest;
+      if (scenario === 'partial-namespace') f.overlay.override(f.path('attest-started'), '{\"partial\":');
+      if (scenario === 'pending-extra') f.overlay.override(f.path('pending'), '{}');
+      if (scenario.endsWith('-disk')) {
+        const kind = scenario === 'claim-disk' ? 'held-app-attest' : scenario === 'pending-disk' ? 'held-app-pending' : 'held-app-attest-result';
+        const write = fs.writeFileSync;
+        sub.mock.method(fs, 'writeFileSync', (file: fs.PathOrFileDescriptor, data: string | NodeJS.ArrayBufferView, options?: fs.WriteFileOptions) => {
+          if (typeof data === 'string' && data.includes(`\"kind\": \"${kind}\"`)) {
+            write(file, '{\"partial\":', options); throw new Error('Synthetic partial disk write');
+          }
+          write(file, data, options);
+        });
+      }
+      if (scenario === 'wrong-id') f.candidate.id = 'dpl_Wrong';
+      if (scenario === 'not-ready') f.candidate.ready = false;
+      if (scenario === 'bad-origin') f.candidate.origin = 'http://untrusted.invalid';
+      if (scenario === 'archive-error') f.context.provider.attest = async () => { throw new Error('Synthetic archive failure'); };
+      if (scenario === 'bad-archive') f.context.provider.attest = async () => 'invalid';
+      if (scenario === 'postflight') {
+        const preflight = f.context.provider.preflight;
+        f.context.provider.preflight = async () => { await preflight(); if (f.counts.preflight === 2) throw new Error('Changed exclusion'); };
+      }
+      if (scenario === 'source-drift') f.context.verifyExecutable = () => { if (f.counts.inspect) throw new Error('Changed executable'); };
+      const result = await attestHeldApp(f.context);
+      assert.equal(result.status, scenario === 'pending' ? 'HELD_PROBE_PENDING' : 'STOP');
+      assert.equal(result.createCommands, 0); assert.equal(result.metadataRequests, 0);
+      assert.equal(result.candidateRequests, 0); assert.equal(result.envPosts, 0); assert.equal(result.promotions, 0);
+      assert.equal(result.historicalWrite, 'unknown'); assert.equal(result.historicalPostAck, 'absent');
+      if (['claim-hash', 'ack-id', 'stop-hash', 'head-drift', 'correction-hash', 'correction-extra',
+        'old-executable', 'partial-namespace', 'pending-extra', 'claim-disk'].includes(scenario)) {
+        assert.deepEqual(f.counts, { preflight: 0, inspect: 0, archive: 0 });
+      }
+      if (scenario === 'pending') {
+        const proof = readHeldAppPending(f.run.directory, f.run.packet, f.run.digest, retainedUnknown.head);
+        assert.equal(proof.pending.executableDigest, f.lineage.claim.executableDigest);
+        assert.equal(proof.proofExecutableDigest, f.context.executableDigest);
+        assert.equal(proof.target.candidate, f.lineage.candidateId);
+        assert.equal(proof.target.origin, f.candidate.origin);
+        assert.equal(proof.pending.archiveDigest, sha256('synthetic fresh candidate archive'));
+        assert.deepEqual(f.counts, { preflight: 2, inspect: 1, archive: 1 });
+      } else assert.throws(() => readHeldAppPending(f.run.directory, f.run.packet, f.run.digest, retainedUnknown.head));
+      const calls = { ...f.counts };
+      assert.equal((await attestHeldApp(f.context)).status, 'STOP'); assert.deepEqual(f.counts, calls);
+      if (scenario !== 'head-drift') assert.equal(canonical(inventory(f.run.directory)), f.before);
+    });
+  }
+});
+
+test('fixed held cleanup attestation excludes concurrent readers after its one-shot claim', {
+  skip: !heldOriginal || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 60000,
+}, async t => {
+  const f = retainedHeldFixture(t, verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest));
+  let enter!: () => void, release!: () => void;
+  const entered = new Promise<void>(resolve => { enter = resolve; }), blocked = new Promise<void>(resolve => { release = resolve; });
+  const preflight = f.context.provider.preflight;
+  f.context.provider.preflight = async () => { await preflight(); enter(); await blocked; };
+  const first = attestHeldApp(f.context); await entered;
+  const second = await attestHeldApp(f.context);
+  assert.equal(second.status, 'STOP'); assert.deepEqual(f.counts, { preflight: 1, inspect: 0, archive: 0 });
+  release(); assert.equal((await first).status, 'HELD_PROBE_PENDING');
+  assert.deepEqual(f.counts, { preflight: 2, inspect: 1, archive: 1 });
+});
+
+test('fixed held pending imports only independent same-ID proof with separate attestor provenance', {
+  skip: !heldOriginal || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 180000,
+}, async t => {
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  for (const scenario of ['attested', 'import-executable', 'pending-executable', 'attestor-executable', 'terminal-claim',
+    'terminal-pending', 'old-stop-success', 'extra-namespace', 'proof-target']) await t.test(scenario, async sub => {
+    const f = retainedHeldFixture(sub, artifact);
+    assert.equal((await attestHeldApp(f.context)).status, 'HELD_PROBE_PENDING');
+    if (scenario === 'import-executable') f.context.executableDigest = sha256('different importer');
+    if (scenario === 'pending-executable') f.replace(f.path('pending'), value => { value.executableDigest = f.context.executableDigest; });
+    if (scenario === 'attestor-executable') {
+      f.replace(f.path('attest-started'), value => { value.executableDigest = sha256('different attestor'); });
+      f.replace(f.path('attest-result'), value => { value.attestClaimDigest = sha256(readFileSync(f.path('attest-started'))); });
+    }
+    if (scenario === 'terminal-claim') f.replace(f.path('attest-result'), value => { value.attestClaimDigest = sha256('wrong claim'); });
+    if (scenario === 'terminal-pending') f.replace(f.path('attest-result'), value => { value.pendingDigest = sha256('wrong pending'); });
+    if (scenario === 'old-stop-success') f.overlay.override(f.path('create-result'), JSON.stringify({
+      version: 1, kind: 'held-app-create-result', claimDigest: f.lineage.createClaimDigest,
+      pendingDigest: sha256(readFileSync(f.path('pending'))), status: 'HELD_PROBE_PENDING',
+    }, null, 2) + '\n');
+    if (scenario === 'extra-namespace') f.overlay.override(join(dirname(f.run.directory), `${f.run.packet.runId}.held-app-extra.json`), '{}');
+    let independentReads = 0;
+    const beforeCalls = { ...f.counts };
+    const result = await importHeldAppProof(f.context, '123', async bound => {
+      const proof = heldProofFixture(bound);
+      if (scenario === 'proof-target') proof.values[proof.variablePath].value = JSON.stringify({ ...proof.binding, candidate: 'dpl_Other' });
+      try { return await verifyHeldAppProbe('123', bound, proof.io, proof.sourceDigests, f.context.signal); }
+      finally { independentReads += proof.reads.length; }
+    });
+    assert.equal(result.status, scenario === 'attested' ? 'CURRENT_CONFIG_ATTESTED' : 'STOP');
+    assert.equal(result.createCommands, 0); assert.equal(result.envPosts, 0); assert.equal(result.candidateRequests, 0);
+    if (scenario === 'attested') {
+      const state = readActivationJournal(f.run.directory, f.run.packet, f.run.digest);
+      assert.equal(state.events.length, 23); assert.equal(state.next, 'app');
+      assert.deepEqual(state.events.slice(0, 22).map(event => event.sha256), f.originalEvents);
+      assert.equal(state.heldCandidate?.deploymentId, f.lineage.candidateId);
+      assert.ok(independentReads > 0);
+      assert.equal(readEvidence(f.path('create-result')).identity.sha256, f.lineage.createResultDigest);
+      const calls = { ...f.counts };
+      assert.equal((await importHeldAppProof(f.context, '123', async () => assert.fail('No proof replay'))).status, 'STOP');
+      assert.deepEqual(f.counts, calls);
+    } else {
+      assert.equal(canonical(inventory(f.run.directory)), f.before);
+      if (scenario !== 'proof-target') { assert.deepEqual(f.counts, beforeCalls); assert.equal(independentReads, 0); }
+    }
   });
 });

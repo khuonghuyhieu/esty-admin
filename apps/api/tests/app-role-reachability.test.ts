@@ -4,8 +4,49 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Client } from 'pg';
-import { AppRoleError, inspectAppRoles } from '../scripts/app-roles.js';
+import { AppRoleError, inspectAppRoles, inspectPrivateSchemaExposure, observePrivateSchemaExposure } from '../scripts/app-roles.js';
 import type { AppRoleInputs } from '../scripts/app-roles.js';
+import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
+
+test('Task D1 schema exposure reports bounded safe categories without relaxing the existing contract', async t => {
+  const config = { authUrl: `https://${approvedTarget.SUPABASE_PROJECT_REF}.supabase.co/auth/v1`, apiKey: 'synthetic-private-key' };
+  for (const scenario of [
+    { name: 'denied', status: 406, body: '{"code":"PGRST106","message":"private-body"}', category: 'passed' },
+    { name: 'exposed', status: 200, body: 'private-body', category: 'schema-exposure' },
+    { name: 'unauthorized', status: 401, body: 'private-body', category: 'http-status' },
+    { name: 'invalid-json', status: 406, body: 'private-body', category: 'json' },
+    { name: 'wrong-code', status: 406, body: '{"code":"private-body"}', category: 'pgrst106' },
+    { name: 'array', status: 406, body: '[{"code":"PGRST106"}]', category: 'pgrst106' },
+    { name: 'oversized', status: 406, body: 'x'.repeat(16385), category: 'transport' },
+    { name: 'redirect', status: 406, body: '{"code":"PGRST106"}', category: 'http-status' },
+    { name: 'transport', status: null, body: '', category: 'transport' },
+    { name: 'cancelled', status: null, body: '', category: 'transport' },
+    { name: 'target', status: null, body: '', category: 'target' },
+  ]) await t.test(scenario.name, async () => {
+    let requests = 0;
+    const abort = new AbortController();
+    if (scenario.name === 'cancelled') abort.abort('private-abort');
+    const selected = scenario.name === 'target' ? { ...config, authUrl: 'https://forbidden.invalid/auth/v1' } : config;
+    const transport: typeof fetch = async (url, init) => {
+      requests++;
+      assert.equal(String(url), `https://${approvedTarget.SUPABASE_PROJECT_REF}.supabase.co/rest/v1/profiles?select=user_id&limit=0`);
+      assert.equal(init?.method, 'GET'); assert.equal(init?.redirect, 'error'); assert.equal(init?.body, undefined);
+      assert.deepEqual(init?.headers, { apikey: config.apiKey, 'Accept-Profile': 'app_private', Accept: 'application/json' });
+      assert.ok(init?.signal);
+      if (scenario.name === 'transport') throw new Error('private-transport');
+      const response = new Response(scenario.body, { status: scenario.status! });
+      if (scenario.name === 'redirect') Object.defineProperty(response, 'redirected', { value: true });
+      return response;
+    };
+    const result = await observePrivateSchemaExposure(selected, abort.signal, transport);
+    assert.deepEqual(result, { category: scenario.category, httpStatus: scenario.status,
+      requests: ['target', 'cancelled'].includes(scenario.name) ? 0 : 1 });
+    assert.equal(requests, result.requests); assert.doesNotMatch(JSON.stringify(result), /private|forbidden|https:|apikey|message/);
+    if (scenario.category === 'passed') await inspectPrivateSchemaExposure(selected, abort.signal, transport);
+    else await assert.rejects(inspectPrivateSchemaExposure(selected, abort.signal, transport),
+      (error: unknown) => error instanceof AppRoleError && error.databaseOutcome === 'not_started');
+  });
+});
 
 test('PostgreSQL17 role ACL reachability preserves private policies and sequence controls', {
   skip: !process.env.ROLE_REACHABILITY_POSTGRES_BIN, timeout: 60000,

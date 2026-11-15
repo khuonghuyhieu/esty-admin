@@ -8,8 +8,10 @@ import { activationSchema, assertActivationManifest } from '../src/config/schema
 import { migrationManifest } from '../src/generated/migrations.js';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
 import type { ActivationConfigurationReceipt } from './activation-configuration.js';
-import { buildActivationRecoveryOrigin, readActivationRecoveryOrigin } from './activation-recovery-origin.js';
+import { buildActivationRecoveryOrigin, readActivationRecoveryOrigin, rolesReachability } from './activation-recovery-origin.js';
 import type { ActivationRecoveryBinding, ActivationRecoveryOrigin } from './activation-recovery-origin.js';
+import type { HeldAppProbeProof, HeldAppTarget } from './activation-held-proof.js';
+import { heldProbeSources } from './activation-held-contract.mjs';
 
 export const activationPhases = ['bridge-config', 'bridge', 'roles', 'migration', 'bootstrap', 'app-config', 'app', 'fe'] as const;
 export type ActivationPhase = typeof activationPhases[number];
@@ -64,7 +66,7 @@ export interface ActivationOutcome {
   deploymentId: string | null;
 }
 type Kind = 'intent' | 'authorized' | 'started' | 'acknowledged' | 'candidate-attested'
-  | 'promotion-intent' | 'outcome' | 'reconciled' | 'confirming' | 'remote-confirmed';
+  | 'promotion-intent' | 'outcome' | 'reconciled' | 'confirming' | 'remote-confirmed' | 'configuration-attested';
 interface Event {
   version: 1; packetDigest: string; previousHash: string; sequence: number;
   phase: ActivationPhase; kind: Kind; value: unknown; sha256: string;
@@ -73,6 +75,142 @@ export interface ActivationState {
   packet: ActivationPacket; packetDigest: string; head: string; journal: number;
   events: readonly Event[]; next: ActivationPhase | null;
   recovery?: { executionId: string; bridgeId: string; originDigest: string };
+  heldCandidate?: { deploymentId: string; origin: string; proofDigest: string; configurationBasis: 'current-runtime-attestation' };
+}
+export interface HeldAppPendingReceipt {
+  version: 1; kind: 'held-app-pending'; executionId: string; packetDigest: string; unknownHead: string;
+  inventoryDigest: string; executableDigest: string; bootstrapProofDigest: string;
+  metadataDigest: string; keyCount: number; createClaimDigest: string; createAckDigest: string;
+  candidate: { id: string; origin: string }; archiveDigest: string;
+}
+type HeldAppCreateClaim = Omit<HeldAppPendingReceipt, 'kind' | 'candidate' | 'archiveDigest' | 'createClaimDigest' | 'createAckDigest'>
+  & { kind: 'held-app-create' };
+const heldCleanupPins = Object.freeze({
+  executableDigest: 'c19eef1d41831341a207ea0657b44e4a5f0339812a0e8cad018d6637f0296a54',
+  createClaimDigest: '068c33cbefd91af29fcb9685fe8ab868381559489945399c246a9c4e814caaa2',
+  createAckDigest: '96e6c981fca2277e71cae90897f28c5e0fc8f2e2c33f47edb5b56e3a2b5a815e',
+  createResultDigest: 'c43b98c50de7c9f7526f12fd83871a8eb43bb41fa5716a63a61667e3c62d2dce',
+  correction: Object.freeze({
+    started: 'e5a648959973cab58c07339435e2b5a0441cee1a3eb3e3057d9cbb68e91e9027',
+    ack: '59e274b7aa63ff02eb9bedfb19ad6ebfc54652dd5d7ca52699bd3422d5fa0ae6',
+    verified: '258be0c208e611d714fb631551ee798616da01c70bd4f0130ebe77f38b554c8f',
+    result: '36ef6ec40264e2b06941769d53744563404a0892663ff7f024786ea0536b0112',
+  }),
+});
+export function readHeldAppCleanup(directory: string, packet: ActivationPacket, digest: string, unknownHead: string) {
+  const claimFile = readEvidence(heldEvidencePath(directory, packet, 'create-started'));
+  const ackFile = readEvidence(heldEvidencePath(directory, packet, 'create-ack'));
+  const resultFile = readEvidence(heldEvidencePath(directory, packet, 'create-result'));
+  if (claimFile.identity.sha256 !== heldCleanupPins.createClaimDigest || ackFile.identity.sha256 !== heldCleanupPins.createAckDigest
+    || resultFile.identity.sha256 !== heldCleanupPins.createResultDigest) refuse();
+  const claim = object(claimFile.value, ['version', 'kind', 'executionId', 'packetDigest', 'unknownHead', 'inventoryDigest',
+    'executableDigest', 'bootstrapProofDigest', 'metadataDigest', 'keyCount']);
+  const ack = object(ackFile.value, ['version', 'kind', 'claimDigest', 'deploymentId', 'code', 'aborted']);
+  if (claim.version !== 1 || claim.kind !== 'held-app-create' || claim.executionId !== rolesReachability.executionId
+    || claim.packetDigest !== digest || claim.unknownHead !== unknownHead || claim.executableDigest !== heldCleanupPins.executableDigest
+    || !matches(ack.deploymentId, deployment) || canonical(ack) !== canonical({ version: 1, kind: 'held-app-create-ack',
+      claimDigest: heldCleanupPins.createClaimDigest, deploymentId: ack.deploymentId, code: 0, aborted: false })) refuse();
+  const prefix = `${packet.runId}.app-missing-five-`, parent = dirname(directory);
+  if (canonical(readdirSync(parent).filter(name => name.startsWith(prefix)).sort())
+    !== canonical(Object.keys(heldCleanupPins.correction).map(suffix => `${prefix}${suffix}.json`).sort())) refuse();
+  for (const [suffix, hash] of Object.entries(heldCleanupPins.correction)) {
+    if (readEvidence(join(parent, `${prefix}${suffix}.json`)).identity.sha256 !== hash) refuse();
+  }
+  return { claim: claim as unknown as HeldAppCreateClaim, candidateId: ack.deploymentId,
+    createClaimDigest: heldCleanupPins.createClaimDigest, createAckDigest: heldCleanupPins.createAckDigest,
+    createResultDigest: heldCleanupPins.createResultDigest };
+}
+export interface AppCurrentConfigurationAttestationReceipt {
+  version: 1; kind: 'app-current-configuration'; executionId: string; packetDigest: string; unknownHead: string;
+  pendingDigest: string; importClaimDigest: string; probe: HeldAppProbeProof; historicalWrite: 'unknown'; historicalPostAck: 'absent';
+  scope: 'held-deployment-runtime'; promotion: 'not_started';
+}
+export function heldEvidencePath(directory: string, packet: ActivationPacket, suffix: string): string {
+  if (!['create-started', 'create-ack', 'pending', 'create-result', 'attest-started', 'attest-result',
+    'import-started', 'current-proof', 'import-result'].includes(suffix)) refuse();
+  return join(dirname(directory), `${packet.runId}.held-app-${suffix}.json`);
+}
+export function readHeldAppPending(directory: string, packet: ActivationPacket, digest: string, unknownHead: string):
+  { pending: HeldAppPendingReceipt; target: HeldAppTarget; proofExecutableDigest: string; receiptSuffixes: readonly string[] } {
+  const pendingFile = readEvidence(heldEvidencePath(directory, packet, 'pending'));
+  const value = object(pendingFile.value, ['version', 'kind', 'executionId', 'packetDigest', 'unknownHead', 'inventoryDigest',
+    'executableDigest', 'bootstrapProofDigest', 'metadataDigest', 'keyCount', 'createClaimDigest', 'createAckDigest', 'candidate', 'archiveDigest']);
+  const candidate = object(value.candidate, ['id', 'origin']);
+  if (value.version !== 1 || value.kind !== 'held-app-pending' || value.executionId !== rolesReachability.executionId
+    || value.packetDigest !== digest || value.unknownHead !== unknownHead
+    || !['unknownHead', 'inventoryDigest', 'executableDigest', 'bootstrapProofDigest', 'metadataDigest',
+      'createClaimDigest', 'createAckDigest', 'archiveDigest'].every(key => matches(value[key], hex))
+    || !Number.isInteger(value.keyCount) || Number(value.keyCount) < 1 || Number(value.keyCount) > 64
+    || !matches(candidate.id, deployment) || !matches(candidate.origin, /^https:\/\/[a-z0-9-]+\.vercel\.app$/)) refuse();
+  const retained = inventory(directory), appended = `activation/${packet.runId}/022.json`;
+  if (sha256(canonical({ files: retained.files.filter(file => file.path !== appended), directories: retained.directories })) !== value.inventoryDigest) refuse();
+  const claim = readEvidence(heldEvidencePath(directory, packet, 'create-started'));
+  const acknowledgement = readEvidence(heldEvidencePath(directory, packet, 'create-ack'));
+  const expectedClaim = { version: 1, kind: 'held-app-create', executionId: value.executionId, packetDigest: digest, unknownHead,
+    inventoryDigest: value.inventoryDigest, executableDigest: value.executableDigest, bootstrapProofDigest: value.bootstrapProofDigest,
+    metadataDigest: value.metadataDigest, keyCount: value.keyCount };
+  if (claim.identity.sha256 !== value.createClaimDigest || canonical(claim.value) !== canonical(expectedClaim)
+    || acknowledgement.identity.sha256 !== value.createAckDigest
+    || canonical(acknowledgement.value) !== canonical({ version: 1, kind: 'held-app-create-ack',
+      claimDigest: value.createClaimDigest, deploymentId: candidate.id, code: 0, aborted: false })) refuse();
+  const receiptSuffixes = ['create-started', 'create-ack', 'pending', 'create-result'];
+  let proofExecutableDigest = value.executableDigest as string;
+  if (value.createClaimDigest === heldCleanupPins.createClaimDigest
+    || canonical(readEvidence(heldEvidencePath(directory, packet, 'create-result')).value) !== canonical({
+    version: 1, kind: 'held-app-create-result', claimDigest: value.createClaimDigest,
+    pendingDigest: pendingFile.identity.sha256, status: 'HELD_PROBE_PENDING' })) {
+    const lineage = readHeldAppCleanup(directory, packet, digest, unknownHead);
+    const attestFile = readEvidence(heldEvidencePath(directory, packet, 'attest-started'));
+    const attest = object(attestFile.value, ['version', 'kind', 'createClaimDigest', 'createAckDigest', 'createResultDigest',
+      'createExecutableDigest', 'executableDigest']);
+    if (!matches(attest.executableDigest, hex) || attest.executableDigest === lineage.claim.executableDigest
+      || canonical(attest) !== canonical({ version: 1, kind: 'held-app-attest', createClaimDigest: lineage.createClaimDigest,
+        createAckDigest: lineage.createAckDigest, createResultDigest: lineage.createResultDigest,
+        createExecutableDigest: lineage.claim.executableDigest, executableDigest: attest.executableDigest })
+      || canonical(readEvidence(heldEvidencePath(directory, packet, 'attest-result')).value) !== canonical({
+        version: 1, kind: 'held-app-attest-result', attestClaimDigest: attestFile.identity.sha256,
+        pendingDigest: pendingFile.identity.sha256, status: 'HELD_PROBE_PENDING' })) refuse();
+    proofExecutableDigest = attest.executableDigest;
+    receiptSuffixes.push('attest-started', 'attest-result');
+  }
+  const prefix = `${packet.runId}.held-app-`;
+  const allowed = new Set([...receiptSuffixes, 'import-started', 'current-proof', 'import-result'].map(suffix => `${prefix}${suffix}.json`));
+  if (readdirSync(dirname(directory)).some(name => name.startsWith(prefix) && !allowed.has(name))) refuse();
+  return { pending: value as unknown as HeldAppPendingReceipt, proofExecutableDigest, receiptSuffixes, target: {
+    executionId: rolesReachability.executionId, unknownHead, packetDigest: digest, artifactDigest: packet.artifactDigest,
+    revision: packet.revision, tree: packet.tree, sourceDigest: packet.sourceDigest, project: packet.projectId, scope: packet.scopeId,
+    candidate: candidate.id as string, origin: candidate.origin as string, configDigest: packet.appConfigDigest,
+    createClaimDigest: value.createClaimDigest as string, createAckDigest: value.createAckDigest as string,
+    heldReceiptDigest: pendingFile.identity.sha256,
+  } };
+}
+function currentConfigurationProof(directory: string, packet: ActivationPacket, digest: string, unknownHead: string) {
+  const { target, proofExecutableDigest } = readHeldAppPending(directory, packet, digest, unknownHead);
+  const proofFile = readEvidence(heldEvidencePath(directory, packet, 'current-proof'));
+  const value = object(proofFile.value, ['version', 'kind', 'executionId', 'packetDigest', 'unknownHead', 'pendingDigest',
+    'importClaimDigest', 'probe', 'historicalWrite', 'historicalPostAck', 'scope', 'promotion']);
+  const proof = object(value.probe, ['version', 'kind', 'binding', 'bindingDigest', 'workflowRun', 'artifactId', 'archiveDigest',
+    'receiptDigest', 'sourceDigests', 'sourcePinDigest', 'checks']);
+  const binding = object(proof.binding, [...Object.keys(target), 'workflowRevision']);
+  if (value.version !== 1 || value.kind !== 'app-current-configuration' || value.executionId !== target.executionId
+    || value.packetDigest !== digest || value.unknownHead !== unknownHead || value.pendingDigest !== target.heldReceiptDigest
+    || value.historicalWrite !== 'unknown' || value.historicalPostAck !== 'absent' || value.scope !== 'held-deployment-runtime'
+    || value.promotion !== 'not_started' || proof.version !== 1 || proof.kind !== 'github-held-app-live'
+    || !Object.entries(target).every(([key, entry]) => binding[key] === entry) || !matches(binding.workflowRevision, commit)
+    || proof.bindingDigest !== sha256(canonical(binding)) || !matches(proof.workflowRun, /^[1-9][0-9]{0,19}$/)
+    || !Number.isSafeInteger(proof.artifactId) || Number(proof.artifactId) < 1
+    || !['archiveDigest', 'receiptDigest', 'sourcePinDigest'].every(key => matches(proof[key], hex))
+    || canonical(proof.checks) !== canonical({ live: 'passed', computedRuntimeDigest: 'passed', target: 'not-proved', authMembership: 'not-proved' })) refuse();
+  const sources = object(proof.sourceDigests, heldProbeSources);
+  if (Object.values(sources).some(item => !matches(item, hex))
+    || proof.receiptDigest !== sha256(canonical({ version: 1, kind: 'held-app-live', bindingDigest: proof.bindingDigest,
+      workflowRevision: binding.workflowRevision, workflowRun: proof.workflowRun, status: 200, configDigestMatch: true, bodyStatus: 'ok' }))) refuse();
+  const claim = readEvidence(heldEvidencePath(directory, packet, 'import-started'));
+  const claimValue = object(claim.value, ['version', 'kind', 'unknownHead', 'pendingDigest', 'workflowRun', 'executableDigest']);
+  if (claim.identity.sha256 !== value.importClaimDigest || claimValue.executableDigest !== proofExecutableDigest
+    || canonical(claimValue) !== canonical({ version: 1, kind: 'held-app-import', unknownHead,
+      pendingDigest: target.heldReceiptDigest, workflowRun: proof.workflowRun, executableDigest: proofExecutableDigest })) refuse();
+  return { receiptDigest: proofFile.identity.sha256, deploymentId: target.candidate, configDigest: packet.appConfigDigest, origin: target.origin };
 }
 function outcome(value: unknown): ActivationOutcome {
   const data = object(value, ['result', 'databaseOutcome', 'reportDigest', 'count', 'deploymentId']);
@@ -215,10 +353,11 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
   let intent = false, authorized = false, started = false, id: string | null = null;
   let attested = false, promotion = false, completed: ActivationOutcome | null = null, reconciled = false;
   let confirmation: string | null = null;
+  let heldCandidate: ActivationState['heldCandidate'];
   let startedHash = '';
   const acknowledged = new Set<string>(recovery ? [recovery.origin.bridgeId] : []);
   for (const [index, name] of names.entries()) {
-    if (name !== `${String(index).padStart(3, '0')}.json`) refuse();
+    if (name !== `${String(index).padStart(3, '0')}.json` || heldCandidate) refuse();
     const row = object(readEvidence(join(run, name)).value, ['version', 'packetDigest', 'previousHash', 'sequence', 'phase', 'kind', 'value', 'sha256']);
     const { sha256: recorded, ...body } = row;
     if (row.version !== 1 || row.packetDigest !== digest || row.previousHash !== head || row.sequence !== index
@@ -268,19 +407,43 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
           || canonical(row.value) !== canonical({ outcomeHash: confirmation })) refuse();
         phaseIndex++; intent = false; authorized = false; started = false; id = null;
         attested = false; promotion = false; completed = null; reconciled = false; confirmation = null; break;
+      case 'configuration-attested': {
+        if (index !== 22 || recovery?.origin.executionId !== rolesReachability.executionId || row.phase !== 'app-config'
+          || events.at(-1)?.kind !== 'outcome' || canonical(completed) !== canonical({
+            result: 'unknown', databaseOutcome: 'not_started', count: 0, deploymentId: null,
+            reportDigest: sha256(canonical({ phase: 'app-config', error: 'unconfirmed' })) })
+          || lstatSync(configurationPath(directory, packet, 'app-config'), { throwIfNoEntry: false })) refuse();
+        const proof = currentConfigurationProof(directory, packet, digest, head);
+        if (proof.deploymentId === recovery.origin.bridgeId || canonical(row.value) !== canonical({
+          receiptDigest: proof.receiptDigest, deploymentId: proof.deploymentId, configDigest: proof.configDigest })) refuse();
+        heldCandidate = { deploymentId: proof.deploymentId, origin: proof.origin, proofDigest: proof.receiptDigest,
+          configurationBasis: 'current-runtime-attestation' };
+        phaseIndex++; break;
+      }
       default: refuse();
     }
     head = recorded as string; events.push(row as unknown as Event);
   }
   return { packet, packetDigest: digest, head, journal: Number(reservation.journal), events, next: activationPhases[phaseIndex] ?? null,
+    ...(heldCandidate ? { heldCandidate } : {}),
     ...(recovery ? { recovery: { executionId: recovery.origin.executionId, bridgeId: recovery.origin.bridgeId, originDigest: recovery.originDigest } } : {}) };
 }
 export function appendActivationEvent(directory: string, packet: ActivationPacket, digest: string,
   phase: ActivationPhase, kind: Kind, value: unknown): ActivationState {
   const state = readActivationJournal(directory, packet, digest);
-  if (state.next !== phase) refuse();
+  // This increment exposes a held identity, not an ordinary app CREATE or a promotion service.
+  if (state.next !== phase || state.heldCandidate) refuse();
   const last = state.events.at(-1), active = last?.phase === phase ? last : undefined;
-  if (kind === 'intent') {
+  if (kind === 'configuration-attested') {
+    if (phase !== 'app-config' || state.events.length !== 22 || state.recovery?.executionId !== rolesReachability.executionId
+      || active?.kind !== 'outcome' || canonical(active.value) !== canonical({
+        result: 'unknown', databaseOutcome: 'not_started', count: 0, deploymentId: null,
+        reportDigest: sha256(canonical({ phase: 'app-config', error: 'unconfirmed' })) })
+      || lstatSync(configurationPath(directory, packet, 'app-config'), { throwIfNoEntry: false })) refuse();
+    const proof = currentConfigurationProof(directory, packet, digest, state.head);
+    if (proof.deploymentId === state.recovery.bridgeId || canonical(value) !== canonical({
+      receiptDigest: proof.receiptDigest, deploymentId: proof.deploymentId, configDigest: proof.configDigest })) refuse();
+  } else if (kind === 'intent') {
     if (active || canonical(value) !== canonical({ outcome: 'unknown' })) refuse();
   } else if (kind === 'authorized') {
     if (active?.kind !== 'intent' || canonical(value) !== canonical({ intentHash: state.head })) refuse();

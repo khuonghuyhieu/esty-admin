@@ -1689,3 +1689,52 @@ test('Task C CLI refuses unguarded private FIFOs and extra lineage arguments bef
     }
   }
 });
+
+test('Task D1 CLI rejects unsupported phases and unguarded contexts before private reads', t => {
+  const f = fixture(t), fifo = join(f.root, 'must-not-open.fifo');
+  assert.equal(spawnSync('/usr/bin/mkfifo', [fifo], { encoding: 'utf8', timeout: 5000 }).status, 0);
+  for (const args of [
+    ['run', 'app-config', fifo, sha256('control'), fifo, fifo],
+    ['run', 'app-config', fifo, sha256('control'), fifo, fifo, 'head-override'],
+    ['inspect', 'app-config', fifo, sha256('control'), fifo, fifo],
+    ['run', 'app', fifo, sha256('control'), fifo, fifo],
+  ]) {
+    const result = spawnSync(process.execPath, [helper, 'reachability-app-config', ...args],
+      { encoding: 'utf8', timeout: 5000, env: { PATH: '/usr/bin:/bin', HOME: f.root } });
+    assert.equal(result.error, undefined); assert.equal(result.status, 1); assert.equal(result.stderr, '');
+    assert.deepEqual(JSON.parse(result.stdout.slice('APP_CONFIGURATION '.length)),
+      { status: 'STOP', stage: 'guard', category: 'refused', valueProof: 'pending-candidate-runtime' });
+  }
+});
+
+test('Task D1 prepared APP capability excludes provider and privileged inputs and preserves original files', async t => {
+  for (const field of ['GITHUB_TOKEN', 'VERCEL_TOKEN', 'ACTIVATION_BOOTSTRAP_INPUTS', 'ACTIVATION_MIGRATION_INPUTS',
+    'APP_OPERATOR_AUTH_KEY', 'DATABASE_URL', 'APP_AUTH_ADMIN_KEY']) await t.test(field, sub => {
+    const f = diagnosticFixture(sub), path = join(f.inputs, 'app-config.json');
+    writeFileSync(path, canonical(f.composed.environments['app-config']));
+    for (const other of inputPhases.filter(phase => phase !== 'app-config')) writeFileSync(join(f.inputs, `${other}.json`), '{unreadable');
+    const before = f.snapshot();
+    const prepared = preparedRecoveryPhase(f.inputs, f.digest, f.packetPath, sha256(canonical(f.packet)), 'app-config',
+      { verify() {} }, AbortSignal.timeout(5000));
+    assert.deepEqual(Object.keys(prepared.values).sort(), ['ACTIVATION_APP_INPUTS', 'VERCEL_CONFIGURATION_TOKEN']);
+    assert.equal(prepared.values.VERCEL_CONFIGURATION_TOKEN, token);
+    prepared.dispose(); assert.deepEqual(prepared.values, {}); assert.deepEqual(f.snapshot(), before);
+    writeFileSync(path, canonical({ ...f.composed.environments['app-config'], [field]: 'synthetic-forbidden' }));
+    assert.throws(() => preparedRecoveryPhase(f.inputs, f.digest, f.packetPath, sha256(canonical(f.packet)), 'app-config',
+      { verify() {} }, AbortSignal.timeout(5000)));
+    assert.equal(f.connections(), 0);
+  });
+});
+
+test('Task D1 schema diagnostic CLI rejects unguarded inputs and override arguments', t => {
+  const f = fixture(t), fifo = join(f.root, 'must-not-open-schema.fifo');
+  assert.equal(spawnSync('/usr/bin/mkfifo', [fifo], { encoding: 'utf8', timeout: 5000 }).status, 0);
+  for (const args of [[fifo, sha256('control'), fifo, fifo], [fifo, sha256('control'), fifo, fifo, 'head-override'], []]) {
+    const result = spawnSync(process.execPath, [helper, 'diagnose-app-schema-exposure', ...args],
+      { encoding: 'utf8', timeout: 5000, env: { PATH: '/usr/bin:/bin', HOME: f.root } });
+    assert.equal(result.error, undefined); assert.equal(result.status, 1); assert.equal(result.stderr, '');
+    assert.deepEqual(JSON.parse(result.stdout.slice('APP_SCHEMA_DIAGNOSTIC '.length)),
+      { status: 'STOP', stage: 'guard', category: 'guard-refused', httpStatus: null, requests: 0,
+        journal: 'unverified', configuration: 'unknown', historicalCause: 'unresolved' });
+  }
+});

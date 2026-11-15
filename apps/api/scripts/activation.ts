@@ -1125,6 +1125,181 @@ export async function finalizeRetainedReachabilityBootstrap(run: ActivationRun, 
   }
 }
 
+const taskD1Lineage = {
+  ...taskCBootstrapLineage,
+  completedHead: '9046ca2e2e8d67710c63cc99a4a3ff82f24c6a2c8ff4d6b101b40643315acdbf',
+  finalizationStarted: 'f845895af48828dc9b73967745cf658e5a4fe105fe113faa876ad080b6bc0868',
+  finalizationResult: 'd5819c058ed85f9bfd7c0979b18729f02200dbafa93d656f78168e00a29dd98c',
+  verification: '46ce2084161c5578f513328a6b94a888002192af005fcfdb7783ba16297cd7fe',
+  confirming: '6fcf862f1eb5cf1a4dbb4f89af7c7391ca4bb8a0f93065614a99082543912a99',
+  confirmed: 'a9a6b4bf48138d3fcb583df2a36a0e2eec4be42d00201e8fc5ef53983328f0d9',
+};
+export function retainedD1BootstrapPins(): Readonly<Record<string, string>> {
+  return {
+    'bootstrap-verification': taskD1Lineage.verification,
+    'bootstrap-auth-observation-started': taskD1Lineage.observationStarted,
+    'bootstrap-pretransaction-continuation-started': taskD1Lineage.claim,
+    'bootstrap-pretransaction-continuation-ready': taskD1Lineage.readyLink,
+    'bootstrap-pretransaction-continuation-result': taskD1Lineage.terminal,
+    'bootstrap-retained-inspection-started': taskD1Lineage.inspectionStarted,
+    'bootstrap-retained-inspection-result': taskD1Lineage.inspectionResult,
+    'bootstrap-finalization-started': taskD1Lineage.finalizationStarted,
+    'bootstrap-finalization-result': taskD1Lineage.finalizationResult,
+  };
+}
+export interface AppConfigurationResult {
+  status: 'CONTINUED' | 'APP_CONFIG_COMPLETE' | 'STOP';
+  stage: 'guard' | 'assets' | 'claim' | 'provider' | 'input' | 'configuration' | 'confirmation' | 'receipt' | 'complete';
+  category: 'passed' | 'refused' | 'aborted'; head: string | null; events: number | null;
+  next: ActivationPhase | null; valueProof: 'pending-candidate-runtime';
+}
+export async function continueReachabilityAppConfiguration(run: ActivationRun, action: string, artifact: VerifiedArtifact,
+  provider: ActivationPhaseProvider, prepare: () => { values: NodeJS.ProcessEnv; dispose(): void },
+  evidenceDirectory: string, executableDigest: string, outerSignal: AbortSignal,
+  expected = taskD1Lineage, effect = runRecoveredActivationEffect): Promise<AppConfigurationResult> {
+  const signal = AbortSignal.any([outerSignal, AbortSignal.timeout(120000)]);
+  const id = run.packet.runId, parent = dirname(run.directory), prefix = `${id}.app-configuration-`;
+  const binding = { version: 1, executionId: rolesReachability.executionId, packetDigest: run.digest,
+    bootstrapHead: expected.completedHead, executableDigest };
+  let stage: AppConfigurationResult['stage'] = 'guard', claimed = false;
+  const result = (status: AppConfigurationResult['status']): AppConfigurationResult => {
+    let current: ActivationState | undefined;
+    try { current = state(run); } catch { /* Never certify partial journal persistence. */ }
+    return { status, stage, category: status === 'STOP' ? signal.aborted ? 'aborted' : 'refused' : 'passed',
+      head: current?.head ?? null, events: current?.events.length ?? null, next: current?.next ?? null,
+      valueProof: 'pending-candidate-runtime' };
+  };
+  const check = () => {
+    signal.throwIfAborted();
+    const current = state(run), names = readdirSync(parent);
+    if (current.recovery?.executionId !== rolesReachability.executionId || current.recovery.bridgeId !== bridgeRecovery.candidate
+      || current.events.length < 18 || current.events.length > 24 || current.events[17]?.sha256 !== expected.completedHead
+      || current.events[15]?.sha256 !== expected.head || current.events[5]?.sha256 !== expected.roles
+      || current.events[11]?.sha256 !== expected.migration
+      || current.events.slice(18).some(event => event.phase !== 'app-config')
+      || !['app-config', 'app'].includes(current.next ?? '')) refuse();
+    requireProof(run, 'initial'); requireProof(run, 'postflight');
+    const pins: [string, string][] = [
+      [`${id}.bootstrap-verification.json`, expected.verification],
+      [`activation/${id}/016.json`, expected.confirming], [`activation/${id}/017.json`, expected.confirmed],
+    ];
+    for (const [path, digest] of pins) if (readEvidence(join(run.directory, path)).identity.sha256 !== digest) refuse();
+    const additions = new Set([...pins.map(([path]) => path),
+      ...current.events.slice(18).map(event => `activation/${id}/${String(event.sequence).padStart(3, '0')}.json`)]);
+    const configuration = `${id}.app-config.configuration.json`;
+    if (existsSync(join(run.directory, configuration))) {
+      if (current.events.length < 21) refuse();
+      additions.add(configuration);
+    }
+    const actual = inventory(run.directory);
+    if (actual.files.some(file => additions.has(file.path) && file.mode !== 0o600)
+      || sha256(canonical({ files: actual.files.filter(file => !additions.has(file.path)), directories: actual.directories })) !== expected.inventory) refuse();
+    for (const [path, digest] of Object.entries(expected.receipts)) verifyImmutableBootstrapReceipt(join(evidenceDirectory, path), digest);
+    for (const [kind, receipts] of [
+      ['bootstrap-auth-observation', [['started', expected.observationStarted]]],
+      ['bootstrap-pretransaction-continuation', [['started', expected.claim], ['ready', expected.readyLink], ['result', expected.terminal]]],
+      ['bootstrap-retained-inspection', [['started', expected.inspectionStarted], ['result', expected.inspectionResult]]],
+      ['bootstrap-finalization', [['started', expected.finalizationStarted], ['result', expected.finalizationResult]]],
+    ] as [string, [string, string][]][]) {
+      const start = `${id}.${kind}-`;
+      if (canonical(names.filter(name => name.startsWith(start)).sort()) !== canonical(receipts.map(([suffix]) => `${start}${suffix}.json`).sort())) refuse();
+      for (const [suffix, digest] of receipts) if (readEvidence(join(parent, `${start}${suffix}.json`)).identity.sha256 !== digest) refuse();
+    }
+    // Only these task-owned action records may accompany the immutable bootstrap evidence.
+    for (const [name, count] of [['authorize', 19], ['run', 21], ['confirm', 23]] as const) {
+      if (current.events.length >= count && !existsSync(join(parent, `${prefix}${name}-started.json`))) refuse();
+    }
+    for (const name of names.filter(name => name.startsWith(prefix))) {
+      const match = /^(authorize|run|confirm|reconcile-ack)-(started|result)\.json$/.exec(name.slice(prefix.length));
+      if (!match) refuse();
+      const receipt = object(readEvidence(join(parent, name)).value);
+      if (canonical(receipt.binding) !== canonical(binding) || receipt.action !== match[1]) refuse();
+      if (match[2] === 'started') {
+        const index = match[1] === 'authorize' ? 17 : match[1] === 'run' ? 19 : match[1] === 'confirm' ? 21
+          : current.events.findIndex(event => event.sha256 === receipt.head);
+        if (index < 17 || !current.events[index] || receipt.head !== current.events[index]!.sha256
+          || (match[1] === 'reconcile-ack' && ![18, 22].includes(index))
+          || canonical(receipt) !== canonical({ binding, action: match[1], head: receipt.head })) refuse();
+        const terminal = join(parent, `${prefix}${match[1]}-result.json`);
+        if (!existsSync(terminal) && !(claimed && match[1] === action)) refuse();
+      } else {
+        const started = readEvidence(join(parent, `${prefix}${match[1]}-started.json`)), outcome = object(receipt.result);
+        if (receipt.claimDigest !== started.identity.sha256
+          || canonical(receipt) !== canonical({ binding, action: match[1], claimDigest: receipt.claimDigest, result: outcome })) refuse();
+        if (outcome.status === 'STOP') {
+          if (!['authorize', 'confirm'].includes(match[1]!)
+            || !(action === 'reconcile-ack' || existsSync(join(parent, `${prefix}reconcile-ack-result.json`)))) refuse();
+        } else {
+          const count = match[1] === 'authorize' ? 20 : match[1] === 'run' ? 22 : match[1] === 'confirm' ? 24
+            : current.events.findIndex(event => event.sha256 === object(started.value).head) + 2;
+          if (current.events.length < count || canonical(outcome) !== canonical({
+            status: count === 24 ? 'APP_CONFIG_COMPLETE' : 'CONTINUED', stage: 'complete', category: 'passed',
+            head: current.events[count - 1]!.sha256, events: count, next: count === 24 ? 'app' : 'app-config',
+            valueProof: 'pending-candidate-runtime' })) refuse();
+        }
+      }
+    }
+    return current;
+  };
+  const persist = (suffix: string, value: unknown) => {
+    const path = join(parent, `${prefix}${action}-${suffix}.json`);
+    writeReleaseEvidence(path, value);
+    if (readEvidence(path).identity.sha256 !== sha256(JSON.stringify(value, null, 2) + '\n')) refuse();
+  };
+  try {
+    if (!['state', 'authorize', 'run', 'confirm', 'reconcile-ack'].includes(action) || !/^[a-f0-9]{64}$/.test(executableDigest)) refuse();
+    const before = check(), last = before.events.at(-1)!;
+    stage = 'assets'; verifyRecoveredRoleAssets(artifact, run.packet);
+    if (action === 'state') { stage = 'complete'; return result(before.next === 'app' ? 'APP_CONFIG_COMPLETE' : 'CONTINUED'); }
+    if (before.next !== 'app-config' || existsSync(join(parent, `${prefix}${action}-started.json`))
+      || (action === 'authorize' && before.events.length !== 18)
+      || (action === 'run' && (last.phase !== 'app-config' || last.kind !== 'authorized'))
+      || (action === 'confirm' && (last.phase !== 'app-config' || last.kind !== 'outcome' || object(last.value).result !== 'confirmed'))
+      || (action === 'reconcile-ack' && (last.phase !== 'app-config' || !['intent', 'confirming'].includes(last.kind)))) refuse();
+    stage = 'claim'; persist('started', { binding, action, head: before.head }); claimed = true;
+    const guarded: ActivationPhaseProvider = {
+      async currentMain() { check(); await provider.currentMain(); check(); },
+      async binding(id) { check(); await provider.binding(id); check(); },
+      async record(journal, status, description) { check(); await provider.record(journal, status, description); check(); },
+      async confirmJournal(journal, status, description) { check(); await provider.confirmJournal(journal, status, description); check(); },
+    };
+    stage = 'provider'; await guarded.currentMain(); await guarded.binding(bridgeRecovery.candidate);
+    if (action !== 'reconcile-ack') {
+      const intent = before.events.find(event => event.phase === 'app-config' && event.kind === 'intent');
+      await guarded.confirmJournal(before.journal, 'in_progress', action === 'authorize'
+        ? `activation:bootstrap:outcome:${expected.head}` : `activation:app-config:intent:${intent?.sha256}`);
+    }
+    if (check().head !== before.head) refuse();
+    if (action === 'authorize') await authorizeActivationPhase(run, 'app-config', guarded);
+    else if (action === 'run') {
+      stage = 'input';
+      const prepared = prepare();
+      try {
+        check(); signal.throwIfAborted();
+        stage = 'configuration';
+        await executeActivationPhase(run, 'app-config',
+          () => effect(run, 'app-config', artifact, prepared.values, signal));
+      } finally { prepared.dispose(); }
+    } else {
+      stage = 'confirmation';
+      if (action === 'confirm') await confirmActivationPhase(run, 'app-config', guarded);
+      else await reconcileActivationAcknowledgement(run, 'app-config', guarded);
+    }
+    check(); stage = 'receipt';
+    const complete = state(run).next === 'app';
+    persist('result', { binding, action, claimDigest: readEvidence(join(parent, `${prefix}${action}-started.json`)).identity.sha256,
+      result: { ...result(complete ? 'APP_CONFIG_COMPLETE' : 'CONTINUED'), stage: 'complete' } });
+    stage = 'complete'; return result(complete ? 'APP_CONFIG_COMPLETE' : 'CONTINUED');
+  } catch {
+    if (claimed && !existsSync(join(parent, `${prefix}${action}-result.json`))) {
+      try { persist('result', { binding, action,
+        claimDigest: readEvidence(join(parent, `${prefix}${action}-started.json`)).identity.sha256, result: result('STOP') }); }
+      catch { /* Retain the claim and any partial receipt; never retry an effect. */ }
+    }
+    return result('STOP');
+  }
+}
+
 export type RecoveredRolesDiagnosticStage = RecoveredRoleInspection['stage'] | 'guard' | 'provider' | 'artifact'
   | 'request' | 'packet' | 'receipt' | 'role-input' | 'role-validation' | 'reconciliation';
 export interface RecoveredRolesDiagnostic extends Omit<RecoveredRoleInspection, 'stage'> {

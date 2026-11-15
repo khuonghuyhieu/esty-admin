@@ -43,17 +43,16 @@ function positive(value) { return Number.isSafeInteger(value) && value > 0; }
 function equal(left, right) { return canonical(left) === canonical(right); }
 
 // Bounded, in-memory archive readers: no extraction, executable members, links, traversal or ZIP64.
-function zipMembers(bytes, approved) {
+function zipMembers(bytes, approved, names = ['be-delivery-receipts.tar.gz', 'be-delivery-receipts.inventory-sha256', 'be-delivery-receipts.archive-sha256']) {
   if (!Buffer.isBuffer(bytes) || bytes.length > 65536 || hash(bytes) !== approved) refuse();
   const end = bytes.lastIndexOf(Buffer.from('504b0506', 'hex'));
   if (end < 0 || end + 22 > bytes.length || end + 22 + bytes.readUInt16LE(end + 20) !== bytes.length
-    || bytes.readUInt16LE(end + 4) || bytes.readUInt16LE(end + 6) || bytes.readUInt16LE(end + 8) !== 3
-    || bytes.readUInt16LE(end + 10) !== 3) refuse();
+    || bytes.readUInt16LE(end + 4) || bytes.readUInt16LE(end + 6) || bytes.readUInt16LE(end + 8) !== names.length
+    || bytes.readUInt16LE(end + 10) !== names.length) refuse();
   let cursor = bytes.readUInt32LE(end + 16);
   if (cursor + bytes.readUInt32LE(end + 12) !== end) refuse();
-  const names = ['be-delivery-receipts.tar.gz', 'be-delivery-receipts.inventory-sha256', 'be-delivery-receipts.archive-sha256'];
   const files = new Map();
-  for (let index = 0; index < 3; index++) {
+  for (let index = 0; index < names.length; index++) {
     if (cursor + 46 > end || bytes.readUInt32LE(cursor) !== 0x02014b50) refuse();
     const flags = bytes.readUInt16LE(cursor + 8), method = bytes.readUInt16LE(cursor + 10);
     const checksum = bytes.readUInt32LE(cursor + 16), compressed = bytes.readUInt32LE(cursor + 20), size = bytes.readUInt32LE(cursor + 24);
@@ -74,6 +73,10 @@ function zipMembers(bytes, approved) {
   }
   if (cursor !== end) refuse();
   return files;
+}
+export function validateHeldProbeArchive(bytes, approved) {
+  const members = zipMembers(bytes, approved, ['held-app-probe.json']);
+  return JSON.parse(members.get('held-app-probe.json').toString('utf8'));
 }
 export function validatePreflightReceiptArchive(zip, approvedZip, expected) {
   const { runId, packetDigest } = expected;

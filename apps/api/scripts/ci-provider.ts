@@ -40,6 +40,47 @@ function object(value: unknown): Record<string, any> {
   return value as Record<string, any>;
 }
 function numeric(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0; }
+export function inspectCandidate(value: unknown, id: string, artifact: VerifiedArtifact, run: RunIdentity,
+  activation?: ActivationDeliveryContext): Candidate {
+  const deployed = object(value), meta = object(deployed.meta);
+  if (!deploymentId.test(id) || deployed.id !== id || deployed.projectId !== artifactTarget.project || deployed.ownerId !== artifactTarget.owner
+    || deployed.target !== 'production' || deployed.gitSource || meta.sourceCommit !== run.revision
+    || meta.artifactSha256 !== artifact.digest || meta.sourceDigest !== artifact.manifest.source.digest
+    || !Array.isArray(deployed.regions) || deployed.regions.length !== 1 || deployed.regions[0] !== 'icn1'
+    || typeof deployed.url !== 'string' || !/^[a-z0-9-]+\.vercel\.app$/.test(deployed.url)
+    || !['QUEUED', 'INITIALIZING', 'BUILDING', 'READY'].includes(deployed.readyState)) throw new Error('Candidate identity or state differs.');
+  if (activation && (meta.activationRun !== activation.packet.runId || meta.activationPhase !== activation.phase
+    || meta.activationPacket !== activation.packetDigest || meta.activationConfigDigest !==
+      (activation.phase === 'bridge' ? activation.packet.bridgeConfigDigest : activation.packet.appConfigDigest))) {
+    throw new Error('Candidate activation declaration differs.');
+  }
+  return { id, origin: `https://${deployed.url}`, ready: deployed.readyState === 'READY' };
+}
+export function uploadedCandidatePartition(roots: unknown): string {
+  if (!Array.isArray(roots) || roots.length !== 2) throw new Error('Unsupported uploaded file envelope.');
+  const source = object(roots.find(entry => object(entry).name === 'src'));
+  const output = object(roots.find(entry => object(entry).name === 'out'));
+  if (source.type !== 'directory' || output.type !== 'directory' || fileMode(source.mode) !== 0o40555 || fileMode(output.mode) !== 0o40555
+    || !Array.isArray(source.children) || source.children.length !== 1 || !Array.isArray(output.children) || output.children.length !== 1) {
+    throw new Error('Uploaded archive namespaces differ.');
+  }
+  const file = object(source.children[0]), lambda = object(output.children[0]);
+  if (file.name !== 'project.tgz' || file.type !== 'file' || !/^[a-f0-9]{40}$/.test(file.uid)
+    || lambda.name !== 'index' || lambda.type !== 'lambda' || fileMode(lambda.mode) !== 0o140666
+    || (lambda.children !== undefined && (!Array.isArray(lambda.children) || lambda.children.length))) throw new Error('Uploaded archive identity differs.');
+  return file.uid as string;
+}
+export function verifyCandidateArchive(content: unknown, uid: string, artifact: VerifiedArtifact): string {
+  const value = object(content);
+  if (!/^[a-f0-9]{40}$/.test(uid) || typeof value.data !== 'string' || value.data.length > 350 * 1024 * 1024) {
+    throw new Error('Archive content is unavailable.');
+  }
+  const bytes = Buffer.from(value.data, 'base64');
+  if (bytes.toString('base64') !== value.data) throw new Error('Noncanonical archive encoding.');
+  verifyUploadedArchive(bytes, artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/')), uid);
+  return sha256(bytes);
+}
+
 export function createProvider(artifact: VerifiedArtifact, run: RunIdentity, schema: RoutineSchema,
   credentials: { github: string; vercel: string; bearer: string; bypass: string }, signal: AbortSignal,
   transport: typeof fetch = fetch): RoutineProvider {
@@ -190,39 +231,12 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
     },
     async inspect(id) {
       verify(); if (!deploymentId.test(id)) throw new Error('Invalid deployment ID.');
-      const value = object(await provider(`/v13/deployments/${id}`)), meta = object(value.meta);
-      if (value.id !== id || value.projectId !== artifactTarget.project || value.ownerId !== artifactTarget.owner
-        || value.target !== 'production' || value.gitSource || meta.sourceCommit !== run.revision
-        || meta.artifactSha256 !== artifact.digest || meta.sourceDigest !== artifact.manifest.source.digest
-        || !Array.isArray(value.regions) || value.regions.length !== 1 || value.regions[0] !== 'icn1'
-        || typeof value.url !== 'string' || !/^[a-z0-9-]+\.vercel\.app$/.test(value.url)
-        || !['QUEUED', 'INITIALIZING', 'BUILDING', 'READY'].includes(value.readyState)) throw new Error('Candidate identity or state differs.');
-      if (activation && (meta.activationRun !== activation.packet.runId || meta.activationPhase !== activation.phase
-        || meta.activationPacket !== activation.packetDigest || meta.activationConfigDigest !==
-          (activation.phase === 'bridge' ? activation.packet.bridgeConfigDigest : activation.packet.appConfigDigest))) {
-        throw new Error('Candidate activation declaration differs.');
-      }
-      return { id, origin: `https://${value.url}`, ready: value.readyState === 'READY' };
+      return inspectCandidate(await provider(`/v13/deployments/${id}`), id, artifact, run, activation);
     },
     async attest(id) {
       verify(); if (!deploymentId.test(id)) throw new Error('Invalid deployment ID.');
-      const roots: unknown = await provider(`/v6/deployments/${id}/files`);
-      if (!Array.isArray(roots) || roots.length !== 2) throw new Error('Unsupported uploaded file envelope.');
-      const source = object(roots.find(entry => object(entry).name === 'src'));
-      const output = object(roots.find(entry => object(entry).name === 'out'));
-      if (source.type !== 'directory' || output.type !== 'directory' || fileMode(source.mode) !== 0o40555 || fileMode(output.mode) !== 0o40555
-        || !Array.isArray(source.children) || source.children.length !== 1 || !Array.isArray(output.children) || output.children.length !== 1) {
-        throw new Error('Uploaded archive namespaces differ.');
-      }
-      const file = object(source.children[0]), lambda = object(output.children[0]);
-      if (file.name !== 'project.tgz' || file.type !== 'file' || !/^[a-f0-9]{40}$/.test(file.uid)
-        || lambda.name !== 'index' || lambda.type !== 'lambda' || fileMode(lambda.mode) !== 0o140666
-        || (lambda.children !== undefined && (!Array.isArray(lambda.children) || lambda.children.length))) throw new Error('Uploaded archive identity differs.');
-      const content = object(await provider(`/v8/deployments/${id}/files/${file.uid}`, 350 * 1024 * 1024));
-      if (typeof content.data !== 'string' || content.data.length > 350 * 1024 * 1024) throw new Error('Archive content is unavailable.');
-      const bytes = Buffer.from(content.data, 'base64');
-      if (bytes.toString('base64') !== content.data) throw new Error('Noncanonical archive encoding.');
-      verifyUploadedArchive(bytes, artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/')), file.uid);
+      const uid = uploadedCandidatePartition(await provider(`/v6/deployments/${id}/files`));
+      verifyCandidateArchive(await provider(`/v8/deployments/${id}/files/${uid}`, 350 * 1024 * 1024), uid, artifact);
     },
     async acceptFrontend(receipt, approvedDigest) {
       if (!activation || !/^[a-f0-9]{64}$/.test(approvedDigest) || sha256(canonical(receipt)) !== approvedDigest) {

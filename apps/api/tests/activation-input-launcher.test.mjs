@@ -89,3 +89,37 @@ test('an approved tree cannot execute an unbound external import through Node re
   writeFileSync(f.entry, `import ${JSON.stringify(pathToFileURL(external).href)}; export async function inputHelperMain(){console.log("HIDDEN_PROMPT");}`);
   const changed = f.seal(); refused(f.run(changed.digest));
 });
+
+test('configuration capability permits bounded held, import and missing-five actions but rejects context or action substitution before entry', t => {
+  const f = fixture(t), base = '/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin/.openai/reports';
+  const context = [
+    `${base}/protected-real-transfer-state-vd3tg33z/ca-successor-36a0c3c3-0a74-4ccf-b6a3-8d5da26e4eed/successor.json`,
+    '756f9802100c9c86a75f24d3e688e6a5f57d745b6f7f96b88555c2acd105d559',
+    `${base}/bridge-reconciliation-fn1_56_z/receipt-copy/be-receipts`,
+    `${base}/first-production-f162-h9czirsk/verified-transfer/artifact`,
+  ];
+  const capability = { selector: 'held-app-configuration', contextDigest: sha(JSON.stringify(context)), sourceDigests: {} };
+  const sealed = f.seal({ heldAppCapability: capability });
+  const run = (args, digest = sealed.digest) => spawnSync(process.execPath, [f.launcher, f.manifestPath, digest, ...args],
+    { encoding: 'utf8', env: {}, timeout: 10000 });
+  for (const args of [['held-app-configuration', 'create-held', ...context],
+    ['held-app-configuration', 'attest-held', ...context],
+    ['held-app-configuration', 'import-proof', '123', ...context],
+    ['held-app-configuration', 'correct-missing-five', ...context]]) {
+    const result = run(args); assert.equal(result.status, 0, result.stderr); assert.match(result.stdout, /HIDDEN_PROMPT/);
+  }
+  for (const args of [
+    ['prepare'], ['held-app-configuration', 'promote', ...context],
+    ['held-app-configuration', 'create-held', ...context, 'https://caller.vercel.app'],
+    ['held-app-configuration', 'create-held', ...context.slice(0, 3), '/different/artifact'],
+    ['held-app-configuration', 'attest-held', ...context, 'dpl_CallerOverride'],
+    ['held-app-configuration', 'attest-held', ...context.slice(0, 3), '/different/artifact'],
+    ['held-app-configuration', 'import-proof', '0', ...context],
+    ['held-app-configuration', 'import-proof', '123', ...context, 'caller-receipt.json'],
+    ['held-app-configuration', 'correct-missing-five', ...context, 'upsert=true'],
+    ['held-app-configuration', 'correct-missing-five', ...context.slice(0, 3), '/different/artifact'],
+  ]) refused(run(args));
+  const mixed = f.seal({ heldAppCapability: capability, diagnosticSelector: 'diagnose-app-schema-exposure',
+    diagnosticContextDigest: capability.contextDigest });
+  refused(run(['held-app-configuration', 'create-held', ...context], mixed.digest));
+});

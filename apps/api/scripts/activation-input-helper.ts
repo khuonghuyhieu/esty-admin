@@ -9,7 +9,7 @@ import { createRecoveredActivationJournal, readActivationJournal, validateActiva
 import { bootstrapInputs, decodePhaseInput, migrationInputs, phaseInputEnvironment, roleInputEnvelope, roleInputs, runtimeInputs } from './activation-inputs.js';
 import { bootstrapIdentity } from '../src/app-foundation/application/service.js';
 import { uuidPattern as authUserUuidPattern } from '../src/app-foundation/application/validation.js';
-import { ConfigurationError, parseAppOperatorConfig, parseMigrationConfig } from '../src/config/config.js';
+import { ConfigurationError, parseAppOperatorConfig, parseConfig, parseMigrationConfig } from '../src/config/config.js';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
 import { readHiddenPassword } from './hidden-input.mjs';
 import { privateDirectory, readPrivate, readPrivateBytes, writePrivate } from './private-files.mjs';
@@ -17,16 +17,22 @@ import { diagnoseRoleAuthority } from './activation-diagnostic.js';
 import type { RoleDiagnosticResult } from './activation-diagnostic.js';
 import { parseAppRoleInputs } from './app-roles.js';
 import { attestBridgeRecovery, bridgeRecovery, continueBridgeRecovery, promoteBridgeRecovery } from './activation-candidate-recovery.js';
-import { recoveryIo } from './activation-recovery-io.js';
+import { heldCandidateCreate, recoveryIo } from './activation-recovery-io.js';
 import { activationRecoveryExecution, activationRolesSuccessor, rolesReachability } from './activation-recovery-origin.js';
-import { recoveredActivationProvider, taskCBootstrapProvider } from './activation-recovered-provider.js';
+import { heldAppReadProvider, recoveredActivationProvider, taskCBootstrapProvider, taskD1ConfigurationProvider } from './activation-recovered-provider.js';
 import { authorizeActivationPhase, confirmActivationPhase, executeActivationPhase, reconcileActivationAcknowledgement,
   reconcileActivationEffect, runRecoveredActivationEffect, runRecoveredActivationPostflight, diagnoseRecoveredRoles,
   completeRecoveredRoles, reconcileRecoveredRolesAcknowledgement, diagnoseRecoveredRolePrivileges } from './activation.js';
 import type { RecoveredRolesDiagnosticStage } from './activation.js';
-import { continueReachabilityBootstrap, continueReachabilityBootstrapPretransaction, continueReachabilityMigration, finalizeRetainedReachabilityBootstrap, inspectRetainedReachabilityBootstrap, observeReachabilityBootstrapAuth } from './activation.js';
+import { continueReachabilityAppConfiguration, continueReachabilityBootstrap, continueReachabilityBootstrapPretransaction, continueReachabilityMigration, finalizeRetainedReachabilityBootstrap, inspectRetainedReachabilityBootstrap, observeReachabilityBootstrapAuth } from './activation.js';
+import { diagnoseAppSchemaExposure } from './activation-schema-diagnostic.js';
 import { migrationsDirectory } from './migrations.js';
 import { verifyMigrationFiles } from './migration-files.mjs';
+import { attestHeldApp, correctMissingFiveApp, createHeldApp, importHeldAppProof } from './activation-held.js';
+import { observeAppMetadata, observeMissingFiveMetadata, postMissingFive, verifyMissingFiveMetadata } from './activation-configuration.js';
+import { verifyHeldAppProbe } from './activation-held-proof.js';
+import { heldProbeSources } from './activation-held-contract.mjs';
+import { heldProbeGithubIo } from './activation-input-transfer.js';
 
 export const inputPhases = ['bridge-config', 'roles', 'migration', 'bootstrap', 'app-config'] as const;
 export type InputPhase = typeof inputPhases[number];
@@ -867,6 +873,114 @@ async function preparedRetainedBootstrapFinalization(args: string[], signal: Abo
     evidence, guard.digest, signal, reconcile);
 }
 
+async function preparedAppSchemaDiagnostic(args: string[], outerSignal: AbortSignal) {
+  const guard = launcherBinding(), signal = AbortSignal.any([outerSignal, AbortSignal.timeout(120000)]);
+  if (args.length !== 4 || !guard || !args[3]) refuse();
+  const manifest = guard.verify();
+  if (!recoveryRecord(manifest) || manifest.diagnosticSelector !== 'diagnose-app-schema-exposure'
+    || manifest.diagnosticContextDigest !== 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02') refuse();
+  signal.throwIfAborted(); canonicalPath(args[3]);
+  const artifact = verifyArtifact(args[3], bridgeRecovery.artifactDigest);
+  verifyMigrationFiles(migrationsDirectory, artifact.manifest.migrations);
+  const { context, directory, requestDigest, packetPath } = await preparedRecoveryContext(args, signal);
+  const packet = validateActivationPacket(readPrivate(packetPath), bridgeRecovery.packetDigest);
+  const run = { directory: join(dirname(context.directory), `activation-recovered-${rolesReachability.executionId}`),
+    packet, digest: bridgeRecovery.packetDigest };
+  return diagnoseAppSchemaExposure(run, artifact, () => {
+    const prepared = preparedRecoveryPhase(directory, requestDigest, packetPath, run.digest, 'app-config', guard, signal);
+    try {
+      const values = decodePhaseInput(prepared.values.ACTIVATION_APP_INPUTS);
+      if (!recoveryEnvironment(values)) refuse();
+      const parsed = parseConfig({ ...values, VERCEL: '1' }).appFoundation;
+      if (!parsed) refuse();
+      const config = { authUrl: parsed.authUrl, apiKey: parsed.apiKey };
+      return { config, dispose() { config.apiKey = ''; prepared.dispose(); } };
+    } catch { prepared.dispose(); refuse(); }
+  }, () => guard.verify(), signal);
+}
+
+async function preparedHeldAppConfiguration(args: string[], outerSignal: AbortSignal) {
+  const action = args[0], importing = action === 'import-proof', correcting = action === 'correct-missing-five', guard = launcherBinding();
+  const contextArgs = args.slice(importing ? 2 : 1), workflowRun = importing ? args[1] : undefined;
+  if (!guard || !['create-held', 'attest-held', 'import-proof', 'correct-missing-five'].includes(action ?? '') || contextArgs.length !== 4 || !contextArgs[3]
+    || (importing && !/^[1-9][0-9]{0,19}$/.test(workflowRun ?? ''))) refuse();
+  const manifest = guard.verify();
+  if (!recoveryRecord(manifest) || !recoveryRecord(manifest.heldAppCapability)) refuse();
+  const capability = manifest.heldAppCapability;
+  if (!exactKeys(capability, ['selector', 'contextDigest', 'sourceDigests']) || capability.selector !== 'held-app-configuration'
+    || capability.contextDigest !== 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02'
+    || sha256(JSON.stringify(contextArgs)) !== capability.contextDigest || !recoveryRecord(capability.sourceDigests)
+    || canonical(Object.keys(capability.sourceDigests).sort()) !== canonical([...heldProbeSources].sort())
+    || Object.values(capability.sourceDigests).some(value => typeof value !== 'string' || !hex.test(value))) refuse();
+  const signal = AbortSignal.any([outerSignal, AbortSignal.timeout(600000)]);
+  signal.throwIfAborted(); canonicalPath(contextArgs[3]);
+  const artifact = verifyArtifact(contextArgs[3], bridgeRecovery.artifactDigest);
+  verifyMigrationFiles(migrationsDirectory, artifact.manifest.migrations);
+  const { context, directory, requestDigest, packetPath } = await preparedRecoveryContext(contextArgs, signal);
+  const packet = validateActivationPacket(readPrivate(packetPath), bridgeRecovery.packetDigest);
+  verifyActivationArtifact(artifact, packet);
+  const run = { directory: join(dirname(context.directory), `activation-recovered-${rolesReachability.executionId}`),
+    packet, digest: bridgeRecovery.packetDigest };
+  const controller = { run, artifact, signal, executableDigest: guard.digest, verifyExecutable: () => guard.verify(),
+    provider: heldAppReadProvider(run, artifact, guard, signal, !importing) };
+  if (action === 'attest-held') return attestHeldApp(controller);
+  if (importing) {
+    // No phase envelope, configuration token, CREATE capability or local HTTP probe is opened for import.
+    const io = heldProbeGithubIo(workflowRun!, guard, signal);
+    return importHeldAppProof(controller, workflowRun!, target =>
+      verifyHeldAppProbe(workflowRun!, target, io, capability.sourceDigests as Record<string, string>, signal));
+  }
+  const prepare = () => {
+    const prepared = preparedRecoveryPhase(directory, requestDigest, packetPath, run.digest, 'app-config', guard, signal);
+    let inputs: Record<string, string> | undefined;
+    const dispose = () => {
+      if (inputs) for (const key of Object.keys(inputs)) delete inputs[key];
+      prepared.dispose();
+    };
+    try {
+      const decoded = decodePhaseInput(prepared.values.ACTIVATION_APP_INPUTS);
+      if (!recoveryEnvironment(decoded)) refuse();
+      inputs = decoded; runtimeInputs(inputs, packet, 'app');
+      return { inputs, token: () => prepared.values.VERCEL_CONFIGURATION_TOKEN ?? '', dispose };
+    } catch { dispose(); refuse(); }
+  };
+  if (correcting) return correctMissingFiveApp(controller, () => {
+    const prepared = prepare();
+    const transport = (dispatched: () => void): typeof fetch => (url, init) => { dispatched(); return fetch(url, init); };
+    return {
+      observe: dispatched => observeMissingFiveMetadata(prepared.inputs, packet, prepared.token(), signal, transport(dispatched)),
+      post: dispatched => postMissingFive(prepared.inputs, packet, prepared.token(), signal, transport(dispatched)),
+      verify: (before, ack, dispatched) => verifyMissingFiveMetadata(prepared.inputs, packet, prepared.token(),
+        before, ack, signal, transport(dispatched)),
+      dispose: prepared.dispose,
+    };
+  });
+  return createHeldApp(controller, () => {
+    const prepared = prepare();
+    return { observe: dispatched => observeAppMetadata(prepared.inputs, packet, prepared.token(), signal,
+      (url, init) => { dispatched(); return fetch(url, init); }), dispose: prepared.dispose };
+  }, () => heldCandidateCreate(guard, artifact, { packet, packetDigest: run.digest, phase: 'app' }, signal));
+}
+
+async function preparedReachabilityAppConfiguration(args: string[], signal: AbortSignal) {
+  const [action, phase, ...contextArgs] = args, guard = launcherBinding();
+  if (args.length !== 6 || phase !== 'app-config' || !action || !guard || !contextArgs[3]
+    || !['state', 'authorize', 'run', 'confirm', 'reconcile-ack'].includes(action)) refuse();
+  signal = AbortSignal.any([signal, AbortSignal.timeout(120000)]);
+  guard.verify(); signal.throwIfAborted(); canonicalPath(contextArgs[3]);
+  const artifact = verifyArtifact(contextArgs[3], bridgeRecovery.artifactDigest);
+  verifyMigrationFiles(migrationsDirectory, artifact.manifest.migrations);
+  const { context, directory, requestDigest, packetPath } = await preparedRecoveryContext(contextArgs, signal);
+  const packet = validateActivationPacket(readPrivate(packetPath), bridgeRecovery.packetDigest);
+  verifyActivationArtifact(artifact, packet);
+  const run = { directory: join(dirname(context.directory), `activation-recovered-${rolesReachability.executionId}`),
+    packet, digest: bridgeRecovery.packetDigest };
+  const evidence = join(resolve(contextArgs[2]!, '../../..'), 'recovered-activation-zc_q5vob/bootstrap-continuation');
+  return continueReachabilityAppConfiguration(run, action, artifact, taskD1ConfigurationProvider(guard, signal),
+    () => preparedRecoveryPhase(directory, requestDigest, packetPath, run.digest, 'app-config', guard, signal),
+    evidence, guard.digest, signal);
+}
+
 async function recoveredPreparedActivation(args: string[], signal: AbortSignal) {
   const [action, phase, ...contextArgs] = args;
   if (!action || !['initialize', 'state', 'authorize', 'run', 'postflight', 'confirm', 'reconcile-ack', 'inspect'].includes(action)
@@ -970,6 +1084,28 @@ async function diagnosePreparedRecoveredRoles(args: string[], signal: AbortSigna
 
 export async function inputHelperMain(args: string[], signal: AbortSignal): Promise<void> {
   const [action, path, digest, phaseArg] = args;
+  if (action === 'diagnose-app-schema-exposure') {
+    try {
+      const result = await preparedAppSchemaDiagnostic(args.slice(1), signal);
+      console.info(`APP_SCHEMA_DIAGNOSTIC ${JSON.stringify(result)}`);
+      if (result.status !== 'OBSERVED' || result.category !== 'passed') process.exitCode = 1;
+    } catch {
+      console.info('APP_SCHEMA_DIAGNOSTIC {"status":"STOP","stage":"guard","category":"guard-refused","httpStatus":null,"requests":0,"journal":"unverified","configuration":"unknown","historicalCause":"unresolved"}');
+      process.exitCode = 1;
+    }
+    return;
+  }
+  if (action === 'reachability-app-config') {
+    try {
+      const result = await preparedReachabilityAppConfiguration(args.slice(1), signal);
+      console.info(`APP_CONFIGURATION ${JSON.stringify(result)}`);
+      if (result.status === 'STOP') process.exitCode = 1;
+    } catch {
+      console.info('APP_CONFIGURATION {"status":"STOP","stage":"guard","category":"refused","valueProof":"pending-candidate-runtime"}');
+      process.exitCode = 1;
+    }
+    return;
+  }
   if (action === 'finalize-retained-reachability-bootstrap' || action === 'reconcile-retained-reachability-bootstrap-ack') {
     try {
       const result = await preparedRetainedBootstrapFinalization(args.slice(1), signal,
@@ -1075,6 +1211,16 @@ export async function inputHelperMain(args: string[], signal: AbortSignal): Prom
   } else if (action === 'recovered-activation') {
     try { console.info(`RECOVERED_ACTIVATION ${JSON.stringify(await recoveredPreparedActivation(args.slice(1), signal))}`); }
     catch { console.info('RECOVERED_ACTIVATION {"category":"refused"}'); process.exitCode = 1; }
+  } else if (action === 'held-app-configuration') {
+    const label = args[1] === 'correct-missing-five' ? 'APP_MISSING_FIVE_CONFIGURATION' : 'HELD_APP_CONFIGURATION';
+    try {
+      const result = await preparedHeldAppConfiguration(args.slice(1), signal);
+      console.info(`${label} ${JSON.stringify(result)}`);
+      if (result.status === 'STOP') process.exitCode = 1;
+    } catch {
+      console.info(`${label} {"status":"STOP","stage":"context","firstError":{"stage":"context","category":"refused"},"metadataRequests":0,"createCommands":0,"candidateRequests":0,"envPosts":0,"promotions":0}`);
+      process.exitCode = 1;
+    }
   } else if (action === 'attest-bridge-recovery' || action === 'continue-bridge-recovery' || action === 'promote-bridge-recovery') {
     try {
       const mode = action === 'promote-bridge-recovery' ? 'promote' : action === 'continue-bridge-recovery' ? 'continue' : 'attest';

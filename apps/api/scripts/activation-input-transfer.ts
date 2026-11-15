@@ -335,6 +335,35 @@ export async function recoveryGithubRead(path: string, guard: TransferGuard, sig
   } finally { bytes.fill(0); }
 }
 
+export function heldProbeGithubIo(runId: string, guard: TransferGuard, signal: AbortSignal) {
+  if (!/^[1-9][0-9]{0,19}$/.test(runId)) refuse();
+  const trusted = verifyGuard(guard), gh = verifyGh(trusted.gh.path, trusted.gh.sha256, trusted.gh.configDirectory, trusted.gh);
+  const sources = ['.github/workflows/be-candidate-probe.yml', 'apps/api/scripts/activation-candidate-probe.mjs',
+    'apps/api/scripts/activation-held-contract.mjs', 'apps/api/config/held-app-probe-binding.json'];
+  const call = async (path: string): Promise<Buffer> => {
+    const source = sources.some(name => path.startsWith(`/contents/${name}?ref=`)
+      && /^[a-f0-9]{40}$/.test(path.slice(`/contents/${name}?ref=`.length)));
+    if (!source && !['/commits/main', '/environments/be-production/variables/BE_D1_HELD_APP_BINDING',
+      `/actions/runs/${runId}`, `/actions/runs/${runId}/artifacts?per_page=100`].includes(path)
+      && !/^\/actions\/artifacts\/[1-9][0-9]*\/zip$/.test(path)) refuse();
+    verifyGuard(guard); signal.throwIfAborted();
+    const bytes = await runGh(gh, ['api', `repos/${repository}${path}`, '--method', 'GET',
+      '-H', 'X-GitHub-Api-Version: 2026-03-10'], signal, undefined, true);
+    if (!bytes) refuse('child_failed');
+    return bytes;
+  };
+  return {
+    async read(path: string): Promise<unknown> {
+      const bytes = await call(path);
+      try { return JSON.parse(bytes.toString('utf8')); } finally { bytes.fill(0); }
+    },
+    download(id: number): Promise<Buffer> {
+      if (!Number.isSafeInteger(id) || id <= 0) refuse();
+      return call(`/actions/artifacts/${id}/zip`);
+    },
+  };
+}
+
 export async function recoveryGithubStatus(journal: number, state: string, description: string,
   guard: TransferGuard, signal: AbortSignal): Promise<void> {
   if (journal !== 7703208254 || state !== 'in_progress' || typeof description !== 'string'

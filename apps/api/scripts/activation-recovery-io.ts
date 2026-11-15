@@ -3,7 +3,11 @@ import { constants, closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, ope
   readdirSync, readlinkSync, readSync, realpathSync, rmSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { canonical, sha256 } from './artifact.js';
+import { canonical, inventory, removeArtifactTree, sha256 } from './artifact.js';
+import type { VerifiedArtifact } from './artifact.js';
+import { prebuiltCreateArguments, stagePrebuiltOutput } from './ci-delivery.js';
+import type { ActivationDeliveryContext } from './ci-provider.js';
+import type { CommandResult } from './ci-tools.js';
 import { command } from './ci-tools.js';
 import { bridgeRecovery } from './activation-candidate-recovery.js';
 import type { RecoveryGuard, RecoveryIo } from './activation-candidate-recovery.js';
@@ -109,4 +113,62 @@ export function recoveryIo(guard: RecoveryGuard, signal: AbortSignal): RecoveryI
       return { code: result.code, aborted: result.aborted };
     },
   };
+}
+
+interface HeldCommandContext {
+  tool: { root: string; home: string; configDirectory: string };
+  root: string; env: Record<string, string>; dispose(): Promise<void>;
+}
+function heldCommandContext(guard: RecoveryGuard): HeldCommandContext {
+  const tool = approvedTool(guard), root = mkdtempSync(join(realpathSync('/tmp'), 'esty-held-app-cli-'));
+  const cache = join(root, 'cache'); mkdirSync(cache, { mode: 0o700 });
+  const env = { PATH: '/usr/bin:/bin', HOME: tool.home, TMPDIR: root, XDG_CACHE_HOME: cache, XDG_STATE_HOME: cache,
+    VERCEL_CLI_USE_NATIVE_BINARY: '0', VERCEL_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1',
+    NODE_DISABLE_COMPILE_CACHE: '1', NO_COLOR: '1', CI: '1' };
+  return { tool, root, env, dispose: () => removeArtifactTree(root) };
+}
+export function heldCandidateCreate(guard: RecoveryGuard, artifact: VerifiedArtifact,
+  activation: ActivationDeliveryContext, signal: AbortSignal): { create(beforeDispatch: () => void): Promise<CommandResult>; dispose(): Promise<void> } {
+  let attempted = false;
+  let context: HeldCommandContext | undefined;
+  return {
+    async create(beforeDispatch) {
+      if (attempted || activation.phase !== 'app') refuse();
+      attempted = true; signal.throwIfAborted(); context = heldCommandContext(guard);
+      const stage = join(context.root, 'stage'); mkdirSync(stage, { mode: 0o700 });
+      await stagePrebuiltOutput(artifact, stage);
+      const actual = inventory(join(stage, '.vercel/output')).files.map(file => ({ ...file, path: `.vercel/output/${file.path}` }));
+      if (canonical(actual) !== canonical(artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/')))) refuse();
+      guard.verify(); signal.throwIfAborted();
+      const cli = fileURLToPath(new URL('./activation-recovery-tool.mjs', import.meta.url));
+      const args = prebuiltCreateArguments(artifact,
+        ['--cwd', stage, '--scope', bridgeRecovery.scope, '--global-config', context.tool.configDirectory, '--non-interactive'], activation);
+      // Never throw away stdout on failed/aborted CREATE. The controller persists any returned ID before cleanup.
+      beforeDispatch();
+      return command(process.execPath, [cli, context.tool.root, ...args], stage, context.env,
+        AbortSignal.any([signal, AbortSignal.timeout(300000)]));
+    },
+    async dispose() { await context?.dispose(); context = undefined; },
+  };
+}
+export async function readHeldCandidate(guard: RecoveryGuard, signal: AbortSignal, id: string, pathname: string): Promise<unknown> {
+  if (!/^dpl_[A-Za-z0-9]{1,124}$/.test(id) || id === bridgeRecovery.candidate) refuse();
+  const paths = [`/v13/deployments/${id}`, `/v6/deployments/${id}/files`];
+  if (!paths.includes(pathname) && !(pathname.startsWith(`/v8/deployments/${id}/files/`)
+    && /^[a-f0-9]{40}$/.test(pathname.slice(`/v8/deployments/${id}/files/`.length)))) refuse();
+  signal.throwIfAborted();
+  const context = heldCommandContext(guard);
+  let failed = false;
+  try {
+    const cli = fileURLToPath(new URL('./activation-recovery-tool.mjs', import.meta.url));
+    const result = await command(process.execPath, [cli, context.tool.root, 'api', pathname, '--method', 'GET',
+      '--scope', bridgeRecovery.scope, '--global-config', context.tool.configDirectory, '--non-interactive'],
+    context.root, context.env, AbortSignal.any([signal, AbortSignal.timeout(45000)]));
+    if (result.aborted || result.code !== 0) refuse();
+    return JSON.parse(result.stdout) as unknown;
+  } catch (error) { failed = true; throw error; }
+  finally {
+    try { await context.dispose(); }
+    catch (error) { if (!failed) throw error; }
+  }
 }

@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "enabled": true,
+  "target": {
+    "executionId": "675b465c-f3cc-48e0-8994-7a3312970e53",
+    "unknownHead": "75333c2fa9074f418c23f4d67ea5a68db4ecf659718983ebfb13d2c46b096267",
+    "packetDigest": "5b2567f007b8ba7870a858b22e0a48b28e3a1a7bb302b51e1e01f2d704dd6690",
+    "artifactDigest": "82419e360517389f1e20c23d43f0e5948518ad659f0f8a87b9f41abcb8d302d2",
+    "revision": "f162c8db8ec149724c0a25537a4a0674bd012035",
+    "tree": "181b2c014f9373e4d6cdf055cba01eac11ed5a5e",
+    "sourceDigest": "73e8f1f5cb7683da2f337b6f3092d6cdcd6dd42ea15a224ce35aa3ea0b77c3e8",
+    "project": "prj_uITHKLUGGE98VxrEcs5FoktBbcls",
+    "scope": "team_k2Hk4wx5XAb9Mgc6lP5AjVhf",
+    "candidate": "dpl_HLphsTUF8dW32Hi4jdUKeW8puJRB",
+    "origin": "https://esty-admin-5pcfgtk0m-khuonghuyhieu0705s-projects.vercel.app",
+    "configDigest": "249e18e93eb01e5fa1f66117c82a8cca2e0777938655308cc43af437095e7892",
+    "createClaimDigest": "068c33cbefd91af29fcb9685fe8ab868381559489945399c246a9c4e814caaa2",
+    "createAckDigest": "96e6c981fca2277e71cae90897f28c5e0fc8f2e2c33f47edb5b56e3a2b5a815e",
+    "heldReceiptDigest": "aa0df8efc9398fe9ed35a9ca9832414ce2e7ded2e4c68e988bad23a54c5a11d3"
+  }
+}

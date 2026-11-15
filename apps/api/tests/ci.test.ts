@@ -3,14 +3,16 @@ import test from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { crc32, gzipSync } from 'node:zlib';
+import { gzipSync } from 'node:zlib';
 import { readFileSync, realpathSync, existsSync } from 'node:fs';
+import fs from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import { cp, chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, sha256, verifyArtifact } from '../scripts/artifact.js';
+import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
-import { artifactFixture, routineMigrationFixture } from './artifact-fixture.js';
+import { artifactFixture, receiptZip, routineMigrationFixture } from './artifact-fixture.js';
 import { checksContext } from '../scripts/ci.js';
 import { acknowledgedId, deliver, deliverActivationCandidate, deliveryContext } from '../scripts/ci-delivery.js';
 import { createActivationProvider, createProvider, repository } from '../scripts/ci-provider.js';
@@ -24,7 +26,8 @@ import { activationPhases, appendActivationEvent, createActivationJournal, finis
 import type { ActivationPacket, ActivationPhase } from '../scripts/activation-journal.js';
 import { completeActivation, confirmActivationPhase, executeActivationPhase, reconcileActivationAcknowledgement, reconcileActivationEffect } from '../scripts/activation.js';
 import { phaseInputEnvironment } from '../scripts/activation-inputs.js';
-import { configureActivation, ActivationConfigurationError } from '../scripts/activation-configuration.js';
+import { configureActivation, observeAppMetadata, AppMetadataError, ActivationConfigurationError,
+  appMissingFiveKeys, observeMissingFiveMetadata, postMissingFive, verifyMissingFiveMetadata } from '../scripts/activation-configuration.js';
 import type { ActivationConfigurationReceipt } from '../scripts/activation-configuration.js';
 import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
 import { activationSchema } from '../src/config/schema-transition.js';
@@ -37,7 +40,11 @@ import { canonical as retainedCanonical, githubReader, manualContext, readSelect
 import { executeManualAction } from '../scripts/manual-activation.mjs';
 import { failedPreflightProof, manualGithubIo, reserveManualActivation,
   validatePreflightReceiptArchive } from '../scripts/activation-preflight-disposition.mjs';
+import { verifyHeldAppProbe } from '../scripts/activation-held-proof.js';
+import { heldPinPath, heldProbeSources } from '../scripts/activation-held-contract.mjs';
+import { heldProofFixture } from './held-app-fixture.js';
 import { manualArchiveTransport } from '../scripts/activation-archive-transport.mjs';
+import { heldCandidateCreate, readHeldCandidate, recoveryToolInventory } from '../scripts/activation-recovery-io.js';
 const oldSchema: RoutineSchema = { digest: activationSchema.oldDigest };
 
 interface Fixture { artifact: VerifiedArtifact; dispose(): Promise<void> }
@@ -614,6 +621,179 @@ function secretConfiguration(phase: 'bridge' | 'app' = 'bridge') {
     ({ id: `env_${index}`, key, type: 'sensitive', visibility: 'secret', target: ['production'] }));
   return { values, packet, entries };
 }
+
+test('missing-five requires exactly absent targets and valid existing Secret Production metadata', async t => {
+  for (const scenario of ['exact', 'target-present', 'missing-other', 'all-present', 'encrypted', 'config', 'preview',
+    'duplicate-id', 'privileged', 'hidden', 'paginated']) await t.test(scenario, async () => {
+    const { values, packet, entries } = secretConfiguration('app');
+    const isMissing = (key: string) => appMissingFiveKeys.some(name => name === key);
+    const rows: Array<Record<string, unknown>> = entries.filter(row => !isMissing(row.key));
+    if (scenario === 'target-present') rows.push(entries.find(row => row.key === 'APP_WORKSPACE_ID')!);
+    if (scenario === 'all-present') rows.push(...entries.filter(row => isMissing(row.key)));
+    if (scenario === 'missing-other') rows.splice(rows.findIndex(row => row.key === 'API_RUNTIME'), 1);
+    if (scenario === 'encrypted') rows[0]!.type = 'encrypted';
+    if (scenario === 'config') rows[0]!.visibility = 'config';
+    if (scenario === 'preview') rows[0]!.target = ['preview'];
+    if (scenario === 'duplicate-id') rows[1]!.id = rows[0]!.id;
+    if (scenario === 'privileged') rows.push({ key: 'SUPABASE_SERVICE_ROLE_KEY', value: 'PRIVATE_MISSING_FIVE' });
+    let gets = 0;
+    const transport: typeof fetch = async (url, init) => {
+      gets++; assert.equal(init?.method, 'GET');
+      assert.equal(new URL(String(url)).searchParams.get('decrypt'), 'false');
+      return Response.json({ envs: rows, hiddenProductionEnvCount: scenario === 'hidden' ? 1 : 0,
+        pagination: { next: scenario === 'paginated' ? 'more' : null } });
+    };
+    const observed = observeMissingFiveMetadata(values, packet, 'synthetic-config-token', AbortSignal.timeout(10000), transport);
+    if (scenario === 'exact') {
+      const result = await observed;
+      assert.deepEqual(Object.keys(result.bindings).sort(), entries.filter(row => !isMissing(row.key)).map(row => row.key).sort());
+      assert.equal(result.keyCount, entries.length - 5);
+    } else await assert.rejects(observed, error => error instanceof AppMetadataError
+      && !JSON.stringify(error).includes('PRIVATE_MISSING_FIVE'));
+    assert.equal(gets, 1);
+  });
+});
+
+test('missing-five POST never upserts or sends existing keys and preserves partial or unknown acknowledgement', async t => {
+  for (const scenario of ['success', 'partial', 'collision', 'ongoing-update', 'lost-ack', 'invalid-json', 'body-error',
+    'duplicate', 'duplicate-id', 'wrong-target', 'wrong-type', 'extra-key', 'missing-failed']) await t.test(scenario, async () => {
+    const { values, packet, entries } = secretConfiguration('app'), canary = 'PRIVATE_MISSING_FIVE';
+    const rows: Array<Record<string, unknown>> = appMissingFiveKeys.map(key => ({ ...entries.find(row => row.key === key)!, value: canary }));
+    let calls = 0;
+    const transport: typeof fetch = async (url, init) => {
+      calls++; assert.equal(init?.method, 'POST'); assert.equal(init?.redirect, 'error');
+      const parsed = new URL(String(url));
+      assert.equal(parsed.pathname, `/v10/projects/${packet.projectId}/env`);
+      assert.deepEqual([...parsed.searchParams.keys()].sort(), ['slug', 'teamId']);
+      const sent = JSON.parse(String(init?.body)) as Array<Record<string, unknown>>;
+      assert.deepEqual(sent.map(row => row.key), appMissingFiveKeys);
+      for (const row of sent) assert.deepEqual(row, { key: row.key, value: values[String(row.key)],
+        type: 'sensitive', target: ['production'] });
+      if (scenario === 'lost-ack') throw new Error(canary);
+      if (scenario === 'invalid-json') return new Response(canary, { status: 201 });
+      if (scenario === 'body-error') return new Response(new ReadableStream({ start(controller) { controller.error(new Error(canary)); } }), { status: 201 });
+      if (scenario === 'collision' || scenario === 'ongoing-update') return Response.json(
+        { error: { code: canary, message: canary } }, { status: scenario === 'collision' ? 403 : 400 });
+      if (scenario === 'partial') return Response.json({ created: rows.slice(0, 3),
+        failed: [{ error: { key: appMissingFiveKeys[3], envVarId: 'env_existing_collision', message: canary, value: canary } }] }, { status: 201 });
+      if (scenario === 'duplicate') rows.push({ ...rows[0] });
+      if (scenario === 'duplicate-id') rows[1]!.id = rows[0]!.id;
+      if (scenario === 'wrong-target') rows[0]!.target = ['preview'];
+      if (scenario === 'wrong-type') rows[0]!.type = 'encrypted';
+      if (scenario === 'extra-key') rows.push({ ...entries[0]!, value: canary });
+      return Response.json({ created: rows, ...(scenario === 'missing-failed' ? {} : { failed: [] }) }, { status: 201 });
+    };
+    const result = await postMissingFive(values, packet, 'synthetic-config-token', AbortSignal.timeout(10000), transport);
+    assert.equal(calls, 1); assert.equal(result.outcome, scenario === 'success' ? 'acknowledged' : 'unknown');
+    assert.doesNotMatch(JSON.stringify(result), /PRIVATE_MISSING_FIVE|synthetic-config-token|sb_publishable|postgresql/);
+    if (scenario === 'success') assert.ok(appMissingFiveKeys.every(key => result.keys[key].status === 'acknowledged'));
+    if (scenario === 'partial') {
+      assert.deepEqual(appMissingFiveKeys.map(key => result.keys[key].status), ['acknowledged', 'acknowledged', 'acknowledged', 'failed', 'unknown']);
+      assert.deepEqual(result.keys.APP_RETENTION_POLICY_ID.ids, ['env_existing_collision']);
+      assert.deepEqual(result.keys.APP_AUTH_API_KEY.ids, [rows[0]!.id]);
+    }
+    if (scenario === 'duplicate') assert.equal(result.keys.APP_AUTH_API_KEY.status, 'unknown');
+    if (scenario === 'duplicate-id') {
+      assert.equal(result.keys.APP_AUTH_API_KEY.status, 'unknown');
+      assert.equal(result.keys.APP_AUTH_URL.status, 'unknown');
+      assert.deepEqual(result.keys.APP_AUTH_API_KEY.ids, result.keys.APP_AUTH_URL.ids);
+    }
+    if (scenario === 'wrong-target' || scenario === 'wrong-type') {
+      assert.equal(result.keys.APP_AUTH_API_KEY.status, 'unknown');
+      assert.deepEqual(result.keys.APP_AUTH_API_KEY.ids, [rows[0]!.id]);
+    }
+    if (scenario === 'collision' || scenario === 'ongoing-update') {
+      assert.equal(result.httpStatus, scenario === 'collision' ? 403 : 400);
+      assert.equal(result.issue, 'http'); assert.ok(appMissingFiveKeys.every(key => result.keys[key].status === 'unknown'));
+    }
+    if (scenario === 'lost-ack') assert.equal(result.httpStatus, null);
+  });
+});
+
+test('missing-five final metadata binds both new ACK identities and untouched existing identities', async t => {
+  for (const scenario of ['verified', 'existing-id-drift', 'new-id-drift', 'still-missing', 'new-target-drift']) await t.test(scenario, async () => {
+    const { values, packet, entries } = secretConfiguration('app');
+    const missing = entries.filter(row => appMissingFiveKeys.some(key => key === row.key));
+    const before = await observeMissingFiveMetadata(values, packet, 'synthetic-config-token', AbortSignal.timeout(10000),
+      async () => Response.json({ envs: entries.filter(row => !missing.includes(row)) }));
+    const ack = await postMissingFive(values, packet, 'synthetic-config-token', AbortSignal.timeout(10000),
+      async () => Response.json({ created: missing, failed: [] }, { status: 201 }));
+    const after = structuredClone(entries);
+    if (scenario === 'existing-id-drift') after[0]!.id = 'env_replaced_existing';
+    if (scenario === 'new-id-drift') after.find(row => row.key === 'APP_AUTH_API_KEY')!.id = 'env_replaced_new';
+    if (scenario === 'new-target-drift') after.find(row => row.key === 'APP_AUTH_API_KEY')!.target = ['preview'];
+    if (scenario === 'still-missing') after.splice(after.findIndex(row => row.key === 'APP_AUTH_API_KEY'), 1);
+    let gets = 0;
+    const result = verifyMissingFiveMetadata(values, packet, 'synthetic-config-token', before, ack, AbortSignal.timeout(10000),
+      async (url, init) => { gets++; assert.equal(init?.method, 'GET');
+        assert.equal(new URL(String(url)).searchParams.get('decrypt'), 'false'); return Response.json({ envs: after }); });
+    if (scenario === 'verified') assert.equal((await result).keyCount, entries.length);
+    else await assert.rejects(result, AppMetadataError);
+    assert.equal(gets, 1);
+  });
+});
+
+test('held APP metadata diagnoses bounded failures without disclosing values, IDs or untrusted names', async t => {
+  const issues = {
+    'secret-only': 'secret-type-mismatch', visibility: 'secret-type-mismatch',
+    'missing-key': 'controlled-key-mismatch', duplicate: 'controlled-key-mismatch',
+    'duplicate-id': 'controlled-key-mismatch', 'unexpected-controlled': 'controlled-key-mismatch',
+    privileged: 'privileged-name', 'privileged-alias': 'privileged-name',
+    preview: 'target-binding-mismatch', 'binding-hook': 'target-binding-mismatch', 'invalid-id': 'target-binding-mismatch',
+    paginated: 'list-incomplete', hidden: 'list-incomplete', 'malformed-list': 'list-incomplete',
+    transport: 'transport', http: 'http', 'http-cancel': 'http', oversized: 'body', 'body-stream': 'body', json: 'json',
+  } as const;
+  for (const scenario of ['sensitive', ...Object.keys(issues)]) await t.test(scenario, async () => {
+    const { values, packet, entries } = secretConfiguration('app');
+    const rows: Array<Record<string, unknown>> = structuredClone(entries), canary = 'PRIVATE_METADATA_CANARY';
+    for (const row of rows) { row.id = `${canary}_${row.id}`; row.value = canary; }
+    if (scenario === 'secret-only') rows[0]!.type = 'encrypted';
+    if (scenario === 'visibility') rows[0]!.visibility = 'config';
+    if (scenario === 'missing-key') {
+      rows.splice(rows.findIndex(row => row.key === 'API_RUNTIME'), 1);
+      rows.push({ key: `UNTRUSTED_${canary}`, value: canary, id: canary });
+    }
+    if (scenario === 'duplicate') rows.push({ ...rows[0] });
+    if (scenario === 'duplicate-id') rows.find(row => row.key === 'DATABASE_URL')!.id = rows[0]!.id;
+    if (scenario === 'unexpected-controlled') rows.push({ ...rows[0], id: `${canary}_extra`, key: 'DATABASE_CA_PEM' });
+    if (scenario === 'privileged') rows.push({ key: `ACTIVATION_${canary}`, value: canary });
+    if (scenario === 'privileged-alias') rows.push({ key: 'SUPABASE_SERVICE_ROLE_KEY', value: canary });
+    if (scenario === 'preview') rows[0]!.target = ['preview'];
+    if (scenario === 'binding-hook') rows[0]!.configurationId = canary;
+    if (scenario === 'invalid-id') rows[0]!.id = `invalid/${canary}`;
+    let requests = 0;
+    const transport: typeof fetch = async (url, init) => {
+      requests++; assert.equal(init?.method, 'GET'); assert.equal(init?.redirect, 'error');
+      const parsed = new URL(String(url));
+      assert.equal(parsed.origin, 'https://api.vercel.com'); assert.equal(parsed.pathname, `/v10/projects/${packet.projectId}/env`);
+      assert.equal(parsed.searchParams.get('decrypt'), 'false'); assert.equal(parsed.searchParams.get('teamId'), packet.scopeId);
+      if (scenario === 'transport') throw new Error(canary);
+      if (scenario === 'http') return new Response(canary, { status: 403 });
+      if (scenario === 'http-cancel') return new Response(new ReadableStream({ cancel() { throw new Error(canary); } }), { status: 429 });
+      if (scenario === 'oversized') return new Response(canary.padEnd(1024 * 1024 + 1, 'x'));
+      if (scenario === 'body-stream') return new Response(new ReadableStream({ start(controller) { controller.error(new Error(canary)); } }));
+      if (scenario === 'json') return new Response(`{\"invalid\":\"${canary}`);
+      return Response.json({ envs: scenario === 'malformed-list' ? { [canary]: rows } : rows,
+        hiddenProductionEnvCount: scenario === 'hidden' ? 1 : 0, pagination: { next: scenario === 'paginated' ? canary : null } });
+    };
+    const call = observeAppMetadata(values, packet, 'synthetic-configuration-token', AbortSignal.timeout(10000), transport);
+    if (scenario === 'sensitive') {
+      const result = await call;
+      assert.equal(result.keyCount, entries.length); assert.match(result.metadataDigest, /^[a-f0-9]{64}$/);
+      assert.equal(JSON.stringify(result).includes(canary), false);
+    } else await assert.rejects(call, error => {
+      assert.ok(error instanceof AppMetadataError);
+      assert.deepEqual(error.diagnostic, { issue: issues[scenario as keyof typeof issues],
+        httpStatus: scenario === 'transport' ? null : scenario === 'http' ? 403 : scenario === 'http-cancel' ? 429 : 200,
+        missingKeys: scenario === 'missing-key' ? ['API_RUNTIME'] : [],
+        unexpectedKeys: scenario === 'duplicate' ? ['API_RUNTIME'] : scenario === 'duplicate-id' ? ['DATABASE_URL']
+          : scenario === 'unexpected-controlled' ? ['DATABASE_CA_PEM'] : [] });
+      assert.doesNotMatch(JSON.stringify(error) + error.message, /PRIVATE_METADATA_CANARY|UNTRUSTED_|SUPABASE_SERVICE_ROLE_KEY|env_/);
+      return true;
+    });
+    assert.equal(requests, 1);
+  });
+});
 test('Secret configuration accepts one-way201 acknowledgement without decrypting saved values', async () => {
   const { values, packet, entries } = secretConfiguration();
   let writes = 0;
@@ -813,6 +993,68 @@ async function activationArtifact() {
     target: 'supabase:eotmpaliqcxxcotrcols' };
   return { artifact, packet, dispose: base.dispose };
 }
+test('held CLI awaits readonly stage disposal, preserves outside symlinks and retains primary read errors', {
+  skip: !process.getuid || process.getuid() === 0,
+}, async t => {
+  const f = await activationArtifact(), owned = await mkdtemp(join(realpathSync(tmpdir()), 'esty-held-cleanup-test-'));
+  const roots: string[] = [], makeTemp = fs.mkdtempSync;
+  t.after(async () => {
+    t.mock.restoreAll(); syncBuiltinESMExports();
+    for (const root of roots) await removeArtifactTree(root);
+    await removeArtifactTree(owned); await f.dispose();
+  });
+  t.mock.method(fs, 'mkdtempSync', (prefix: string) => {
+    const root = makeTemp(prefix); if (prefix.endsWith('esty-held-app-cli-')) roots.push(root); return root;
+  });
+  syncBuiltinESMExports();
+  const tool = join(owned, 'tool'), cliPath = join(tool, 'vercel/dist/vc.js');
+  await mkdir(dirname(cliPath), { recursive: true });
+  await writeFile(join(tool, 'vercel/package.json'), JSON.stringify({ version: '65.4.0', type: 'module' }));
+  await writeFile(cliPath, 'console.log(JSON.stringify({ synthetic: true }));\n');
+  const guard = { digest: sha256('synthetic native held cleanup'), verify: () => ({ recoveryVercel: {
+    root: tool, home: join(owned, 'home'), configDirectory: join(owned, 'profile'), inventoryDigest: recoveryToolInventory(tool),
+  } }) };
+  const before = canonical(inventory(f.artifact.root)), stop = new Error('Synthetic pre-dispatch stop');
+  const cli = heldCandidateCreate(guard, f.artifact,
+    { packet: f.packet, packetDigest: sha256(canonical(f.packet)), phase: 'app' }, AbortSignal.timeout(30000));
+  let dispatched = false;
+  await assert.rejects(cli.create(() => { dispatched = true; throw stop; }), error => error === stop);
+  assert.equal(dispatched, true);
+  const stagedRoot = roots[0]!;
+  const staged = inventory(join(stagedRoot, 'stage/.vercel/output'));
+  assert.ok(staged.directories.every(directory => directory.mode === 0o555));
+  assert.ok(staged.files.some(file => file.mode === 0o444));
+  const outside = join(owned, 'outside'); await mkdir(outside); await writeFile(join(outside, 'sentinel'), 'unchanged');
+  await symlink(outside, join(stagedRoot, 'cache/outside-link'));
+  await cli.dispose();
+  assert.equal(existsSync(stagedRoot), false);
+  assert.equal(readFileSync(join(outside, 'sentinel'), 'utf8'), 'unchanged');
+  assert.equal(canonical(inventory(f.artifact.root)), before);
+  await cli.dispose();
+
+  const chmodNative = fsPromises.chmod;
+  let release!: () => void, entered!: () => void, settled = false;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const reached = new Promise<void>(resolve => { entered = resolve; });
+  const chmodMock = t.mock.method(fsPromises, 'chmod', async (path: fs.PathLike, mode: fs.Mode) => {
+    if (path === roots.at(-1)) { entered(); await blocked; }
+    return chmodNative(path, mode);
+  });
+  syncBuiltinESMExports();
+  const read = readHeldCandidate(guard, AbortSignal.timeout(30000), 'dpl_SyntheticRead', '/v13/deployments/dpl_SyntheticRead');
+  void read.then(() => { settled = true; }, () => { settled = true; });
+  await reached; assert.equal(settled, false); release();
+  assert.deepEqual(await read, { synthetic: true });
+  assert.equal(existsSync(roots.at(-1)!), false);
+  chmodMock.mock.restore(); syncBuiltinESMExports();
+
+  await writeFile(cliPath, 'console.log(\"invalid-json\");\n');
+  t.mock.method(fsPromises, 'chmod', async () => { throw new Error('Synthetic secondary cleanup failure'); });
+  syncBuiltinESMExports();
+  await assert.rejects(readHeldCandidate(guard, AbortSignal.timeout(30000),
+    'dpl_SyntheticRead', '/v13/deployments/dpl_SyntheticRead'), SyntaxError);
+});
+
 test('activation preserves known IDs and refuses promotion after unknown acknowledgement or runtime attestation failure', async t => {
   const f = await activationArtifact(); t.after(f.dispose);
   for (const failure of [undefined, 'lost-create', 'known-nonzero', 'lost-ack', 'candidate_http', 'promote', 'production_http']) {
@@ -1326,24 +1568,6 @@ test('private mutations recheck authorized main before spawning and keep provide
     }
   });
 
-function receiptZip(members: Array<[string, Buffer]>): Buffer {
-  const locals: Buffer[] = [], central: Buffer[] = [];
-  let offset = 0;
-  for (const [name, bytes] of members) {
-    const encoded = Buffer.from(name), local = Buffer.alloc(30), header = Buffer.alloc(46);
-    local.writeUInt32LE(0x04034b50); local.writeUInt16LE(20, 4);
-    local.writeUInt32LE(crc32(bytes), 14); local.writeUInt32LE(bytes.length, 18); local.writeUInt32LE(bytes.length, 22);
-    local.writeUInt16LE(encoded.length, 26);
-    header.writeUInt32LE(0x02014b50); header.writeUInt16LE(20, 4); header.writeUInt16LE(20, 6);
-    header.writeUInt32LE(crc32(bytes), 16); header.writeUInt32LE(bytes.length, 20); header.writeUInt32LE(bytes.length, 24);
-    header.writeUInt16LE(encoded.length, 28); header.writeUInt32LE(offset, 42);
-    locals.push(local, encoded, bytes); central.push(header, encoded); offset += local.length + encoded.length + bytes.length;
-  }
-  const directory = Buffer.concat(central), end = Buffer.alloc(22);
-  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(members.length, 8); end.writeUInt16LE(members.length, 10);
-  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
-  return Buffer.concat([...locals, directory, end]);
-}
 test('failed-preflight archive proves intact reservation and rejects events, initial proof, changed lock and incomplete inventory', async t => {
   const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-terminal-archive-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
@@ -1446,4 +1670,53 @@ test('receipt download never forwards GitHub authorization to the signed artifac
       assert.deepEqual(calls.map(call => call.authorization), [`Bearer ${token}`, null]);
     } else { await assert.rejects(io.download(1)); assert.equal(calls.length, 1); }
   }
+});
+
+test('held proof import independently binds environment metadata, reviewed source, successful run and exact receipt archive', async () => {
+  const f = heldProofFixture();
+  const proof = await verifyHeldAppProbe(f.workflowRun, f.target, f.io, f.sourceDigests, AbortSignal.timeout(10000));
+  assert.equal(proof.binding.candidate, f.target.candidate);
+  assert.equal(proof.bindingDigest, sha256(canonical(f.binding)));
+  assert.equal(proof.archiveDigest, f.values[f.artifactPath].artifacts[0].digest.slice(7));
+  assert.deepEqual(proof.checks, { live: 'passed', computedRuntimeDigest: 'passed', target: 'not-proved', authMembership: 'not-proved' });
+  assert.equal(f.reads.filter(path => path === f.variablePath).length, 2);
+  assert.deepEqual(f.downloads, [f.artifactId]);
+});
+
+test('held proof import rejects forged, stale, incomplete and changed protected evidence', async t => {
+  for (const scenario of ['missing-environment-variable', 'different-held-id', 'disabled-pin', 'different-pin-origin',
+    'changed-source', 'stale-main', 'wrong-repository', 'wrong-branch', 'failed-run', 'rerun', 'expired-artifact',
+    'duplicate-artifact', 'incomplete-artifacts', 'wrong-archive-digest', 'wrong-live-digest', 'extra-receipt-field',
+    'extra-zip-member', 'variable-drift', 'main-drift', 'run-drift']) await t.test(scenario, async () => {
+    const f = heldProofFixture(), artifact = f.values[f.artifactPath].artifacts[0];
+    if (scenario === 'missing-environment-variable') delete f.values[f.variablePath];
+    if (scenario === 'different-held-id') f.values[f.variablePath].value = JSON.stringify({ ...f.binding, candidate: 'dpl_OtherHeld' });
+    if (scenario === 'disabled-pin') f.setSource(heldPinPath, Buffer.from(JSON.stringify({ version: 1, enabled: false, target: null })));
+    if (scenario === 'different-pin-origin') f.setSource(heldPinPath, Buffer.from(JSON.stringify({
+      version: 1, enabled: true, target: { ...f.target, origin: 'https://substitute.vercel.app' } })));
+    if (scenario === 'changed-source') f.setSource(heldProbeSources[0]!, Buffer.from('unreviewed executable source'));
+    if (scenario === 'stale-main') f.values['/commits/main'].sha = 'c'.repeat(40);
+    if (scenario === 'wrong-repository') f.values[f.runPath].repository.full_name = 'other/repository';
+    if (scenario === 'wrong-branch') f.values[f.runPath].head_branch = 'other';
+    if (scenario === 'failed-run') f.values[f.runPath].conclusion = 'failure';
+    if (scenario === 'rerun') f.values[f.runPath].run_attempt = 2;
+    if (scenario === 'expired-artifact') artifact.expired = true;
+    if (scenario === 'duplicate-artifact') {
+      f.values[f.artifactPath].artifacts.push({ ...artifact, id: 789 }); f.values[f.artifactPath].total_count = 2;
+    }
+    if (scenario === 'incomplete-artifacts') f.values[f.artifactPath].total_count = 101;
+    if (scenario === 'wrong-archive-digest') artifact.digest = `sha256:${sha256('wrong archive')}`;
+    if (scenario === 'wrong-live-digest') f.setReceipt({ ...f.receipt, configDigestMatch: false });
+    if (scenario === 'extra-receipt-field') f.setReceipt({ ...f.receipt, callerApproved: true });
+    if (scenario === 'extra-zip-member') f.setReceipt(f.receipt, [['untrusted.json', Buffer.from('{}')]]);
+    const counts = new Map<string, number>(), io = { ...f.io, async read(path: string) {
+      const count = (counts.get(path) ?? 0) + 1; counts.set(path, count);
+      if (count === 2 && path === f.variablePath && scenario === 'variable-drift') f.values[path].value = '{}';
+      if (count === 2 && path === '/commits/main' && scenario === 'main-drift') f.values[path].sha = 'c'.repeat(40);
+      if (count === 2 && path === f.runPath && scenario === 'run-drift') f.values[path].run_attempt = 2;
+      return f.io.read(path);
+    } };
+    await assert.rejects(verifyHeldAppProbe(f.workflowRun, f.target, io, f.sourceDigests, AbortSignal.timeout(10000)));
+    assert.ok(f.downloads.length <= 1);
+  });
 });

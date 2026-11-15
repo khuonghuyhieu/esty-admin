@@ -79,6 +79,22 @@ export async function launchVerified(args) {
   if (!manifestPath || !digest || !helperArgs.length || process.execArgv.length || process.env.NODE_OPTIONS || process.env.NODE_PATH) refuse();
   const root = dirname(fileURLToPath(import.meta.url));
   const manifest = verifyExecutable(root, manifestPath, digest);
+  if (manifest.diagnosticSelector !== undefined || manifest.diagnosticContextDigest !== undefined) {
+    if (manifest.diagnosticSelector !== 'diagnose-app-schema-exposure'
+      || manifest.diagnosticContextDigest !== 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02'
+      || helperArgs.length !== 5 || helperArgs[0] !== manifest.diagnosticSelector
+      || hash(canonical(helperArgs.slice(1))) !== manifest.diagnosticContextDigest) refuse();
+  }
+  if (manifest.heldAppCapability !== undefined) {
+    const capability = manifest.heldAppCapability, importing = helperArgs[1] === 'import-proof';
+    const context = helperArgs.slice(importing ? 3 : 2);
+    if (!capability || Object.keys(capability).sort().join(',') !== 'contextDigest,selector,sourceDigests'
+      || capability.selector !== 'held-app-configuration'
+      || capability.contextDigest !== 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02'
+      || helperArgs[0] !== capability.selector || !['create-held', 'attest-held', 'import-proof', 'correct-missing-five'].includes(helperArgs[1])
+      || context.length !== 4 || (importing && !/^[1-9][0-9]{0,19}$/.test(helperArgs[2] ?? ''))
+      || hash(canonical(context)) !== capability.contextDigest || manifest.diagnosticSelector !== undefined) refuse();
+  }
   const runtime = manifest.runtimes.find(runtime => runtime.platform === process.platform && runtime.arch === process.arch);
   // Every ESM/CJS resolution stays within the complete verified tree, including package.json exports and generated JS/JSON.
   registerHooks({ resolve(specifier, context, nextResolve) {

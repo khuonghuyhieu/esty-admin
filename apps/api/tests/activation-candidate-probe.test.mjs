@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash } from 'node:crypto';
-import { bridgeBearer, candidateProbe as pin, probeCandidate, requestCandidate,
+import { bridgeBearer, candidateProbe as pin, probeCandidate, probeHeldAppCandidate, requestCandidate,
   validateProbeContext } from '../scripts/activation-candidate-probe.mjs';
+import { heldAppPolicy, heldBindingVariable, heldHash } from '../scripts/activation-held-contract.mjs';
 
 // Public, already-approved packet only; no protected configuration fixture is retained.
 const packet = {
@@ -162,4 +163,80 @@ test('transport errors and invalid credential headers are redacted without retri
     const refused = await requestCandidate(technical, automation, transport);
     assert.equal(calls, 1); assert.equal(refused.bodyStatus, 'not_requested'); redacted(refused);
   }
+});
+
+function heldContext() {
+  const { env, event } = context();
+  delete env.BE_ACTIVATION_BRIDGE_INPUTS;
+  const values = { ...bridge, APP_SCHEMA_MODE: 'strict', APP_FOUNDATION_ENABLED: 'true', APP_EMAIL_ENABLED: 'false' };
+  const heldPacket = { ...packet, appConfigDigest: heldHash(values) };
+  const policy = { ...heldAppPolicy, packetDigest: heldHash(heldPacket) };
+  const target = { ...policy, candidate: 'dpl_SyntheticHeldApp', origin: 'https://synthetic-held-app.vercel.app',
+    configDigest: heldPacket.appConfigDigest, createClaimDigest: heldHash('claim'),
+    createAckDigest: heldHash('ack'), heldReceiptDigest: heldHash('pending') };
+  const binding = { ...target, workflowRevision: env.GITHUB_SHA };
+  env[heldBindingVariable] = JSON.stringify(binding);
+  env.BE_PROBE_CURRENT_MAIN = env.GITHUB_SHA;
+  env.BE_ACTIVATION_PACKET_JSON = JSON.stringify(heldPacket);
+  env.BE_ACTIVATION_PACKET_SHA256 = policy.packetDigest;
+  env.BE_ACTIVATION_APP_INPUTS = JSON.stringify(values);
+  event.inputs.mode = 'held-app';
+  return { env, event, values, binding, policy, sourcePin: { version: 1, enabled: true, target } };
+}
+
+test('held APP requester requires enabled reviewed source pin before reading credentials or making HTTP', async t => {
+  for (const scenario of ['disabled', 'missing-environment-binding', 'repository-variable-fallback', 'wrong-project', 'caller-url']) {
+    await t.test(scenario, async () => {
+      const f = heldContext(); let credentialReads = 0, calls = 0;
+      if (scenario === 'disabled') f.sourcePin = { version: 1, enabled: false, target: null };
+      if (scenario === 'missing-environment-binding') delete f.env[heldBindingVariable];
+      if (scenario === 'repository-variable-fallback') f.env[heldBindingVariable] = JSON.stringify({
+        ...f.binding, origin: 'https://repository-variable-substitute.vercel.app' });
+      if (scenario === 'wrong-project') f.env[heldBindingVariable] = JSON.stringify({ ...f.binding, project: 'prj_other' });
+      if (scenario === 'caller-url') f.event.inputs.url = f.binding.origin;
+      for (const key of ['BE_ACTIVATION_APP_INPUTS', 'VERCEL_AUTOMATION_BYPASS_SECRET']) {
+        Object.defineProperty(f.env, key, { configurable: true, get() { credentialReads++; throw new Error(canary); } });
+      }
+      const result = await probeHeldAppCandidate(f.env, f.event, async () => { calls++; throw new Error(canary); },
+        undefined, f.sourcePin, f.policy);
+      assert.equal(credentialReads, 0); assert.equal(calls, 0);
+      assert.equal(result.status, 0); assert.equal(result.bodyStatus, 'not_requested');
+      assert.equal(JSON.stringify(result).includes(canary), false);
+    });
+  }
+  const f = heldContext(); let calls = 0;
+  const result = await probeHeldAppCandidate(f.env, f.event, async () => { calls++; throw new Error(canary); });
+  assert.equal(calls, 0); assert.equal(result.bodyStatus, 'not_requested');
+});
+
+test('held APP requester sends one protected live request only to the source-pinned held origin', async () => {
+  const f = heldContext(); let calls = 0;
+  const result = await probeHeldAppCandidate(f.env, f.event, async (url, init) => {
+    calls++; assert.equal(String(url), `${f.binding.origin}/health/live`);
+    assert.equal(init.method, 'GET'); assert.equal(init.redirect, 'manual');
+    const headers = new Headers(init.headers);
+    assert.equal(headers.get('authorization'), `Bearer ${bearer}`);
+    assert.equal(headers.get('x-vercel-protection-bypass'), bypass);
+    return response(undefined, { headers: { 'content-type': 'application/json', 'x-activation-config-digest': f.binding.configDigest } });
+  }, undefined, f.sourcePin, f.policy);
+  assert.equal(calls, 1);
+  assert.deepEqual(result, { version: 1, kind: 'held-app-live', bindingDigest: heldHash(f.binding),
+    workflowRevision: f.binding.workflowRevision, workflowRun: '123', status: 200, configDigestMatch: true, bodyStatus: 'ok' });
+  assert.equal(f.env.BE_ACTIVATION_APP_INPUTS, undefined); assert.equal(f.env.VERCEL_AUTOMATION_BYPASS_SECRET, undefined);
+  for (const value of [bearer, bypass, canary]) assert.equal(JSON.stringify(result).includes(value), false);
+});
+
+test('held APP request refuses stale main and altered values and never follows redirects or accepts a wrong runtime digest', async t => {
+  for (const scenario of ['stale-main', 'changed-values', 'redirect', 'wrong-runtime-digest']) await t.test(scenario, async () => {
+    const f = heldContext(); let calls = 0;
+    if (scenario === 'stale-main') f.env.BE_PROBE_CURRENT_MAIN = 'c'.repeat(40);
+    if (scenario === 'changed-values') f.env.BE_ACTIVATION_APP_INPUTS = JSON.stringify({ ...f.values, APP_EMAIL_ENABLED: 'true' });
+    const result = await probeHeldAppCandidate(f.env, f.event, async () => {
+      calls++;
+      return scenario === 'redirect' ? new Response(null, { status: 302, headers: { location: 'https://unapproved.example/' } })
+        : response(undefined, { headers: { 'content-type': 'application/json', 'x-activation-config-digest': heldHash('wrong runtime') } });
+    }, undefined, f.sourcePin, f.policy);
+    assert.equal(calls, ['stale-main', 'changed-values'].includes(scenario) ? 0 : 1);
+    assert.equal(result.configDigestMatch, false);
+  });
 });

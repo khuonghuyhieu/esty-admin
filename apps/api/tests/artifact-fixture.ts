@@ -7,6 +7,7 @@ import { artifactTarget, assembleArtifact, builderConfig, canonical, finalRoutes
 import type { FileRecord, SourceIdentity, ToolEvidence, VerifiedArtifact } from '../scripts/artifact.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { readFile } from 'node:fs/promises';
+import { crc32 } from 'node:zlib';
 
 // Synthetic packaging inputs: these prove rejection/consumption, not native execution.
 export async function artifactFixture(mode: SourceIdentity['mode'] = 'release', migrationSource = 'export function up() {}\n') {
@@ -70,4 +71,22 @@ export function fileTree(current: VerifiedArtifact, decimalModes = false): any[]
     { name: 'src', type: 'directory', mode: 0o40555, children: root },
     { name: 'out', type: 'directory', mode: 0o40555, children: [{ name: 'index', type: 'lambda', mode: 0o140666 }] },
   ];
+}
+export function receiptZip(members: Array<[string, Buffer]>): Buffer {
+  const locals: Buffer[] = [], central: Buffer[] = [];
+  let offset = 0;
+  for (const [name, bytes] of members) {
+    const encoded = Buffer.from(name), local = Buffer.alloc(30), header = Buffer.alloc(46);
+    local.writeUInt32LE(0x04034b50); local.writeUInt16LE(20, 4);
+    local.writeUInt32LE(crc32(bytes), 14); local.writeUInt32LE(bytes.length, 18); local.writeUInt32LE(bytes.length, 22);
+    local.writeUInt16LE(encoded.length, 26);
+    header.writeUInt32LE(0x02014b50); header.writeUInt16LE(20, 4); header.writeUInt16LE(20, 6);
+    header.writeUInt32LE(crc32(bytes), 16); header.writeUInt32LE(bytes.length, 20); header.writeUInt32LE(bytes.length, 24);
+    header.writeUInt16LE(encoded.length, 28); header.writeUInt32LE(offset, 42);
+    locals.push(local, encoded, bytes); central.push(header, encoded); offset += local.length + encoded.length + bytes.length;
+  }
+  const directory = Buffer.concat(central), end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50); end.writeUInt16LE(members.length, 8); end.writeUInt16LE(members.length, 10);
+  end.writeUInt32LE(directory.length, 12); end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, directory, end]);
 }

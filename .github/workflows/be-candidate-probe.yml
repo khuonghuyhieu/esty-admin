@@ -7,12 +7,20 @@ on:
         description: Exact reviewed main commit approved for this one read-only request
         required: true
         type: string
+      mode:
+        description: Fixed bridge probe or independently pinned held strict-app probe
+        required: true
+        default: bridge
+        type: choice
+        options:
+          - bridge
+          - held-app
 
 permissions:
   contents: read
 
 concurrency:
-  group: be-candidate-probe-dpl_525LvEPCBud7nyAeFTcRx8iipTrk
+  group: ${{ inputs.mode == 'held-app' && 'be-candidate-probe-held-app' || 'be-candidate-probe-dpl_525LvEPCBud7nyAeFTcRx8iipTrk' }}
   cancel-in-progress: false
 
 jobs:
@@ -36,6 +44,7 @@ jobs:
           node-version: 24.22.1
           package-manager-cache: false
       - name: Request only the existing candidate health endpoint once
+        if: inputs.mode != 'held-app'
         env:
           BE_PROBE_ENVIRONMENT: be-production
           BE_PROBE_WORKFLOW_SHA: ${{ inputs.approved_revision }}
@@ -44,3 +53,32 @@ jobs:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
           BE_ACTIVATION_BRIDGE_INPUTS: ${{ secrets.BE_ACTIVATION_BRIDGE_INPUTS }}
         run: node apps/api/scripts/activation-candidate-probe.mjs
+      - name: Verify current main before the held request
+        if: inputs.mode == 'held-app'
+        id: held-main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          current="$(gh api repos/khuonghuyhieu/esty-admin/commits/main --jq .sha)"
+          test "$current" = "$GITHUB_SHA"
+          printf 'revision=%s\n' "$current" >> "$GITHUB_OUTPUT"
+      - name: Request only the source-pinned held application live endpoint once
+        if: inputs.mode == 'held-app'
+        env:
+          BE_PROBE_ENVIRONMENT: be-production
+          BE_PROBE_WORKFLOW_SHA: ${{ inputs.approved_revision }}
+          BE_PROBE_CURRENT_MAIN: ${{ steps.held-main.outputs.revision }}
+          BE_D1_HELD_APP_BINDING: ${{ vars.BE_D1_HELD_APP_BINDING }}
+          BE_ACTIVATION_PACKET_JSON: ${{ vars.BE_ACTIVATION_PACKET_JSON }}
+          BE_ACTIVATION_PACKET_SHA256: ${{ vars.BE_ACTIVATION_PACKET_SHA256 }}
+          BE_ACTIVATION_APP_INPUTS: ${{ secrets.BE_ACTIVATION_APP_INPUTS }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: node apps/api/scripts/activation-candidate-probe.mjs
+      - name: Preserve the successful held live receipt
+        if: inputs.mode == 'held-app'
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: held-app-probe-${{ github.run_id }}-1
+          path: ${{ runner.temp }}/held-app-probe.json
+          if-no-files-found: error
+          retention-days: 30

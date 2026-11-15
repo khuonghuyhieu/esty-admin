@@ -334,17 +334,38 @@ export async function provisionAppRoles(inputs: AppRoleInputs, signal: AbortSign
   } finally { signal.removeEventListener('abort', abort); await client.end().catch(() => {}); }
 }
 
-export async function inspectPrivateSchemaExposure(config: Pick<AppFoundationConfig, 'authUrl' | 'apiKey'>,
-  signal: AbortSignal, transport: typeof fetch = fetch): Promise<void> {
-  if (config.authUrl !== `https://${approvedTarget.SUPABASE_PROJECT_REF}.supabase.co/auth/v1`) throw new AppRoleError('not_started');
+export interface PrivateSchemaExposureObservation {
+  category: 'passed' | 'target' | 'transport' | 'http-status' | 'schema-exposure' | 'json' | 'pgrst106';
+  httpStatus: number | null;
+  requests: 0 | 1;
+}
+export async function observePrivateSchemaExposure(config: Pick<AppFoundationConfig, 'authUrl' | 'apiKey'>,
+  signal: AbortSignal, transport: typeof fetch = fetch): Promise<PrivateSchemaExposureObservation> {
+  const observation: PrivateSchemaExposureObservation = { category: 'target', httpStatus: null, requests: 0 };
+  if (config.authUrl !== `https://${approvedTarget.SUPABASE_PROJECT_REF}.supabase.co/auth/v1`) return observation;
+  observation.category = 'transport';
   try {
+    signal.throwIfAborted();
+    observation.requests = 1;
     const response = await transport(new URL('/rest/v1/profiles?select=user_id&limit=0', config.authUrl), {
       method: 'GET', redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(1500)]),
       headers: { apikey: config.apiKey, 'Accept-Profile': 'app_private', Accept: 'application/json' },
     });
-    if (response.status !== 406) { await response.body?.cancel(); refuse(); }
-    const result: unknown = JSON.parse((await responseBytes(response, 16384)).toString('utf8'));
-    if (!result || typeof result !== 'object' || Array.isArray(result)
-      || !('code' in result) || result.code !== 'PGRST106') refuse();
-  } catch { throw new AppRoleError('not_started'); }
+    observation.httpStatus = response.status;
+    if (response.status !== 406 || response.redirected) {
+      observation.category = response.status >= 200 && response.status < 300 ? 'schema-exposure' : 'http-status';
+      await response.body?.cancel();
+      return observation;
+    }
+    const bytes = await responseBytes(response, 16384);
+    observation.category = 'json';
+    const result: unknown = JSON.parse(bytes.toString('utf8'));
+    observation.category = !result || typeof result !== 'object' || Array.isArray(result)
+      || !('code' in result) || result.code !== 'PGRST106' ? 'pgrst106' : 'passed';
+  } catch { /* Only fixed categories and HTTP status may leave this boundary. */ }
+  return observation;
+}
+export async function inspectPrivateSchemaExposure(config: Pick<AppFoundationConfig, 'authUrl' | 'apiKey'>,
+  signal: AbortSignal, transport: typeof fetch = fetch): Promise<void> {
+  if ((await observePrivateSchemaExposure(config, signal, transport)).category !== 'passed') throw new AppRoleError('not_started');
 }

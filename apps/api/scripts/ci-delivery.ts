@@ -129,6 +129,22 @@ export async function deliverActivationCandidate(input: {
   verify();
   return id;
 }
+export async function stagePrebuiltOutput(artifact: VerifiedArtifact, stage: string): Promise<void> {
+  await mkdir(join(stage, '.vercel'));
+  await mkdir(join(stage, 'apps/api'), { recursive: true });
+  await cp(join(artifact.root, '.vercel/output'), join(stage, '.vercel/output'), { recursive: true, preserveTimestamps: true, errorOnExist: true });
+  await writeFile(join(stage, '.vercel/project.json'), JSON.stringify({ projectId: artifactTarget.project, orgId: artifactTarget.owner }));
+}
+export function prebuiltCreateArguments(artifact: VerifiedArtifact, common: string[], activation?: ActivationDeliveryContext): string[] {
+  if (activation) { validateActivationPacket(activation.packet, activation.packetDigest); verifyActivationArtifact(artifact, activation.packet); }
+  const metadata = activation ? ['--meta', `activationRun=${activation.packet.runId}`, '--meta', `activationPhase=${activation.phase}`,
+    '--meta', `activationPacket=${activation.packetDigest}`, '--meta',
+    `activationConfigDigest=${activation.phase === 'bridge' ? activation.packet.bridgeConfigDigest : activation.packet.appConfigDigest}`] : [];
+  return ['deploy', '--prebuilt', '--archive=tgz', '--prod', '--regions', 'icn1', '--skip-domain', '--no-wait', '--json', '--no-guidance',
+    ...common, '--meta', `sourceCommit=${artifact.manifest.source.revision}`, '--meta', `artifactSha256=${artifact.digest}`,
+    '--meta', `sourceDigest=${artifact.manifest.source.digest}`, ...metadata];
+}
+
 export async function officialCli(artifact: VerifiedArtifact, cli: string, token: string, signal: AbortSignal,
   activation?: ActivationDeliveryContext): Promise<OfficialCli> {
   if (!/^[\x21-\x7e]{16,512}$/.test(token) || !cli.endsWith('/vercel/dist/vc.js')) throw new Error('Invalid isolated CLI input.');
@@ -137,18 +153,12 @@ export async function officialCli(artifact: VerifiedArtifact, cli: string, token
     if (!['bridge', 'app'].includes(activation.phase)) throw new Error('Invalid activation phase.');
     verifyActivationArtifact(artifact, activation.packet);
   }
-  const metadata = activation ? ['--meta', `activationRun=${activation.packet.runId}`, '--meta', `activationPhase=${activation.phase}`,
-    '--meta', `activationPacket=${activation.packetDigest}`, '--meta',
-    `activationConfigDigest=${activation.phase === 'bridge' ? activation.packet.bridgeConfigDigest : activation.packet.appConfigDigest}`] : [];
   const root = await mkdtemp(join(realpathSync(tmpdir()), 'esty-ci-delivery-'));
   try {
     const env = await isolatedEnvironment(join(root, 'environment'));
     const auth = join(root, 'auth'), stage = join(root, 'stage'); await mkdir(auth, { mode: 0o700 }); await mkdir(stage);
     await writeFile(join(auth, 'auth.json'), JSON.stringify({ token }), { flag: 'wx', mode: 0o600 });
-    await mkdir(join(stage, '.vercel'));
-    await mkdir(join(stage, 'apps/api'), { recursive: true });
-    await cp(join(artifact.root, '.vercel/output'), join(stage, '.vercel/output'), { recursive: true, preserveTimestamps: true, errorOnExist: true });
-    await writeFile(join(stage, '.vercel/project.json'), JSON.stringify({ projectId: artifactTarget.project, orgId: artifactTarget.owner }));
+    await stagePrebuiltOutput(artifact, stage);
     const common = ['--non-interactive', '--cwd', stage, '--global-config', auth, '--scope', artifactTarget.scope];
     let created = false, promoted = false;
     return {
@@ -158,9 +168,7 @@ export async function officialCli(artifact: VerifiedArtifact, cli: string, token
         if (canonical(uploaded) !== canonical(artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/')))) {
           throw new Error('CLI staging bytes differ from the tested artifact.');
         }
-        return command(process.execPath, [cli, 'deploy', '--prebuilt', '--archive=tgz', '--prod', '--regions', 'icn1',
-          '--skip-domain', '--no-wait', '--json', '--no-guidance', ...common, '--meta', `sourceCommit=${artifact.manifest.source.revision}`,
-          '--meta', `artifactSha256=${artifact.digest}`, '--meta', `sourceDigest=${artifact.manifest.source.digest}`, ...metadata], stage, env, signal);
+        return command(process.execPath, [cli, ...prebuiltCreateArguments(artifact, common, activation)], stage, env, signal);
       },
       async promote(id) {
         if (!created || promoted || !deploymentId.test(id)) throw new Error('CLI promotion is one-shot.'); promoted = true;

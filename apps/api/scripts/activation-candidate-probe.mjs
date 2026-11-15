@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
-import { constants, closeSync, fstatSync, openSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { constants, closeSync, fstatSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import heldSourcePin from '../config/held-app-probe-binding.json' with { type: 'json' };
+import { heldAppPolicy, heldBindingVariable, heldHash, validateHeldBinding } from './activation-held-contract.mjs';
 
 export const candidateProbe = Object.freeze({
   repository: 'khuonghuyhieu/esty-admin', workflow: '.github/workflows/be-candidate-probe.yml',
@@ -41,7 +43,8 @@ export function validateProbeContext(env, event) {
     || env.GITHUB_SHA !== revision || env.GITHUB_WORKFLOW_SHA !== revision
     || !/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? '')
     || object(object(event).repository).full_name !== pin.repository
-    || canonical(object(event.inputs)) !== canonical({ approved_revision: revision })) refuse();
+    || ![canonical({ approved_revision: revision }), canonical({ approved_revision: revision, mode: 'bridge' })]
+      .includes(canonical(object(event.inputs)))) refuse();
   for (const key of ['NODE_OPTIONS', 'NODE_PATH', 'NODE_TLS_REJECT_UNAUTHORIZED', 'NODE_EXTRA_CA_CERTS',
     'NODE_USE_ENV_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) {
     if (env[key] !== undefined) refuse();
@@ -68,8 +71,8 @@ export function bridgeBearer(raw, expectedDigest) {
 function emptyResult() {
   return { status: 0, configDigestMatch: false, bodyStatus: 'not_requested', identity: { ...pin } };
 }
-export async function requestCandidate(bearer, bypass, transport = fetch, signal) {
-  const result = emptyResult();
+async function requestTarget(target, bearer, bypass, transport, signal) {
+  const result = { status: 0, configDigestMatch: false, bodyStatus: 'not_requested', identity: { ...target } };
   if (!/^[a-f0-9]{64}$/.test(bearer ?? '') || !/^[\x21-\x7e]{16,512}$/.test(bypass ?? '')) return result;
   const deadline = new AbortController(), timeout = setTimeout(() => deadline.abort(), 10000);
   const cancellation = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
@@ -82,13 +85,13 @@ export async function requestCandidate(bearer, bypass, transport = fetch, signal
     result.bodyStatus = 'unavailable';
     await Promise.race([stopped, (async () => {
       // One fixed GET. Neither credential enters argv, a URL, a child process or output.
-      response = await transport(`${pin.origin}${pin.path}`, { method: 'GET', redirect: 'manual', credentials: 'omit',
+      response = await transport(`${target.origin}/health/live`, { method: 'GET', redirect: 'manual', credentials: 'omit',
         cache: 'no-store', signal: cancellation,
         headers: { Authorization: `Bearer ${bearer}`, 'x-vercel-protection-bypass': bypass } });
       cancellation.throwIfAborted();
       if (!Number.isInteger(response.status) || response.status < 100 || response.status > 599) refuse();
       result.status = response.status;
-      result.configDigestMatch = response.headers.get('x-activation-config-digest') === pin.configDigest;
+      result.configDigestMatch = response.headers.get('x-activation-config-digest') === target.configDigest;
       if (response.status !== 200 || response.redirected || !result.configDigestMatch) return;
       if (!/^application\/json(?:;|$)/i.test(response.headers.get('content-type') ?? '') || !response.body) {
         result.bodyStatus = 'invalid'; return;
@@ -115,6 +118,53 @@ export async function requestCandidate(bearer, bypass, transport = fetch, signal
   }
   return { ...result };
 }
+export function requestCandidate(bearer, bypass, transport = fetch, signal) {
+  return requestTarget(pin, bearer, bypass, transport, signal);
+}
+
+export async function probeHeldAppCandidate(env, event, transport = fetch, signal, sourcePin = heldSourcePin, policy = heldAppPolicy) {
+  const result = { version: 1, kind: 'held-app-live', bindingDigest: null, workflowRevision: null, workflowRun: null,
+    status: 0, configDigestMatch: false, bodyStatus: 'not_requested' };
+  let raw = '', bearer = '', bypass = '';
+  try {
+    // Source-reviewed target equality precedes credential derivation. vars alone cannot prove environment provenance.
+    const binding = validateHeldBinding(json(env[heldBindingVariable]), sourcePin, policy);
+    const revision = binding.workflowRevision;
+    if (env.GITHUB_ACTIONS !== 'true' || env.GITHUB_REPOSITORY !== pin.repository || env.GITHUB_REF !== 'refs/heads/main'
+      || env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.GITHUB_RUN_ATTEMPT !== '1'
+      || env.GITHUB_WORKFLOW_REF !== `${pin.repository}/${pin.workflow}@refs/heads/main`
+      || env.BE_PROBE_ENVIRONMENT !== 'be-production' || env.BE_PROBE_WORKFLOW_SHA !== revision
+      || env.GITHUB_SHA !== revision || env.GITHUB_WORKFLOW_SHA !== revision || env.BE_PROBE_CURRENT_MAIN !== revision
+      || !/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? '') || object(object(event).repository).full_name !== pin.repository
+      || canonical(object(event.inputs)) !== canonical({ approved_revision: revision, mode: 'held-app' })) refuse();
+    for (const key of ['NODE_OPTIONS', 'NODE_PATH', 'NODE_TLS_REJECT_UNAUTHORIZED', 'NODE_EXTRA_CA_CERTS',
+      'NODE_USE_ENV_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) {
+      if (env[key] !== undefined) refuse();
+    }
+    const packet = json(env.BE_ACTIVATION_PACKET_JSON);
+    if (env.BE_ACTIVATION_PACKET_SHA256 !== policy.packetDigest || hash(canonical(packet)) !== policy.packetDigest
+      || packet.appConfigDigest !== binding.configDigest || packet.projectId !== binding.project || packet.scopeId !== binding.scope
+      || packet.artifactDigest !== binding.artifactDigest || packet.sourceDigest !== binding.sourceDigest
+      || packet.revision !== binding.revision || packet.tree !== binding.tree) refuse();
+    raw = env.BE_ACTIVATION_APP_INPUTS; bypass = env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    const values = json(raw), keys = [...bridgeKeys, 'APP_WORKSPACE_ID', 'APP_AUTH_URL', 'APP_AUTH_API_KEY',
+      'APP_EMAIL_ENABLED', 'APP_RETENTION_POLICY_ID'];
+    if (Object.entries(values).some(([key, value]) => !keys.includes(key) || typeof value !== 'string'
+      || value.length > 16384 || value.includes('\0')) || hash(canonical(values)) !== binding.configDigest
+      || values.API_RUNTIME !== 'vercel' || values.APP_SCHEMA_MODE !== 'strict' || values.APP_FOUNDATION_ENABLED !== 'true'
+      || values.APP_EMAIL_ENABLED !== 'false' || values.BROWSER_ORIGIN !== 'https://app.lovora.us'
+      || !/^[a-f0-9]{64}$/.test(values.PREVIEW_ACCESS_KEY ?? '')) refuse();
+    bearer = values.PREVIEW_ACCESS_KEY; raw = '';
+    result.bindingDigest = heldHash(binding); result.workflowRevision = revision; result.workflowRun = env.GITHUB_RUN_ID;
+    const response = await requestTarget(binding, bearer, bypass, transport, signal);
+    result.status = response.status; result.configDigestMatch = response.configDigestMatch; result.bodyStatus = response.bodyStatus;
+  } catch { /* No caller payload, response, key or exception is evidence. */ }
+  finally {
+    delete env.BE_ACTIVATION_APP_INPUTS; delete env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    raw = ''; bearer = ''; bypass = '';
+  }
+  return result;
+}
 export async function probeCandidate(env, event, transport = fetch, signal) {
   let raw = env.BE_ACTIVATION_BRIDGE_INPUTS, bypass = env.VERCEL_AUTOMATION_BYPASS_SECRET, bearer;
   delete env.BE_ACTIVATION_BRIDGE_INPUTS; delete env.VERCEL_AUTOMATION_BYPASS_SECRET;
@@ -139,9 +189,20 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   let result = emptyResult();
   try {
     if (process.argv.length !== 2 || process.execArgv.length || process.versions.node !== '24.22.1') refuse();
-    result = await probeCandidate(process.env, eventFile(process.env.GITHUB_EVENT_PATH));
-  } catch { /* Never print values, response bodies, headers, error messages or stacks. */ }
-  finally { delete process.env.BE_ACTIVATION_BRIDGE_INPUTS; delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET; }
+    const event = eventFile(process.env.GITHUB_EVENT_PATH);
+    if (event.inputs?.mode === 'held-app') {
+      result = await probeHeldAppCandidate(process.env, event);
+      if (!process.env.RUNNER_TEMP) refuse();
+      writeFileSync(join(process.env.RUNNER_TEMP, 'held-app-probe.json'), JSON.stringify(result) + '\n', { flag: 'wx', mode: 0o600 });
+    } else {
+      if (event.inputs?.mode !== undefined && event.inputs.mode !== 'bridge') refuse();
+      result = await probeCandidate(process.env, event);
+    }
+  } catch { result = emptyResult(); /* Never print values, response bodies, headers, error messages or stacks. */ }
+  finally {
+    delete process.env.BE_ACTIVATION_BRIDGE_INPUTS; delete process.env.BE_ACTIVATION_APP_INPUTS;
+    delete process.env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  }
   console.log(JSON.stringify(result));
   process.exitCode = result.status === 200 && result.configDigestMatch && result.bodyStatus === 'ok' ? 0 : 1;
 }
