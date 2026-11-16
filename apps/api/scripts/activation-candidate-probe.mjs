@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { constants, closeSync, fstatSync, openSync, readFileSync, writeFileSync } from 'node:fs';
+import { constants, closeSync, existsSync, fstatSync, openSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import heldSourcePin from '../config/held-app-probe-binding.json' with { type: 'json' };
-import { heldAppPolicy, heldBindingVariable, heldHash, validateHeldBinding } from './activation-held-contract.mjs';
+import { heldAppPolicy, heldBindingVariable, heldHash, validateHeldBinding,
+  heldD2, validateHeldD2Gate, validateHeldD2Target } from './activation-held-contract.mjs';
 
 export const candidateProbe = Object.freeze({
   repository: 'khuonghuyhieu/esty-admin', workflow: '.github/workflows/be-candidate-probe.yml',
@@ -122,21 +123,82 @@ export function requestCandidate(bearer, bypass, transport = fetch, signal) {
   return requestTarget(pin, bearer, bypass, transport, signal);
 }
 
-export async function probeHeldAppCandidate(env, event, transport = fetch, signal, sourcePin = heldSourcePin, policy = heldAppPolicy) {
+// The same acceptance predicates run in compiled operators and dependency-free Node24 Actions.
+async function requestHeldAcceptance(binding, stage, bearer, bypass, transport, signal) {
+  const module = new URL('./hosted-acceptance.js', import.meta.url);
+  if (!existsSync(module)) module.pathname = module.pathname.replace(/\.js$/, '.ts');
+  const { checkHostedHttp } = await import(module.href);
+  const origin = stage === 'candidate' ? binding.origin : 'https://api.lovora.us';
+  if (!/^[\x21-\x7e]{16,512}$/.test(bypass ?? '')) refuse();
+  const deadline = new AbortController(), timeout = setTimeout(() => deadline.abort(), 90000);
+  const cancellation = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
+  let requests = 0;
+  try {
+    await checkHostedHttp(origin, 'https://app.lovora.us', bearer, async (url, init = {}) => {
+      if (![`${origin}/health/live`, `${origin}/health/ready`, `${origin}/__release_unknown_route`].includes(url)
+        || ++requests > 8) refuse();
+      const stop = new AbortController(), timer = setTimeout(() => stop.abort(), 10000);
+      const bounded = AbortSignal.any([cancellation, stop.signal]);
+      let reader, response, onAbort;
+      const aborted = new Promise((_, reject) => { onAbort = () => reject(new Error('Acceptance stopped.')); });
+      bounded.addEventListener('abort', onAbort, { once: true });
+      try {
+        bounded.throwIfAborted();
+        return await Promise.race([aborted, (async () => {
+          response = await transport(url, { ...init, redirect: 'manual', credentials: 'omit', cache: 'no-store',
+            signal: bounded, headers: { ...init.headers, 'x-vercel-protection-bypass': bypass } });
+          if (bounded.aborted) { void response.body?.cancel().catch(() => {}); bounded.throwIfAborted(); }
+          bounded.throwIfAborted();
+          if (response.redirected || (url.endsWith('/health/live')
+            && response.headers.get('x-activation-config-digest') !== binding.configDigest)) refuse();
+          const chunks = []; let size = 0;
+          if (response.body) {
+            reader = response.body.getReader();
+            for (;;) {
+              const part = await reader.read(); bounded.throwIfAborted();
+              if (part.done) break;
+              size += part.value.byteLength; if (size > maximumBody) refuse(); chunks.push(part.value);
+            }
+          }
+          if (response.status !== 204 && !/^application\/json(?:;|$)/i.test(response.headers.get('content-type') ?? '')) refuse();
+          return new Response(response.status === 204 ? null : Buffer.concat(chunks, size),
+            { status: response.status, headers: response.headers });
+        })()]);
+      } finally {
+        clearTimeout(timer); bounded.removeEventListener('abort', onAbort); stop.abort();
+        if (reader) void reader.cancel().catch(() => {});
+        else if (response?.body) void response.body.cancel().catch(() => {});
+      }
+    });
+    cancellation.throwIfAborted();
+    if (requests !== 8) refuse();
+  } finally { clearTimeout(timeout); deadline.abort(); }
+}
+
+export async function probeHeldAppCandidate(env, event, transport = fetch, signal, sourcePin = heldSourcePin, policy = heldAppPolicy, d2Target = heldD2) {
   const result = { version: 1, kind: 'held-app-live', bindingDigest: null, workflowRevision: null, workflowRun: null,
     status: 0, configDigestMatch: false, bodyStatus: 'not_requested' };
+  const stage = event?.inputs?.mode === 'held-app-acceptance' ? 'candidate'
+    : event?.inputs?.mode === 'held-app-final' ? 'final' : undefined;
+  if (stage) Object.assign(result, { kind: 'held-app-acceptance', stage, gateDigest: null, acceptance: 'not-proved' });
   let raw = '', bearer = '', bypass = '';
   try {
     // Source-reviewed target equality precedes credential derivation. vars alone cannot prove environment provenance.
     const binding = validateHeldBinding(json(env[heldBindingVariable]), sourcePin, policy);
     const revision = binding.workflowRevision;
+    const gate = stage ? validateHeldD2Gate(json(env[heldD2.gateVariable]), stage, revision) : undefined;
+    if (stage) {
+      const { workflowRevision: _revision, ...target } = binding;
+      validateHeldD2Target(target, policy, d2Target);
+    }
     if (env.GITHUB_ACTIONS !== 'true' || env.GITHUB_REPOSITORY !== pin.repository || env.GITHUB_REF !== 'refs/heads/main'
       || env.GITHUB_EVENT_NAME !== 'workflow_dispatch' || env.GITHUB_RUN_ATTEMPT !== '1'
       || env.GITHUB_WORKFLOW_REF !== `${pin.repository}/${pin.workflow}@refs/heads/main`
       || env.BE_PROBE_ENVIRONMENT !== 'be-production' || env.BE_PROBE_WORKFLOW_SHA !== revision
       || env.GITHUB_SHA !== revision || env.GITHUB_WORKFLOW_SHA !== revision || env.BE_PROBE_CURRENT_MAIN !== revision
       || !/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? '') || object(object(event).repository).full_name !== pin.repository
-      || canonical(object(event.inputs)) !== canonical({ approved_revision: revision, mode: 'held-app' })) refuse();
+      || canonical(object(event.inputs)) !== canonical({ approved_revision: revision,
+        mode: stage === 'candidate' ? 'held-app-acceptance' : stage === 'final' ? 'held-app-final' : 'held-app' })) refuse();
     for (const key of ['NODE_OPTIONS', 'NODE_PATH', 'NODE_TLS_REJECT_UNAUTHORIZED', 'NODE_EXTRA_CA_CERTS',
       'NODE_USE_ENV_PROXY', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) {
       if (env[key] !== undefined) refuse();
@@ -156,8 +218,14 @@ export async function probeHeldAppCandidate(env, event, transport = fetch, signa
       || !/^[a-f0-9]{64}$/.test(values.PREVIEW_ACCESS_KEY ?? '')) refuse();
     bearer = values.PREVIEW_ACCESS_KEY; raw = '';
     result.bindingDigest = heldHash(binding); result.workflowRevision = revision; result.workflowRun = env.GITHUB_RUN_ID;
-    const response = await requestTarget(binding, bearer, bypass, transport, signal);
-    result.status = response.status; result.configDigestMatch = response.configDigestMatch; result.bodyStatus = response.bodyStatus;
+    if (stage) {
+      result.gateDigest = heldHash(gate);
+      await requestHeldAcceptance(binding, stage, bearer, bypass, transport, signal);
+      Object.assign(result, { status: 200, configDigestMatch: true, bodyStatus: 'ok', acceptance: 'passed' });
+    } else {
+      const response = await requestTarget(binding, bearer, bypass, transport, signal);
+      result.status = response.status; result.configDigestMatch = response.configDigestMatch; result.bodyStatus = response.bodyStatus;
+    }
   } catch { /* No caller payload, response, key or exception is evidence. */ }
   finally {
     delete env.BE_ACTIVATION_APP_INPUTS; delete env.VERCEL_AUTOMATION_BYPASS_SECRET;
@@ -190,7 +258,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   try {
     if (process.argv.length !== 2 || process.execArgv.length || process.versions.node !== '24.22.1') refuse();
     const event = eventFile(process.env.GITHUB_EVENT_PATH);
-    if (event.inputs?.mode === 'held-app') {
+    if (['held-app', 'held-app-acceptance', 'held-app-final'].includes(event.inputs?.mode)) {
       result = await probeHeldAppCandidate(process.env, event);
       if (!process.env.RUNNER_TEMP) refuse();
       writeFileSync(join(process.env.RUNNER_TEMP, 'held-app-probe.json'), JSON.stringify(result) + '\n', { flag: 'wx', mode: 0o600 });

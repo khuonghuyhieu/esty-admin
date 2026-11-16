@@ -49,3 +49,45 @@ export function validateHeldBinding(value, sourcePin, policy = heldAppPolicy) {
   if (heldCanonical(target) !== heldCanonical(pin.target)) refuse();
   return binding;
 }
+
+// D2 consumes the actual D1 event, never a caller-selected held deployment or old probe source pins.
+export const heldD2 = Object.freeze({
+  selector: 'held-app-acceptance',
+  head: 'e8a2ac613eb436af13c1ef14992b22fcb6d30fff7434929ba0cead7dadf03078',
+  proofDigest: 'c1c0edf5d97154eabb32fb394c8470775b546c372efcce79cfe4e4491f8c36ba',
+  importClaimDigest: 'e67c65a59618ba754efbdb75dccdabc05ef8f7deb858fb93d16914d8e76c0117',
+  importResultDigest: '632f3c5bfef40cf46575d95803e04344c775622524b31faee403c3ab3af43469',
+  candidate: 'dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7',
+  origin: 'https://esty-admin-dialgx31z-khuonghuyhieu0705s-projects.vercel.app',
+  configDigest: '249e18e93eb01e5fa1f66117c82a8cca2e0777938655308cc43af437095e7892',
+  createClaimDigest: '7ef8fb53f3faefa088d3499694b458eb4556064fbf7c2e77d023cf656f85a6e0',
+  createAckDigest: '43fdfd2b59a02081ffab894379b781a964564f398ed955da95b488b2377b9362',
+  heldReceiptDigest: 'ad8570403fcc26bed885c4f3363eea8550f21f05035119cb049ef1be84f77058',
+  contextDigest: 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02',
+  gateVariable: 'BE_D2_APP_ACCEPTANCE_GATE',
+});
+export const heldD2Sources = Object.freeze([...heldProbeSources, 'apps/api/scripts/hosted-acceptance.ts']);
+export function validateHeldD2Capability(value) {
+  const capability = heldRecord(value, ['selector', 'contextDigest', 'controllerPublication', 'sourceDigests']);
+  const publication = heldRecord(capability.controllerPublication, ['revision', 'tree']);
+  if (capability.selector !== heldD2.selector || capability.contextDigest !== heldD2.contextDigest
+    || !/^[a-f0-9]{40}$/.test(publication.revision ?? '') || !/^[a-f0-9]{40}$/.test(publication.tree ?? '')
+    || [heldAppPolicy.revision, '927be7af6c46722615fe8f9f356fffb1e7424dd7'].includes(publication.revision)
+    || Object.keys(heldRecord(capability.sourceDigests, heldD2Sources)).some(key =>
+      !/^[a-f0-9]{64}$/.test(capability.sourceDigests[key] ?? ''))) refuse();
+  return capability;
+}
+export function validateHeldD2Gate(value, stage, revision) {
+  const gate = heldRecord(value, ['version', 'stage', 'head', 'claimDigest', 'controllerRevision']);
+  if (!['candidate', 'final'].includes(stage) || gate.version !== 1 || gate.stage !== stage
+    || gate.controllerRevision !== revision || !/^[a-f0-9]{40}$/.test(revision ?? '')
+    || !/^[a-f0-9]{64}$/.test(gate.claimDigest ?? '') || !/^[a-f0-9]{64}$/.test(gate.head ?? '')
+    || (stage === 'candidate' && gate.head !== heldD2.head) || (stage === 'final' && gate.head === heldD2.head)) refuse();
+  return gate;
+}
+export function validateHeldD2Target(target, policy = heldAppPolicy, expected = heldD2) {
+  validateHeldTarget(target, policy);
+  for (const key of ['candidate', 'origin', 'configDigest', 'createClaimDigest', 'createAckDigest', 'heldReceiptDigest'])
+    if (target[key] !== expected[key]) refuse();
+  return target;
+}

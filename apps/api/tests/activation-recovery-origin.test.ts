@@ -51,6 +51,12 @@ import type { AppDatabasePairAck } from '../scripts/activation-configuration.js'
 import { heldCorrectionCapability, validateHeldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
 import { activationRuntimeKeys } from '../src/config/activation-config.js';
 import { retainedD1BootstrapPins } from '../scripts/activation.js';
+import { continueHeldD2, heldD2EvidencePath, verifyHeldD2Basis } from '../scripts/activation.js';
+import type { HeldD2Provider } from '../scripts/activation.js';
+import { heldD2, heldD2Sources } from '../scripts/activation-held-contract.mjs';
+import { verifyHeldAppAcceptance } from '../scripts/activation-held-proof.js';
+import { heldD2Provider } from '../scripts/activation-recovered-provider.js';
+import { recoveryToolInventory } from '../scripts/activation-recovery-io.js';
 
 // These are retained nonsecret journal/receipt fixtures, never prepared inputs or auth stores.
 const original = process.env.RECOVERY_ORIGIN_TEST_ORIGINAL;
@@ -2785,4 +2791,213 @@ test('post-repair exclusive claim and final dispatch guard prevent duplicate or 
     }
     assert.deepEqual(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.map(event => event.sha256), f.originalEvents);
   });
+});
+
+const d2Options = { skip: !process.env.HELD_D2_TEST_ORIGINAL || !process.env.RECOVERY_ORIGIN_TEST_ARTIFACT, timeout: 180000 };
+function d2ApprovedTools(t: TestContext) {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'esty-d2-approved-tools-')));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const gh = join(root, 'gh'), vercel = join(root, 'tools');
+  mkdirSync(join(vercel, 'vercel/dist'), { recursive: true, mode: 0o700 });
+  writeFileSync(gh, '#!/bin/sh\nexit 99\n', { mode: 0o700 });
+  writeFileSync(join(vercel, 'vercel/package.json'), '{"version":"65.4.0"}');
+  writeFileSync(join(vercel, 'vercel/dist/vc.js'), 'throw new Error("Synthetic tool must not execute");\n');
+  // Nonexistent lexical profile bindings deliberately prove validation does not inspect auth directories.
+  return { transferGh: { path: gh, sha256: sha256(readFileSync(gh)),
+    home: join(root, 'unopened-home'), configDirectory: join(root, 'unopened-gh-profile') },
+  recoveryVercel: { root: vercel, inventoryDigest: recoveryToolInventory(vercel),
+    home: join(root, 'unopened-home'), configDirectory: join(root, 'unopened-vercel-profile') } };
+}
+function d2Fixture(t: TestContext) {
+  const directory = process.env.HELD_D2_TEST_ORIGINAL!;
+  const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
+  const packet = validateActivationPacket(readEvidence(join(directory, 'activation', target.activationRun, 'packet.json')).value, target.packetDigest);
+  const run = { directory, packet, digest: target.packetDigest }, before = readActivationJournal(directory, packet, run.digest).events;
+  const tools = d2ApprovedTools(t);
+  const overlay = heldReceiptOverlay(t, directory, packet.runId), abort = new AbortController();
+  const capability = { selector: heldD2.selector, contextDigest: heldD2.contextDigest,
+    controllerPublication: { revision: 'b'.repeat(40), tree: 'c'.repeat(40) },
+    sourceDigests: Object.fromEntries(heldD2Sources.map(path => [path, sha256(`synthetic reviewed source: ${path}\n`)])) };
+  const manifest: Record<string, unknown> = { heldD2Capability: capability, ...tools };
+  const guard = { digest: sha256('synthetic D2 sealed executable'), verify: () => {
+    // The overlay assertions run on every call; do not retain complete immutable artifact Buffers in mock history.
+    for (const key of ['openSync', 'readFileSync', 'lstatSync', 'existsSync', 'readdirSync', 'realpathSync'] as const)
+      (fs[key] as typeof fs[typeof key] & { mock?: { resetCalls(): void } }).mock?.resetCalls();
+    return manifest;
+  } };
+  const counts = { main: 0, exclusion: 0, alias: 0, inspect: 0, archive: 0, proof: 0, promotion: 0 };
+  let alias = target.candidate as string, status = `activation:app-config:intent:${before[18]!.sha256}`;
+  const provider: HeldD2Provider = {
+    async currentMain() { counts.main++; },
+    async preflight() { counts.exclusion++; },
+    async binding(id) { counts.alias++; assert.equal(id, alias); },
+    async inspect(id) { counts.inspect++; assert.equal(id, heldD2.candidate); return { id, origin: heldD2.origin, ready: true }; },
+    async attest(id) { counts.archive++; assert.equal(id, heldD2.candidate); return sha256('synthetic exact archive'); },
+    async record(journal, state, description) {
+      assert.equal(journal, target.journal); assert.equal(state, 'in_progress');
+      assert.match(description, /^activation:app:(intent|outcome):[a-f0-9]{64}$/); status = description;
+    },
+    async confirmJournal(_journal, _state, description) { assert.equal(description, status); },
+    async acceptance(runId, held, gate) {
+      counts.proof++; const f = heldProofFixture(held, undefined, gate);
+      return verifyHeldAppAcceptance(runId, held, f.io, capability.sourceDigests, abort.signal, gate);
+    },
+    async promote(id, ack) {
+      counts.promotion++; assert.equal(id, heldD2.candidate);
+      ack({ code: 0, aborted: false }); alias = id;
+    },
+  };
+  t.mock.method(globalThis, 'fetch', async () => assert.fail('No live HTTP'));
+  t.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
+  const invoke = (action: string) => continueHeldD2(run, artifact, action,
+    action.startsWith('accept-') ? '123' : undefined, guard, provider, abort.signal);
+  return { run, artifact, before, overlay, abort, guard, capability, manifest, tools, counts, provider, invoke,
+    path: (suffix: string) => heldD2EvidencePath(run, suffix) };
+}
+test('D2 adopts exact actual event23 and ACK without CREATE, accepts same-ID promotion and final proof', d2Options, async t => {
+  const f = d2Fixture(t);
+  await assert.rejects(authorizeActivationPhase(f.run, 'app', f.provider));
+  await assert.rejects(executeActivationPhase(f.run, 'app', async () => assert.fail('Ordinary CREATE stays fenced')));
+  for (const [action, expected] of [['prepare-candidate', 'CANDIDATE_PROBE_REQUIRED'], ['accept-candidate', 'HELD_APP_ACCEPTED'],
+    ['promote', 'FINAL_PROBE_REQUIRED'], ['accept-final', 'BE_ACCEPTED']]) {
+    const result = await f.invoke(action!); assert.equal(result.status, expected, JSON.stringify(result));
+    const counts = { ...f.counts };
+    assert.equal((await f.invoke(action!)).status, 'STOP');
+    assert.deepEqual(f.counts, counts, 'A consumed action cannot repeat provider operations.');
+  }
+  const current = readActivationJournal(f.run.directory, f.run.packet, f.run.digest);
+  assert.equal(current.next, 'fe'); assert.equal(current.events.length, 32); assert.equal(f.counts.promotion, 1);
+  assert.deepEqual(current.events.slice(0, 23), f.before);
+  const adoption = readEvidence(f.path('adoption')).value as { createCommands: number; historicalCreateAckDigest: string };
+  assert.equal(adoption.createCommands, 0); assert.equal(adoption.historicalCreateAckDigest, heldD2.createAckDigest);
+});
+test('D2 incomplete or tampered approved tools refuse all actions before input, claim or provider work', d2Options, async t => {
+  for (const scenario of ['missing-gh', 'missing-vercel', 'malformed-gh', 'malformed-vercel', 'gh-profile',
+    'vercel-profile', 'gh-hash', 'vercel-inventory', 'gh-bytes', 'vercel-bytes', 'vercel-version']) await t.test(scenario, async sub => {
+    const f = d2Fixture(sub);
+    if (scenario === 'missing-gh') delete f.manifest.transferGh;
+    if (scenario === 'missing-vercel') delete f.manifest.recoveryVercel;
+    if (scenario === 'malformed-gh') f.manifest.transferGh = { path: f.tools.transferGh.path };
+    if (scenario === 'malformed-vercel') f.manifest.recoveryVercel = [];
+    if (scenario === 'gh-profile') f.tools.transferGh.configDirectory = '../unapproved-profile';
+    if (scenario === 'vercel-profile') f.tools.recoveryVercel.home = '../unapproved-home';
+    if (scenario === 'gh-hash') f.tools.transferGh.sha256 = sha256('wrong executable');
+    if (scenario === 'vercel-inventory') f.tools.recoveryVercel.inventoryDigest = sha256('wrong inventory');
+    if (scenario === 'gh-bytes') writeFileSync(f.tools.transferGh.path, '#!/bin/sh\nexit 98\n');
+    if (scenario === 'vercel-bytes') writeFileSync(join(f.tools.recoveryVercel.root, 'vercel/dist/vc.js'), 'changed');
+    if (scenario === 'vercel-version') {
+      writeFileSync(join(f.tools.recoveryVercel.root, 'vercel/package.json'), '{"version":"0.0.0"}');
+      f.tools.recoveryVercel.inventoryDigest = recoveryToolInventory(f.tools.recoveryVercel.root);
+    }
+    let inputReads = 0;
+    const run = new Proxy(f.run, { get() { inputReads++; throw new Error('Input must remain unopened'); } });
+    const artifact = new Proxy(f.artifact, { get() { inputReads++; throw new Error('Artifact must remain unopened'); } });
+    for (const action of ['prepare-candidate', 'accept-candidate', 'promote', 'accept-final']) {
+      const result = await continueHeldD2(run, artifact, action, action.startsWith('accept-') ? '123' : undefined,
+        f.guard, f.provider, f.abort.signal);
+      assert.equal(result.status, 'STOP'); assert.equal(result.stage, 'guard');
+      assert.equal(existsSync(f.path(`${action}-started`)), false, 'No permanent one-shot claim may be consumed.');
+    }
+    assert.equal(inputReads, 0);
+    assert.deepEqual(f.counts, { main: 0, exclusion: 0, alias: 0, inspect: 0, archive: 0, proof: 0, promotion: 0 });
+  });
+});
+test('D2 refuses lineage, publication and partial proof before adoption or any promotion', d2Options, async t => {
+  for (const scenario of ['event23', 'current-proof', 'publication', 'exclusion', 'target', 'archive', 'partial-proof']) await t.test(scenario, async sub => {
+    const f = d2Fixture(sub);
+    if (scenario === 'event23') f.overlay.override(join(f.run.directory, 'activation', f.run.packet.runId, '022.json'), '{}');
+    if (scenario === 'current-proof') f.overlay.override(heldCorrectionEvidencePath(f.run.directory, f.run.packet, 'current-proof',
+      heldPostRepair.selector), '{}');
+    if (scenario === 'publication') f.capability.controllerPublication.revision = target.revision;
+    if (scenario === 'exclusion') f.provider.preflight = async () => { throw new Error('exclusion changed'); };
+    if (scenario === 'target') f.provider.inspect = async () => ({ id: 'dpl_Substitute', origin: heldD2.origin, ready: true });
+    if (scenario === 'archive') f.provider.attest = async () => { throw new Error('archive differs'); };
+    if (scenario === 'partial-proof') {
+      assert.equal((await f.invoke('prepare-candidate')).status, 'CANDIDATE_PROBE_REQUIRED');
+      f.provider.acceptance = async () => { throw new Error('readiness unproved'); };
+    }
+    const result = await f.invoke(scenario === 'partial-proof' ? 'accept-candidate' : 'prepare-candidate');
+    assert.equal(result.status, 'STOP'); assert.equal(f.counts.promotion, 0);
+    assert.equal(f.overlay.output(f.path('adoption')), undefined);
+  });
+});
+test('D2 concurrent entry has one winner and a losing caller cannot write or dispatch', d2Options, async t => {
+  const f = d2Fixture(t);
+  const results = await Promise.all([f.invoke('prepare-candidate'), f.invoke('prepare-candidate')]);
+  assert.deepEqual(results.map(result => result.status).sort(), ['CANDIDATE_PROBE_REQUIRED', 'STOP']);
+  assert.equal(f.counts.exclusion, 1); assert.equal(f.counts.promotion, 0);
+});
+test('D2 lost partial cancelled and cleanup-failed promotion ACKs stop durably without replay', d2Options, async t => {
+  for (const scenario of ['lost', 'partial', 'cancelled', 'cleanup', 'predecessor-drift', 'proof-replay']) await t.test(scenario, async sub => {
+    const f = d2Fixture(sub);
+    assert.equal((await f.invoke('prepare-candidate')).status, 'CANDIDATE_PROBE_REQUIRED');
+    assert.equal((await f.invoke('accept-candidate')).status, 'HELD_APP_ACCEPTED');
+    if (scenario === 'predecessor-drift') f.provider.binding = async () => { throw new Error('alias differs'); };
+    if (scenario === 'proof-replay') f.provider.acceptance = async () => { throw new Error('protected gate changed'); };
+    f.provider.promote = async (_id, ack) => {
+      f.counts.promotion++;
+      if (scenario === 'lost') throw new Error('unknown provider outcome');
+      ack({ code: scenario === 'partial' ? 1 : 0, aborted: false });
+      if (scenario === 'cancelled') f.abort.abort();
+      if (scenario === 'cleanup') throw new Error('owned cleanup failed');
+    };
+    const result = await f.invoke('promote'); assert.equal(result.status, 'STOP');
+    assert.equal(f.counts.promotion, ['predecessor-drift', 'proof-replay'].includes(scenario) ? 0 : 1);
+    assert.equal(f.overlay.output(f.path('final-gate')), undefined);
+    if (['partial', 'cancelled', 'cleanup'].includes(scenario)) assert.ok(f.overlay.output(f.path('promotion-ack')));
+    const count = f.counts.promotion;
+    assert.equal((await f.invoke('promote')).status, 'STOP'); assert.equal(f.counts.promotion, count);
+    assert.equal((await f.invoke('accept-final')).status, 'STOP');
+    assert.deepEqual(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.slice(0, 23), f.before);
+  });
+});
+
+test('D2 inventory accepts only the hash-linked app prefix and rejects disguised or extra events', d2Options, async t => {
+  for (const scenario of ['partial', 'filename', 'malformed', 'hash', 'phase', 'kind', 'held-id', 'extra', 'anchor']) await t.test(scenario, async sub => {
+    const f = d2Fixture(sub);
+    appendActivationEvent(f.run.directory, f.run.packet, f.run.digest, 'app', 'intent', { outcome: 'unknown' });
+    const path = join(f.run.directory, 'activation', f.run.packet.runId, '023.json');
+    const row = JSON.parse(readFileSync(path, 'utf8'));
+    if (scenario === 'partial') {
+      assert.equal(verifyHeldD2Basis(f.run, f.artifact).current.events.length, 24);
+      assert.equal((await f.invoke('prepare-candidate')).status, 'STOP');
+      return;
+    }
+    if (scenario === 'filename') f.overlay.override(path.replace('023.json', '023-extra.json'), JSON.stringify(row));
+    if (scenario === 'malformed') f.overlay.override(path, '{');
+    if (scenario === 'hash') f.overlay.override(path, JSON.stringify({ ...row, previousHash: sha256('wrong') }));
+    if (['phase', 'kind', 'held-id'].includes(scenario)) {
+      if (scenario === 'phase') row.phase = 'fe';
+      if (scenario === 'kind') row.kind = 'promotion-intent';
+      if (scenario === 'held-id') row.value = { deploymentId: 'dpl_Substitute' };
+      const { sha256: _hash, ...body } = row; row.sha256 = sha256(canonical(body));
+      f.overlay.override(path, JSON.stringify(row));
+    }
+    if (scenario === 'extra') f.overlay.override(path.replace('023.json', '032.json'), JSON.stringify(row));
+    if (scenario === 'anchor') {
+      const anchor = path.replace('023.json', '022.json');
+      f.overlay.override(anchor, JSON.stringify({ ...JSON.parse(readFileSync(anchor, 'utf8')), sha256: sha256('changed') }));
+    }
+    assert.throws(() => verifyHeldD2Basis(f.run, f.artifact));
+    assert.equal((await f.invoke('promote')).status, 'STOP'); assert.equal(f.counts.promotion, 0);
+  });
+});
+
+test('D2 provider separates published controller from f162 and rejects stale exclusion or final alias', d2Options, async t => {
+  const f = d2Fixture(t), p = providerFixture();
+  p.values['/commits/main'] = { sha: f.capability.controllerPublication.revision, commit: { tree: { sha: f.capability.controllerPublication.tree } } };
+  p.values[p.statusPath] = [{ state: 'in_progress', description: `activation:app-config:intent:${f.before[18]!.sha256}`,
+    log_url: `https://github.com/khuonghuyhieu/esty-admin/actions/runs/${target.workflowRun}` }];
+  const read = async (path: string) => { assert.ok(Object.hasOwn(p.values, path)); return structuredClone(p.values[path]); };
+  const provider = heldD2Provider(f.run, f.artifact, f.guard, f.abort.signal,
+    { github: read, vercel: read, async promote() { assert.fail('No legacy bridge promotion'); } });
+  await provider.currentMain(); await provider.preflight(); await provider.binding(target.candidate);
+  p.values['/commits/main'] = { sha: target.revision, commit: { tree: { sha: f.capability.controllerPublication.tree } } };
+  await assert.rejects(provider.currentMain());
+  p.values[p.statusPath] = [{ state: 'in_progress', description: 'unrelated exclusion' }];
+  await assert.rejects(provider.preflight());
+  await assert.rejects(provider.binding(heldD2.candidate), 'The bridge alias cannot stand in for the held candidate.');
+  await assert.rejects(provider.record(target.journal, 'in_progress', `activation:roles:intent:${sha256('x')}`));
+  await assert.rejects(p.provider.record(target.journal, 'in_progress', `activation:app:intent:${sha256('x')}`));
+  assert.deepEqual(p.writes, []);
 });

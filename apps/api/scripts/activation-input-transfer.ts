@@ -11,6 +11,7 @@ import { validateActivationPacket, verifyActivationArtifact } from './activation
 import { failedPreflightProof, failedPreflightRun, failedPreflightStatus } from './activation-preflight-disposition.mjs';
 import { privateDirectory } from './private-files.mjs';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
+import { heldD2, validateHeldD2Capability } from './activation-held-contract.mjs';
 
 export interface TransferGuard { digest: string; verify(): unknown }
 interface ApprovedGh { path: string; sha256: string; home: string; configDirectory: string }
@@ -132,6 +133,11 @@ function verifyGh(path: string, approved: string, configDirectory: string, trust
       return identity;
     } finally { closeSync(fd); }
   } catch { refuse('executable_mismatch'); }
+}
+// Public tool bytes and lexical profile metadata only; never open auth/profile contents.
+export function verifyRecoveryGithubTool(guard: TransferGuard): void {
+  const { gh } = verifyGuard(guard);
+  verifyGh(gh.path, gh.sha256, gh.configDirectory, gh);
 }
 function validatePlan(value: unknown, approved: string): TransferPlan {
   if (!exactKeys(value, ['version', 'repository', 'environment', 'destinations', 'inputs', 'requestDigest', 'receiptDigest',
@@ -339,11 +345,13 @@ export function heldProbeGithubIo(runId: string, guard: TransferGuard, signal: A
   if (!/^[1-9][0-9]{0,19}$/.test(runId)) refuse();
   const trusted = verifyGuard(guard), gh = verifyGh(trusted.gh.path, trusted.gh.sha256, trusted.gh.configDirectory, trusted.gh);
   const sources = ['.github/workflows/be-candidate-probe.yml', 'apps/api/scripts/activation-candidate-probe.mjs',
-    'apps/api/scripts/activation-held-contract.mjs', 'apps/api/config/held-app-probe-binding.json'];
+    'apps/api/scripts/activation-held-contract.mjs', 'apps/api/config/held-app-probe-binding.json',
+    'apps/api/scripts/hosted-acceptance.ts'];
   const call = async (path: string): Promise<Buffer> => {
     const source = sources.some(name => path.startsWith(`/contents/${name}?ref=`)
       && /^[a-f0-9]{40}$/.test(path.slice(`/contents/${name}?ref=`.length)));
     if (!source && !['/commits/main', '/environments/be-production/variables/BE_D1_HELD_APP_BINDING',
+      `/environments/be-production/variables/${heldD2.gateVariable}`,
       `/actions/runs/${runId}`, `/actions/runs/${runId}/artifacts?per_page=100`].includes(path)
       && !/^\/actions\/artifacts\/[1-9][0-9]*\/zip$/.test(path)) refuse();
     verifyGuard(guard); signal.throwIfAborted();
@@ -367,7 +375,12 @@ export function heldProbeGithubIo(runId: string, guard: TransferGuard, signal: A
 export async function recoveryGithubStatus(journal: number, state: string, description: string,
   guard: TransferGuard, signal: AbortSignal): Promise<void> {
   if (journal !== 7703208254 || state !== 'in_progress' || typeof description !== 'string'
-    || /[\r\n]/.test(description) || !/^activation:(roles|migration|bootstrap|app-config):(intent|outcome):[a-f0-9]{64}$/.test(description)) refuse();
+    || /[\r\n]/.test(description) || !/^activation:(roles|migration|bootstrap|app-config|app):(intent|outcome):[a-f0-9]{64}$/.test(description)) refuse();
+  if (description.startsWith('activation:app:')) {
+    const manifest = guard.verify();
+    if (!manifest || typeof manifest !== 'object' || !('heldD2Capability' in manifest)) refuse();
+    validateHeldD2Capability(manifest.heldD2Capability);
+  }
   if (signal.aborted) refuse('cancelled');
   const trusted = verifyGuard(guard);
   const gh = verifyGh(trusted.gh.path, trusted.gh.sha256, trusted.gh.configDirectory, trusted.gh);

@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import { executableInventory, guardedOwnerCommand } from '../scripts/activation-input-launcher.mjs';
 import { heldCorrection, heldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
+import { heldD2, heldD2Sources } from '../scripts/activation-held-contract.mjs';
 
 const sha = value => createHash('sha256').update(value).digest('hex');
 const runtimeHash = sha(readFileSync(process.execPath));
@@ -239,4 +240,34 @@ test('post-repair launcher binds only the new sealed generation and preserves ol
     [capability.selector, 'create', ...context.slice(0, 3), '/different/artifact'],
     [capability.selector, 'import-proof', '0', ...context],
   ]) refused(run({ heldPostRepairCapability: capability }, args));
+});
+
+test('D2 launcher rejects CREATE, mixed authority, stale publication and caller target before entry', t => {
+  const f = fixture(t);
+  cpSync(new URL('../scripts/activation-held-contract.mjs', import.meta.url), join(f.scripts, 'activation-held-contract.mjs'));
+  const base = '/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin/.openai/reports';
+  const context = [
+    `${base}/protected-real-transfer-state-vd3tg33z/ca-successor-36a0c3c3-0a74-4ccf-b6a3-8d5da26e4eed/successor.json`,
+    '756f9802100c9c86a75f24d3e688e6a5f57d745b6f7f96b88555c2acd105d559',
+    `${base}/bridge-reconciliation-fn1_56_z/receipt-copy/be-receipts`,
+    `${base}/first-production-f162-h9czirsk/verified-transfer/artifact`,
+  ];
+  const capability = { selector: heldD2.selector, contextDigest: heldD2.contextDigest,
+    controllerPublication: { revision: 'b'.repeat(40), tree: 'c'.repeat(40) },
+    sourceDigests: Object.fromEntries(heldD2Sources.map(path => [path, sha(path)])) };
+  const run = (changes, args = [heldD2.selector, 'prepare-candidate', ...context]) => {
+    const seal = f.seal(changes);
+    return spawnSync(process.execPath, [f.launcher, f.manifestPath, seal.digest, ...args], { env: {}, encoding: 'utf8', timeout: 10000 });
+  };
+  for (const action of [['prepare-candidate'], ['accept-candidate', '123'], ['promote'], ['accept-final', '456']]) {
+    const result = run({ heldD2Capability: capability }, [heldD2.selector, ...action, ...context]);
+    assert.equal(result.status, 0, result.stderr);
+  }
+  for (const publication of [null, { revision: '927be7af6c46722615fe8f9f356fffb1e7424dd7', tree: 'c'.repeat(40) }])
+    refused(run({ heldD2Capability: { ...capability, controllerPublication: publication } }));
+  refused(run({}));
+  refused(run({ heldD2Capability: capability, heldPostRepairCapability: {} }));
+  for (const args of [[heldD2.selector, 'create', ...context], [heldD2.selector, 'promote', ...context, 'dpl_Override'],
+    [heldD2.selector, 'accept-final', '0', ...context], [heldD2.selector, 'prepare-candidate', ...context.slice(0, 3), '/other'],
+    ['held-post-db-repair-01', 'create', ...context], ['prepare']]) refused(run({ heldD2Capability: capability }, args));
 });

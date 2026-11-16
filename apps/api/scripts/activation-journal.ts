@@ -11,7 +11,7 @@ import type { ActivationConfigurationReceipt } from './activation-configuration.
 import { buildActivationRecoveryOrigin, readActivationRecoveryOrigin, rolesReachability } from './activation-recovery-origin.js';
 import type { ActivationRecoveryBinding, ActivationRecoveryOrigin } from './activation-recovery-origin.js';
 import type { HeldAppProbeProof, HeldAppTarget } from './activation-held-proof.js';
-import { heldProbeSources } from './activation-held-contract.mjs';
+import { heldProbeSources, heldD2 } from './activation-held-contract.mjs';
 import { heldCorrection, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
 import type { HeldCorrectionCapability } from './activation-held-correction-contract.mjs';
 
@@ -145,7 +145,41 @@ export function readHeldAppPending(directory: string, packet: ActivationPacket, 
     || !Number.isInteger(value.keyCount) || Number(value.keyCount) < 1 || Number(value.keyCount) > 64
     || !matches(candidate.id, deployment) || !matches(candidate.origin, /^https:\/\/[a-z0-9-]+\.vercel\.app$/)) refuse();
   const retained = inventory(directory), appended = `activation/${packet.runId}/022.json`;
-  if (sha256(canonical({ files: retained.files.filter(file => file.path !== appended), directories: retained.directories })) !== value.inventoryDigest) refuse();
+  const additions = new Set([appended]);
+  const eventRoot = `activation/${packet.runId}/`;
+  const later = retained.files.filter(file => file.path.startsWith(eventRoot)
+    && /^[0-9]/.test(file.path.slice(eventRoot.length)) && file.path > appended);
+  if (later.length) {
+    const anchor = readEvidence(join(directory, appended)).value as Event;
+    const { sha256: recorded, ...body } = anchor;
+    if (recorded !== heldD2.head || eventHash(body) !== heldD2.head) refuse();
+    const kinds = ['intent', 'authorized', 'started', 'acknowledged', 'candidate-attested',
+      'promotion-intent', 'outcome', 'confirming', 'remote-confirmed'];
+    let previous: string = heldD2.head, outcomeHash = '';
+    for (const [index, file] of later.entries()) {
+      const sequence = index + 23;
+      if (file.path !== `${eventRoot}${String(sequence).padStart(3, '0')}.json` || !kinds[index]) refuse();
+      const row = object(readEvidence(join(directory, file.path)).value,
+        ['version', 'packetDigest', 'previousHash', 'sequence', 'phase', 'kind', 'value', 'sha256']);
+      const { sha256: hash, ...event } = row;
+      if (row.version !== 1 || row.packetDigest !== digest || row.previousHash !== previous || row.sequence !== sequence
+        || row.phase !== 'app' || row.kind !== kinds[index] || hash !== eventHash(event as Omit<Event, 'sha256'>)) refuse();
+      const expected = index === 0 || index === 2 ? { outcome: 'unknown' }
+        : index === 1 ? { intentHash: previous }
+          : index === 3 || index === 5 ? { deploymentId: heldD2.candidate }
+            : index === 4 ? { deploymentId: heldD2.candidate, configDigest: heldD2.configDigest }
+              : index >= 7 ? { outcomeHash } : null;
+      if (expected && canonical(row.value) !== canonical(expected)) refuse();
+      if (index === 6) {
+        const result = phaseOutcome('app', row.value, heldD2.candidate, true);
+        if (result.result !== 'confirmed') refuse();
+        outcomeHash = hash as string;
+      }
+      previous = hash as string;
+      additions.add(file.path);
+    }
+  }
+  if (sha256(canonical({ files: retained.files.filter(file => !additions.has(file.path)), directories: retained.directories })) !== value.inventoryDigest) refuse();
   const claim = readEvidence(heldEvidencePath(directory, packet, 'create-started'));
   const acknowledgement = readEvidence(heldEvidencePath(directory, packet, 'create-ack'));
   const expectedClaim = { version: 1, kind: 'held-app-create', executionId: value.executionId, packetDigest: digest, unknownHead,
@@ -537,7 +571,9 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
   let startedHash = '';
   const acknowledged = new Set<string>(recovery ? [recovery.origin.bridgeId] : []);
   for (const [index, name] of names.entries()) {
-    if (name !== `${String(index).padStart(3, '0')}.json` || heldCandidate) refuse();
+    if (name !== `${String(index).padStart(3, '0')}.json`) refuse();
+    if (heldCandidate && (events[22]?.sha256 !== heldD2.head || heldCandidate.deploymentId !== heldD2.candidate
+      || heldCandidate.proofDigest !== heldD2.proofDigest || activationPhases[phaseIndex] !== 'app')) refuse();
     const row = object(readEvidence(join(run, name)).value, ['version', 'packetDigest', 'previousHash', 'sequence', 'phase', 'kind', 'value', 'sha256']);
     const { sha256: recorded, ...body } = row;
     if (row.version !== 1 || row.packetDigest !== digest || row.previousHash !== head || row.sequence !== index
@@ -556,6 +592,7 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
         const value = object(row.value, ['deploymentId']);
         if (!started || completed || id || !['bridge', 'app'].includes(String(row.phase))
           || !matches(value.deploymentId, deployment) || acknowledged.has(value.deploymentId)) refuse();
+        if (heldCandidate && value.deploymentId !== heldD2.candidate) refuse();
         id = value.deploymentId; acknowledged.add(id); break;
       }
       case 'candidate-attested':
@@ -599,7 +636,7 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
           ...('correction' in proof ? { correction: proof.correction } : {}) })) refuse();
         heldCandidate = { deploymentId: proof.deploymentId, origin: proof.origin, proofDigest: proof.receiptDigest,
           configurationBasis: 'current-runtime-attestation' };
-        phaseIndex++; break;
+        phaseIndex++; intent = false; authorized = false; started = false; completed = null; confirmation = null; break;
       }
       default: refuse();
     }
@@ -612,8 +649,9 @@ function readJournal(directory: string, packet: ActivationPacket, digest: string
 export function appendActivationEvent(directory: string, packet: ActivationPacket, digest: string,
   phase: ActivationPhase, kind: Kind, value: unknown): ActivationState {
   const state = readActivationJournal(directory, packet, digest);
-  // This increment exposes a held identity, not an ordinary app CREATE or a promotion service.
-  if (state.next !== phase || state.heldCandidate) refuse();
+  // Only the exact D1-held app chain may continue. All older held states remain fenced.
+  if (state.next !== phase || (state.heldCandidate && (phase !== 'app' || state.events[22]?.sha256 !== heldD2.head
+    || state.heldCandidate.deploymentId !== heldD2.candidate || state.heldCandidate.proofDigest !== heldD2.proofDigest))) refuse();
   const last = state.events.at(-1), active = last?.phase === phase ? last : undefined;
   if (kind === 'configuration-attested') {
     if (phase !== 'app-config' || state.events.length !== 22 || state.recovery?.executionId !== rolesReachability.executionId
@@ -635,6 +673,7 @@ export function appendActivationEvent(directory: string, packet: ActivationPacke
     const data = object(value, ['deploymentId']);
     if (!['bridge', 'app'].includes(phase) || !matches(data.deploymentId, deployment)
       || active?.kind !== (kind === 'acknowledged' ? 'started' : 'candidate-attested')) refuse();
+    if (state.heldCandidate && data.deploymentId !== heldD2.candidate) refuse();
     if (kind === 'promotion-intent' && object(active.value, ['deploymentId', 'configDigest']).deploymentId !== data.deploymentId) refuse();
     if (kind === 'acknowledged' && (state.recovery?.bridgeId === data.deploymentId || state.events.some(event => event.kind === 'acknowledged'
       && object(event.value, ['deploymentId']).deploymentId === data.deploymentId))) refuse();

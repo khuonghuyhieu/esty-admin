@@ -13,6 +13,8 @@ import { bridgeRecovery } from './activation-candidate-recovery.js';
 import type { RecoveryGuard, RecoveryIo } from './activation-candidate-recovery.js';
 import { heldCorrection, validateHeldCorrectionCapability } from './activation-held-correction-contract.mjs';
 import { heldPostRepair, validateHeldDeploymentCapability } from './activation-journal.js';
+import { heldD2, validateHeldD2Capability } from './activation-held-contract.mjs';
+import { verifyRecoveryGithubTool } from './activation-input-transfer.js';
 
 function refuse(): never { throw new Error('Recovery transport identity or acknowledgement differs.'); }
 function record(value: unknown): value is Record<string, unknown> {
@@ -71,6 +73,11 @@ function approvedTool(guard: RecoveryGuard) {
   const metadata: unknown = JSON.parse(readFileSync(join(root, 'vercel/package.json'), 'utf8'));
   if (!record(metadata) || metadata.version !== '65.4.0') refuse();
   return { root, home, configDirectory };
+}
+// Admit D2 before input/provider work or any one-shot claim; transport checks still repeat.
+export function validateHeldD2Tools(guard: RecoveryGuard): void {
+  verifyRecoveryGithubTool(guard);
+  approvedTool(guard);
 }
 export function recoveryIo(guard: RecoveryGuard, signal: AbortSignal): RecoveryIo {
   const target = bridgeRecovery;
@@ -180,6 +187,29 @@ export async function readHeldCandidate(guard: RecoveryGuard, signal: AbortSigna
     context.root, context.env, AbortSignal.any([signal, AbortSignal.timeout(45000)]));
     if (result.aborted || result.code !== 0) refuse();
     return JSON.parse(result.stdout) as unknown;
+  } catch (error) { failed = true; throw error; }
+  finally {
+    try { await context.dispose(); }
+    catch (error) { if (!failed) throw error; }
+  }
+}
+
+// Adoption never arms officialCli's CREATE+promote object. This exact-ID transport has no CREATE method.
+export async function promoteHeldD2(guard: RecoveryGuard, signal: AbortSignal, id: string,
+  persistAck: (result: { code: number | null; aborted: boolean }) => void): Promise<void> {
+  const manifest = guard.verify();
+  if (!record(manifest) || id !== heldD2.candidate) refuse();
+  validateHeldD2Capability(manifest.heldD2Capability);
+  signal.throwIfAborted();
+  const context = heldCommandContext(guard);
+  let failed = false;
+  try {
+    const cli = fileURLToPath(new URL('./activation-recovery-tool.mjs', import.meta.url));
+    const result = await command(process.execPath, [cli, context.tool.root, 'promote', id, '--timeout', '5m',
+      '--scope', bridgeRecovery.scope, '--global-config', context.tool.configDirectory, '--non-interactive'],
+    context.root, context.env, AbortSignal.any([signal, AbortSignal.timeout(300000)]));
+    persistAck({ code: result.code, aborted: result.aborted });
+    if (result.code !== 0 || result.aborted) refuse();
   } catch (error) { failed = true; throw error; }
   finally {
     try { await context.dispose(); }

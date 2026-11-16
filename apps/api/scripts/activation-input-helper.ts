@@ -18,7 +18,7 @@ import { diagnoseRoleAuthority } from './activation-diagnostic.js';
 import type { RoleDiagnosticResult } from './activation-diagnostic.js';
 import { parseAppRoleInputs } from './app-roles.js';
 import { attestBridgeRecovery, bridgeRecovery, continueBridgeRecovery, promoteBridgeRecovery } from './activation-candidate-recovery.js';
-import { heldCandidateCreate, recoveryIo } from './activation-recovery-io.js';
+import { heldCandidateCreate, recoveryIo, validateHeldD2Tools } from './activation-recovery-io.js';
 import { activationRecoveryExecution, activationRolesSuccessor, rolesReachability } from './activation-recovery-origin.js';
 import { heldAppReadProvider, heldCorrectionReadProvider, recoveredActivationProvider, taskCBootstrapProvider, taskD1ConfigurationProvider } from './activation-recovered-provider.js';
 import { authorizeActivationPhase, confirmActivationPhase, executeActivationPhase, reconcileActivationAcknowledgement,
@@ -41,6 +41,10 @@ import { heldDatabaseRepair, repairHeldDatabase, validateHeldDatabaseRepairCapab
   verifyHeldDatabaseRepairBasis } from './activation-held-database-repair.js';
 import type { HeldAppProbeProof } from './activation-held-proof.js';
 import type { PreparedHeldMetadata } from './activation-held.js';
+import { heldD2, validateHeldD2Capability } from './activation-held-contract.mjs';
+import { continueHeldD2 } from './activation.js';
+import { heldD2Provider } from './activation-recovered-provider.js';
+import { readEvidence } from './release-journal.js';
 
 export const inputPhases = ['bridge-config', 'roles', 'migration', 'bootstrap', 'app-config'] as const;
 export type InputPhase = typeof inputPhases[number];
@@ -1047,6 +1051,28 @@ async function preparedHeldDatabaseRepair(args: string[], outerSignal: AbortSign
   });
 }
 
+async function preparedHeldD2(args: string[], outerSignal: AbortSignal) {
+  const guard = launcherBinding(), action = args[0], importing = action === 'accept-candidate' || action === 'accept-final';
+  const context = args.slice(importing ? 2 : 1), workflowRun = importing ? args[1] : undefined;
+  if (!guard || context.length !== 4) refuse();
+  const manifest = guard.verify();
+  if (!recoveryRecord(manifest) || ['heldAppCapability', 'heldCorrectionCapability', 'heldDatabaseRepairCapability',
+    'heldPostRepairCapability', 'diagnosticSelector', 'diagnosticContextDigest'].some(key => key in manifest)) refuse();
+  const capability = validateHeldD2Capability(manifest.heldD2Capability);
+  if (sha256(JSON.stringify(context)) !== capability.contextDigest) refuse();
+  validateHeldD2Tools(guard);
+  const signal = AbortSignal.any([outerSignal, AbortSignal.timeout(600000)]);
+  // Read only the fixed public execution packet. No prepared APP/control/auth envelope is opened.
+  const directory = join('/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin',
+    '.openai/reports/protected-real-transfer-state-vd3tg33z/ca-successor-36a0c3c3-0a74-4ccf-b6a3-8d5da26e4eed',
+    `activation-recovered-${rolesReachability.executionId}`);
+  const packet = validateActivationPacket(readEvidence(join(directory, 'activation',
+    bridgeRecovery.activationRun, 'packet.json')).value, bridgeRecovery.packetDigest);
+  const artifact = verifyArtifact(context[3]!, bridgeRecovery.artifactDigest);
+  const run = { directory, packet, digest: bridgeRecovery.packetDigest };
+  return continueHeldD2(run, artifact, action!, workflowRun, guard, heldD2Provider(run, artifact, guard, signal), signal);
+}
+
 async function preparedReachabilityAppConfiguration(args: string[], signal: AbortSignal) {
   const [action, phase, ...contextArgs] = args, guard = launcherBinding();
   if (args.length !== 6 || phase !== 'app-config' || !action || !guard || !contextArgs[3]
@@ -1169,6 +1195,17 @@ async function diagnosePreparedRecoveredRoles(args: string[], signal: AbortSigna
 
 export async function inputHelperMain(args: string[], signal: AbortSignal): Promise<void> {
   const [action, path, digest, phaseArg] = args;
+  if (action === heldD2.selector) {
+    try {
+      const result = await preparedHeldD2(args.slice(1), signal);
+      console.info(`HELD_APP_ACCEPTANCE ${JSON.stringify(result)}`);
+      if (result.status === 'STOP') process.exitCode = 1;
+    } catch {
+      console.info('HELD_APP_ACCEPTANCE {"status":"STOP","stage":"guard","category":"refused","replay":"forbidden"}');
+      process.exitCode = 1;
+    }
+    return;
+  }
   if (action === 'diagnose-app-schema-exposure') {
     try {
       const result = await preparedAppSchemaDiagnostic(args.slice(1), signal);

@@ -49,6 +49,8 @@ import { heldProofFixture } from './held-app-fixture.js';
 import { manualArchiveTransport } from '../scripts/activation-archive-transport.mjs';
 import { heldCandidateCreate, readHeldCandidate, recoveryToolInventory } from '../scripts/activation-recovery-io.js';
 import { heldPostRepair } from '../scripts/activation-journal.js';
+import { verifyHeldAppAcceptance } from '../scripts/activation-held-proof.js';
+import { heldAppPolicy, heldD2, heldD2Sources } from '../scripts/activation-held-contract.mjs';
 const oldSchema: RoutineSchema = { digest: activationSchema.oldDigest };
 
 interface Fixture { artifact: VerifiedArtifact; dispose(): Promise<void> }
@@ -1953,5 +1955,39 @@ test('held proof import rejects forged, stale, incomplete and changed protected 
     } };
     await assert.rejects(verifyHeldAppProbe(f.workflowRun, f.target, io, f.sourceDigests, AbortSignal.timeout(10000)));
     assert.ok(f.downloads.length <= 1);
+  });
+});
+
+test('D2 independent acceptance binds new executable provenance, protected gate and exact held target', async t => {
+  const target = { ...heldAppPolicy, candidate: heldD2.candidate, origin: heldD2.origin, configDigest: heldD2.configDigest,
+    createClaimDigest: heldD2.createClaimDigest, createAckDigest: heldD2.createAckDigest, heldReceiptDigest: heldD2.heldReceiptDigest };
+  const gate = { version: 1 as const, stage: 'candidate' as const, head: heldD2.head,
+    claimDigest: sha256('synthetic exclusive D2 claim'), controllerRevision: 'b'.repeat(40) };
+  for (const scenario of ['valid', 'old-live-proof', 'old-source-pins', 'wrong-gate', 'wrong-target', 'partial-receipt',
+    'source-drift', 'gate-race', 'stale-main', 'failed-run', 'wrong-artifact']) await t.test(scenario, async () => {
+    const f = heldProofFixture(target, undefined, gate);
+    if (scenario === 'old-live-proof') f.setReceipt({ ...f.receipt, kind: 'held-app-live' });
+    if (scenario === 'old-source-pins') delete f.sourceDigests['apps/api/scripts/hosted-acceptance.ts'];
+    if (scenario === 'wrong-gate') f.setReceipt({ ...f.receipt, gateDigest: sha256('stale gate') });
+    if (scenario === 'wrong-target') f.target = { ...target, candidate: 'dpl_ArbitraryCaller' };
+    if (scenario === 'partial-receipt') f.setReceipt({ ...f.receipt, acceptance: 'not-proved' });
+    if (scenario === 'source-drift') f.setSource('apps/api/scripts/hosted-acceptance.ts', Buffer.from('changed'));
+    if (scenario === 'stale-main') f.values['/commits/main'].sha = 'c'.repeat(40);
+    if (scenario === 'failed-run') f.values[f.runPath].conclusion = 'failure';
+    if (scenario === 'wrong-artifact') f.values[f.artifactPath].artifacts[0].workflow_run.head_sha = 'c'.repeat(40);
+    const original = f.io.read; let gateReads = 0;
+    f.io.read = async path => {
+      const value = await original(path);
+      if (scenario === 'gate-race' && path.endsWith(heldD2.gateVariable) && ++gateReads === 2)
+        return { name: heldD2.gateVariable, value: '{}' };
+      return value;
+    };
+    const operation = verifyHeldAppAcceptance(f.workflowRun, f.target, f.io, f.sourceDigests, new AbortController().signal, gate);
+    if (scenario === 'valid') {
+      const proof = await operation;
+      assert.equal(proof.kind, 'github-held-app-acceptance'); assert.equal(proof.checks.target, 'passed');
+      assert.equal(proof.checks.authMembership, 'not-proved'); assert.deepEqual(proof.gate, gate);
+      assert.deepEqual(Object.keys(proof.sourceDigests).sort(), [...heldD2Sources].sort());
+    } else await assert.rejects(operation);
   });
 });

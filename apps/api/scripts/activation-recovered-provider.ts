@@ -14,6 +14,12 @@ import { readHeldCorrectionPending, heldPostRepair, validateHeldDeploymentCapabi
 import { heldCorrection } from './activation-held-correction-contract.mjs';
 import type { HeldCorrectionCapability } from './activation-held-correction-contract.mjs';
 import type { HeldAppProbeProof } from './activation-held-proof.js';
+import { heldD2, validateHeldD2Capability } from './activation-held-contract.mjs';
+import { verifyHeldD2Basis } from './activation.js';
+import type { HeldD2Provider } from './activation.js';
+import { heldProbeGithubIo } from './activation-input-transfer.js';
+import { verifyHeldAppAcceptance } from './activation-held-proof.js';
+import { promoteHeldD2 } from './activation-recovery-io.js';
 
 const mainRevision = 'd3d2b0788d970377c9fee9d59c52e3d1baff7de2';
 const mainTree = 'ff6611ac0eb82a250d8e3b44318468cfd15e2f42';
@@ -25,7 +31,7 @@ function object(value: unknown): Record<string, unknown> {
 }
 function statusBinding(journal: number, state: string, description: string): void {
   if (journal !== bridgeRecovery.journal || state !== 'in_progress' || typeof description !== 'string'
-    || /[\r\n]/.test(description) || !/^activation:(roles|migration|bootstrap|app-config):(intent|outcome):[a-f0-9]{64}$/.test(description)) refuse();
+    || /[\r\n]/.test(description) || !/^activation:(roles|migration|bootstrap|app-config|app):(intent|outcome):[a-f0-9]{64}$/.test(description)) refuse();
 }
 export function recoveredActivationProvider(guard: RecoveryGuard, signal: AbortSignal,
   io: RecoveryIo = recoveryIo(guard, signal), record = recoveryGithubStatus): ActivationPhaseProvider {
@@ -42,11 +48,13 @@ export function recoveredActivationProvider(guard: RecoveryGuard, signal: AbortS
     },
     async record(journal, state, description) {
       statusBinding(journal, state, description);
+      if (description.startsWith('activation:app:')) validateHeldD2Capability(object(guard.verify()).heldD2Capability);
       await record(journal, state, description, guard, signal);
     },
     async confirmJournal(journal, state, description) {
       if (description !== `ack:${bridgeRecovery.candidate}`) statusBinding(journal, state, description);
       else if (journal !== bridgeRecovery.journal || state !== 'in_progress') refuse();
+      if (description.startsWith('activation:app:')) validateHeldD2Capability(object(guard.verify()).heldD2Capability);
       signal.throwIfAborted();
       const entry = object(await io.github(`/deployments/${bridgeRecovery.journal}`)), payload = object(entry.payload);
       if (entry.id !== bridgeRecovery.journal || entry.environment !== 'be-production' || entry.task !== 'deploy:esty-be-ci'
@@ -183,6 +191,75 @@ export function heldCorrectionReadProvider(run: ActivationRun, artifact: Verifie
       verifyActivationArtifact(artifact, run.packet);
       const uid = uploadedCandidatePartition(normalizeManualArchive(await read(id, `/v6/deployments/${id}/files`)));
       return verifyCandidateArchive(await read(id, `/v8/deployments/${id}/files/${uid}`), uid, artifact);
+    },
+  };
+}
+
+export function heldD2Provider(run: ActivationRun, artifact: VerifiedArtifact, guard: RecoveryGuard, signal: AbortSignal,
+  io: RecoveryIo = recoveryIo(guard, signal)): HeldD2Provider {
+  const capability = validateHeldD2Capability(object(guard.verify()).heldD2Capability);
+  const retained = recoveredActivationProvider(guard, signal, io);
+  const activation = { packet: run.packet, packetDigest: run.digest, phase: 'app' as const };
+  const identity = { revision: run.packet.revision, tree: run.packet.tree, run: bridgeRecovery.workflowRun };
+  const check = () => {
+    signal.throwIfAborted();
+    if (canonical(object(guard.verify()).heldD2Capability) !== canonical(capability)) refuse();
+    return verifyHeldD2Basis(run, artifact).current;
+  };
+  return {
+    async currentMain() {
+      check();
+      const main = object(await io.github('/commits/main'));
+      if (main.sha !== capability.controllerPublication.revision
+        || object(object(main.commit).tree).sha !== capability.controllerPublication.tree) refuse();
+    },
+    async preflight() {
+      const current = check();
+      const last = [...current.events].reverse().find(event => event.phase === 'app'
+        && ['intent', 'promotion-intent', 'outcome'].includes(event.kind)) ?? current.events[18];
+      if (!last) refuse();
+      const description = last.phase === 'app'
+        ? `activation:app:${last.kind === 'outcome' ? 'outcome' : 'intent'}:${last.sha256}`
+        : `activation:app-config:intent:${last.sha256}`;
+      await retained.confirmJournal(current.journal, 'in_progress', description);
+    },
+    async record(journal, state, description) {
+      check();
+      if (!/^activation:app:(intent|outcome):[a-f0-9]{64}$/.test(description)) refuse();
+      await retained.record(journal, state, description);
+    },
+    async confirmJournal(journal, state, description) {
+      check();
+      if (!/^activation:app:(intent|outcome):[a-f0-9]{64}$/.test(description)) refuse();
+      await retained.confirmJournal(journal, state, description);
+    },
+    async binding(id) {
+      check();
+      if (id === bridgeRecovery.candidate) return retained.binding(id);
+      if (id !== heldD2.candidate) refuse();
+      const domain = object(await io.vercel(`/v9/projects/${bridgeRecovery.project}/domains/api.lovora.us`));
+      const alias = object(await io.vercel(`/v4/aliases/api.lovora.us?projectId=${bridgeRecovery.project}`));
+      if (domain.name !== 'api.lovora.us' || domain.projectId !== bridgeRecovery.project || domain.verified !== true
+        || domain.redirect || domain.gitBranch || domain.customEnvironmentId || alias.alias !== 'api.lovora.us'
+        || alias.projectId !== bridgeRecovery.project || alias.deploymentId !== id || alias.deletedAt || alias.redirect
+        || alias.microfrontends || (alias.deployment != null && object(alias.deployment).id !== id)) refuse();
+    },
+    async inspect(id) {
+      check(); if (id !== heldD2.candidate) refuse();
+      return inspectCandidate(await readHeldCandidate(guard, signal, id, `/v13/deployments/${id}`), id, artifact, identity, activation);
+    },
+    async attest(id) {
+      check(); if (id !== heldD2.candidate) refuse();
+      const uid = uploadedCandidatePartition(normalizeManualArchive(await readHeldCandidate(guard, signal, id, `/v6/deployments/${id}/files`)));
+      return verifyCandidateArchive(await readHeldCandidate(guard, signal, id, `/v8/deployments/${id}/files/${uid}`), uid, artifact);
+    },
+    async acceptance(runId, target, gate) {
+      check();
+      return verifyHeldAppAcceptance(runId, target, heldProbeGithubIo(runId, guard, signal), capability.sourceDigests, signal, gate);
+    },
+    async promote(id, persistAck) {
+      check();
+      await promoteHeldD2(guard, signal, id, persistAck);
     },
   };
 }

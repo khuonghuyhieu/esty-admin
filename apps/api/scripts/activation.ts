@@ -26,6 +26,11 @@ import type { ActivationProvider, RunIdentity } from './ci-provider.js';
 import { deliverActivationCandidate, deliveryContext, officialCli } from './ci-delivery.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
 import { privateDirectory } from './private-files.mjs';
+import { heldD2, heldAppPolicy, validateHeldD2Capability, validateHeldD2Target } from './activation-held-contract.mjs';
+import { heldCorrectionEvidencePath, readHeldCorrectionPending, heldPostRepair } from './activation-journal.js';
+import type { HeldAcceptanceGate, HeldAppAcceptanceProof, HeldAppTarget } from './activation-held-proof.js';
+import type { Candidate } from './ci-provider.js';
+import { validateHeldD2Tools } from './activation-recovery-io.js';
 
 export interface ActivationRun { directory: string; packet: ActivationPacket; digest: string }
 export type ActivationPhaseProvider = Pick<ActivationProvider, 'currentMain' | 'binding' | 'record' | 'confirmJournal'>;
@@ -95,6 +100,7 @@ async function exactHistory(database: ReturnType<typeof parseMigrationConfig>, p
 }
 export async function authorizeActivationPhase(run: ActivationRun, phase: ActivationPhase, provider: ActivationPhaseProvider): Promise<void> {
   const current = state(run); requireNext(current, phase); requireProof(run, 'initial');
+  if (current.heldCandidate) refuse();
   if (phase === 'bootstrap' || phase === 'app-config' || phase === 'app' || phase === 'fe') requireProof(run, 'postflight');
   await provider.currentMain(); await provider.binding(predecessor(current, phase));
   const intent = append(run, phase, 'intent', { outcome: 'unknown' });
@@ -132,6 +138,7 @@ export async function reconcileActivationAcknowledgement(run: ActivationRun, pha
 export async function executeActivationPhase(run: ActivationRun, phase: ActivationPhase,
   effect: () => Promise<ActivationOutcome>): Promise<void> {
   const current = state(run); requireNext(current, phase);
+  if (current.heldCandidate) refuse();
   append(run, phase, 'started', { outcome: 'unknown' });
   let outcome: ActivationOutcome;
   try { outcome = await effect(); }
@@ -150,6 +157,7 @@ export async function reconcileActivationEffect(run: ActivationRun, phase: Activ
   // One-way Secret metadata cannot resolve a missing write acknowledgement or receipt.
   if (phase === 'bridge-config' || phase === 'app-config') refuse();
   const current = state(run); requireNext(current, phase);
+  if (current.heldCandidate) refuse();
   const last = current.events.at(-1);
   if (!last || last.phase !== phase || !['started', 'acknowledged', 'candidate-attested', 'promotion-intent', 'outcome'].includes(last.kind)
     || (last.kind === 'outcome' && object(last.value).result === 'confirmed')) refuse();
@@ -208,6 +216,7 @@ async function migrationPostflight(run: ActivationRun, roles: AppRoleInputs, sig
 async function worker(run: ActivationRun, phase: ActivationPhase, artifact: VerifiedArtifact, env: NodeJS.ProcessEnv,
   cli: string, signal: AbortSignal, inspect: boolean): Promise<ActivationOutcome> {
   signal.throwIfAborted(); verifyActivationArtifact(artifact, run.packet);
+  if (state(run).heldCandidate) refuse();
   const inputs = phaseCredentials(env, phase), packet = run.packet;
   if (phase === 'bridge-config' || phase === 'app-config') {
     if (inspect) refuse();
@@ -1297,6 +1306,162 @@ export async function continueReachabilityAppConfiguration(run: ActivationRun, a
       catch { /* Retain the claim and any partial receipt; never retry an effect. */ }
     }
     return result('STOP');
+  }
+}
+
+export function heldD2EvidencePath(run: ActivationRun, suffix: string): string {
+  if (!/^[a-z-]+$/.test(suffix)) refuse();
+  return join(dirname(run.directory), `${run.packet.runId}.task-d2-${suffix}.json`);
+}
+export function verifyHeldD2Basis(run: ActivationRun, artifact: VerifiedArtifact) {
+  const current = state(run);
+  verifyRecoveredRoleAssets(artifact, run.packet);
+  if (current.recovery?.executionId !== heldAppPolicy.executionId || current.recovery.bridgeId !== bridgeRecovery.candidate
+    || current.events[22]?.sha256 !== heldD2.head || current.events[17]?.sha256 !== taskD1Lineage.completedHead
+    || current.events[11]?.sha256 !== reachabilityMigrationHead || current.events[5]?.sha256 !== reachabilityRolesHead
+    || current.heldCandidate?.deploymentId !== heldD2.candidate || current.heldCandidate.proofDigest !== heldD2.proofDigest
+    || !['app', 'fe'].includes(current.next ?? '')) refuse();
+  requireProof(run, 'initial'); requireProof(run, 'postflight');
+  for (const [suffix, digest] of Object.entries(retainedD1BootstrapPins())) {
+    const directory = suffix === 'bootstrap-verification' ? run.directory : dirname(run.directory);
+    if (readEvidence(join(directory, `${run.packet.runId}.${suffix}.json`)).identity.sha256 !== digest) refuse();
+  }
+  const lineage = readHeldCorrectionPending(run.directory, run.packet, run.digest, heldAppPolicy.unknownHead, heldPostRepair.selector);
+  validateHeldD2Target(lineage.target);
+  for (const [suffix, digest] of [['import-started', heldD2.importClaimDigest], ['current-proof', heldD2.proofDigest],
+    ['import-result', heldD2.importResultDigest]] as const)
+    if (readEvidence(heldCorrectionEvidencePath(run.directory, run.packet, suffix, heldPostRepair.selector)).identity.sha256 !== digest) refuse();
+  return { current, target: lineage.target };
+}
+export interface HeldD2Provider extends ActivationPhaseProvider {
+  preflight(): Promise<void>;
+  inspect(id: string): Promise<Candidate>;
+  attest(id: string): Promise<string>;
+  acceptance(runId: string, target: HeldAppTarget, gate: HeldAcceptanceGate): Promise<HeldAppAcceptanceProof>;
+  promote(id: string, persistAck: (result: { code: number | null; aborted: boolean }) => void): Promise<void>;
+}
+export async function continueHeldD2(run: ActivationRun, artifact: VerifiedArtifact, action: string,
+  workflowRun: string | undefined, guard: { digest: string; verify(): unknown }, provider: HeldD2Provider, outerSignal: AbortSignal) {
+  const signal = AbortSignal.any([outerSignal, AbortSignal.timeout(600000)]);
+  let stage = 'guard';
+  const read = (suffix: string) => readEvidence(heldD2EvidencePath(run, suffix));
+  const save = (suffix: string, value: object) => writeReleaseEvidence(heldD2EvidencePath(run, suffix), value);
+  try {
+    const manifest = object(guard.verify()), capability = validateHeldD2Capability(manifest.heldD2Capability);
+    if (!['prepare-candidate', 'accept-candidate', 'promote', 'accept-final'].includes(action)
+      || (['accept-candidate', 'accept-final'].includes(action) ? !/^[1-9][0-9]{0,19}$/.test(workflowRun ?? '') : workflowRun !== undefined)
+      || !/^[a-f0-9]{64}$/.test(guard.digest)) refuse();
+    validateHeldD2Tools(guard);
+    const check = () => {
+      signal.throwIfAborted();
+      if (canonical(object(guard.verify()).heldD2Capability) !== canonical(capability)) refuse();
+      return verifyHeldD2Basis(run, artifact);
+    };
+    const initial = check();
+    const binding = { version: 1, executionId: heldAppPolicy.executionId, basisHead: heldD2.head,
+      candidate: heldD2.candidate, packetDigest: run.digest, artifactDigest: artifact.digest,
+      executableDigest: guard.digest, capability };
+    const exactBinding = (value: unknown) => {
+      if (canonical(object(value).binding) !== canonical(binding)) refuse();
+    };
+    const fresh = async (expectedHead: string, final = false) => {
+      check(); await provider.preflight(); await provider.currentMain();
+      await provider.binding(final ? heldD2.candidate : bridgeRecovery.candidate);
+      const candidate = await provider.inspect(heldD2.candidate);
+      if (!candidate.ready || candidate.id !== heldD2.candidate || candidate.origin !== heldD2.origin) refuse();
+      const archiveDigest = await provider.attest(heldD2.candidate);
+      if (!/^[a-f0-9]{64}$/.test(archiveDigest) || check().current.head !== expectedHead) refuse();
+      return archiveDigest;
+    };
+    const candidateGate = (): HeldAcceptanceGate => {
+      const claim = read('prepare-candidate-started'); exactBinding(claim.value);
+      const gate: HeldAcceptanceGate = { version: 1, stage: 'candidate', head: heldD2.head,
+        claimDigest: claim.identity.sha256, controllerRevision: capability.controllerPublication.revision };
+      if (canonical(read('candidate-gate').value) !== canonical(gate)) refuse();
+      return gate;
+    };
+    // Exclusive, durable per-action claims fence concurrent callers and all partial/unknown outcomes.
+    stage = 'claim';
+    save(`${action}-started`, { binding, head: initial.current.head, workflowRun: workflowRun ?? null });
+    stage = 'preflight';
+    if (action === 'prepare-candidate') {
+      if (initial.current.events.length !== 23 || initial.current.head !== heldD2.head) refuse();
+      await fresh(heldD2.head);
+      const gate: HeldAcceptanceGate = { version: 1, stage: 'candidate', head: heldD2.head,
+        claimDigest: read('prepare-candidate-started').identity.sha256, controllerRevision: capability.controllerPublication.revision };
+      save('candidate-gate', gate);
+      return { status: 'CANDIDATE_PROBE_REQUIRED', stage: 'complete', gate, candidateId: heldD2.candidate };
+    }
+    if (action === 'accept-candidate') {
+      if (initial.current.events.length !== 23 || initial.current.head !== heldD2.head) refuse();
+      const gate = candidateGate();
+      await fresh(heldD2.head);
+      stage = 'candidate-proof';
+      const proof = await provider.acceptance(workflowRun!, initial.target, gate);
+      if (canonical(proof.gate) !== canonical(gate) || proof.kind !== 'github-held-app-acceptance') refuse();
+      await fresh(heldD2.head);
+      save('candidate-accepted', { binding, proof });
+      // This is adoption of D1's actual persisted CREATE ACK, not a new CREATE or provider ACK.
+      save('adoption', { binding, historicalCreateAckDigest: heldD2.createAckDigest,
+        currentProofDigest: heldD2.proofDigest, createCommands: 0 });
+      const intent = append(run, 'app', 'intent', { outcome: 'unknown' });
+      const description = `activation:app:intent:${intent.head}`;
+      await provider.record(intent.journal, 'in_progress', description);
+      await provider.confirmJournal(intent.journal, 'in_progress', description);
+      if (check().current.head !== intent.head) refuse();
+      append(run, 'app', 'authorized', { intentHash: intent.head });
+      append(run, 'app', 'started', { outcome: 'unknown' });
+      append(run, 'app', 'acknowledged', { deploymentId: heldD2.candidate });
+      append(run, 'app', 'candidate-attested', { deploymentId: heldD2.candidate, configDigest: heldD2.configDigest });
+      return { status: 'HELD_APP_ACCEPTED', stage: 'complete', candidateId: heldD2.candidate };
+    }
+    if (action === 'promote') {
+      if (initial.current.events.at(-1)?.kind !== 'candidate-attested') refuse();
+      const accepted = object(read('candidate-accepted').value); exactBinding(accepted);
+      const adoption = object(read('adoption').value); exactBinding(adoption);
+      if (adoption.historicalCreateAckDigest !== heldD2.createAckDigest || adoption.createCommands !== 0) refuse();
+      const previousProof = object(accepted.proof);
+      stage = 'candidate-proof';
+      const proof = await provider.acceptance(String(previousProof.workflowRun), initial.target, candidateGate());
+      if (canonical(proof) !== canonical(previousProof)) refuse();
+      await fresh(initial.current.head);
+      stage = 'promotion-intent';
+      const intent = append(run, 'app', 'promotion-intent', { deploymentId: heldD2.candidate });
+      const description = `activation:app:intent:${intent.head}`;
+      await provider.record(intent.journal, 'in_progress', description);
+      await provider.confirmJournal(intent.journal, 'in_progress', description);
+      await fresh(intent.head);
+      stage = 'promotion';
+      await provider.promote(heldD2.candidate, ack => {
+        // Preserve returned outcome before cancellation, postchecks or native scratch disposal.
+        save('promotion-ack', { binding, intentHead: intent.head, code: ack.code, aborted: ack.aborted });
+      });
+      const ack = object(read('promotion-ack').value); exactBinding(ack);
+      if (ack.intentHead !== intent.head || ack.code !== 0 || ack.aborted !== false) refuse();
+      await fresh(intent.head, true);
+      const gate: HeldAcceptanceGate = { version: 1, stage: 'final', head: intent.head,
+        claimDigest: read('promotion-ack').identity.sha256, controllerRevision: capability.controllerPublication.revision };
+      save('final-gate', gate);
+      return { status: 'FINAL_PROBE_REQUIRED', stage: 'complete', gate, candidateId: heldD2.candidate };
+    }
+    if (initial.current.events.at(-1)?.kind !== 'promotion-intent') refuse();
+    const ack = object(read('promotion-ack').value); exactBinding(ack);
+    const gate = read('final-gate').value as HeldAcceptanceGate;
+    if (ack.code !== 0 || ack.aborted !== false || ack.intentHead !== initial.current.head
+      || canonical(gate) !== canonical({ version: 1, stage: 'final', head: initial.current.head,
+        claimDigest: read('promotion-ack').identity.sha256, controllerRevision: capability.controllerPublication.revision })) refuse();
+    await fresh(initial.current.head, true);
+    stage = 'final-proof';
+    const proof = await provider.acceptance(workflowRun!, initial.target, gate);
+    if (proof.kind !== 'github-held-app-acceptance' || canonical(proof.gate) !== canonical(gate)) refuse();
+    await fresh(initial.current.head, true);
+    save('final-accepted', { binding, proof });
+    append(run, 'app', 'outcome', publicOutcome({ binding, proof }, 'not_started', 1, heldD2.candidate));
+    await confirmActivationPhase(run, 'app', provider);
+    return { status: 'BE_ACCEPTED', stage: 'complete', candidateId: heldD2.candidate, next: 'fe' };
+  } catch {
+    return { status: 'STOP', stage, candidateId: heldD2.candidate,
+      category: signal.aborted ? 'aborted' : 'refused', replay: 'forbidden' };
   }
 }
 

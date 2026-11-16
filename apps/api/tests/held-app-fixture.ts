@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { TestContext } from 'node:test';
 import { canonical, sha256 } from '../scripts/artifact.js';
-import { heldAppPolicy, heldBindingVariable, heldPinPath, heldProbeSources } from '../scripts/activation-held-contract.mjs';
+import { heldAppPolicy, heldBindingVariable, heldPinPath, heldProbeSources, heldD2Sources, heldD2 } from '../scripts/activation-held-contract.mjs';
 import type { HeldAppTarget, HeldProbeIo } from '../scripts/activation-held-proof.js';
 import { receiptZip } from './artifact-fixture.js';
 import { heldCorrection, validateHeldCorrectionCapability, heldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
@@ -22,7 +22,7 @@ import type { HeldDatabaseRepairContext } from '../scripts/activation-held-datab
 // Public synthetic GitHub responses; no token, account access or candidate HTTP.
 export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, candidate: 'dpl_SyntheticHeldApp',
   origin: 'https://synthetic-held-app.vercel.app', configDigest: sha256('app'), createClaimDigest: sha256('claim'),
-  createAckDigest: sha256('ack'), heldReceiptDigest: sha256('pending') }, sourceBytes?: Record<string, Buffer>) {
+  createAckDigest: sha256('ack'), heldReceiptDigest: sha256('pending') }, sourceBytes?: Record<string, Buffer>, acceptanceGate?: object) {
   const workflowRun = '123', revision = 'b'.repeat(40), artifactId = 456;
   const binding = { ...target, workflowRevision: revision }, variablePath = `/environments/be-production/variables/${heldBindingVariable}`;
   const runPath = `/actions/runs/${workflowRun}`, artifactPath = `${runPath}/artifacts?per_page=100`;
@@ -37,13 +37,20 @@ export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, can
     values[`/contents/${path}?ref=${revision}`] = { type: 'file', path, encoding: 'base64', size: bytes.length,
       content: bytes.toString('base64'), sha: createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex') };
   };
-  const sourceDigests = Object.fromEntries(heldProbeSources.map(path => {
+  const sourceDigests = Object.fromEntries((acceptanceGate ? heldD2Sources : heldProbeSources).map(path => {
     const bytes = sourceBytes?.[path] ?? Buffer.from(`synthetic reviewed source: ${path}\n`);
     setSource(path, bytes); return [path, sha256(bytes)];
   }));
   setSource(heldPinPath, Buffer.from(JSON.stringify({ version: 1, enabled: true, target }) + '\n'));
   const receipt = { version: 1, kind: 'held-app-live', bindingDigest: sha256(canonical(binding)),
     workflowRevision: revision, workflowRun, status: 200, configDigestMatch: true, bodyStatus: 'ok' };
+  if (acceptanceGate) {
+    const gate = acceptanceGate as { stage: string };
+    values[`/environments/be-production/variables/${heldD2.gateVariable}`] =
+      { name: heldD2.gateVariable, value: JSON.stringify(gate) };
+    Object.assign(receipt, { kind: 'held-app-acceptance', stage: gate.stage,
+      gateDigest: sha256(canonical(gate)), acceptance: 'passed' });
+  }
   let archive: Buffer;
   const setReceipt = (value: unknown, extra: Array<[string, Buffer]> = []) => {
     archive = receiptZip([['held-app-probe.json', Buffer.from(JSON.stringify(value) + '\n')], ...extra]);
@@ -80,6 +87,10 @@ export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, direc
     for (const suffix of correctionReceiptSuffixes) allowed.add(join(parent, `${runId}.${selector}-${suffix}.json`));
   for (const suffix of ['started', 'ack', 'verified', 'result'])
     allowed.add(join(parent, `${runId}.${heldDatabaseRepair.selector}-${suffix}.json`));
+  for (let index = 23; index <= 34; index++) allowed.add(join(events, `${String(index).padStart(3, '0')}.json`));
+  for (const suffix of ['prepare-candidate-started', 'candidate-gate', 'accept-candidate-started', 'candidate-accepted',
+    'adoption', 'promote-started', 'promotion-ack', 'final-gate', 'accept-final-started', 'final-accepted'])
+    allowed.add(join(parent, `${runId}.task-d2-${suffix}.json`));
   const target = (path: fs.PathLike | number) => typeof path === 'string' ? mapped.get(path) ?? path : path;
   let sequence = 0;
   t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); native.remove(root, { recursive: true, force: true }); });

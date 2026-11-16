@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createHash } from 'node:crypto';
 import { bridgeBearer, candidateProbe as pin, probeCandidate, probeHeldAppCandidate, requestCandidate,
   validateProbeContext } from '../scripts/activation-candidate-probe.mjs';
-import { heldAppPolicy, heldBindingVariable, heldHash } from '../scripts/activation-held-contract.mjs';
+import { heldAppPolicy, heldBindingVariable, heldHash, heldD2 } from '../scripts/activation-held-contract.mjs';
 
 // Public, already-approved packet only; no protected configuration fixture is retained.
 const packet = {
@@ -239,4 +239,82 @@ test('held APP request refuses stale main and altered values and never follows r
     assert.equal(calls, ['stale-main', 'changed-values'].includes(scenario) ? 0 : 1);
     assert.equal(result.configDigestMatch, false);
   });
+});
+
+function acceptanceContext(stage = 'candidate') {
+  const f = heldContext();
+  f.event.inputs.mode = stage === 'candidate' ? 'held-app-acceptance' : 'held-app-final';
+  f.gate = { version: 1, stage, head: stage === 'candidate' ? heldD2.head : heldHash('promotion intent'),
+    claimDigest: heldHash('exclusive claim'), controllerRevision: f.binding.workflowRevision };
+  f.env[heldD2.gateVariable] = JSON.stringify(f.gate);
+  f.calls = [];
+  f.transport = async (url, init) => {
+    f.calls.push({ url, init });
+    const headers = new Headers(init.headers);
+    assert.equal(headers.get('x-vercel-protection-bypass'), bypass);
+    assert.equal(init.redirect, 'manual'); assert.equal(init.credentials, 'omit');
+    const cors = headers.get('origin') === 'https://app.lovora.us';
+    if (init.method === 'OPTIONS') return new Response(cors ? null : '{"status":"unauthorized"}',
+      { status: cors ? 204 : 401, headers: cors ? { 'access-control-allow-origin': 'https://app.lovora.us' }
+        : { 'content-type': 'application/json' } });
+    if (url.endsWith('/__release_unknown_route')) return Response.json({ status: 'not_found' }, { status: 404 });
+    if (headers.get('authorization') !== `Bearer ${bearer}`) return Response.json({ status: 'unauthorized' }, { status: 401 });
+    return Response.json(url.endsWith('/health/live') ? { status: 'ok' } : { status: 'ready', database: 'up', migrations: 'current' },
+      { headers: { 'x-activation-config-digest': f.binding.configDigest } });
+  };
+  f.probe = (transport = f.transport, signal) => probeHeldAppCandidate(f.env, f.event, transport, signal,
+    f.sourcePin, f.policy, f.sourcePin.target);
+  return f;
+}
+test('D2 protected acceptance checks all eight cases at candidate and final TLS origins', async () => {
+  for (const stage of ['candidate', 'final']) {
+    const f = acceptanceContext(stage), result = await f.probe();
+    assert.equal(result.acceptance, 'passed'); assert.equal(result.gateDigest, heldHash(f.gate));
+    assert.deepEqual(f.calls.map(call => new URL(call.url).origin),
+      Array(8).fill(stage === 'candidate' ? f.binding.origin : 'https://api.lovora.us'));
+    assert.deepEqual(f.calls.slice(2, 5).map(call => new Headers(call.init.headers).get('authorization')),
+      [null, 'Bearer malformed', `Bearer ${'0'.repeat(64)}`]);
+    assert.equal(f.env.BE_ACTIVATION_APP_INPUTS, undefined);
+    assert.equal(f.env.VERCEL_AUTOMATION_BYPASS_SECRET, undefined);
+    for (const secret of [bearer, bypass, canary]) assert.equal(JSON.stringify(result).includes(secret), false);
+  }
+});
+test('D2 acceptance refuses degraded database, noncurrent TARGET, denials, unknown route and CORS drift', async t => {
+  for (const scenario of ['database-down', 'schema-old', 'denial-open', 'unknown-open', 'cors-open', 'cors-missing',
+    'digest', 'oversize', 'redirect']) await t.test(scenario, async () => {
+    const f = acceptanceContext();
+    const result = await f.probe(async (url, init) => {
+      const reply = await f.transport(url, init), index = f.calls.length;
+      if (index === 2 && scenario === 'database-down') return Response.json({ status: 'unavailable' }, { status: 503 });
+      if (index === 2 && scenario === 'schema-old') return Response.json({ status: 'ready', database: 'up', migrations: 'pending' });
+      if (index === 3 && scenario === 'denial-open') return Response.json({ status: 'ready' });
+      if (index === 6 && scenario === 'unknown-open') return Response.json({ status: 'ok' });
+      if (index === 8 && scenario === 'cors-open') return new Response(null, { status: 204 });
+      if (index === 7 && scenario === 'cors-missing') return new Response(null, { status: 204 });
+      if (index === 1 && scenario === 'digest') reply.headers.set('x-activation-config-digest', heldHash('wrong'));
+      if (index === 2 && scenario === 'oversize') return Response.json({ status: canary.repeat(500) });
+      if (index === 2 && scenario === 'redirect') return new Response(null, { status: 302, headers: { location: 'https://unapproved.example' } });
+      return reply;
+    });
+    assert.equal(result.acceptance, 'not-proved'); assert.equal(result.status, 0);
+    assert.equal(JSON.stringify(result).includes(canary), false);
+  });
+});
+test('D2 refuses stale gate and arbitrary source-pinned target before credential access', async () => {
+  for (const drift of ['gate', 'target']) {
+    const f = acceptanceContext(); let opened = 0;
+    if (drift === 'gate') f.env[heldD2.gateVariable] = JSON.stringify({ ...f.gate, head: heldHash('stale') });
+    Object.defineProperty(f.env, 'BE_ACTIVATION_APP_INPUTS', { configurable: true, get() { opened++; throw new Error(canary); } });
+    const result = await probeHeldAppCandidate(f.env, f.event, f.transport, undefined, f.sourcePin, f.policy);
+    assert.equal(result.status, 0); assert.equal(opened, 0); assert.equal(f.calls.length, 0);
+  }
+});
+test('D2 cancellation bounds body reads and prevents every later request', async () => {
+  const f = acceptanceContext(), abort = new AbortController(); let cancelled = false;
+  const result = await f.probe(async (url, init) => {
+    await f.transport(url, init);
+    return new Response(new ReadableStream({ pull() { abort.abort(); }, cancel() { cancelled = true; } }),
+      { headers: { 'content-type': 'application/json', 'x-activation-config-digest': f.binding.configDigest } });
+  }, abort.signal);
+  assert.equal(result.acceptance, 'not-proved'); assert.equal(f.calls.length, 1); assert.equal(cancelled, true);
 });

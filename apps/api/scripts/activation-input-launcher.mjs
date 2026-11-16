@@ -129,6 +129,18 @@ export async function launchVerified(args) {
       || context.length !== 4 || hash(canonical(context)) !== 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02'
       || (importing && !/^[1-9][0-9]{0,19}$/.test(helperArgs[2] ?? ''))) refuse();
   }
+  const heldD2 = manifest.heldD2Capability !== undefined;
+  if (helperArgs[0] === 'held-app-acceptance' && !heldD2) refuse();
+  if (heldD2) {
+    const importing = ['accept-candidate', 'accept-final'].includes(helperArgs[1]);
+    const context = helperArgs.slice(importing ? 3 : 2);
+    if (helperArgs[0] !== 'held-app-acceptance'
+      || !['prepare-candidate', 'accept-candidate', 'promote', 'accept-final'].includes(helperArgs[1])
+      || ['heldAppCapability', 'heldCorrectionCapability', 'heldDatabaseRepairCapability', 'heldPostRepairCapability',
+        'diagnosticSelector', 'diagnosticContextDigest'].some(key => key in manifest)
+      || context.length !== 4 || hash(canonical(context)) !== 'bb9d386b5bbc2bfa4e626c3e5433175d9262671a5892758ca59857c56fa45f02'
+      || (importing && !/^[1-9][0-9]{0,19}$/.test(helperArgs[2] ?? ''))) refuse();
+  }
   const runtime = manifest.runtimes.find(runtime => runtime.platform === process.platform && runtime.arch === process.arch);
   // Every ESM/CJS resolution stays within the complete verified tree, including package.json exports and generated JS/JSON.
   registerHooks({ resolve(specifier, context, nextResolve) {
@@ -153,6 +165,11 @@ export async function launchVerified(args) {
     const { validateHeldDeploymentCapability } = await import(pathToFileURL(join(root,
       'apps/api/build/scripts/activation-journal.js')).href);
     validateHeldDeploymentCapability(manifest.heldPostRepairCapability);
+  }
+  if (heldD2) {
+    const { validateHeldD2Capability } = await import(pathToFileURL(join(root,
+      'apps/api/build/scripts/activation-held-contract.mjs')).href);
+    validateHeldD2Capability(manifest.heldD2Capability);
   }
   const launcher = join(root, 'launch.mjs'), launcherHash = manifest.files.find(file => file.path === 'launch.mjs').sha256;
   Object.defineProperty(globalThis, Symbol.for('esty.activation.input.launcher'), { value: Object.freeze({
