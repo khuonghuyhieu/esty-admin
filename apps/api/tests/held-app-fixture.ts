@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import type { TestContext } from 'node:test';
 import { canonical, sha256 } from '../scripts/artifact.js';
 import { heldAppPolicy, heldBindingVariable, heldPinPath, heldProbeSources, heldD2Sources, heldD2 } from '../scripts/activation-held-contract.mjs';
@@ -17,13 +17,15 @@ import { retainedUnknown } from '../scripts/activation-schema-diagnostic.js';
 import type { HeldCorrectionContext } from '../scripts/activation-held-correction.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { heldDatabaseRepair, validateHeldDatabaseRepairCapability, verifyHeldDatabaseRepairBasis } from '../scripts/activation-held-database-repair.js';
+import { heldRetainedCandidate } from '../scripts/activation-held-proof.js';
 import type { HeldDatabaseRepairContext } from '../scripts/activation-held-database-repair.js';
 
 // Public synthetic GitHub responses; no token, account access or candidate HTTP.
 export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, candidate: 'dpl_SyntheticHeldApp',
   origin: 'https://synthetic-held-app.vercel.app', configDigest: sha256('app'), createClaimDigest: sha256('claim'),
-  createAckDigest: sha256('ack'), heldReceiptDigest: sha256('pending') }, sourceBytes?: Record<string, Buffer>, acceptanceGate?: object) {
-  const workflowRun = '123', revision = 'b'.repeat(40), artifactId = 456;
+  createAckDigest: sha256('ack'), heldReceiptDigest: sha256('pending') }, sourceBytes?: Record<string, Buffer>, acceptanceGate?: object,
+  revision = 'b'.repeat(40), workflowRun = '123') {
+  const artifactId = 456;
   const binding = { ...target, workflowRevision: revision }, variablePath = `/environments/be-production/variables/${heldBindingVariable}`;
   const runPath = `/actions/runs/${workflowRun}`, artifactPath = `${runPath}/artifacts?per_page=100`;
   const values: Record<string, any> = {
@@ -33,8 +35,8 @@ export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, can
       head_branch: 'main', head_sha: revision, path: '.github/workflows/be-candidate-probe.yml',
       repository: { full_name: 'khuonghuyhieu/esty-admin' }, head_repository: { full_name: 'khuonghuyhieu/esty-admin' } },
   };
-  const setSource = (path: string, bytes: Buffer) => {
-    values[`/contents/${path}?ref=${revision}`] = { type: 'file', path, encoding: 'base64', size: bytes.length,
+  const setSource = (path: string, bytes: Buffer, sourceRevision = revision) => {
+    values[`/contents/${path}?ref=${sourceRevision}`] = { type: 'file', path, encoding: 'base64', size: bytes.length,
       content: bytes.toString('base64'), sha: createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex') };
   };
   const sourceDigests = Object.fromEntries((acceptanceGate ? heldD2Sources : heldProbeSources).map(path => {
@@ -67,9 +69,21 @@ export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, can
     receipt, reads, downloads, io, setSource, setReceipt };
 }
 
+export function heldRetainedProofFixture(target: HeldAppTarget, gate: { controllerRevision: string; stage: string },
+  publication: { revision: string; tree: string }, workflowRun: string = heldRetainedCandidate.workflowRun) {
+  const sources = Object.fromEntries(heldD2Sources.map(path => [path, fs.readFileSync(new URL(`../../../../${path}`, import.meta.url))]));
+  const f = heldProofFixture(target, sources, gate, gate.controllerRevision, workflowRun);
+  f.values['/commits/main'] = { sha: publication.revision, commit: { tree: { sha: publication.tree } } };
+  for (const path of [...heldD2Sources, heldPinPath]) {
+    const old = f.values[`/contents/${path}?ref=${gate.controllerRevision}`];
+    f.setSource(path, Buffer.from(old.content, 'base64'), publication.revision);
+  }
+  return { ...f, sources, context: { binding: heldRetainedCandidate, controllerPublication: publication } };
+}
+
 // Historical hashes and inode-bound origin stay real/read-only. Only new public output paths
 // are redirected to owned files; production guards and fixed lineage pins are not substituted.
-export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, directory: string, runId: string) {
+export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, directory: string, runId: string, freshD2 = false) {
   const native = { open: fs.openSync, read: fs.readFileSync, stat: fs.lstatSync, exists: fs.existsSync,
     list: fs.readdirSync, write: fs.writeFileSync, remove: fs.rmSync, realpath: fs.realpathSync };
   const root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-held-receipt-overlay-'));
@@ -89,9 +103,13 @@ export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, direc
     allowed.add(join(parent, `${runId}.${heldDatabaseRepair.selector}-${suffix}.json`));
   for (let index = 23; index <= 34; index++) allowed.add(join(events, `${String(index).padStart(3, '0')}.json`));
   for (const suffix of ['prepare-candidate-started', 'candidate-gate', 'accept-candidate-started', 'candidate-accepted',
-    'adoption', 'promote-started', 'promotion-ack', 'final-gate', 'accept-final-started', 'final-accepted'])
+    'adoption', 'promote-started', 'promotion-ack', 'final-gate', 'accept-final-started', 'final-accepted',
+    'accept-candidate-continuation-started'])
     allowed.add(join(parent, `${runId}.task-d2-${suffix}.json`));
-  const target = (path: fs.PathLike | number) => typeof path === 'string' ? mapped.get(path) ?? path : path;
+  // Only ordinary-mode synthetic fixtures hide existing D2 receipts; retained tests consume their real immutable bytes.
+  const hidden = new Set(freshD2 ? [...allowed].filter(path => path.includes('.task-d2-')) : []);
+  const target = (path: fs.PathLike | number) => typeof path === 'string'
+    ? mapped.get(path) ?? (hidden.has(path) ? join(root, `unwritten-${basename(path)}`) : path) : path;
   let sequence = 0;
   t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); native.remove(root, { recursive: true, force: true }); });
   t.mock.method(fs, 'openSync', (path: fs.PathLike, flags: fs.OpenMode, mode?: fs.Mode) => {
@@ -101,7 +119,7 @@ export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, direc
     if (typeof path === 'string' && path.startsWith(`${parent}/`) && writing) {
       assert.ok(allowed.has(path), `Forbidden original write: ${path}`);
       if (!mapped.has(path)) {
-        assert.equal(native.exists(path), false, 'Never shadow a real output or consumed claim.');
+        assert.ok(hidden.has(path) || !native.exists(path), 'Never shadow a real output or consumed claim outside the explicit fresh fixture.');
         const owned = join(root, `${sequence++}.json`), fd = native.open(owned, flags, mode);
         mapped.set(path, owned); return fd;
       }
@@ -114,7 +132,7 @@ export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, direc
     if (typeof path === 'string' && mapped.has(path)) {
       assert.equal(native.realpath(mapped.get(path)!), mapped.get(path)); return path;
     }
-    return Reflect.apply(native.realpath, fs, [path, options]);
+    return Reflect.apply(native.realpath, fs, [target(path), options]);
   });
   t.mock.method(fs, 'lstatSync', (path: fs.PathLike, options?: unknown) =>
     Reflect.apply(native.stat, fs, [target(path), options]));
@@ -126,7 +144,7 @@ export function heldReceiptOverlay(t: Pick<TestContext, 'mock' | 'after'>, direc
     if (path !== parent && path !== events) return names;
     assert.ok(names.every((name: unknown) => typeof name === 'string'));
     const added = [...mapped.keys()].filter(file => dirname(file) === path).map(file => file.slice(String(path).length + 1));
-    return [...new Set([...names, ...added])].sort();
+    return [...new Set([...names.filter((name: string) => !hidden.has(join(String(path), name))), ...added])].sort();
   });
   syncBuiltinESMExports();
   return {

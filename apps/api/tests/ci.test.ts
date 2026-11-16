@@ -45,11 +45,11 @@ import { failedPreflightProof, manualGithubIo, reserveManualActivation,
 import { verifyHeldAppProbe } from '../scripts/activation-held-proof.js';
 import { heldCorrection, heldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
 import { heldPinPath, heldProbeSources } from '../scripts/activation-held-contract.mjs';
-import { heldProofFixture } from './held-app-fixture.js';
+import { heldProofFixture, heldRetainedProofFixture } from './held-app-fixture.js';
 import { manualArchiveTransport } from '../scripts/activation-archive-transport.mjs';
 import { heldCandidateCreate, readHeldCandidate, recoveryToolInventory } from '../scripts/activation-recovery-io.js';
 import { heldPostRepair } from '../scripts/activation-journal.js';
-import { verifyHeldAppAcceptance } from '../scripts/activation-held-proof.js';
+import { verifyHeldAppAcceptance, heldRetainedCandidate } from '../scripts/activation-held-proof.js';
 import { heldAppPolicy, heldD2, heldD2Sources } from '../scripts/activation-held-contract.mjs';
 const oldSchema: RoutineSchema = { digest: activationSchema.oldDigest };
 
@@ -1988,6 +1988,59 @@ test('D2 independent acceptance binds new executable provenance, protected gate 
       assert.equal(proof.kind, 'github-held-app-acceptance'); assert.equal(proof.checks.target, 'passed');
       assert.equal(proof.checks.authMembership, 'not-proved'); assert.deepEqual(proof.gate, gate);
       assert.deepEqual(Object.keys(proof.sourceDigests).sort(), [...heldD2Sources].sort());
+    } else await assert.rejects(operation);
+  });
+});
+
+test('retained D2 proof independently pins historical run and actual new controller without relaxing default main fences', async t => {
+  const target = { ...heldAppPolicy, candidate: heldD2.candidate, origin: heldD2.origin, configDigest: heldD2.configDigest,
+    createClaimDigest: heldD2.createClaimDigest, createAckDigest: heldD2.createAckDigest, heldReceiptDigest: heldD2.heldReceiptDigest };
+  const gate = { version: 1 as const, stage: 'candidate' as const, head: heldD2.head,
+    claimDigest: heldRetainedCandidate.prepareClaimDigest, controllerRevision: heldRetainedCandidate.proofPublication.revision };
+  const publication = { revision: 'b'.repeat(40), tree: 'c'.repeat(40) };
+  for (const scenario of ['valid', 'no-context', 'arbitrary-context', 'wrong-run', 'old-main', 'new-tree', 'target',
+    'old-pin', 'new-pin', ...heldD2Sources.map((_, index) => `old-source-${index}`),
+    ...heldD2Sources.map((_, index) => `new-source-${index}`), 'new-blob', 'gate-race', 'binding-race',
+    'main-race', 'artifact-race', 'read-refused', 'final-context']) await t.test(scenario, async () => {
+    const f = heldRetainedProofFixture(target, gate, publication);
+    const context = structuredClone(f.context);
+    if (scenario === 'arbitrary-context') context.binding = { ...context.binding, failedClaimDigest: sha256('arbitrary claim') } as typeof context.binding;
+    if (scenario === 'old-main') f.values['/commits/main'].sha = gate.controllerRevision;
+    if (scenario === 'new-tree') f.values['/commits/main'].commit.tree.sha = 'd'.repeat(40);
+    if (scenario === 'target') f.target = { ...target, candidate: 'dpl_Substitute' };
+    if (scenario === 'old-pin' || scenario === 'new-pin') f.setSource(heldPinPath,
+      Buffer.from(JSON.stringify({ version: 1, enabled: true, target: { ...target, candidate: 'dpl_Substitute' } })),
+      scenario === 'old-pin' ? gate.controllerRevision : publication.revision);
+    if (scenario.startsWith('old-source-') || scenario.startsWith('new-source-')) {
+      const index = Number(scenario.at(-1));
+      f.setSource(heldD2Sources[index]!, Buffer.from('changed proof implementation'),
+        scenario.startsWith('old-') ? gate.controllerRevision : publication.revision);
+    }
+    if (scenario === 'new-blob') f.values[`/contents/${heldD2Sources[0]}?ref=${publication.revision}`].sha = 'd'.repeat(40);
+    const counts = new Map<string, number>(), original = f.io.read;
+    f.io.read = async path => {
+      const count = (counts.get(path) ?? 0) + 1; counts.set(path, count);
+      if (scenario === 'read-refused') throw new Error('Synthetic metadata read refused');
+      if (count === 2) {
+        if (scenario === 'gate-race' && path.endsWith(heldD2.gateVariable)) f.values[path].value = '{}';
+        if (scenario === 'binding-race' && path === f.variablePath) f.values[path].value = '{}';
+        if (scenario === 'main-race' && path === '/commits/main') f.values[path].sha = 'd'.repeat(40);
+        if (scenario === 'artifact-race' && path === f.artifactPath) f.values[path].artifacts[0].digest = `sha256:${sha256('changed archive')}`;
+      }
+      return original(path);
+    };
+    const operation = verifyHeldAppAcceptance(scenario === 'wrong-run' ? '123' : f.workflowRun, f.target, f.io,
+      f.sourceDigests, AbortSignal.timeout(10000), scenario === 'final-context' ? { ...gate, stage: 'final' } : gate,
+      scenario === 'no-context' ? undefined : context);
+    if (scenario === 'valid') {
+      const proof = await operation;
+      assert.equal(proof.workflowRun, '43826155118'); assert.equal(proof.binding.workflowRevision, gate.controllerRevision);
+      assert.deepEqual(proof.retainedCandidate, f.context);
+      for (const path of [...heldD2Sources, heldPinPath]) {
+        assert.ok(f.reads.includes(`/contents/${path}?ref=${gate.controllerRevision}`));
+        assert.ok(f.reads.includes(`/contents/${path}?ref=${publication.revision}`));
+      }
+      assert.equal(counts.get('/commits/main'), 2); assert.equal(counts.get(f.artifactPath), 2);
     } else await assert.rejects(operation);
   });
 });

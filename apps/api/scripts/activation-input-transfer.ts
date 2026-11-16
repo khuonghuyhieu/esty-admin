@@ -53,6 +53,9 @@ export function transferFailureMessage(error: unknown): string {
   }
   return new TransferFailure('operation_refused').message;
 }
+export function transferFailureReason(error: unknown): Reason | undefined {
+  return error instanceof TransferFailure && reasons.includes(error.reason) ? error.reason : undefined;
+}
 function safeFailure(error: unknown): TransferFailure {
   return error instanceof TransferFailure ? error : new TransferFailure('operation_refused');
 }
@@ -355,15 +358,20 @@ export function heldProbeGithubIo(runId: string, guard: TransferGuard, signal: A
       `/actions/runs/${runId}`, `/actions/runs/${runId}/artifacts?per_page=100`].includes(path)
       && !/^\/actions\/artifacts\/[1-9][0-9]*\/zip$/.test(path)) refuse();
     verifyGuard(guard); signal.throwIfAborted();
-    const bytes = await runGh(gh, ['api', `repos/${repository}${path}`, '--method', 'GET',
-      '-H', 'X-GitHub-Api-Version: 2026-03-10'], signal, undefined, true);
+    const args = ['api', `repos/${repository}${path}`, '--method', 'GET', '-H', 'X-GitHub-Api-Version: 2026-03-10'];
+    if (path === '/commits/main') args.push('--jq', '{sha: .sha, commit: {tree: {sha: .commit.tree.sha}}}');
+    const bytes = await runGh(gh, args, signal, undefined, true);
     if (!bytes) refuse('child_failed');
     return bytes;
   };
   return {
     async read(path: string): Promise<unknown> {
       const bytes = await call(path);
-      try { return JSON.parse(bytes.toString('utf8')); } finally { bytes.fill(0); }
+      try {
+        const value: unknown = JSON.parse(bytes.toString('utf8'));
+        if (path === '/commits/main' && !projectedMainIdentity(value)) refuse('snapshot_mismatch');
+        return value;
+      } finally { bytes.fill(0); }
     },
     download(id: number): Promise<Buffer> {
       if (!Number.isSafeInteger(id) || id <= 0) refuse();

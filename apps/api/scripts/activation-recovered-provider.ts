@@ -18,7 +18,7 @@ import { heldD2, validateHeldD2Capability } from './activation-held-contract.mjs
 import { verifyHeldD2Basis } from './activation.js';
 import type { HeldD2Provider } from './activation.js';
 import { heldProbeGithubIo } from './activation-input-transfer.js';
-import { verifyHeldAppAcceptance } from './activation-held-proof.js';
+import { verifyHeldAppAcceptance, validateHeldRetainedCandidate } from './activation-held-proof.js';
 import { promoteHeldD2 } from './activation-recovery-io.js';
 
 const mainRevision = 'd3d2b0788d970377c9fee9d59c52e3d1baff7de2';
@@ -198,12 +198,14 @@ export function heldCorrectionReadProvider(run: ActivationRun, artifact: Verifie
 export function heldD2Provider(run: ActivationRun, artifact: VerifiedArtifact, guard: RecoveryGuard, signal: AbortSignal,
   io: RecoveryIo = recoveryIo(guard, signal)): HeldD2Provider {
   const capability = validateHeldD2Capability(object(guard.verify()).heldD2Capability);
+  const retainedCandidate = validateHeldRetainedCandidate(guard.verify());
   const retained = recoveredActivationProvider(guard, signal, io);
   const activation = { packet: run.packet, packetDigest: run.digest, phase: 'app' as const };
   const identity = { revision: run.packet.revision, tree: run.packet.tree, run: bridgeRecovery.workflowRun };
   const check = () => {
     signal.throwIfAborted();
     if (canonical(object(guard.verify()).heldD2Capability) !== canonical(capability)) refuse();
+    if (canonical(validateHeldRetainedCandidate(guard.verify()) ?? null) !== canonical(retainedCandidate ?? null)) refuse();
     return verifyHeldD2Basis(run, artifact).current;
   };
   return {
@@ -255,7 +257,8 @@ export function heldD2Provider(run: ActivationRun, artifact: VerifiedArtifact, g
     },
     async acceptance(runId, target, gate) {
       check();
-      return verifyHeldAppAcceptance(runId, target, heldProbeGithubIo(runId, guard, signal), capability.sourceDigests, signal, gate);
+      return verifyHeldAppAcceptance(runId, target, heldProbeGithubIo(runId, guard, signal), capability.sourceDigests, signal,
+        gate, gate.stage === 'candidate' ? retainedCandidate : undefined);
     },
     async promote(id, persistAck) {
       check();

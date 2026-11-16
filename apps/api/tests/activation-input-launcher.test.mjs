@@ -266,6 +266,7 @@ test('D2 launcher rejects CREATE, mixed authority, stale publication and caller 
   for (const publication of [null, { revision: '927be7af6c46722615fe8f9f356fffb1e7424dd7', tree: 'c'.repeat(40) }])
     refused(run({ heldD2Capability: { ...capability, controllerPublication: publication } }));
   refused(run({}));
+  refused(run({ heldD2RetainedCandidate: {} }, ['prepare']));
   refused(run({ heldD2Capability: capability, heldPostRepairCapability: {} }));
   for (const args of [[heldD2.selector, 'create', ...context], [heldD2.selector, 'promote', ...context, 'dpl_Override'],
     [heldD2.selector, 'accept-final', '0', ...context], [heldD2.selector, 'prepare-candidate', ...context.slice(0, 3), '/other'],

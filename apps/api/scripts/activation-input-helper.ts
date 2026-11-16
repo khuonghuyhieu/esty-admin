@@ -44,6 +44,7 @@ import type { PreparedHeldMetadata } from './activation-held.js';
 import { heldD2, validateHeldD2Capability } from './activation-held-contract.mjs';
 import { continueHeldD2 } from './activation.js';
 import { heldD2Provider } from './activation-recovered-provider.js';
+import { validateHeldRetainedCandidate } from './activation-held-proof.js';
 import { readEvidence } from './release-journal.js';
 
 export const inputPhases = ['bridge-config', 'roles', 'migration', 'bootstrap', 'app-config'] as const;
@@ -1061,6 +1062,7 @@ async function preparedHeldD2(args: string[], outerSignal: AbortSignal) {
   const capability = validateHeldD2Capability(manifest.heldD2Capability);
   if (sha256(JSON.stringify(context)) !== capability.contextDigest) refuse();
   validateHeldD2Tools(guard);
+  validateHeldRetainedCandidate(manifest);
   const signal = AbortSignal.any([outerSignal, AbortSignal.timeout(600000)]);
   // Read only the fixed public execution packet. No prepared APP/control/auth envelope is opened.
   const directory = join('/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin',

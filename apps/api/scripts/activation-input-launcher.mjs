@@ -130,6 +130,7 @@ export async function launchVerified(args) {
       || (importing && !/^[1-9][0-9]{0,19}$/.test(helperArgs[2] ?? ''))) refuse();
   }
   const heldD2 = manifest.heldD2Capability !== undefined;
+  if (Object.hasOwn(manifest, 'heldD2RetainedCandidate') && !heldD2) refuse();
   if (helperArgs[0] === 'held-app-acceptance' && !heldD2) refuse();
   if (heldD2) {
     const importing = ['accept-candidate', 'accept-final'].includes(helperArgs[1]);

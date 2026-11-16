@@ -54,9 +54,11 @@ import { retainedD1BootstrapPins } from '../scripts/activation.js';
 import { continueHeldD2, heldD2EvidencePath, verifyHeldD2Basis } from '../scripts/activation.js';
 import type { HeldD2Provider } from '../scripts/activation.js';
 import { heldD2, heldD2Sources } from '../scripts/activation-held-contract.mjs';
-import { verifyHeldAppAcceptance } from '../scripts/activation-held-proof.js';
+import { verifyHeldAppAcceptance, heldRetainedCandidate, validateHeldRetainedCandidate } from '../scripts/activation-held-proof.js';
 import { heldD2Provider } from '../scripts/activation-recovered-provider.js';
 import { recoveryToolInventory } from '../scripts/activation-recovery-io.js';
+import { heldRetainedProofFixture } from './held-app-fixture.js';
+import { heldProbeGithubIo } from '../scripts/activation-input-transfer.js';
 
 // These are retained nonsecret journal/receipt fixtures, never prepared inputs or auth stores.
 const original = process.env.RECOVERY_ORIGIN_TEST_ORIGINAL;
@@ -2808,17 +2810,23 @@ function d2ApprovedTools(t: TestContext) {
   recoveryVercel: { root: vercel, inventoryDigest: recoveryToolInventory(vercel),
     home: join(root, 'unopened-home'), configDirectory: join(root, 'unopened-vercel-profile') } };
 }
-function d2Fixture(t: TestContext) {
+function d2Fixture(t: TestContext, retained = false) {
   const directory = process.env.HELD_D2_TEST_ORIGINAL!;
   const artifact = verifyArtifact(process.env.RECOVERY_ORIGIN_TEST_ARTIFACT!, target.artifactDigest);
   const packet = validateActivationPacket(readEvidence(join(directory, 'activation', target.activationRun, 'packet.json')).value, target.packetDigest);
   const run = { directory, packet, digest: target.packetDigest }, before = readActivationJournal(directory, packet, run.digest).events;
   const tools = d2ApprovedTools(t);
-  const overlay = heldReceiptOverlay(t, directory, packet.runId), abort = new AbortController();
+  const overlay = heldReceiptOverlay(t, directory, packet.runId, !retained), abort = new AbortController();
   const capability = { selector: heldD2.selector, contextDigest: heldD2.contextDigest,
     controllerPublication: { revision: 'b'.repeat(40), tree: 'c'.repeat(40) },
-    sourceDigests: Object.fromEntries(heldD2Sources.map(path => [path, sha256(`synthetic reviewed source: ${path}\n`)])) };
+    sourceDigests: retained ? { ...heldRetainedCandidate.sourceDigests }
+      : Object.fromEntries(heldD2Sources.map(path => [path, sha256(`synthetic reviewed source: ${path}\n`)])) };
   const manifest: Record<string, unknown> = { heldD2Capability: capability, ...tools };
+  if (retained) {
+    manifest.heldD2RetainedCandidate = structuredClone(heldRetainedCandidate);
+    manifest.files = heldD2Sources.map(path => ({ path: `proof-source/${path}`,
+      sha256: sha256(readFileSync(new URL(`../../../../${path}`, import.meta.url))) }));
+  }
   const guard = { digest: sha256('synthetic D2 sealed executable'), verify: () => {
     // The overlay assertions run on every call; do not retain complete immutable artifact Buffers in mock history.
     for (const key of ['openSync', 'readFileSync', 'lstatSync', 'existsSync', 'readdirSync', 'realpathSync'] as const)
@@ -2826,6 +2834,7 @@ function d2Fixture(t: TestContext) {
     return manifest;
   } };
   const counts = { main: 0, exclusion: 0, alias: 0, inspect: 0, archive: 0, proof: 0, promotion: 0 };
+  const records: string[] = [];
   let alias = target.candidate as string, status = `activation:app-config:intent:${before[18]!.sha256}`;
   const provider: HeldD2Provider = {
     async currentMain() { counts.main++; },
@@ -2836,11 +2845,15 @@ function d2Fixture(t: TestContext) {
     async record(journal, state, description) {
       assert.equal(journal, target.journal); assert.equal(state, 'in_progress');
       assert.match(description, /^activation:app:(intent|outcome):[a-f0-9]{64}$/); status = description;
+      records.push(description);
     },
     async confirmJournal(_journal, _state, description) { assert.equal(description, status); },
     async acceptance(runId, held, gate) {
-      counts.proof++; const f = heldProofFixture(held, undefined, gate);
-      return verifyHeldAppAcceptance(runId, held, f.io, capability.sourceDigests, abort.signal, gate);
+      counts.proof++;
+      const f = retained ? heldRetainedProofFixture(held, gate, capability.controllerPublication, runId)
+        : heldProofFixture(held, undefined, gate);
+      return verifyHeldAppAcceptance(runId, held, f.io, capability.sourceDigests, abort.signal, gate,
+        retained && gate.stage === 'candidate' ? validateHeldRetainedCandidate(guard.verify()) : undefined);
     },
     async promote(id, ack) {
       counts.promotion++; assert.equal(id, heldD2.candidate);
@@ -2850,8 +2863,9 @@ function d2Fixture(t: TestContext) {
   t.mock.method(globalThis, 'fetch', async () => assert.fail('No live HTTP'));
   t.mock.method(Client.prototype, 'connect', async () => assert.fail('No SQL'));
   const invoke = (action: string) => continueHeldD2(run, artifact, action,
-    action.startsWith('accept-') ? '123' : undefined, guard, provider, abort.signal);
-  return { run, artifact, before, overlay, abort, guard, capability, manifest, tools, counts, provider, invoke,
+    action === 'accept-candidate' && retained ? heldRetainedCandidate.workflowRun : action.startsWith('accept-') ? '123' : undefined,
+    guard, provider, abort.signal);
+  return { run, artifact, before, overlay, abort, guard, capability, manifest, tools, counts, records, provider, invoke,
     path: (suffix: string) => heldD2EvidencePath(run, suffix) };
 }
 test('D2 adopts exact actual event23 and ACK without CREATE, accepts same-ID promotion and final proof', d2Options, async t => {
@@ -3000,4 +3014,106 @@ test('D2 provider separates published controller from f162 and rejects stale exc
   await assert.rejects(provider.record(target.journal, 'in_progress', `activation:roles:intent:${sha256('x')}`));
   await assert.rejects(p.provider.record(target.journal, 'in_progress', `activation:app:intent:${sha256('x')}`));
   assert.deepEqual(p.writes, []);
+});
+
+test('retained D2 continues the exact consumed claim once and promotes through normal final proof', d2Options, async t => {
+  const f = d2Fixture(t, true);
+  const old = Object.fromEntries(['prepare-candidate-started', 'accept-candidate-started', 'candidate-gate']
+    .map(suffix => [suffix, readFileSync(f.path(suffix))]));
+  assert.equal((await f.invoke('prepare-candidate')).status, 'STOP');
+  for (const [action, expected] of [['accept-candidate', 'HELD_APP_ACCEPTED'], ['promote', 'FINAL_PROBE_REQUIRED'],
+    ['accept-final', 'BE_ACCEPTED']]) {
+    const result = await f.invoke(action!); assert.equal(result.status, expected, JSON.stringify(result));
+    const counts = { ...f.counts }, records = [...f.records];
+    assert.equal((await f.invoke(action!)).status, 'STOP');
+    assert.deepEqual(f.counts, counts); assert.deepEqual(f.records, records);
+  }
+  const link = readEvidence(f.path('accept-candidate-continuation-started'));
+  const accepted = readEvidence(f.path('candidate-accepted')).value as { continuationDigest: string; proof: { workflowRun: string } };
+  const adoption = readEvidence(f.path('adoption')).value as { continuationDigest: string; createCommands: number };
+  assert.equal(accepted.continuationDigest, link.identity.sha256); assert.equal(adoption.continuationDigest, link.identity.sha256);
+  assert.equal(accepted.proof.workflowRun, heldRetainedCandidate.workflowRun); assert.equal(adoption.createCommands, 0);
+  assert.equal(f.counts.promotion, 1); assert.equal(f.records.length, 3);
+  const current = readActivationJournal(f.run.directory, f.run.packet, f.run.digest);
+  assert.equal(current.next, 'fe'); assert.equal(current.events.length, 32); assert.deepEqual(current.events.slice(0, 23), f.before);
+  for (const [suffix, bytes] of Object.entries(old)) assert.deepEqual(readFileSync(f.path(suffix)), bytes);
+});
+
+test('retained D2 refuses substituted authority or lineage before continuation link and provider work', d2Options, async t => {
+  for (const scenario of ['no-authority', 'extra-key', 'claim-digest', 'old-publication', 'target', 'source-digest',
+    'local-proof-source', 'mixed-capability', 'missing-tool', 'claim-bytes', 'gate-bytes', 'head',
+    'already-adopted', 'wrong-run']) await t.test(scenario, async sub => {
+    const f = d2Fixture(sub, true), authority = f.manifest.heldD2RetainedCandidate as Record<string, unknown>;
+    if (scenario === 'no-authority') delete f.manifest.heldD2RetainedCandidate;
+    if (scenario === 'extra-key') authority.extra = true;
+    if (scenario === 'claim-digest') authority.failedClaimDigest = sha256('other consumed claim');
+    if (scenario === 'old-publication') f.capability.controllerPublication = { ...heldRetainedCandidate.proofPublication };
+    if (scenario === 'target') authority.candidate = 'dpl_Substitute';
+    if (scenario === 'source-digest') f.capability.sourceDigests[heldD2Sources[0]!] = sha256('changed source');
+    if (scenario === 'local-proof-source') f.manifest.files = [];
+    if (scenario === 'mixed-capability') f.manifest.heldAppCapability = {};
+    if (scenario === 'missing-tool') delete f.manifest.transferGh;
+    if (scenario === 'claim-bytes') f.overlay.override(f.path('accept-candidate-started'), '{}');
+    if (scenario === 'gate-bytes') f.overlay.override(f.path('candidate-gate'), '{}');
+    if (scenario === 'head') f.overlay.override(join(f.run.directory, 'activation', f.run.packet.runId, '022.json'), '{}');
+    if (scenario === 'already-adopted') writeReleaseEvidence(f.path('adoption'), { partial: true });
+    const result = scenario === 'wrong-run'
+      ? await continueHeldD2(f.run, f.artifact, 'accept-candidate', '123', f.guard, f.provider, f.abort.signal)
+      : await f.invoke('accept-candidate');
+    assert.equal(result.status, 'STOP'); assert.equal(existsSync(f.path('accept-candidate-continuation-started')), false);
+    assert.deepEqual(f.counts, { main: 0, exclusion: 0, alias: 0, inspect: 0, archive: 0, proof: 0, promotion: 0 });
+    assert.deepEqual(f.records, []);
+  });
+});
+
+test('retained D2 failed or partial continuation remains consumed without adoption or status effects', d2Options, async t => {
+  for (const scenario of ['existing-link', 'proof-read-refused', 'child-output-limit']) await t.test(scenario, async sub => {
+    const f = d2Fixture(sub, true);
+    if (scenario === 'existing-link') writeReleaseEvidence(f.path('accept-candidate-continuation-started'), { partial: true });
+    if (scenario === 'proof-read-refused') f.provider.acceptance = async () => { throw new Error('Synthetic read refusal'); };
+    if (scenario === 'child-output-limit') {
+      writeFileSync(f.tools.transferGh.path, `#!${process.execPath}\nprocess.stdout.write('x'.repeat(65537));\n`);
+      f.tools.transferGh.sha256 = sha256(readFileSync(f.tools.transferGh.path));
+      f.provider.acceptance = async () => {
+        await heldProbeGithubIo(heldRetainedCandidate.workflowRun, f.guard, f.abort.signal).read('/commits/main');
+        throw new Error('Oversize read must refuse');
+      };
+    }
+    const first = await f.invoke('accept-candidate');
+    assert.equal(first.status, 'STOP');
+    if (scenario === 'child-output-limit') {
+      assert.ok('reason' in first); assert.equal(first.reason, 'child_output_limit');
+    }
+    assert.equal(existsSync(f.path('accept-candidate-continuation-started')), true);
+    assert.equal(existsSync(f.path('candidate-accepted')), false); assert.equal(existsSync(f.path('adoption')), false);
+    const counts = { ...f.counts };
+    assert.equal((await f.invoke('accept-candidate')).status, 'STOP'); assert.deepEqual(f.counts, counts);
+    assert.deepEqual(f.records, []); assert.equal(f.counts.promotion, 0);
+    assert.equal(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.length, 23);
+    assert.equal(readEvidence(f.path('accept-candidate-started')).identity.sha256, heldRetainedCandidate.failedClaimDigest);
+  });
+});
+
+test('retained D2 concurrent callers share one exclusive continuation and one app intent', d2Options, async t => {
+  const f = d2Fixture(t, true);
+  const outcomes = await Promise.all([f.invoke('accept-candidate'), f.invoke('accept-candidate')]);
+  assert.deepEqual(outcomes.map(value => value.status).sort(), ['HELD_APP_ACCEPTED', 'STOP']);
+  assert.equal(f.records.length, 1); assert.equal(f.counts.proof, 1); assert.equal(f.counts.promotion, 0);
+  assert.equal(readActivationJournal(f.run.directory, f.run.packet, f.run.digest).events.length, 28);
+});
+
+test('retained D2 promotion refuses changed continuation or adoption binding before provider effects', d2Options, async t => {
+  for (const scenario of ['link', 'accepted', 'adoption', 'new-controller']) await t.test(scenario, async sub => {
+    const f = d2Fixture(sub, true);
+    assert.equal((await f.invoke('accept-candidate')).status, 'HELD_APP_ACCEPTED');
+    if (scenario === 'link') f.overlay.override(f.path('accept-candidate-continuation-started'), '{}');
+    if (scenario === 'new-controller') f.capability.controllerPublication.revision = 'd'.repeat(40);
+    if (scenario === 'accepted' || scenario === 'adoption') {
+      const path = f.path(scenario === 'accepted' ? 'candidate-accepted' : 'adoption');
+      f.overlay.override(path, JSON.stringify({ ...(readEvidence(path).value as object), continuationDigest: sha256('wrong link') }));
+    }
+    const counts = { ...f.counts }, records = [...f.records];
+    assert.equal((await f.invoke('promote')).status, 'STOP');
+    assert.deepEqual(f.counts, counts); assert.deepEqual(f.records, records); assert.equal(f.counts.promotion, 0);
+  });
 });

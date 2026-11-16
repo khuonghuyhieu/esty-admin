@@ -11,7 +11,7 @@ import type { RecoveryContext, RecoveryIo } from '../scripts/activation-candidat
 import { recoveryIo, recoveryToolInventory } from '../scripts/activation-recovery-io.js';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { recoveryGithubRead } from '../scripts/activation-input-transfer.js';
+import { heldProbeGithubIo, recoveryGithubRead } from '../scripts/activation-input-transfer.js';
 
 // These integration cases consume the retained public f162 artifact and the already-downloaded
 // sanitized receipt/archive evidence. They never retrieve provider data or prepared phase inputs.
@@ -236,6 +236,48 @@ process.exitCode=${JSON.stringify(scenario)}==='nonzero'?7:child.status??1;
       });
     }
   });
+
+test('held proof main projection bounds large commits and rejects invalid projections without widening output limits', async t => {
+  for (const scenario of ['large', 'missing-sha', 'missing-tree', 'uppercase-tree', 'extra-field',
+    'extra-tree-field', 'malformed-json', 'ignored-projection', 'other-endpoint-overflow']) await t.test(scenario, async sub => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'esty-held-main-projection-')));
+    sub.after(() => rmSync(root, { recursive: true, force: true }));
+    const wrapper = join(root, 'synthetic-gh.mjs'), sha = 'b'.repeat(40), tree = 'c'.repeat(40);
+    // Synthetic public transport: a full commit exceeds the unchanged cap unless the requested projection is applied.
+    writeFileSync(wrapper, `#!${process.execPath}
+const args=process.argv.slice(2), scenario=${JSON.stringify(scenario)};
+const commit={sha:${JSON.stringify(sha)},commit:{tree:{sha:${JSON.stringify(tree)}}},files:[{patch:'x'.repeat(262144)}]};
+if(args[0]!=='api'||!['repos/khuonghuyhieu/esty-admin/commits/main','repos/khuonghuyhieu/esty-admin/actions/runs/43826155118'].includes(args[1]))process.exit(91);
+const projection=args.indexOf('--jq');
+let value=commit;
+if(projection!==-1&&args[projection+1]==='{sha: .sha, commit: {tree: {sha: .commit.tree.sha}}}'&&scenario!=='ignored-projection')value={sha:commit.sha,commit:{tree:{sha:commit.commit.tree.sha}}};
+if(scenario==='missing-sha')delete value.sha;
+if(scenario==='missing-tree')delete value.commit.tree;
+if(scenario==='uppercase-tree')value.commit.tree.sha=value.commit.tree.sha.toUpperCase();
+if(scenario==='extra-field')value.extra=true;
+if(scenario==='extra-tree-field')value.commit.tree.extra=true;
+process.stdout.write(scenario==='malformed-json'?'{"sha":':JSON.stringify(value));
+`, { mode: 0o700 });
+    const guard = { digest: sha256('synthetic-held-projection'), verify: () => ({
+      transferGh: { path: wrapper, sha256: sha256(readFileSync(wrapper)), home: root,
+        configDirectory: join(root, 'unopened-profile') },
+    }) };
+    const signal = AbortSignal.timeout(10000), io = heldProbeGithubIo('43826155118', guard, signal);
+    const path = scenario === 'other-endpoint-overflow' ? '/actions/runs/43826155118' : '/commits/main';
+    if (scenario === 'large') {
+      const expected = { sha, commit: { tree: { sha: tree } } };
+      assert.deepEqual(await io.read(path), expected);
+      assert.deepEqual(await recoveryGithubRead(path, guard, signal), expected, 'Existing recovery projection remains unchanged.');
+      await assert.rejects(io.read('/commits/arbitrary'));
+    } else if (scenario === 'ignored-projection' || scenario === 'other-endpoint-overflow') {
+      await assert.rejects(io.read(path), /child_output_limit/);
+    } else if (scenario === 'malformed-json') {
+      await assert.rejects(io.read(path), SyntaxError);
+    } else {
+      await assert.rejects(io.read(path), /snapshot_mismatch/);
+    }
+  });
+});
 
 const priorStartupFiles = ['startup-attempt.json', 'startup-result.json', 'startup-correction.json', 'startup-correction-result.json'];
 function continuationFixture(t: TestContext) {
