@@ -16,10 +16,14 @@ import { AppService } from './app-foundation/application/service.js';
 import { AppController } from './app-foundation/transport/controller.js';
 import { AppAuthGuard } from './app-foundation/transport/auth-guard.js';
 import { AppErrorFilter } from './app-foundation/transport/error-filter.js';
+import { EtsyController } from './etsy/controller.js';
+import { EtsyService } from './etsy/service.js';
+import { EtsyProvider } from './etsy/provider.js';
+import { etsyBodyLimit, etsyIngress } from './etsy/ingress.js';
 
 export function createApplicationModule(config: ApiConfig, requiredMigrations = expectedMigrations) {
   @Module({
-    controllers: config.appFoundation ? [HealthController, AppController] : [HealthController],
+    controllers: config.appFoundation ? [HealthController, AppController, ...(config.etsy ? [EtsyController] : [])] : [HealthController],
     providers: [
       { provide: PostgresProbe, useFactory: () => {
         const probe = new PostgresProbe(config.database, config.appFoundation ? expectedMigrations : requiredMigrations,
@@ -35,6 +39,11 @@ export function createApplicationModule(config: ApiConfig, requiredMigrations = 
         { provide: AppService, inject: [AppDatabase, AuthAdmin],
           useFactory: (database: AppDatabase, auth: AuthAdmin) => new AppService(config.appFoundation!, database, auth) },
         AppAuthGuard,
+        ...(config.etsy ? [
+          { provide: EtsyProvider, useFactory: () => new EtsyProvider(config.etsy!) },
+          { provide: EtsyService, inject: [AppDatabase, EtsyProvider],
+            useFactory: (database: AppDatabase, provider: EtsyProvider) => new EtsyService(config.appFoundation!.workspaceId, config.etsy!, database, provider) },
+        ] : []),
       ] : []),
     ],
   })
@@ -43,9 +52,11 @@ export function createApplicationModule(config: ApiConfig, requiredMigrations = 
 }
 
 export function configureApplication(app: INestApplication, config: ApiConfig): void {
+  if (config.etsy && config.appFoundation) app.use(etsyIngress(config.etsy, app.get(EtsyService)));
   if (config.runtime === 'vercel' || config.appFoundation || config.schemaMode === 'activation-bridge') {
     app.use(previewAccess(config.previewAccessKey!, config.browserOrigin));
   }
+  if (config.etsy && config.appFoundation) app.use(etsyBodyLimit);
   if (config.activationConfigDigest) {
     app.use((request: IncomingMessage, response: ServerResponse, next: () => void) => {
       if (request.url === '/health/live' || request.url === '/health/ready') {

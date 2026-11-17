@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import test from 'node:test';
-import { ConfigurationError, parseConfig, parseMigrationConfig } from '../src/config/config.js';
+import { ConfigurationError, parseConfig, parseEtsyConfig, parseMigrationConfig } from '../src/config/config.js';
 import { migrationFiles, verifyMigrationFiles } from '../scripts/migration-files.mjs';
 import { fixtureProfile } from '../scripts/app-fixture-profile.mjs';
 import { runtimeConfigDigest } from '../src/config/activation-config.js';
@@ -15,6 +15,47 @@ import { createHash } from 'node:crypto';
 
 const valid = { DATABASE_URL: 'postgresql://fixture:secret%40value@127.0.0.1:55432/foundation_local' };
 
+test('Etsy configuration is opt-in and enabled settings fail closed without leaking values', () => {
+  assert.equal(parseEtsyConfig({}), undefined);
+  assert.equal(parseEtsyConfig({ ETSY_ENABLED: 'false', ETSY_TOKEN_KEYRING: 'unused-secret' }), undefined);
+  const enabled = {
+    ETSY_ENABLED: 'true', APP_FOUNDATION_ENABLED: 'true',
+    ETSY_CLIENT_ID: 'synthetic_app', ETSY_SHARED_SECRET: 'synthetic_secret',
+    ETSY_CALLBACK_URL: 'https://api.lovora.us/integrations/etsy/callback',
+    ETSY_RETURN_ORIGIN: 'https://website.example', ETSY_INVITATION_ORIGIN: 'https://invite.example',
+    ETSY_INVITATION_TTL_SECONDS: '600', ETSY_RETENTION_SECONDS: '900',
+    ETSY_TOKEN_ACTIVE_KEY_ID: 'test_key',
+    ETSY_TOKEN_KEYRING: JSON.stringify({ test_key: Buffer.alloc(32, 7).toString('base64url') }),
+  };
+  const parsed = parseEtsyConfig(enabled)!;
+  assert.equal(parsed.invitationTtlSeconds, 600);
+  assert.equal(parsed.retentionSeconds, 900);
+  assert.deepEqual(parsed.keyring.get('test_key'), Buffer.alloc(32, 7));
+  for (const field of Object.keys(enabled).filter(key => key !== 'ETSY_ENABLED')) {
+    assert.throws(() => parseEtsyConfig({ ...enabled, [field]: undefined }), ConfigurationError);
+  }
+  const invalid: Record<string, string[]> = {
+    ETSY_ENABLED: ['yes', 'TRUE', ''],
+    APP_FOUNDATION_ENABLED: ['false'],
+    ETSY_SHARED_SECRET: ['private:value', 'private value', 'private\nvalue'],
+    ETSY_CALLBACK_URL: ['https://evil.example/callback', `${enabled.ETSY_CALLBACK_URL}/`, `${enabled.ETSY_CALLBACK_URL}?private=value`],
+    ETSY_RETURN_ORIGIN: ['http://website.example', 'https://website.example/', 'https://private:value@website.example', 'https://website.example#private'],
+    ETSY_INVITATION_ORIGIN: ['null', 'https://invite.example/path', 'https://invite.example?private=value'],
+    ETSY_INVITATION_TTL_SECONDS: ['299', '604801', '600.0', ' 600'],
+    ETSY_RETENTION_SECONDS: ['0', '2592001', '1e3'],
+    ETSY_TOKEN_ACTIVE_KEY_ID: ['missing', '../private'],
+    ETSY_TOKEN_KEYRING: ['private-value', 'null', '[]', '{}', '{"test_key":"private-value"}',
+      JSON.stringify({ test_key: Buffer.alloc(31).toString('base64url') })],
+  };
+  for (const [field, values] of Object.entries(invalid)) for (const value of values) {
+    assert.throws(() => parseEtsyConfig({ ...enabled, [field]: value }), (error: Error) => {
+      assert.ok(error instanceof ConfigurationError);
+      assert.doesNotMatch(error.stack ?? '', /private-value|private:value|synthetic_secret/);
+      return true;
+    });
+  }
+});
+
 test('strict application supports later versions only above the immutable activated prefix and still requires complete history', () => {
   const next = { name: `${Number(migrationManifest.at(-1)!.name.slice(0, 13)) + 1}-routine-extension`,
     sha256: createHash('sha256').update('reviewed fixture').digest('hex') };
@@ -22,7 +63,7 @@ test('strict application supports later versions only above the immutable activa
   assertAppManifest(target);
   assert.equal(readyHistory(target, names, 'strict'), true);
   assert.equal(readyHistory(migrationManifest, names, 'strict'), false);
-  assert.equal(readyHistory(target, names, 'activation-bridge'), false);
+  assert.throws(() => readyHistory(target, names, 'activation-bridge'));
   for (const invalid of [migrationManifest.slice(0, 1), [migrationManifest[1]!, migrationManifest[0]!, migrationManifest[2]!],
     [...migrationManifest, migrationManifest[2]!], [...migrationManifest, { ...next, sha256: 'invalid' }],
     migrationManifest.map((entry, index) => index ? entry : { ...entry, sha256: next.sha256 })]) {
@@ -263,13 +304,12 @@ test('hosted app activation binds reviewed project, verified Session TLS and exp
   }
 });
 
-test('bridge activation requires an explicit disabled app and independent technical protection', () => {
+test('retired activation bridge refuses the additive application manifest', () => {
   const bridge = { ...valid, APP_SCHEMA_MODE: 'activation-bridge', APP_FOUNDATION_ENABLED: 'false', PREVIEW_ACCESS_KEY: 'a'.repeat(64) };
-  assert.equal(parseConfig(bridge).schemaMode, 'activation-bridge');
-  assert.equal(parseConfig(bridge).appFoundation, undefined);
+  assert.throws(() => parseConfig(bridge));
   for (const changes of [{ APP_FOUNDATION_ENABLED: undefined }, { APP_FOUNDATION_ENABLED: 'true' },
     { APP_SCHEMA_MODE: 'arbitrary-history' }, { PREVIEW_ACCESS_KEY: undefined }]) {
-    assert.throws(() => parseConfig({ ...bridge, ...changes }), /APP_SCHEMA_MODE|PREVIEW_ACCESS_KEY/);
+    assert.throws(() => parseConfig({ ...bridge, ...changes }));
   }
   assert.equal(parseConfig(appLocal).schemaMode, 'strict');
 });
@@ -289,8 +329,7 @@ test('owned fixture profiles reject cross-lane ports and normal-session timeboxi
 });
 
 test('runtime attestation rejects changed private configuration and unprotected disclosure', () => {
-  const values = { ...valid, API_RUNTIME: 'local', APP_SCHEMA_MODE: 'activation-bridge',
-    APP_FOUNDATION_ENABLED: 'false', PREVIEW_ACCESS_KEY: 'a'.repeat(64) };
+  const values = { ...appLocal, APP_SCHEMA_MODE: 'strict' };
   const digest = runtimeConfigDigest(values);
   const bound = { ...values, APP_ACTIVATION_CONFIG_DIGEST: digest };
   assert.equal(parseConfig(bound).activationConfigDigest, digest);

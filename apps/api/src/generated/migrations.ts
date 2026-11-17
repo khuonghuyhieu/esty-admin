@@ -11,6 +11,10 @@ export const migrationManifest = [
   {
     "name": "1792972800002-app-session-check",
     "sha256": "49316100a5c98a852ef28ccb99d6e2a4306da9d5baf9631d4643a26d9d1c82f2"
+  },
+  {
+    "name": "1794890229976-etsy-connectivity",
+    "sha256": "45ab221e19b11735809d23d77d6acb86f7c3a983bf2f40c9905ff9a1b5de4688"
   }
 ] as const;
 export const expectedMigrations: readonly string[] = migrationManifest.map(entry => entry.name);

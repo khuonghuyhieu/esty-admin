@@ -18,6 +18,11 @@ export class AppErrorFilter implements ExceptionFilter {
     response.statusCode = status;
     response.setHeader('Content-Type', 'application/json');
     response.setHeader('Cache-Control', 'private, no-store');
-    response.end(JSON.stringify({ code, requestId: request.foundation?.requestId ?? randomUUID() }));
+    const retryAfterSeconds = error instanceof AppError && 'retryAfterSeconds' in error
+      && Number.isInteger(error.retryAfterSeconds) && Number(error.retryAfterSeconds) >= 1 && Number(error.retryAfterSeconds) <= 86400
+      ? Number(error.retryAfterSeconds) : undefined;
+    if (retryAfterSeconds !== undefined) response.setHeader('Retry-After', retryAfterSeconds);
+    response.end(JSON.stringify({ code, requestId: request.foundation?.requestId ?? randomUUID(),
+      ...(retryAfterSeconds === undefined ? {} : { retryAfterSeconds }) }));
   }
 }

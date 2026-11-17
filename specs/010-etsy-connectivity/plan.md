@@ -1,121 +1,109 @@
 # Implementation Plan: Existing Etsy Connectivity
 
-**Status**: READY_FOR_OWNER_PLAN_REVIEW — proposed source/local and external execution tasks remain unapproved and unchecked.
-**Spec**: [spec.md](spec.md) · **Working branch**: existing owner-reported main, not changed or independently probed. Helper output BRANCH=010-etsy-connectivity is a feature identifier, not evidence of a Git branch.
+**Status:** READY_FOR_OWNER_NEXT_LAYER — coordinator accepted the confirmed P2 resolution after independent fix-only recheck; T023 complete for this BE increment. Operational prune, FE/browser, hosted and actual-provider gates remain open. Source/docs ownership returned to t151; STOP WRITES.
+**Context:** `feat/etsy-connectivity` at base `a9b3d70ceff042b893fa06877eca197d3d31c06c`, dedicated Etsy worktree. Feature routing labels are not Git branch evidence.
+**Inputs:** [spec](spec.md), [research](research.md), [data model](data-model.md), [contracts](contracts/proposed-api.md), [tasks](tasks.md), [validation](quickstart.md).
 
-## Summary
+## Latest sequencing — BE acceptance before FE
 
-Add one bounded Etsy integration module to the existing NestJS application and workspace. Early initiation is an explicitly approved operator-assisted workflow, not a public connect endpoint. The sole proposed browser-facing bearer exception is exact GET `https://api.lovora.us/integrations/etsy/callback`, authenticated by a short-lived server-bound state/PKCE transaction and current Owner authority. Verify the actual granting Etsy user and approved shop before activation; read only account/shop identity metadata with shops_r. Protect credentials with versioned authenticated encryption and use durable CAS/fencing for refresh/reconnect/disconnect.
+Owner defers FE until BE work is finished. Continue with the [BE-first acceptance packet](quickstart.md#be-first-acceptance-packet--fe-deferred-by-owner): reviewed source publication, clean exact artifact, new010 environment/migration/release, then separately authorized real consent/read via approved private operator handoff. The Owner table/recipient confirmation/main FE browser journey remains deferred; BE-only acceptance does not close overall feature acceptance. Existing source remains reviewed/frozen; this is a documentation-only sequencing amendment and does not grant external actions. The final review manifest is retained as a historical closeout snapshot; later planning-document hashes differ, source hashes remain unchanged.
 
-No code, schema, generated types, provider configuration, browser feature or hosted route is delivered by these documents. [Research](research.md) resolves public protocol choices while retaining external facts as gates. [Contracts](contracts/proposed-api.md), [data model](data-model.md) and [validation guide](quickstart.md) define the future observable behavior.
+## Current implementation grant — 2026-11-17
 
-## Technical context
+Coordinator t151 forwarded explicit owner authorization for sequential BE implementation, synthetic/local verification and010 evidence. This supersedes planning-only wording and the configuration-only review stop retained below; Layer1 must pass its self-check before Layer2, without another permission request. The nine pre-existing dirty010 documents are intentional coordinator work and are preserved as the starting baseline. No Git mutation/publication, dependency install, additional worker/reviewer, shared-document/root changes, FE/session/browser changes or real private/provider/database setup is authorized.
 
-| Area | Selected context / constraint |
+The backend owns exact invitation-start transport and callback only, not the recipient confirmation page. Production remains disabled by default; the missing FE ingress/main-browser journey and hosted privacy/routing verification remain adoption gates. Do not create a JavaScript page or broaden cross-origin/bearer exceptions to compensate.
+
+Runtime invitation TTL and operational retention are explicit bounded inputs, not implicit24-hour policies. Live values, approved origins and target shop remain OWNER_INPUT_PENDING; synthetic tests supply independent values. Expected shop is an Owner-authorized creation input. No automatic prune or key rewrap exists. After confirmed review P2, PUBLIC/app_operator/app_runtime cannot execute retained prune code: operational prune requires a future verifiable current-Owner/purpose-bound authority flow and real actor attribution, not supplied UUIDs. T019's prune portion and key/backup policy remain open.
+
+Before writing, cwd/branch/HEAD matched the assigned worktree, `feat/etsy-connectivity` and base above. Requirements checklist:13 checked,0 unchecked. Command-local prerequisites passed; extension configuration was absent. No language server is configured. The frozen review-manifest.json retains all nine initial coordinator document hashes separately from final worker hashes.
+
+## Current owner decisions and evidence boundary
+
+The owner confirmed an existing registered developer app with Etsy access and sufficient resources. Do not reopen registration/access approval, request secret values, inspect accounts or automatically repeat setup. Exact app configuration is supplied later through an approved secure mechanism; its absence in these documents is not a source/local blocker.
+
+Root reports D1 CURRENT_CONFIG_ATTESTED and D2 BE_ACCEPTED, existing Hieu/Lovora/Owner and successful app.lovora.us login after the Auth URL correction/password reset. Accepted BE candidate: `dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7`; journal675 has32 events, next=fe. These are supplied facts, not new probes. PROJECT_STATE and older architecture/010 gate descriptions are stale on these points. No roles, migrations, bootstrap, D1 or D2 replay; retained f162 is historical, not current source identity. New010 schema/release and callback acceptance remain distinct future work.
+
+The owner selected an Owner-created invitation link, privately shared with the shop operator, a managed table and manual Check status/Sync shop info. No automatic polling, SSE, WebSocket or background synchronization. This supersedes the original operator-only/no-Owner-UI initiation boundary. The recipient grants Etsy access, not Lovora membership or Owner privileges. One shop connection per workspace and the four-field dataset remain the initial limit; multiple historical invitation rows do not authorize multiple shops.
+
+## Technical context and constitution check
+
+Use existing Node24.22.1/TypeScript/NestJS12.2.0, Vercel API, Supabase, native fetch/crypto and the one canonical API/migration history. Keep the current listening bootstrap, verified TLS, bounded pools, cancellation and hosted duration controls. No new framework, Etsy SDK, queue, scheduler, auth system or infrastructure is selected. Frontend work later reuses006 session/BFF/current-membership/CSRF rules under a separate FE lease. Current FE navigation owns apps/web, session helpers and browser fixtures and is untouched.
+
+One modular backend owns transport → application → adapters. Etsy OAuth grants shop access only; it does not admit a user to Lovora. Persistence is additive in app_private with existing role/lock/audit policy. Local evidence distinguishes synthetic protocol checks from actual provider results. No governance exception is selected; shared docs, FE, root manifests and shared pointer remain unchanged.
+
+## Layer 1 — developer-app environment and configuration
+
+**Implemented and self-checked before continuation.** Server-only configuration and secret-free examples use strict validation and nondisclosing errors. Default ETSY_ENABLED=false preserves existing behavior and ignores unused secrets; enabling refuses partial/invalid inputs before provider work.
+
+| Configuration | Purpose / validation |
 |---|---|
-| Runtime | Existing Node24.22.1, TypeScript and NestJS12.2.0 modular backend; preserve canonical listening/bootstrap, cancellation, pool and hosted duration controls |
-| Dependencies | Existing native fetch/URL/crypto, maintained installed PostgreSQL and migration tooling; no Etsy SDK, Express server, new auth library, queue, scheduler or new hosting platform selected |
-| Storage | Existing PostgreSQL app_private schema; additive scoped tables/functions in the same version/checksum history; no managed Auth mutation |
-| Authentication | Existing005 current Owner membership and app policy; Supabase remains internal authentication. Etsy OAuth only grants access to the bound shop, never app admission |
-| Hosting | Existing Vercel API project and final api.lovora.us target; existing Supabase-cloud direction. No new hosted connectivity/app-readiness claim |
-| Dataset | getMe + bound getShop; exactly etsyUserId/shopId/shopName/currencyCode; shops_r only; one application connection per configured workspace |
-| Budgets | Five-minute consent attempt;8-second whole operation; token HTTP3s, each metadata HTTP1500ms,64KiB bodies;15-second refresh fence; existing shorter DB budgets preserved |
-| Verification | Existing test conventions; real owned HTTP/PostgreSQL lifecycle with synthetic Etsy transport, isolated automated callback browser journey, then separately authorized real consent/read evidence |
-| Unknown execution inputs | Existing-app type/approval/access, exact intended shop/account, registered callback and website return origin, secure credentials/keyring, hosted log/access behavior and migration adoption |
+| ETSY_CLIENT_ID, ETSY_SHARED_SECRET | Existing app identity and server credential; no frontend/public environment exposure or value echoes |
+| ETSY_CALLBACK_URL | Exact hosted HTTPS `https://api.lovora.us/integrations/etsy/callback`, no caller override |
+| ETSY_RETURN_ORIGIN | Approved fixed existing HTTPS website origin; no credentials/path/query/fragment; clean root return |
+| ETSY_TOKEN_ACTIVE_KEY_ID, ETSY_TOKEN_KEYRING | Versioned AES-256-GCM keys; active ID present,1–4 named32-byte keys; fail closed on unknown keys |
+| ETSY_INVITATION_ORIGIN, ETSY_INVITATION_TTL_SECONDS | Fixed approved Lovora ingress origin and bounded invitation lifetime; TTL is independent of the300-second OAuth attempt |
+| ETSY_RETENTION_SECONDS | Explicit bounded operational retention; no automatic prune or implicit24-hour policy |
 
-## Constitution check — before research and after design
+No secret settings screen, credential-in-chat handoff or new credential store is implied. Original owner files remain untouched. Live invitation TTL/origins and retention/key/backup policy remain pending; synthetic local values are not owner decisions. Hosted registration/log privacy requires later authority. Configuration errors name safe fields/categories, never values; application ping and real consent are excluded.
 
-- **Evidence/stack**: Uses ARCH-001's existing Nest/Vercel/Supabase choices, official Etsy sources and005/006 interfaces; no tutorial-selected framework or invented account status.
-- **Small architecture**: One backend, workspace, database history and canonical API. Operator and HTTP adapters share one application service; no microservice, background sync or second login system.
-- **Verification**: Meaningful behavior/concurrency/failure tests and actual browser/HTTP/DB proof precede local completion; actual Etsy and hosted evidence are separate mandatory gates, not simulated claims.
-- **Single context**: New010 artifacts only. C2-01 remains the existing milestone tracker. README/STATE/AGENTS/architecture,005–009, canonical schema and shared pointer are not planning write targets.
-- **Scope/UI**: No order/fulfillment business features or new frontend UI; fixed Owner/Member maintained. Local TLS simulation is not a public tunnel or deployment.
+**Exit met locally:** enabled/disabled/missing/invalid configuration and nondisclosing failures passed; setup procedure is in quickstart.md. The explicit sequential grant allowed continuation after this self-check, not automatic external setup.
 
-No constitutional exception is selected. The proposed callback exception is an explicit future security design change requiring implementation/review/hosted approval; current005 guards remain unchanged now.
+## Layer 2 — reusable Etsy protocol and schema foundation
 
-## Current planning and resource boundaries
+The official [OpenAPI document](https://www.etsy.com/openapi/generated/oas/3.0.0.json) remains upstream transport, not Lovora's canonical API. The implemented reproducible generator pins full-source digest/bytes/tool version, validates selected operations and produces minimal selected types with offline drift checks. It never refreshes at runtime or exposes a universal proxy.
 
-The initial directory listing contained001–009 and no010; t4v assigned the sole writer and coordinated other lanes. Use command-local `SPECIFY_FEATURE_DIRECTORY=specs/010-etsy-connectivity SPECIFY_FEATURE_NO_PERSIST=1` for helpers. Read local specify/plan/tasks/analyze skills and templates; `.specify/extensions.yml` was absent. Do not run create-new-feature/branch helpers, persist the shared feature pointer or treat a template copy as project readiness.
+Use a fixed-origin server adapter with composite x-api-key, full scoped bearer, form-urlencoded token requests, no redirect following, lossless positive int64 IDs and explicit safe errors. Token schemas follow the authentication guide where the reference lacks a token operation. Retain8-second whole-operation budget,3-second token/1500ms metadata calls,64KiB bodies, shorter DB deadlines and cancellation. Reuse database cooldown/fencing; no hidden retries.
 
-The006 browser lease had priority. Planning did not disturb its resources. After t4p explicitly released FE browser/web, the previously authorized006 cleanup completed separately: owned API/control, original run-bound forwarder and original fixture stopped in order; source and shared volumes preserved. This is not an010 runtime check and grants no reuse of those ports/resources. No010 runtime, test, build, install, Git, provider/account, secret or Notion-write action occurred.
+Only code exchange, refresh, getMe and bound getShop are activated for010. Broad schema availability is not permission to request broad OAuth scopes, persist full payloads or implement order/listing writes. Later datasets require selected scopes, validation, privacy and tests; new scopes require consent again. Selected metadata remains shops_r and exactly etsyUserId/shopId/shopName/currencyCode.
 
-## Proposed source organization and ownership
+**Exit:** synthetic request/schema/error/precision/deadline and credential-envelope checks; no provider, DB or FE resource needed for pure foundation checks.
 
-All paths below are future targets, not new files delivered now:
+## Layer 3 — invitation persistence and Owner management API
 
-| Owner under future grant | Target | Responsibility |
-|---|---|---|
-| BE source writer | apps/api/src/integrations/etsy/application/service.ts | One bounded state machine for initiation, verification, reads and credential lifecycle |
-| BE source writer | apps/api/src/integrations/etsy/adapters/provider.ts | Fixed-origin protocol, headers/form encoding, schemas, deadlines and safe error classification |
-| BE source writer | apps/api/src/integrations/etsy/adapters/credentials.ts | Versioned AES-256-GCM envelopes, AAD/key selection and secret-safe validation |
-| BE source writer | apps/api/src/integrations/etsy/adapters/postgres.ts | Workspace-scoped persistence, ownership checks, CAS/fencing, cooldown and audit |
-| BE source writer | apps/api/src/integrations/etsy/transport/controller.ts | Narrow callback and authenticated status/read/disconnect operations |
-| BE source writer | apps/api/scripts/etsy-connection-operator.ts | Explicit approved operator adapter and private authorization-link handoff |
-| BE source writer, narrow existing-file scope | apps/api/src/app.ts; apps/api/src/config/config.ts; apps/api/src/app-foundation/application/policy.ts | Disabled-by-default configuration, exact guard routing and additive Owner capabilities; preserve every existing boundary |
-| BE migration owner, fresh permission | apps/api/migrations/; apps/api/src/generated/migrations.ts | Allocate one additive migration, generate the same manifest, enforce immutable historical checksums |
-| Assigned canonical owner, serialized lease | specs/001-connectivity-foundation/contracts/openapi.json; apps/api/src/generated/api.ts | Approved operation/error/capability delta and BE generation; no second OpenAPI |
-| FE writer, separate later scope | apps/web/src/lib/api/generated.ts and future explicitly scoped BFF/UI files | Generated consumer and Owner self-service only after006 integrated acceptance; not an010 operator-first deliverable |
-| Coordinator / owner | Shared docs, resources, publication, actual credentials/provider setup and reviewer | Fresh explicit leases/grants; this planning packet does not assign new people or start an agent |
+Create a durable invitation row before returning its privately shareable URL. Bind creator/current Owner, workspace, existing app, expected shop, scope policy, expiry and connection revision. Store only a hash of the random invitation secret. Return the full URL only on explicit authorized creation; list/status responses omit it. Owner may cancel and issue a replacement if the original is lost; no recoverable plaintext link store by default.
 
-Tests extend existing suites where appropriate; new uncertain integration logic belongs in proposed `apps/api/tests/etsy-connection.test.ts`, `etsy-connection.integration.test.ts` and a scoped browser journey under the existing `apps/web/tests/` harness only through FE ownership. A future integration helper may reuse existing owned-fixture lifecycle conventions without adopting the old006 fixture or changing its preserved evidence. Root package/lock changes require a serial dependency lease if a demonstrated need arises; none is selected now.
+Support list/create/cancel through existing authenticated Owner capabilities/BFF conventions. Multiple safe invitation-history rows are permitted, with one outstanding invitation/attempt and one shop connection for the workspace. Never grant a Member Lovora integration management because they received a link. Expected shop must be confirmed before activation; no arbitrary shop accepted from callback.
 
-## Phase 0 — decisions and readiness
+Invitation states are pending, in_progress, connected, declined, expired, cancelled, failed and outcome_unknown, separate from connection health. Opening a URL is read-only and does not consume it: chat previews/prefetch must not begin OAuth. An explicit recipient Continue action atomically claims a valid invitation and creates a fresh300-second state/PKCE transaction. Concurrent starts cannot create two provider exchanges. Cancel/expiry, creator demotion and connection-generation changes fence stale work. No recipient Lovora login is required; the scoped invitation authenticates only this transaction. No shop data or management authority is exposed to the recipient.
 
-1. Owner reviews the metadata-only baseline, intended existing app/account/shop and operator-assisted boundary. Public docs cannot settle actual app type/approval/access.
-2. Record the confirmed callback registration and clean website return origin only under a later setup grant. Do not replace the callback with the public landing/privacy route or infer that api.lovora.us already accepts Etsy callbacks.
-3. Before source work, resolve file ownership and the small existing-source/canonical deltas above, dependency status, isolated resources and separate reviewer ownership. Existing005 code/local proof remains historical evidence; hosted adoption is not presumed.
+Additive schema/manifest uses the existing history and exact scoped privileges; no applied migration edits or startup DDL. New010 migration delivery later needs its own release authority, not replay of accepted foundation setup.
 
-## Phase 1 — scoped persistence and protocol foundation
+**Exit:** real isolated DB tests for ownership, uniqueness, expiry, cancel/replay, scoped access, creator demotion and apply/replay; fresh resource grant required.
 
-Propose additive `etsy_connections`, `etsy_authorization_attempts`, `etsy_credentials`, `etsy_refresh_attempts` and per-app cooldown persistence as specified in the data model. Use app-owned indexes/constraints, bounded SQL, existing lock order and only necessary role/function grants. No startup DDL or alteration of applied migration bytes. Never assume the operator can create arbitrary workspaces or write managed Auth.
+## Layer 4 — consent, callback and verified connection
 
-Future server-only configuration names: `ETSY_ENABLED` (default false), `ETSY_CLIENT_ID`, `ETSY_SHARED_SECRET`, `ETSY_CALLBACK_URL`, `ETSY_RETURN_ORIGIN`, `ETSY_TOKEN_ACTIVE_KEY_ID`, `ETSY_TOKEN_KEYRING`. Validate the exact callback target for hosted mode; validate an owner-approved existing public HTTPS return origin without credentials/path/query/fragment. Keyring contains1–4 explicitly named32-byte keys, active ID present; no key value in examples, logs or reports. Fixed provider hosts are source allowlists, not arbitrary configuration URLs. Synthetic provider/TLS overrides exist only in an approved test adapter, never as a production SSRF switch.
+Implement only exact explicit POST invitation start and exact GET Etsy callback as backend transaction-authenticated bearer exceptions. Recipient confirmation/fragment UI and any inspection transport are deferred to FE ownership; no public GET invitation exception is implemented. All neighboring routes retain existing guards; no route-prefix exemption.
 
-Use native AES-256-GCM with fresh IV/tag and purpose/row/version-bound AAD. Reject wrong keys, tampering, malformed response/token data and unsafe numeric decoding. Secrets exist only in protected configuration, bounded server memory and encrypted DB records. Rotation of encryption keys is separate from OAuth refresh; no background key service is introduced.
+Recipient Continue → Etsy consent → registered callback → single code exchange → encrypted candidate → getMe plus matching getShop → current-Owner/generation-checked activation. Callback commits the result without the Owner pressing Check status. A short-lived invitation remains bound server-side; Etsy account consent does not log the recipient into Lovora. Return only to the fixed clean website root; no tokens or result authority in a redirect URL. Callback query, invitation secrets and authorization links must not reach retained app/platform logs.
 
-## Phase 2 — US1 operator-assisted consent through verified activation
+Maintain encrypted versioned tokens/verifiers, at-most-once durable exchange/refresh submission, exact lost-ack receipts and CAS/fencing. Unknown outcomes are never success or automatic replay. Reconnect requires new intent and the same account/shop; disconnect removes locally usable credentials and fences all in-flight work. Local disconnect is not remote revoke.
 
-- `begin` checks explicit operational approval, current Owner membership, configured workspace and target shop, then reserves one five-minute attempt and advances the connection epoch. First-link and reconnect attempts put the connection into verification_pending; any previous credentials are unusable while it is unresolved. Generate state/verifier per attempt and provide only a private0600 authorization-link artifact.
-- The browser visits Etsy, consents, and returns to the exact GET callback. No browser technical bearer is needed only on that precise route. Reject malformed query/method/path before DB use, and reject unbound/stale/expired/replayed state before any provider side effect.
-- Atomically claim the attempt, release SQL locks, exchange once with the stored verifier, encrypt/persist candidate tokens, then call getMe and getShop under the total deadline. Compare the actual user, approved shop and shop owner, granted shops_r and current Owner authority. Only fenced activation exposes an active connection.
-- The callback redirects303 to the fixed existing public website root with no result/token query. This is a neutral landing; authorized operator/API status is the result authority. A callback HTTP response alone never proves active linkage.
-- Distinguish denial, known failure, verification_pending and exchange_unknown. If tokens were durably staged, explicit verification may retry only safe metadata reads before token expiry. If a submitted exchange has no provable token persistence, never replay the code; require new intent/consent.
+**Exit:** actual owned Nest/DB with synthetic HTTPS provider proves grant/denial, wrong shop, replay, expiry, authority loss, concurrency, commit uncertainty and lifecycle; separate scoped review before hosted adoption.
 
-## Phase 3 — US2 explicit minimal read
+## Layer 5 — Owner table and explicit actions
 
-An active Owner performs an explicit operator read or future approved POST read. The application selects only its bound connection. GET status is local/read-only and never refreshes. For metadata, use a valid committed credential (one fenced refresh if needed), call getMe then bound getShop, validate/project the four business fields, and recheck admission/connection epoch/version before returning. No provider response caching as fallback, arbitrary target IDs or public shop lookup presented as OAuth proof.
+A later FE-owned increment provides Create connection link, private copy after creation, invitation/connection table, Check status, Sync shop info, cancel and applicable reconnect/disconnect controls. Owner submits actions through the existing authenticated BFF; never expose technical bearer, app secrets or OAuth credentials. Resolve fresh FE source/test ownership first; do not interrupt the navigation lane.
 
-No profile email is needed; getUser/email_r is deliberately excluded. Receipts/orders/transactions_r are a later dataset decision with independent schemas, pagination, personal-data and testing constraints. Never send order writes, import/sync, shipping or synthetic purchases to Etsy as a connectivity test.
+Table displays safe shop label/ID, invitation status, separate connection status, creation/expiry and last successful provider observation. Check status reads saved local state only: zero Etsy calls, refreshes or reconciliation writes. Initial page load and explicit button presses fetch state; no timers, focus-triggered polling, subscriptions or background jobs. If callback finishes while the table is open, it updates on the next explicit check/reload. Sync shop info explicitly calls getMe/getShop and may perform one fenced refresh; it shows observedAt and classified failures, never stale success. A disconnect/reconnect/demotion during sync discards the result. A closed Owner page does not prevent callback completion.
 
-## Phase 4 — US3 credential lifecycle and failures
+**Exit:** separate FE-owned functional/browser acceptance for create/share/recipient consent/manual check/sync/cancel and local teardown, with no periodic requests; visual and hosted owner acceptance remain separate.
 
-Reserve one durable refresh attempt before submission. No process-only mutex or transaction held across network calls. Commit a complete confirmed pair under the current attempt/epoch/version/fence, then erase superseded secrets. A losing/stale response cannot change state. Unknown submission/commit acknowledgement is reconciled only against the exact durable receipt; absent proof, fence usage and require reconnect. Expired lease does not grant old-token reuse.
+## Layer 6 — hosted adoption and actual Etsy acceptance
 
-Use explicit new same-account/shop approval for reconnect; increment epoch before old work can finish. Disconnect increments epoch, removes usable credentials and candidate verifiers, cancels pending attempts and returns only local confirmation. Provider revoke is owner-controlled through Etsy's documented account UI; real denial and previous-data retention are recorded separately.
+Reuse the accepted BE/Auth foundation. Authorize only the new010 source/artifact, additive migration-before-deploy, explicit ingress/access/log configuration, secure environment injection and exact callback registration verification as required. No re-registration, roles/bootstrap/D1/D2 replay or private-file discovery. Owner-confirmed setup is reused, not automatically redone.
 
-429 applies a bounded per-app cooldown, not guessed quotas or unbounded automatic backoff. Metadata may be requested explicitly after cooldown; token-mutation uncertainty never silently retries. Keep no pending background job after request completion. Audit only safe actor/workspace/action/attempt/outcome fields, with no provider exception/body leakage.
-
-## Verification and acceptance gates
-
-| Gate | Required observable proof | Not established by that gate |
-|---|---|---|
-| Plan quality | Requirement/task coverage, exact official endpoint/security/schema citations, local links, protected-file preservation | Source implementation or provider approval |
-| Source/local | Real owned Nest HTTP + PostgreSQL, synthetic HTTPS Etsy transport; code exchange/state/crypto/identity/fault/CAS behavior and clean teardown | Real Etsy consent, key validity, redirect registration or platform logs |
-| Automated journey | Operator intent → simulated consent → HTTPS callback → verified projected read → reconnect/disconnect; browser-visible secret scan | Live Etsy acceptance or Owner self-service UI |
-| Coordinated review | One separately authorized read-only reviewer of the scoped source and evidence; fix only confirmed findings | Tests not actually run or hosted setup |
-| Hosted adoption | Approved source/artifact,001 migration-before-deploy integration,005 schema/Auth adoption, separately authorized release and exact callback/platform/logging checks | Etsy app approval or real shop grant |
-| Actual Etsy | Owner-approved existing key/app readiness, real intended-account consent, exact HTTPS callback, encrypted persistence, getMe identity + matching getShop read and separately approved lifecycle outcomes | Orders/fulfillment, other-shop entitlement or general product readiness |
-
-[Quickstart](quickstart.md) owns this feature's validation design; runnable implemented commands remain README-owned only under a later docs lease. No full-suite rerun, real provider probe or execution command is authorized by this plan.
+After affected local checks and a separate scoped review, separately authorize real intended-account consent, exact callback, encrypted persistence and four-field read. Refresh/reconnect/local disconnect and owner-performed Etsy revoke need their specific live grant. Record source/artifact/deployment identity and safe outcomes. Existing app access and D2 acceptance do not prove010 is hosted or Etsy consent succeeded.
 
 ## Execution gates and remaining owner decisions
 
-- **G1 — Plan/source scope:** Approve this operator-first, one-shop metadata baseline and exact future source/canonical ownership. No source authority exists yet.
-- **G2 — Existing app and target:** Confirm non-secret existing app identity, type/status/approval/access and intended consenting account/shop. Reuse that app; do not automatically register or convert it.
-- **G3 — Secure inputs and retention:** Owner supplies app credentials and versioned encryption keys through an approved local secure mechanism later, never chat. Approve operational tombstone/audit retention and protected backup/key lifecycle; preserve all existing owner files.
-- **G4 — Local resources and checks:** Explicit fresh nonce/ports/DB/Auth/TLS/browser ownership and teardown grant, with no adoption or eviction. The old006 resources are already released/cleaned, not an allocation for010.
-- **G5 — Hosted prerequisite and setup:** Separate001 versioned migration-delivery approval,005 hosted adoption, source publication/artifact/release authority, callback registration/platform route access and logging redaction. Vercel/Supabase remain the chosen direction; no paid upgrade or new platform implied.
-- **G6 — Real provider acceptance:** Explicit consent/read/refresh/revoke permissions and safe evidence policy. Approval/key/setup facts reported by the owner are recorded, not automatically re-read or redone.
-- **G7 — Future self-service/data expansion:**006 integrated session plus approved Owner capability/BFF/UI work before a browser Connect action. Orders/receipts, additional shops or other-seller product use require a dataset/access amendment, not an automatic widening of this plan.
+- **G1:** The scoped BE review and confirmed P2 fix-only recheck are accepted; T023 is complete for this increment. Docs-only closeout returns source/docs ownership to t151. No further source work, runtime check or reviewer starts without a fresh grant.
+- **G2:** App registration/access and resource availability are owner-confirmed. Later exact non-secret app/shop binding and secure configuration use the existing resources; no setup redo or secrets in chat.
+- **G3:** Explicit validated synthetic TTL/retention/origin/shop values support local proof. Live invitation lifetime, fixed ingress/page ownership, target shop and key/backup/retention policy remain owner adoption inputs; no proposed24-hour value was silently accepted.
+- **G4:** Fresh canonical/source/isolated DB/TLS/browser leases; FE owns apps/web/session/browser helpers. Root dependencies/shared pointer/shared docs remain untouched without separate authority.
+- **G5:** New010 publication/migration/release/ingress/privacy and real consent/lifecycle require separate external grants. No live provider/cloud DB call, deploy or paid action occurred.
+- **G6:** One shop/metadata baseline. More shops, orders/import/fulfillment, webhooks and general seller self-service are deferred. Broad upstream types do not implement those products.
 
-The concise dataset decision is: **keep account/shop identity metadata only (recommended), or explicitly request a later receipts/order-read scope amendment**. No new role/hosting/auth baseline question is opened. Unknown external facts block the relevant future execution gate, not this documentation deliverable.
+## Planning validation and limitations
+
+Original U1, pre-fix freeze, original full review's one P2 and all failures remain historical in the handoff. The fix-only pass found no further confirmed actionable finding in its scope; coordinator accepted resolution. T001–T018 retain local evidence, T011 remains BE-only and T023 is complete. T019 operational prune and T020–T022/T024–T026 remain open. Prior runtime results were not rerun during docs-only closeout; only document/diff and unchanged source/root identity checks occurred. No hosted/provider or full-product success is claimed.

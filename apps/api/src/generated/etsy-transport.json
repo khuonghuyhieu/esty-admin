@@ -1,0 +1,61 @@
+{
+  "openapi": "3.0.2",
+  "info": {
+    "title": "Selected internal Etsy transport projection",
+    "version": "3.0.0"
+  },
+  "x-provenance": {
+    "sourceUrl": "https://www.etsy.com/openapi/generated/oas/3.0.0.json",
+    "sourceSha256": "d9560cf25d1169ee9900a551ffaa4a7ca7b24a621e53a3fc3e5a70064af6c5ae",
+    "sourceBytes": 963685,
+    "generator": "openapi-typescript@7.13.0",
+    "selection": "getMe/getShop response fields only; token schema follows authentication guide"
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "Self": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "integer",
+            "description": "The numeric ID of a user. This number is also a valid shop ID for the user's shop.",
+            "format": "int64",
+            "minimum": 1
+          },
+          "shop_id": {
+            "type": "integer",
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop.",
+            "format": "int64",
+            "minimum": 1
+          }
+        }
+      },
+      "Shop": {
+        "type": "object",
+        "properties": {
+          "shop_id": {
+            "type": "integer",
+            "description": "The unique positive non-zero numeric ID for an Etsy Shop.",
+            "format": "int64",
+            "minimum": 1
+          },
+          "user_id": {
+            "type": "integer",
+            "description": "The numeric user ID of the [user](/documentation/reference#tag/User) who owns this shop.",
+            "format": "int64",
+            "minimum": 1
+          },
+          "shop_name": {
+            "type": "string",
+            "description": "The shop's name string."
+          },
+          "currency_code": {
+            "type": "string",
+            "description": "The ISO (alphabetic) code for the shop's currency. The shop displays all prices in this currency by default."
+          }
+        }
+      }
+    }
+  }
+}
