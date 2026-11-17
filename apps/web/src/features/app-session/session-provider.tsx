@@ -95,16 +95,11 @@ export function SessionProvider({ children, initial, mode = "protected", returnT
   useLayoutEffect(() => {
     const current = new SessionController({ restore }, next => onView(next));
     controller.current = current;
-    const revalidate = async () => {
-      const admitted = await current.revalidate();
-      if (admitted && mode === "protected") router.refresh();
-    };
     const visibility = () => {
-      if (document.visibilityState === "hidden") current.invalidate();
-      else void revalidate();
+      if (document.visibilityState === "visible") void current.resume();
     };
-    const hide = () => current.invalidate();
-    const show = (event: PageTransitionEvent) => { if (event.persisted) void revalidate(); };
+    const hide = () => current.suspend();
+    const show = (event: PageTransitionEvent) => { if (event.persisted) void current.resume(); };
     const history = () => {
       // Join Next's restoration transition before it renders a cached destination.
       const path = window.location.pathname;
@@ -116,7 +111,7 @@ export function SessionProvider({ children, initial, mode = "protected", returnT
         setRoutePreparation({ path, result: admission });
         startNavigation(async () => { await admission; });
       } else if (mode === "protected") current.beginRoute();
-      else void revalidate();
+      else void current.resume();
     };
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("pagehide", hide);
