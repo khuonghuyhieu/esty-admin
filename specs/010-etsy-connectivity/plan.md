@@ -1,5 +1,29 @@
 # Implementation Plan: Existing Etsy Connectivity
 
+## Current release-preparation checkpoint
+
+**Status: READY_FOR_SCOPED_PUBLICATION_MAIN_INTEGRATION_DECISION.** Coordinator t151 accepted t175's separate packaging-delta review: no confirmed actionable findings in the exact five-path preparation scope. The coordinator had verified actual gpt-6-luna medium; the reviewer ran no tests/build/runtime. This does not change the original Etsy review's one-P2/resolved history or authorize publication/main integration. No release, hosted migration, configuration injection or real Etsy call occurred.
+
+The supplied published baseline is `00fc8c5505c20a801ac63fcc02ee9aa24324a080`, tree `0fb95fdd16f7b58d925ee586a0ce1df48503b4e4`, on `feat/etsy-connectivity`. Initial local HEAD and tracking ref matched; no remote fetch/probe was performed. Its exact132-file build-source digest is `03c6116155885e8ff13bddd2da721af10190cf730eca179a2b0c2f0c739ed0af`. The current two-file **uncommitted development overlay** has digest `ba9c78358a6864e88b78018cf4816af4ed58fa7a49c682b47029408f7695dbba`; it is not an exact00fc artifact.
+
+The initially successful compile/stage concealed an actual operator packaging defect: isolated Linux imports of `ci-migrations.js` and `ci-delivery.js` failed because their transitive local modules were omitted. The coordinator authorized only `stage-operator.mjs`, a focused existing artifact-suite regression and this010 preparation packet. AST inspection found42 reachable public scripts, including19 missing allowlist entries and the explicitly referenced local recovery executable. The repair extends the explicit list, not a copy-all rule. It changes no Etsy business/runtime/SQL code, dependencies, root manifests, release guards or CI platform behavior.
+
+Affected typecheck/build and the new isolated staged-package regression passed1/1. A separate pinned Node24.22.1 Linux/x64, network-none, read-only package smoke passed both imports and the build/delivery no-input CLI boundaries. It also demonstrated the strict old3/new4 readiness mismatch and retired-bridge refusal using public pure contracts, not a live database. The fixed package adds exactly19 files; all prior package files/modes and directories are unchanged. Full provenance, retained failure/success logs and output identities are in [release-preparation.json](release-preparation.json); the actionable guide and transition decision packet are in [quickstart.md](quickstart.md#current-be-release-preparation--packaging-fix-review).
+
+The original24 reviewed Etsy files and immutable review-manifest.json remain unchanged. T023 still describes the original one-P2 review and accepted fix-only resolution, not a new review of this packaging repair. T019–T022/T024–T026 remain open; no checkbox is advanced by preparation.
+
+### Remaining release decision
+
+The public release builder and production workflow require clean, approved `main`/current-main identity and Linux/x64; this branch plus dirty overlay cannot pass those gates. No native Vercel build or release artifact was produced. Public pinned tooling is not claimed unavailable; a long native build/bootstrap was outside this bounded grant and would not resolve source admission.
+
+The existing routine `versioned-migration` path supports an exact additive packet, but it checks predecessor compatibility/readiness both before SQL and after the schema commit. An old strict-three-migration application does not remain ready against the four-migration history. Whether the supplied accepted D2 candidate has a compatible contract was not probed. Obtain an approved, evidence-bound compatible predecessor/transition and recovery decision before SQL; do not weaken readiness, use `current-schema-only` to conceal pending SQL, or replay the retired foundation bridge/f162.
+
+The owner must separately authorize publication/main alignment, clean exact-artifact production build/approval, secure new Etsy runtime injection, the additive transition/release and real consent/read acceptance. Existing registration/access, roles/bootstrap, D1/D2 and login are accepted supplied facts, not setup work to repeat. The D1 foundation-only configuration digest does not attest the new Etsy fields. General FE remains deferred; any bounded Owner API/private-browser consent handoff requires its own ingress/privacy/security approval.
+
+Docs-only closeout updates only this plan, quickstart.md and release-preparation.json. Verification is limited to document integrity and current frozen source hashes; previous test/build/smoke results are retained, not rerun. Both packaging source files, the original24 reviewed Etsy files and historical a925 review manifest remain unchanged. Public preparation failures and before/after output evidence are preserved. Source/docs ownership is returned to t151; STOP WRITES. No new reviewer, source/runtime action, Git operation or external effect is authorized. Native release-artifact availability, migration compatibility/readiness and main integration remain unresolved gates.
+
+## Previous accepted Etsy source closeout — historical
+
 **Status:** READY_FOR_OWNER_NEXT_LAYER — coordinator accepted the confirmed P2 resolution after independent fix-only recheck; T023 complete for this BE increment. Operational prune, FE/browser, hosted and actual-provider gates remain open. Source/docs ownership returned to t151; STOP WRITES.
 **Context:** `feat/etsy-connectivity` at base `a9b3d70ceff042b893fa06877eca197d3d31c06c`, dedicated Etsy worktree. Feature routing labels are not Git branch evidence.
 **Inputs:** [spec](spec.md), [research](research.md), [data model](data-model.md), [contracts](contracts/proposed-api.md), [tasks](tasks.md), [validation](quickstart.md).

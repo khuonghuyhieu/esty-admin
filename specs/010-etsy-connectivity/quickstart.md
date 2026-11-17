@@ -1,5 +1,106 @@
 # Validation Guide: Etsy Connectivity
 
+## Current BE release preparation — packaging fix review
+
+**READY_FOR_SCOPED_PUBLICATION_MAIN_INTEGRATION_DECISION.** Coordinator t151 accepted t175's separate packaging-delta review with no confirmed actionable findings in the exact five-path scope; actual gpt-6-luna medium was coordinator-verified. The reviewer ran no tests/build/runtime. The original Etsy full review remains one P2, resolved through its earlier fix-only recheck; this is a separate review. The supplied published baseline remains `00fc8c5505c20a801ac63fcc02ee9aa24324a080` on `feat/etsy-connectivity`, tree `0fb95fdd16f7b58d925ee586a0ce1df48503b4e4`. Initial local HEAD/tracking ref agreed; no fresh remote probe occurred. The reviewed packaging repair remains an **uncommitted development overlay**, not exact00fc source, merged main or an admitted production artifact.
+
+| Identity | SHA-256 |
+|---|---|
+| Published132-file build-source closure | `03c6116155885e8ff13bddd2da721af10190cf730eca179a2b0c2f0c739ed0af` |
+| Repaired132-file development build-source closure | `ba9c78358a6864e88b78018cf4816af4ed58fa7a49c682b47029408f7695dbba` |
+| Original reviewed24-file Etsy scope, unchanged | `4622d379a53e5090eff488ec80f68bc13f58e6162daa31340d70575102517498` |
+| Historical review-manifest.json, unchanged | `a925080d6d587187c67c0581c9283655ead6711dbabb918cd4dfa0d3f9a3645a` |
+| Pre-fix operator inventory,6307 files/683 directories | `68c27e118d920059981f9d428311bc30011402b46c4e906dc1bc9b88634f195a` |
+| Fixed operator inventory,6326 files/683 directories | `426eaf8bcdf90ad5e3ebe722abb3d4508dff6949a1fa4afc6313b04c26b06ca5` |
+
+The132-file digest uses artifact.ts canonical file records; the24-file digest uses the historical manifest's path/TAB/hash/LF algorithm. They measure different scopes. Exact file records, source deltas, commands, tool/image hashes and retained public evidence are in [release-preparation.json](release-preparation.json). No `.vercel/output` release artifact or exact-artifact approval is claimed.
+
+### Actual bounded checks and retained failure
+
+Initial compile/stage exited0 and copied157 production dependency packages. The isolated pinned Linux smoke then exited1: `ci-migrations.js` could not import `activation-diagnostic.js` through `app-roles.js`; `ci-delivery.js` could not import `activation-recovery-origin.js` through `activation-journal.js`. Successful compilation/staging was not packaging acceptance. The failing package and log remain retained; temporary smoke harness hashes are recorded before their cleanup.
+
+AST analysis followed local imports and declared local executable URLs:42 required scripts,19 absent from the explicit stage list, no absent compiled source file. The coordinator-authorized fix touches only `apps/api/scripts/stage-operator.mjs` and `apps/api/tests/artifact.test.ts`. It copies the exact required public closure, not every script or private input. One regression stages the real package, copies it outside the checkout, imports the staged migration/delivery entrypoints, rejects unapproved schema/workflow context, checks no-input CLI behavior and preserves package inventory. Its package-probe/CLI children have an explicit minimal environment and empty HOME, no NODE_PATH, read access only to the package/probe/guard, no write/child-process/addon permission and network tripwires.
+
+Using the existing exact Node24.22.1 binary with isolated empty HOME/npm config and no install:
+
+```sh
+npm run typecheck --workspace @esty-admin/api
+npm run build --workspace @esty-admin/api
+node --test --test-name-pattern="staged operator imports" apps/api/build/tests/artifact.test.js
+```
+
+All exited0; the targeted regression passed **1/1**, zero failed/cancelled/skipped. The regression itself runs the real stager once. No unrelated suite or database fixture was needed.
+
+A separate actual Linux/x64 execution used the already-present `docker.io/library/node@sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea`, `--pull=never`, `--network=none`, read-only root/package/harness mounts, dropped capabilities and empty HOME. Actual runtime: Node24.22.1, Linux/x64, executable SHA-256 `e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb`. Both staged imports passed; build CLI with no input returned0/ARTIFACT_BUILD_INPUT_REQUIRED, delivery CLI with no input returned1/BE_DELIVERY_NOT_ACCEPTED. Overall PASS/exit0. The exact owned container was removed and absence checked.
+
+This is a Darwin-compiled development operator package exercised in Linux, **not a native Linux Vercel build**, immutable release artifact, provider upload, migration execution or hosted acceptance. No SQL/Auth/provider socket or credential was supplied. Public before/after packages and evidence remain in task-owned external scratch for review; the ordinary ignored build output remains. No shared service/volume was changed.
+
+### Production source/artifact admission
+
+`build-artifact.ts` release mode requires Linux/x64, exact Node24.22.1, clean source, branch `main` and HEAD equal to local `origin/main`. Delivery also verifies actual current-main identity through the provider under later authority. Initial local `origin/main` was `c6d7a17bb9505d824d683667690fa0450a2337f5`; this was a local tracking observation, not a fresh remote-state assertion.
+
+The repair's scoped review is accepted; publication/main alignment still requires its own decision and authorization. Recompute revision/tree/full-source identity for the future approved clean source, then build and approve its immutable native Linux artifact. Do not relabel this overlay as00fc, treat the branch as admitted main, reuse the old source/output digest, deploy the development package, or silently weaken these guards. No long native build/bootstrap was attempted under this bounded grant; pinned public tooling is not claimed unavailable.
+
+### Safe Etsy runtime configuration guide — no injection performed
+
+Existing app registration/access/resources, accepted roles/bootstrap/D1/D2 and corrected Owner login are supplied facts. Do not ask for credentials in chat, re-read original owner/private/auth files, redo account setup or replay accepted foundation actions. Preserve the existing Vercel project/Production environment, accepted database/Auth target, verified Session TLS, application bearer protection and originals.
+
+All Etsy fields below are server-only. Set exact approved values through a separately authorized owner-controlled secure Production-variable channel; do not use shell arguments, history, repository files, public logs/screenshots or `NEXT_PUBLIC_*`. A safe validation report records field names/categories and pass/fail, never values or reversible encodings.
+
+| Field | Exact application contract / decision |
+|---|---|
+| `ETSY_ENABLED` | Absent/`false` disables; only literal `true` enables. Keep disabled pending explicit bounded activation authority. Enabled configuration requires `APP_FOUNDATION_ENABLED=true`. |
+| `ETSY_CLIENT_ID` | Existing registered app identifier, `[A-Za-z0-9_-]{1,256}`; not a newly registered app. |
+| `ETSY_SHARED_SECRET` | Existing app shared secret, `[A-Za-z0-9_-]{1,256}`; not an OAuth access/refresh token. |
+| `ETSY_CALLBACK_URL` | Exactly `https://api.lovora.us/integrations/etsy/callback`. |
+| `ETSY_RETURN_ORIGIN` | Owner-approved canonical HTTPS origin only; no credentials, path, query or fragment, including no trailing slash. |
+| `ETSY_INVITATION_ORIGIN` | Independently approved canonical HTTPS origin with the same origin-only constraints; a configured origin does not create a recipient confirmation page. |
+| `ETSY_INVITATION_TTL_SECONDS` | Explicit decimal integer300–604800, no leading zero; owner selects policy. Distinct from the300-second OAuth attempt. |
+| `ETSY_RETENTION_SECONDS` | Explicit decimal integer300–2592000, no leading zero; no implicit24-hour policy and no automatic prune. |
+| `ETSY_TOKEN_ACTIVE_KEY_ID` | Explicit version identifier `[A-Za-z0-9_-]{1,64}`, present in the keyring. |
+| `ETSY_TOKEN_KEYRING` | JSON object, at most1024 characters,1–4 valid key IDs; each value is exactly43 canonical base64url characters encoding32 bytes. |
+
+For later authorized key creation, generate independent cryptographically random32-byte material on the trusted owner machine (`crypto.randomBytes(32).toString('base64url')` is the existing Node-compatible encoding). Deliver directly to the approved secret store or a new exclusive0600 file inside an owner-controlled0700 directory; do not print it or overwrite originals. A UUID, password or app secret is not an encryption key. Select the non-secret version ID explicitly, securely retain required decrypt keys/backups and verify the active ID exists. No generation, rotation, rewrap, key retirement or pruning was executed here; backup/retention policy remains an owner decision.
+
+Preserve the accepted foundation envelope: strict schema mode, workspace UUID, matching project `/auth/v1` URL and public/publishable Auth key rather than an admin key, explicit retention policy, `API_RUNTIME=vercel`, Session database role/target/CA and64-lowercase-hex application bearer. Keep email/admin credentials absent unless independently authorized; do not copy local API_HOST/API_PORT or operator/deploy credentials into runtime. This is a preservation contract, not permission to read/reconvert/reinject accepted secrets.
+
+The existing activation runtime digest covers foundation fields only: it excludes `ETSY_*`. D1 CURRENT_CONFIG_ATTESTED therefore does **not** attest new Etsy configuration. A later authorized protected candidate must validate its proposed enabled configuration through existing startup `parseConfig`, reporting safe names/categories only; success with Etsy disabled ignores unused Etsy inputs and is not validation of them. New Etsy configuration needs its own evidence bound to the approved source/artifact and secure injection, without changing the old D1 receipt.
+
+Before enabling even a bounded acceptance session, settle exact non-secret origins, expected positive-int64 shop ID, TTL, retention, active key/backup policy, registered callback match and hosted routing/access/log privacy. Neither a keyring nor an invitation URL authorizes shop access or Lovora membership.
+
+### Concrete additive migration/transition decision packet
+
+The current target appends `1794890229976-etsy-connectivity` SHA-256 `45ab221e19b11735809d23d77d6acb86f7c3a983bf2f40c9905ff9a1b5de4688` to the unchanged first three entries. Previous digest: `149cb530551c0f0e2b734c1aa1086eac5615e01ebca152a8203490c8d93200c3`; target four-entry digest: `1abeceddcc07eadf5b7929ed52a786ec8a807a73568f1e214bfab556c3859540`. Exact names/checksums are in the preparation JSON. This is one migration history, not a second foundation setup.
+
+`ci-migrations.ts` already supports an additive `RoutineMigrationPacket` and `BE_DELIVERY_MODE=versioned-migration`. It requires the exact previous prefix, immutable first-three digest, exact approved artifact migrations, packet SHA-256 and migration input digest. Authorization verifies current main/preflight/predecessor and persists reservation; the SQL-only phase compares exact before/pending state under the migration lock and records a confirmed result; continuation rechecks both receipts and predecessor compatibility **after** the schema commit before delivery.
+
+The pure contract smoke observed: old three-entry strict app + three-entry history = ready; old strict app + four-entry history = **not ready**; new strict app + four-entry history = ready. `assertActivationManifest()` also rejects the additive target. This does not inspect the accepted D2 deployment. **Inference:** if that predecessor is the old strict-three contract, the existing after-migration readiness check cannot pass. Supplied D2 acceptance alone is not compatibility evidence for010.
+
+| Required packet/admission input | Current value or required decision |
+|---|---|
+| `version` / delivery mode / schema digest | `1` / `versioned-migration` / exact four-entry digest above, only after authorization. |
+| `revision`, `tree`, release artifact digest | Future approved clean-main source containing the reviewed packaging repair and its native Linux artifact; absent here. Never substitute00fc or the development inventory digest. |
+| `target`, `migrationInputDigest` | Existing approved Supabase target and digest of the exact secure SQL-only envelope, supplied/validated through later authorized handling; no secret input is read now. |
+| `previous`, `migrations` | Exact3→4 lists in preparation JSON; verify authoritative hosted history under later SQL authority rather than assuming it from supplied D2. |
+| `predecessor.id/revision/artifact/configDigest` | Supplied accepted candidate is `dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7`; routine predecessor binding and remaining identities still need authorized evidence. Do not reuse historical f162 identity. |
+| `compatibilityApproval` | Approved evidence for the selected predecessor's readiness/contract before and after this exact transition. Missing; a synthetic hash is not approval. |
+| `recoveryApproval` | Explicit recovery decision for schema committed but candidate/create/promote/acknowledgement failing; no assumed SQL rollback or blind retry. Missing. |
+| `BE_MIGRATION_PACKET_JSON/SHA256` | Canonical completed packet and approved exact digest after the above decisions; no placeholder packet is executable authority. |
+
+**Decision required before any SQL:** supply an independently approved compatible predecessor with exact source/artifact/config binding and both-history evidence, or authorize a narrowly scoped transition design/implementation preserving strict readiness, approvals, phase separation and recovery semantics. Neither alternative is selected or implemented by this preparation. Do not use `current-schema-only` to apply/skip pending SQL, route through the legacy foundation-pinned release/activation bridge, replay roles/bootstrap/D1/D2, disable readiness or consume historical f162.
+
+The existing workflow keeps provider authorization/delivery credentials out of `BE_MIGRATION_INPUTS` SQL execution and SQL input out of provider phases. Preserve serialized migration-before-deploy and exact-artifact consumption. Stop and reconcile durable receipts on unknown outcomes; a committed schema plus an unready predecessor requires the approved transition/recovery plan, not an automatic rerun.
+
+### Later BE-only real acceptance and explicit stopping gates
+
+After source/artifact admission, secure configuration, compatible additive transition and hosted callback/privacy proof, obtain a separate real-Etsy grant. An authenticated current Owner may use an approved private API/harness to create an invitation and explicitly start it, privately handing the returned authorization URL to the intended shop operator within its300-second attempt. The callback can complete BE work independently; the Owner explicitly reads local status and invokes the allowed four-field sync.
+
+This is not an implemented public recipient confirmation GET page or the general FE table journey. Do not bypass origin/CSRF/platform/application protection, put the technical bearer into a browser, spoof Owner identity with a UUID, or expose invitation/token/code/state/authorization URLs in chat/logs. A usable protected private harness and consent-browser handoff must be approved before use. General link sharing/FE adoption stays deferred.
+
+Current evidence stops at **reviewed source fix + development packaging/import proof**. Release-artifact admission, hosted schema/config/release, real-provider pass and overall FE/product acceptance remain separate unchecked gates; migration compatibility/readiness is not solved. T019 remains deferred operational prune; T020–T022/T024–T026 stay open. This closeout changes only plan.md, quickstart.md and release-preparation.json, checks document integrity/current source hashes only, and reruns no tests/build/runtime. Both packaging source hashes, original24/a925 identities and all public failure/output evidence remain unchanged. Source/docs ownership is returned to t151; STOP WRITES. No Git, provider/install/FE/shared-document or new reviewer action is authorized.
+
+## Previous accepted source-review closeout — historical
+
 **P2 resolution accepted; READY_FOR_OWNER_NEXT_LAYER.** Coordinator t151 accepted the exact fix hashes and t175's independent FIX-ONLY recheck, which found no further confirmed actionable finding in that scope. The original full review remains one confirmed P2, now resolved; operational prune remains deferred. T023 is complete for this BE increment. Existing runtime evidence and all failures below are historical actual results, not rerun during docs-only closeout.
 
 ## BE-first acceptance packet — FE deferred by owner

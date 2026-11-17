@@ -1,0 +1,1446 @@
+{
+  "status": "READY_FOR_SCOPED_PUBLICATION_MAIN_INTEGRATION_DECISION",
+  "writerTerminal": "t15j",
+  "coordinatorTerminal": "t151",
+  "reviewerAuthority": "Coordinator t151 accepted t175's completed narrow packaging-delta review; no reviewer started by writer.",
+  "selfHash": "Not embedded; final SHA256 is supplied in the coordinator freeze receipt.",
+  "packagingReview": {
+    "acceptedBy": "t151",
+    "reviewerTerminal": "t175",
+    "model": "gpt-6-luna",
+    "reasoningEffort": "medium",
+    "actualModelVerifiedByCoordinator": true,
+    "result": "No confirmed actionable findings in the exact five-path preparation scope.",
+    "scope": "The five paths in scope below; separate from the original Etsy one-P2/resolved review.",
+    "reviewedPreparationManifestSha256": "8762a09305497959cd38c43773bf9ebb51743c7a19076a947e5e1a0d774ccdc7",
+    "reviewerTestsBuildRuntime": false,
+    "sourceChangeRequired": false
+  },
+  "docsOnlyCloseout": {
+    "authorizedPaths": [
+      "specs/010-etsy-connectivity/plan.md",
+      "specs/010-etsy-connectivity/quickstart.md",
+      "specs/010-etsy-connectivity/release-preparation.json"
+    ],
+    "verificationScope": "Document integrity and current frozen source hashes only; no test/build/runtime rerun.",
+    "sourceAndHistoricalReviewIdentities": "Unchanged; both packaging files, original24 and a925 manifest retained.",
+    "preparationFailuresAndOverlayLimits": "Preserved; no native release artifact, solved migration readiness or merged main is claimed.",
+    "ownershipReturnedTo": "t151",
+    "writerState": "STOP WRITES",
+    "nextDecision": "Separately scoped publication/main integration; no Git or external action is authorized by review acceptance."
+  },
+  "scope": [
+    "apps/api/scripts/stage-operator.mjs",
+    "apps/api/tests/artifact.test.ts",
+    "specs/010-etsy-connectivity/plan.md",
+    "specs/010-etsy-connectivity/quickstart.md",
+    "specs/010-etsy-connectivity/release-preparation.json"
+  ],
+  "publishedBaseline": {
+    "revision": "00fc8c5505c20a801ac63fcc02ee9aa24324a080",
+    "tree": "0fb95fdd16f7b58d925ee586a0ce1df48503b4e4",
+    "branch": "feat/etsy-connectivity",
+    "localTrackingRefMatchedAtStart": true,
+    "remoteFetchedOrProbed": false,
+    "localOriginMainAtStart": "c6d7a17bb9505d824d683667690fa0450a2337f5",
+    "sourceFileCount": 132,
+    "sourceDigest": "03c6116155885e8ff13bddd2da721af10190cf730eca179a2b0c2f0c739ed0af",
+    "baselineReconstructedExactlyWithOnlyTwoOriginalPublicFileBlobs": true
+  },
+  "developmentOverlay": {
+    "committed": false,
+    "releaseArtifact": false,
+    "sourceFileCount": 132,
+    "sourceDigest": "ba9c78358a6864e88b78018cf4816af4ed58fa7a49c682b47029408f7695dbba",
+    "algorithm": "SHA256(artifact.ts canonical(sourceFiles(repository)))",
+    "files": [
+      {
+        "path": "apps/api/config/held-app-probe-binding.json",
+        "mode": 420,
+        "size": 1184,
+        "sha256": "9d1b22126d8f284df8a435a002025b181c60c06084a233fd77324448cdfafcc1",
+        "sha1": "b32b17f8b240996fcd079f3d06d1b1d97738c1c2"
+      },
+      {
+        "path": "apps/api/config/hosted-target.example.json",
+        "mode": 420,
+        "size": 297,
+        "sha256": "d671689ae219e6bd7e7d6425d8b1c62a93a48dd02293e0ac7bbdf330f12f61a7",
+        "sha1": "a0a7b545cf6c3d321a03fec0c57ca11993fc8350"
+      },
+      {
+        "path": "apps/api/migrations/1792972800000-foundation.mjs",
+        "mode": 420,
+        "size": 125,
+        "sha256": "c3374f370c42d8543bde5771d4cddd91990e643e8969fcaf4bf1c5ffe3e4e851",
+        "sha1": "93849d0feb5d3b4712fa2b96ad802a635db97005"
+      },
+      {
+        "path": "apps/api/migrations/1792972800001-app-foundation.mjs",
+        "mode": 420,
+        "size": 9374,
+        "sha256": "4416736cb809720359dd0d650a3d530e6c3836be683f7c1700a8da8138df9608",
+        "sha1": "2dfbee1d5516fb198431ecd59afca083d7fd0eee"
+      },
+      {
+        "path": "apps/api/migrations/1792972800002-app-session-check.mjs",
+        "mode": 420,
+        "size": 1099,
+        "sha256": "49316100a5c98a852ef28ccb99d6e2a4306da9d5baf9631d4643a26d9d1c82f2",
+        "sha1": "ddb0866a2e055a98ef7ae37d2c5118359b7c3a21"
+      },
+      {
+        "path": "apps/api/migrations/1794890229976-etsy-connectivity.mjs",
+        "mode": 420,
+        "size": 10762,
+        "sha256": "45ab221e19b11735809d23d77d6acb86f7c3a983bf2f40c9905ff9a1b5de4688",
+        "sha1": "f73f2049e40ee84ffb0ee8bf4341fd809a7aac4e"
+      },
+      {
+        "path": "apps/api/package.json",
+        "mode": 420,
+        "size": 2586,
+        "sha256": "bad7abbf46f45ecd13b6af936b14d9babfef5b269563ffc8283a3d0dd66ef4f8",
+        "sha1": "248d28c9dc4c9d2749701815d3c9eafd17649ec1"
+      },
+      {
+        "path": "apps/api/scripts/activation-archive-transport.mjs",
+        "mode": 420,
+        "size": 2182,
+        "sha256": "d55de41a0d0eec9a71fd345672466ba0166aeb44be40c22d9f03356658e2e1b6",
+        "sha1": "826281d1e11227f933aab741a8a1fdff18bf74c1"
+      },
+      {
+        "path": "apps/api/scripts/activation-candidate-probe.mjs",
+        "mode": 420,
+        "size": 17631,
+        "sha256": "e6777d08e5d5c84dc4b15bc857051ac8c904127b850b19eca56a16613fd5238d",
+        "sha1": "5bde444aa8bc094b76818439c57d86449906d846"
+      },
+      {
+        "path": "apps/api/scripts/activation-candidate-recovery.ts",
+        "mode": 420,
+        "size": 24775,
+        "sha256": "3c81337aa4ce65b56533efcfb0dabfc0e864daa3f64811ca8134d29db982d5d2",
+        "sha1": "183c6b1be7bac665fc30bfb20a5df3f667d6351a"
+      },
+      {
+        "path": "apps/api/scripts/activation-configuration.ts",
+        "mode": 420,
+        "size": 22720,
+        "sha256": "7249557df620dd058ad401ce7767530b8350d04a92838a62913316c9d7220fef",
+        "sha1": "6584137630d67eb7b6e3d9b1be342b21685ab1cb"
+      },
+      {
+        "path": "apps/api/scripts/activation-diagnostic.ts",
+        "mode": 420,
+        "size": 16200,
+        "sha256": "a06fb93dae8b6e0c04ca3c0787adb436c3ffd9628c1f7ac9134714535d663bbc",
+        "sha1": "aa02ba22d4aec5b15eb8b1afa89fb51105638506"
+      },
+      {
+        "path": "apps/api/scripts/activation-held-contract.mjs",
+        "mode": 420,
+        "size": 6210,
+        "sha256": "abb42cf3501608f644eeee672d91b20b1dc3545310730d2ddb8570b3fd5d1681",
+        "sha1": "50d27ddd1257982e75bd400115c0682355b5be51"
+      },
+      {
+        "path": "apps/api/scripts/activation-held-correction-contract.mjs",
+        "mode": 420,
+        "size": 3482,
+        "sha256": "e299b0abdfe4f98bbefe4f6449c8d0c51c6d1f4b007e3377e95247cad9ff9419",
+        "sha1": "925fbd4a9a95d9962ea229212c8d82da39808e8b"
+      },
+      {
+        "path": "apps/api/scripts/activation-held-correction.ts",
+        "mode": 420,
+        "size": 15027,
+        "sha256": "a334191f038da22ed15f60216de3ee4a79475fa318dbeff1ec75aa2e547fa4a1",
+        "sha1": "735cd7c5ff2d4bac5de5f122a4a1a4926dd9c9f4"
+      },
+      {
+        "path": "apps/api/scripts/activation-held-database-repair.ts",
+        "mode": 420,
+        "size": 14758,
+        "sha256": "1afdb6d99155066458c7e57e0d1740fe1467bfd7bd80737d36a88ad6f257fbb4",
+        "sha1": "da0d0b5842ba1bec833a6246a91a9a21bdd03e11"
+      },
+      {
+        "path": "apps/api/scripts/activation-held-proof.ts",
+        "mode": 420,
+        "size": 13537,
+        "sha256": "42c00462f978c7ea9b637a0608047982a61553854267ab4ac866205ac57803fc",
+        "sha1": "cf49e26541e63db766b42b908a29b1f834185fb0"
+      },
+      {
+        "path": "apps/api/scripts/activation-held.ts",
+        "mode": 420,
+        "size": 23426,
+        "sha256": "10ceecf85eb9189ab7fe709398eb983b6621cb2885a6c08f2e76a99eefa3bfb4",
+        "sha1": "7a5c5cb5d7089a2bb0642473e359ede5aa3cb83b"
+      },
+      {
+        "path": "apps/api/scripts/activation-input-helper.ts",
+        "mode": 420,
+        "size": 97822,
+        "sha256": "e57dec13c0ac07df75e6b433e2de58cd4ff828447f81b6b45633247e629438c2",
+        "sha1": "943a5ff22f82f91ac4da04b6bb75076fb7a9da78"
+      },
+      {
+        "path": "apps/api/scripts/activation-input-launcher.mjs",
+        "mode": 420,
+        "size": 12909,
+        "sha256": "5acec088fb25fedef9e99a27cac960d34f0df4bd5623341df204afd5af894e88",
+        "sha1": "69784952d1d112b4fb41424fe17ed5729aefdbcd"
+      },
+      {
+        "path": "apps/api/scripts/activation-input-transfer.ts",
+        "mode": 420,
+        "size": 45104,
+        "sha256": "64998c13a58632a43adbd7a76e6c735f30df7fafb2a4992f0fa29eb07dc27034",
+        "sha1": "79e7721b41c636c887fd213fb63a45d261990cb6"
+      },
+      {
+        "path": "apps/api/scripts/activation-inputs.ts",
+        "mode": 420,
+        "size": 7243,
+        "sha256": "3cdebbbf84a8188d2b843c09f2d0e2810654993b02731182a0089bf0e7f08726",
+        "sha1": "6d7842a0a35fb658aafaa7a4af35e54776127175"
+      },
+      {
+        "path": "apps/api/scripts/activation-journal.ts",
+        "mode": 420,
+        "size": 59183,
+        "sha256": "acc4db6aec5e97ee62d8980eb0b0cce3bd88072d82e4cbbdd832640f1b4775a9",
+        "sha1": "571fcc0bd06e83544643a44ebe92d68ac60ba3d8"
+      },
+      {
+        "path": "apps/api/scripts/activation-preflight-disposition.mjs",
+        "mode": 420,
+        "size": 20978,
+        "sha256": "ca1e194c6a5675513147cabcdff55b6744dfa08a64ea18d038f2709c0b963e19",
+        "sha1": "7f8402bcdf3637e4b11822762565ec895ba4a396"
+      },
+      {
+        "path": "apps/api/scripts/activation-recovered-provider.ts",
+        "mode": 420,
+        "size": 16420,
+        "sha256": "bbfbde680f90c9d159248a57417f3e1cbd991150a28a8a5dfabfbb0095ce7f04",
+        "sha1": "17906183e8255febb1348f2e51cdd2646f79ed54"
+      },
+      {
+        "path": "apps/api/scripts/activation-recovery-io.ts",
+        "mode": 420,
+        "size": 12781,
+        "sha256": "2e37f6798b963c465a2fb42f5d0f075464347c084e412a050ce4d7a41d7fab41",
+        "sha1": "e10d0bf9a85c4fec6855992a6cbc7fb159fe29e5"
+      },
+      {
+        "path": "apps/api/scripts/activation-recovery-origin.ts",
+        "mode": 420,
+        "size": 14818,
+        "sha256": "9b925f22a7718aa5c52e26342263072b1abdae49ebc56b3324c0ef674545439b",
+        "sha1": "4d68323a7c46549f9cd99a8ad32b64418f125bc9"
+      },
+      {
+        "path": "apps/api/scripts/activation-recovery-tool.mjs",
+        "mode": 420,
+        "size": 1167,
+        "sha256": "cf12e6a04efbb2546bac1079a6abd94ceb38e19f7761ef9bd75ad9cfbfb2560f",
+        "sha1": "aefd9a5e38c6c38dd525e40d7fb83691e2932998"
+      },
+      {
+        "path": "apps/api/scripts/activation-retained.mjs",
+        "mode": 420,
+        "size": 17662,
+        "sha256": "be54298fc6bcabc24c27f5340036ad37c7ac444c2d425def661fafc9134bb3cc",
+        "sha1": "fa0af43f348202a1c3b72ac3484649ecd3ba905e"
+      },
+      {
+        "path": "apps/api/scripts/activation-schema-diagnostic.ts",
+        "mode": 420,
+        "size": 5386,
+        "sha256": "c061653cd91e556a60be546fd392d9fd56cf2f6505d4600142070235d75c35a4",
+        "sha1": "5d8ec3d9a467bf4a5c56984f28ceaa8a69e858ae"
+      },
+      {
+        "path": "apps/api/scripts/activation.ts",
+        "mode": 420,
+        "size": 124009,
+        "sha256": "a8934ac40aa4d749b9b12013a91ae981225b2f6678ad253354c58b62016ec8c8",
+        "sha1": "0fb0dcbc6789c76343066747ab7870f1bd17b7d4"
+      },
+      {
+        "path": "apps/api/scripts/app-fixture-diagnostics.mjs",
+        "mode": 420,
+        "size": 6038,
+        "sha256": "f66b08ccafd2c508e1c7901cc8a417a6d8c7b26ba645bd15fedd4fb1df12ec1e",
+        "sha1": "3b4df5680ca2ddbcc525ceec36987f657e8335c0"
+      },
+      {
+        "path": "apps/api/scripts/app-fixture-forward.mjs",
+        "mode": 420,
+        "size": 12547,
+        "sha256": "7148ac642a1bd72a176eb4cc08129d0e63361379f37395ccd3a38375bf0e0240",
+        "sha1": "860b0e59ddb3a4ca2ed78888f7d71292775ff7c1"
+      },
+      {
+        "path": "apps/api/scripts/app-fixture-profile.mjs",
+        "mode": 420,
+        "size": 1463,
+        "sha256": "9f403ffae8b4141ad4cd2a1bf76c433a8c6907d64459347c450e4618f7e52b0e",
+        "sha1": "215e74325d036348d3f8fd6175cbd7db0d2f01c0"
+      },
+      {
+        "path": "apps/api/scripts/app-fixture.mjs",
+        "mode": 420,
+        "size": 11614,
+        "sha256": "74fe51e57ecffb24561efcc0f5c440ea34f1507efa266fb2368ae93017a797de",
+        "sha1": "3c82392035554ac828e11493efebe691be8f959a"
+      },
+      {
+        "path": "apps/api/scripts/app-roles.ts",
+        "mode": 420,
+        "size": 25203,
+        "sha256": "bc067e9709dc2733f730f06d07fcc68977d2fc3ba02d3f0dc0a129f4b1e5278a",
+        "sha1": "863169c3106d7b42ad27517ddb0b92decd9397df"
+      },
+      {
+        "path": "apps/api/scripts/artifact.ts",
+        "mode": 420,
+        "size": 21886,
+        "sha256": "f8ecfc5f6e7403639e263188959383ac3ce12d35ac1322800ce6bc6e0d505077",
+        "sha1": "874449c94c013ce25de88f1a5554ddccdbf0c8bf"
+      },
+      {
+        "path": "apps/api/scripts/bootstrap-app-owner.ts",
+        "mode": 420,
+        "size": 5179,
+        "sha256": "880b6fba39602b85660b46cc71285989d59e9d7bec7f2ebd8eaa62a2e0e7f7ff",
+        "sha1": "4a33165242a9a6a0f68e7836e7e74ccf1836001f"
+      },
+      {
+        "path": "apps/api/scripts/bounded.ts",
+        "mode": 420,
+        "size": 472,
+        "sha256": "8d9cf5838211da0657651caef0c3350e54a203458b14033f94f4141e9c592bfe",
+        "sha1": "958ad748508c9ef6b596c93ca5e1f999cf39f587"
+      },
+      {
+        "path": "apps/api/scripts/build-artifact.ts",
+        "mode": 420,
+        "size": 11975,
+        "sha256": "378f1f8f4fef44087e6e9e57b672da13e08c8076092fdcbee52f2ddea82de8a3",
+        "sha1": "7dfbfbcb4ab9f465a44720ced827913df55b320c"
+      },
+      {
+        "path": "apps/api/scripts/ci-archive.ts",
+        "mode": 420,
+        "size": 4472,
+        "sha256": "d8d78fba581cc9df7fad18f0081ad97cd658e316c5527ec6103b222d4221c52a",
+        "sha1": "8ced17c0cb694d8491df4c98544c7e3fb46b50b4"
+      },
+      {
+        "path": "apps/api/scripts/ci-delivery.ts",
+        "mode": 420,
+        "size": 17426,
+        "sha256": "dcc2c1b64cee1e3f50bb1e90f5d49368d7d5cebcfdc417176693a71c7583b24a",
+        "sha1": "6096cfbc5adfb5617e11f55c176be6f50ca4f5ca"
+      },
+      {
+        "path": "apps/api/scripts/ci-migrations.ts",
+        "mode": 420,
+        "size": 10615,
+        "sha256": "709537e7fd6ef1e2f67481c71ef9e274a1aa64dfc9888a6538723e71353b2132",
+        "sha1": "6989fefcad15a30a3996d6f0381d7a8c9e758159"
+      },
+      {
+        "path": "apps/api/scripts/ci-provider.ts",
+        "mode": 420,
+        "size": 22851,
+        "sha256": "3bb931055aa3d8a7051dc1dfa58b36a7a5ca7a6081b6d7f9e5e78b6eecb3f975",
+        "sha1": "521fad939bedd4eec9288fce17d9a75f68a96ce4"
+      },
+      {
+        "path": "apps/api/scripts/ci-tools.ts",
+        "mode": 420,
+        "size": 6129,
+        "sha256": "b02feddc2b661806d643131e9355ca3a2305bc9d0c07b05dbc79d6fe945e5cdf",
+        "sha1": "b9daeea4f2c5ee0db25b3b0025bbce0abf70c9dd"
+      },
+      {
+        "path": "apps/api/scripts/ci.ts",
+        "mode": 420,
+        "size": 5356,
+        "sha256": "d0559510ddc059d6c84f9c797b3a75c590bc53e8abf12f2a3dc74d1a1adff855",
+        "sha1": "b5c436ff07e34954ae8623c29c4bf50498379cdd"
+      },
+      {
+        "path": "apps/api/scripts/clean-build.mjs",
+        "mode": 420,
+        "size": 287,
+        "sha256": "e717d077ef8a18c065ae4117783aed2a08ec4939228ed0f132cad95348b9e8ae",
+        "sha1": "db751444b44fb5e9ed154dd411f7f0c51731d2ed"
+      },
+      {
+        "path": "apps/api/scripts/codegen.mjs",
+        "mode": 420,
+        "size": 842,
+        "sha256": "25b5fccc7e1eed110cd384354e4d943e0997e387c9f7ef06ecf550c0e4f85c05",
+        "sha1": "8e02073b0bb21446c9138bcb42f72a484d85f8d2"
+      },
+      {
+        "path": "apps/api/scripts/etsy-codegen.mjs",
+        "mode": 420,
+        "size": 3273,
+        "sha256": "0846c7aefdd614a5aa674bd358344cf35d5a9c4d7665e2c0c8025706288b5f21",
+        "sha1": "374298091cb5664d4d3d098489120bffd218bc68"
+      },
+      {
+        "path": "apps/api/scripts/etsy-local-check.mjs",
+        "mode": 420,
+        "size": 3607,
+        "sha256": "98230aaf57d045becc6954c3d3cb20210ebc91ec4dd296eedbbdea7c61daa1bc",
+        "sha1": "2a23c13bfcd87babf2c5a5161aef5da51a218b16"
+      },
+      {
+        "path": "apps/api/scripts/hidden-input.mjs",
+        "mode": 420,
+        "size": 3239,
+        "sha256": "5397e5a445d55679e60489537f4bb3408eafe9fb7334b965eb88dd6d3e707a7d",
+        "sha1": "a3928af478f3a3c0363986e025f08fe27dfac7e7"
+      },
+      {
+        "path": "apps/api/scripts/hosted-acceptance.ts",
+        "mode": 420,
+        "size": 2800,
+        "sha256": "a531962762af89fa936648d33201da09f52bc7c31d59e613bf4cc52d7e3bfe80",
+        "sha1": "e4828aed87524452c95aa0684e30ce4865333192"
+      },
+      {
+        "path": "apps/api/scripts/hosted-config.mjs",
+        "mode": 420,
+        "size": 1494,
+        "sha256": "d9b7a3677af4c1488bae058a39a2e7697bb1ca36fbec56e85f1d95ed1005da3a",
+        "sha1": "2b9b76862be75210c2bdf8f16b6bc9bff7ad873b"
+      },
+      {
+        "path": "apps/api/scripts/manual-activation.mjs",
+        "mode": 420,
+        "size": 12653,
+        "sha256": "eaf98a5d337828fc96f0fd58a9173f52c0d1077c4de6d52c412ea292ab88586f",
+        "sha1": "8b82cdf3bdb47332b6006dfec349b93bab3efcef"
+      },
+      {
+        "path": "apps/api/scripts/migrate.ts",
+        "mode": 420,
+        "size": 2142,
+        "sha256": "4ebeb3c74d46662c0e27a51cef59dd2275b316a81d4d867004bd1bab9333533b",
+        "sha1": "7804cfda04fb40ac93cd515fbf3059315814047f"
+      },
+      {
+        "path": "apps/api/scripts/migration-files.mjs",
+        "mode": 420,
+        "size": 1360,
+        "sha256": "f9142d4958fdf5a0f69431a2f4e2640bfd9bff211b3f9322f35dd6db924aa01f",
+        "sha1": "5ea894dc8125526f219875c42fa05bfbc4c0cc7b"
+      },
+      {
+        "path": "apps/api/scripts/migration-manifest.mjs",
+        "mode": 420,
+        "size": 1044,
+        "sha256": "5c38c3c3f717dff7294376478f36dbd7fbdbbb3a5ef2e38a802e421ea5c65642",
+        "sha1": "c252ccd22357b98702b28a295243aa9561ad01e3"
+      },
+      {
+        "path": "apps/api/scripts/migration-report.ts",
+        "mode": 420,
+        "size": 1045,
+        "sha256": "f03e8a41713dfb83139dc945c4b4fbfa31bc936fbfc76d7908a64022f14fa073",
+        "sha1": "0f2af55ae3a738bbb22566f03f074f724c3d9ef3"
+      },
+      {
+        "path": "apps/api/scripts/migration-status.ts",
+        "mode": 420,
+        "size": 864,
+        "sha256": "4dabf514defe3b2b0c77a839f7b184b1574b7b724a485a47388e9a27eb499877",
+        "sha1": "91aac6c7b603a639f675e687547064412e0df780"
+      },
+      {
+        "path": "apps/api/scripts/migrations.ts",
+        "mode": 420,
+        "size": 10155,
+        "sha256": "633fccf9b58426d92a5b80b26c1bbe481124e7e12f32ad61d5ec3ebe53d7e0cb",
+        "sha1": "04ed5d5e301e1470f3c92dc673b21b42315212bf"
+      },
+      {
+        "path": "apps/api/scripts/prepare-vercel-config.mjs",
+        "mode": 420,
+        "size": 2543,
+        "sha256": "1ba9df9bcdeebe0a83652f03d694f4a913ec9d6cae0594c49c3516dc8c4aa0a5",
+        "sha1": "4862466cbd9dfe09f98cb5e036c152aff9647db6"
+      },
+      {
+        "path": "apps/api/scripts/private-files.mjs",
+        "mode": 420,
+        "size": 2313,
+        "sha256": "a3d1902ec00ca083f9ce1652dfdce2092fad2180edecd6cb2fdcef303d957b7f",
+        "sha1": "8d12b8f1f2bafbec75a860449199166bd30c6247"
+      },
+      {
+        "path": "apps/api/scripts/release-core.ts",
+        "mode": 420,
+        "size": 14185,
+        "sha256": "111708faa308fd43a961cbdcdfd8f55a0ac4b71f413504749978b9e7afb3e392",
+        "sha1": "076ceab9404d77d599001a8563bf1114c59def10"
+      },
+      {
+        "path": "apps/api/scripts/release-journal.ts",
+        "mode": 420,
+        "size": 16350,
+        "sha256": "f2809735ab05d0e38f1d222bd720628ca6f57cb35b415b2d05048f69ad3da6dd",
+        "sha1": "b5eacf0379a464652b40018212737c71d9e137da"
+      },
+      {
+        "path": "apps/api/scripts/release.ts",
+        "mode": 420,
+        "size": 8801,
+        "sha256": "dbcce5c1be1393c81ac51221f2bb27cd9c928fc16a66a3a6a9e21a4213e0577d",
+        "sha1": "ad1c0c5d15c9dffa91ae0e5a97a59f11b2a0f138"
+      },
+      {
+        "path": "apps/api/scripts/stage-operator.mjs",
+        "mode": 420,
+        "size": 5061,
+        "sha256": "0532f02c8e442895fe753db57890a67f33e29273bdaf2ac922af204b6e09cf95",
+        "sha1": "0dbb6eb0a1f913c5b198b55d8c85fa31a29a3a90"
+      },
+      {
+        "path": "apps/api/scripts/supabase-local.mjs",
+        "mode": 420,
+        "size": 4621,
+        "sha256": "26f0dd091f3e6e99f8963a3d1e949543af19bccc7124b4805747b9bc40ad24db",
+        "sha1": "eafa225ff89988e79aa2075fdaebf7ad41452bc4"
+      },
+      {
+        "path": "apps/api/scripts/vercel-config.mjs",
+        "mode": 420,
+        "size": 3316,
+        "sha256": "0fa537837cbcd6dc910602514cb9ede0770091e591bd92c379f480ce439526d0",
+        "sha1": "92cf30bbd016edae22dd1ffa0ff64fd17802c9be"
+      },
+      {
+        "path": "apps/api/scripts/vercel-deploy.ts",
+        "mode": 420,
+        "size": 16131,
+        "sha256": "ade99c7317e7e9155d99fd5b1ce3b01eca7a74ac38069bcf97e245c7be236c68",
+        "sha1": "4a30e1241eb6d0c077f9a64e483f62903fb73fd6"
+      },
+      {
+        "path": "apps/api/src/app-foundation/adapters/auth-admin.ts",
+        "mode": 420,
+        "size": 4288,
+        "sha256": "12629b12ef4e42fba587d600ca110cf592f430bfb30073228f53a0a0ff2a502f",
+        "sha1": "f03657f4b7cd7c48fe2023a60c2b0cc296306cce"
+      },
+      {
+        "path": "apps/api/src/app-foundation/adapters/auth-http.ts",
+        "mode": 420,
+        "size": 2393,
+        "sha256": "5f333bca800feaeed6ae435701ad9502e7fa7e183500a9ad7b6cc63717f1d2a4",
+        "sha1": "8188512aaa8244431e1f46e00117bb6786aa680b"
+      },
+      {
+        "path": "apps/api/src/app-foundation/adapters/auth-verifier.ts",
+        "mode": 420,
+        "size": 3664,
+        "sha256": "f47e5e4a528842698751cffce592789e63999f83194004cd91f8702a5b84fa38",
+        "sha1": "5f9084ce9a45a5d1e4d6e588f0a6dc9cf392b61f"
+      },
+      {
+        "path": "apps/api/src/app-foundation/adapters/postgres.ts",
+        "mode": 420,
+        "size": 3351,
+        "sha256": "cc88094692b293ea86063261d0181533ee0f5f6b2ceceef9290dd5296609d0dc",
+        "sha1": "2d7fc60f078bf8f5f51bee939da800976e86b593"
+      },
+      {
+        "path": "apps/api/src/app-foundation/application/errors.ts",
+        "mode": 420,
+        "size": 1069,
+        "sha256": "a87b489439451df2bb94eb6c2fd960b1dbb0e540002c45a18a2633d0e920ea44",
+        "sha1": "32f49249b6bf7117e251b28527d1459775884a57"
+      },
+      {
+        "path": "apps/api/src/app-foundation/application/policy.ts",
+        "mode": 420,
+        "size": 1154,
+        "sha256": "9623578ba1f416faaaba28243ab12b9387813a432fd69d75f1e2c3838891067f",
+        "sha1": "7ad5d7e3ffa99619d99d70a69a0f20327b4145ca"
+      },
+      {
+        "path": "apps/api/src/app-foundation/application/service.ts",
+        "mode": 420,
+        "size": 28317,
+        "sha256": "bac2dd48c147d7fa35a3a895227fae50bd561419060978f7d08d088d4c498693",
+        "sha1": "5288d0a045c2881a4884a866fe8b985544999416"
+      },
+      {
+        "path": "apps/api/src/app-foundation/application/validation.ts",
+        "mode": 420,
+        "size": 1994,
+        "sha256": "5d71fd7e2b16c965aa491f6a554ebe55e54bb28650af20a84352c87801a75f7d",
+        "sha1": "8bb2e5f308fa0b4239e38ce6b84477a68248e1fb"
+      },
+      {
+        "path": "apps/api/src/app-foundation/transport/auth-guard.ts",
+        "mode": 420,
+        "size": 2166,
+        "sha256": "0ac9a5d96497450b6a35446ec6f79ce3a85700035226681ec22284dab7d115cc",
+        "sha1": "491bfade751dd66470b991c60aed520006f07cc2"
+      },
+      {
+        "path": "apps/api/src/app-foundation/transport/controller.ts",
+        "mode": 420,
+        "size": 3276,
+        "sha256": "3e0838a722e149db141650c69a09988ed668e79778e5ed1279b6a28db65085c8",
+        "sha1": "3a236d170cd7288207f48bdb557dca6a4cdd4406"
+      },
+      {
+        "path": "apps/api/src/app-foundation/transport/error-filter.ts",
+        "mode": 420,
+        "size": 1647,
+        "sha256": "af7bd6fc9539d386a5d765858b3f9f8cd8f96109007fc9dbacc03652adaa3923",
+        "sha1": "ba38cb250029f2f891a89b3721e197f675665c98"
+      },
+      {
+        "path": "apps/api/src/app.ts",
+        "mode": 420,
+        "size": 4091,
+        "sha256": "f8a486e02a71cf89d57ef2b365dbdf2fe26293d55f7c01b27726c64c21fff412",
+        "sha1": "5beaaf45390220ebbc7cc97abedf9d757d43a462"
+      },
+      {
+        "path": "apps/api/src/config/activation-config.ts",
+        "mode": 420,
+        "size": 1230,
+        "sha256": "86fe1a97a7130e04a37f4bf585656277cc7a588cc87727d0fc4f08581e9964e6",
+        "sha1": "4545591f14f8d8abc3409cdfc00dcbced9493385"
+      },
+      {
+        "path": "apps/api/src/config/config.ts",
+        "mode": 420,
+        "size": 21965,
+        "sha256": "ac735f6b7d573e476f020543414b839bb710100a5f1138f0e815456652d490b6",
+        "sha1": "928d88e23706a03344faef03a89096265d6d348d"
+      },
+      {
+        "path": "apps/api/src/config/schema-transition.ts",
+        "mode": 420,
+        "size": 2411,
+        "sha256": "222919e2ac821bc16fcfc39a0cc008b2eae59a80e68858ac9631278e93736762",
+        "sha1": "a73f3d74048ad1884e41183823c3d33579eac985"
+      },
+      {
+        "path": "apps/api/src/connectivity/adapters/postgres-diagnostics.ts",
+        "mode": 420,
+        "size": 3825,
+        "sha256": "548a2a195c64d43a8bc982e9c675b7785ba64b824c8e9d832bb58097657d67e1",
+        "sha1": "e5fcf2776658ed5dff6ad9f93da6ba70f491d937"
+      },
+      {
+        "path": "apps/api/src/connectivity/adapters/postgres.ts",
+        "mode": 420,
+        "size": 4432,
+        "sha256": "5d945116449a37bc21b947e8ccc5ea1133bdaf17e1ab6db515f70562b32de514",
+        "sha1": "3609bcc81a8af36f644427266f937f0112cd5037"
+      },
+      {
+        "path": "apps/api/src/connectivity/application/readiness.ts",
+        "mode": 420,
+        "size": 394,
+        "sha256": "dfab79cce1735e3647cea7eb9bff5bb4b5a172797f626aa95dbd8d53acdae6e2",
+        "sha1": "7e5e6a7da7dc81cc33be1ec37195dc23ff49094f"
+      },
+      {
+        "path": "apps/api/src/connectivity/transport/health.controller.ts",
+        "mode": 420,
+        "size": 1296,
+        "sha256": "a236b0dfdcd838bf06f2fb80380009faa1877ce32dce3169d146467cd126c148",
+        "sha1": "995e8bb27f42b3287d1e5d5d657a40079dd77a41"
+      },
+      {
+        "path": "apps/api/src/etsy/controller.ts",
+        "mode": 420,
+        "size": 1983,
+        "sha256": "01964d3c0c37147af3f85f9041d5f8771c9fa75915d689e5845ef51ce05adc70",
+        "sha1": "085d5693726ff9ca9780553f15b5d1c42e2500b7"
+      },
+      {
+        "path": "apps/api/src/etsy/credentials.ts",
+        "mode": 420,
+        "size": 2488,
+        "sha256": "8301bd71ad3ec4bcd3bf7d2f6d0ef091cd8c39c50001d895a29082744c804090",
+        "sha1": "a624ca8e7a98ab94ce4d93790defdc8c840251a8"
+      },
+      {
+        "path": "apps/api/src/etsy/ingress.ts",
+        "mode": 420,
+        "size": 5816,
+        "sha256": "65b16e38e28e7e1f9a7f90347a7923f9a87324bca72f0ab24bed2c70a8155924",
+        "sha1": "7a854bbdbc6af8e6914c0a1d60044ad6cfcd1525"
+      },
+      {
+        "path": "apps/api/src/etsy/provider.ts",
+        "mode": 420,
+        "size": 7077,
+        "sha256": "ca7d6690a2eab5784c8b579dec22be98e76722f285f876f0edd1939c1a87388d",
+        "sha1": "60490a7deab1c5d60f2aaa42022deb77eb94468f"
+      },
+      {
+        "path": "apps/api/src/etsy/service.ts",
+        "mode": 420,
+        "size": 38081,
+        "sha256": "ed7f195ca88b5feda6db4fc4ad1bef46a7613417bb36ccb13547f46752ac2d3d",
+        "sha1": "25f4909fbc738a5b75adb522456ecdc203a66f72"
+      },
+      {
+        "path": "apps/api/src/generated/api.ts",
+        "mode": 420,
+        "size": 40898,
+        "sha256": "690c5c356e9698b1f4eedb31d0bed90b1ebef6eacb20a5434df599f07d6aba4b",
+        "sha1": "fa6b088c2ce5b9f311ea58587e9c17b80c24f087"
+      },
+      {
+        "path": "apps/api/src/generated/etsy-transport.json",
+        "mode": 420,
+        "size": 1941,
+        "sha256": "1231ae6d4399df67e9a770fc8ac7f3a4d0e2823e089c6ba3d8441e7eab2d9162",
+        "sha1": "011da9c5cc1e0b8da71932f7feece47dd1a4507e"
+      },
+      {
+        "path": "apps/api/src/generated/etsy-transport.ts",
+        "mode": 420,
+        "size": 1525,
+        "sha256": "89fe2129a7ff64bc13bab2a8a8b89b11a40b41e8ca74a00a95347ace65552ada",
+        "sha1": "9b2563dd52407be4598488c69b3c241fc66d659e"
+      },
+      {
+        "path": "apps/api/src/generated/migrations.ts",
+        "mode": 420,
+        "size": 742,
+        "sha256": "cb07cfe5d2ee7e8a75756ae2b7d9340453de1f0a2b807064ec30ff949fbf9fb4",
+        "sha1": "50cd76c901d6c31042e3ee7147265ae643da4f80"
+      },
+      {
+        "path": "apps/api/src/main.ts",
+        "mode": 420,
+        "size": 4182,
+        "sha256": "ed6003cd48ac868d197600e7b3058f7cfae86aa81974ae7247f49b8b5962e764",
+        "sha1": "47329ae2d426c788b94093f6714e60caa10ffca0"
+      },
+      {
+        "path": "apps/api/src/platform/preview-access.ts",
+        "mode": 420,
+        "size": 1781,
+        "sha256": "88865d2d7ebd25e42d57dfb92818f9bbc26958cf16815018fe2bdb8c516a5d90",
+        "sha1": "f7b4f97c748f3fd5d6af9e6e020f4c93a013b780"
+      },
+      {
+        "path": "apps/api/src/platform/vercel.ts",
+        "mode": 420,
+        "size": 290,
+        "sha256": "d45ac0cf6f6eded0c2b15c1c49db48146266078cb98794e277710e5d5ef55022",
+        "sha1": "151c0e166b28fbb134ab8653d1f598bf5d401631"
+      },
+      {
+        "path": "apps/api/tests/activation-candidate-probe.test.mjs",
+        "mode": 420,
+        "size": 21465,
+        "sha256": "8710bda1551366118c6664a7f01da09aa8e9634336df222c45be89e98d526461",
+        "sha1": "e19bab23adbee3ee1c4a525bcaff58143f63d219"
+      },
+      {
+        "path": "apps/api/tests/activation-candidate-recovery.test.ts",
+        "mode": 420,
+        "size": 33434,
+        "sha256": "c5e7a693457eeb50123eb1ced8cec5f9a60c6f75c527453a94373b5c12b977a4",
+        "sha1": "b7ae3a6578ae518c4e267f13b71ee5f67d55c9bd"
+      },
+      {
+        "path": "apps/api/tests/activation-diagnostic.test.ts",
+        "mode": 420,
+        "size": 17989,
+        "sha256": "031937ac597a261e983c889dd5ac0524f1ee956210fe9bd442af27e7a9edbf0c",
+        "sha1": "5b3af120617f51fb48aadddb91dc336d96d126b0"
+      },
+      {
+        "path": "apps/api/tests/activation-input-helper.test.ts",
+        "mode": 420,
+        "size": 125145,
+        "sha256": "1d8df56e5d341b510373eeb464c91dd08324f1aee0181a348d8683b5908154c0",
+        "sha1": "b6f393a0845a5a64237c04069c57661042f7d305"
+      },
+      {
+        "path": "apps/api/tests/activation-input-launcher.test.mjs",
+        "mode": 420,
+        "size": 19141,
+        "sha256": "05e9c06b2e3598bb3ac78b1f7c8e4f6195165145693e275ad4fac030b842c932",
+        "sha1": "d263c299e9841664086b255f20d6e18003f404a7"
+      },
+      {
+        "path": "apps/api/tests/activation-recovery-origin.test.ts",
+        "mode": 420,
+        "size": 235542,
+        "sha256": "6cd5f2464700f6c66d63d991c215e13265daa19d3787f38b73f16313856ea1b7",
+        "sha1": "cddb81811f141b2c2a794dcd45bced15751d3e85"
+      },
+      {
+        "path": "apps/api/tests/app-auth-fixture.ts",
+        "mode": 420,
+        "size": 3496,
+        "sha256": "bd60f5e9dfaaa857d8014dba53a00416ac3ef9b53ef31968a7d7c24bafb7a534",
+        "sha1": "fdc483cc30ab4e2d721e1848fa3a3e7c95c55918"
+      },
+      {
+        "path": "apps/api/tests/app-fixture-lifecycle.ts",
+        "mode": 420,
+        "size": 29862,
+        "sha256": "0664d6f0f8c7a41fcd58935b1cc9fd51c054c6b756a01738a947f7795481598e",
+        "sha1": "896d2861873b3b8fed186ae088813c83077158ef"
+      },
+      {
+        "path": "apps/api/tests/app-foundation.integration.test.ts",
+        "mode": 420,
+        "size": 37062,
+        "sha256": "2a675b2dc011291cbc5ca4e8676627193129c21f68570dac2803ee834ae86a9b",
+        "sha1": "133134494adcb3a20e419eda1f831ad9d179f460"
+      },
+      {
+        "path": "apps/api/tests/app-role-reachability.test.ts",
+        "mode": 420,
+        "size": 14177,
+        "sha256": "1355499dd7aaa3c573439df987da796f19d9d4d871a619837f0fdef860c58e90",
+        "sha1": "b3965024a279d7e98458efb15f0313645536b71a"
+      },
+      {
+        "path": "apps/api/tests/artifact-fixture.ts",
+        "mode": 420,
+        "size": 7314,
+        "sha256": "b0ce992cc99e82deccef967d2717ea9834c3d687e7bbf9d58264ed2682329642",
+        "sha1": "55fa886260f9a040de0212a36a216ab30020161e"
+      },
+      {
+        "path": "apps/api/tests/artifact.test.ts",
+        "mode": 420,
+        "size": 11738,
+        "sha256": "df38b7b00c8d340558d98ddebab49b2c8c269d3388e1a3d31f2bf7b3494fa171",
+        "sha1": "7eaeee65c66474c5bccee1cdd15b623617f53db9"
+      },
+      {
+        "path": "apps/api/tests/ci.test.ts",
+        "mode": 420,
+        "size": 149783,
+        "sha256": "65e62126548ead6b3149e8e403b6f27b96c0ff23ac63af27c83ea9257af188b2",
+        "sha1": "7b09a3aa8dd8b58dcca3b1607230042bb504e0af"
+      },
+      {
+        "path": "apps/api/tests/config.test.ts",
+        "mode": 420,
+        "size": 21419,
+        "sha256": "82c48e30083d43a2bde196128851d988923b27b09a9cb7ff0f09bc6030925387",
+        "sha1": "4f07d65f84fbfcc2891bb82da37e090e0acaed73"
+      },
+      {
+        "path": "apps/api/tests/etsy-fixture.ts",
+        "mode": 420,
+        "size": 12162,
+        "sha256": "3de132057d83b4eb9fb43a9034688b545a20d17f3ffcad16d08b726e6173fec4",
+        "sha1": "70dc6d4dd95ee69a588ac899ec39a2d2b70dfb05"
+      },
+      {
+        "path": "apps/api/tests/etsy.test.ts",
+        "mode": 420,
+        "size": 32963,
+        "sha256": "a90534032860c6f0ff69af28070c614818e5211df39694f5f80127a49accef25",
+        "sha1": "d0c5a74b2cb848a61e23facdc178bc4497be5f5c"
+      },
+      {
+        "path": "apps/api/tests/fixtures/auth-compose.yaml",
+        "mode": 420,
+        "size": 3315,
+        "sha256": "06cef2850c74177de4a9fdf1d5c6c3202024601edbbc4e2b257b7fdcd83d8675",
+        "sha1": "8a463fe3aba7cb8f70fd94da073854e6e422f36b"
+      },
+      {
+        "path": "apps/api/tests/fixtures/init-auth-db.sh",
+        "mode": 493,
+        "size": 1467,
+        "sha256": "5caaa6b564082f4397edaa6127909b0383c1064f051d5192a0bb0d34f547f342",
+        "sha1": "0c2d94120aa271ab18013fccbf703cb7300ff100"
+      },
+      {
+        "path": "apps/api/tests/held-app-fixture.ts",
+        "mode": 420,
+        "size": 15839,
+        "sha256": "6a681648d3d2ffa125ff0fabd226cc070e4c4affbab1b54f8ba73c213209649f",
+        "sha1": "e47292f922d7a4b886a339c634ef552e05a0bf1e"
+      },
+      {
+        "path": "apps/api/tests/helpers.ts",
+        "mode": 420,
+        "size": 2855,
+        "sha256": "04dd906c69ec3552f7fcb5296dbb45eca41a1e23894c393b775967e90d8c3d60",
+        "sha1": "3e8b3c91d76349805477c04cdc04449445ae0eca"
+      },
+      {
+        "path": "apps/api/tests/hosted-config.test.mjs",
+        "mode": 420,
+        "size": 9933,
+        "sha256": "96c3b03f3ef5db657aa00a82483fafb69d102383a4063ea17778f2addb22c81c",
+        "sha1": "7066a35b2cd23f26b37b0fd0bf2b0a62b4242526"
+      },
+      {
+        "path": "apps/api/tests/http.test.ts",
+        "mode": 420,
+        "size": 24106,
+        "sha256": "2ed1d598c7ddbcce47990282888f0a64f628c8f47b5bb2f58201f6c86eec5324",
+        "sha1": "cc0548bc3f0da0b952f1d0e43d14f668a884f141"
+      },
+      {
+        "path": "apps/api/tests/integration.test.ts",
+        "mode": 420,
+        "size": 81559,
+        "sha256": "6b4cf10046b6378d7b4ca038794a7fb718ee26f4b1483c9b2031522a27b84695",
+        "sha1": "b0c814a629f1463bd2c9b02893a3eb93d7f30b15"
+      },
+      {
+        "path": "apps/api/tests/release.test.ts",
+        "mode": 420,
+        "size": 37527,
+        "sha256": "d5c249485a4b5d56d6512091e5e48bd4fab53145def1fc0ba66a01f6c784b200",
+        "sha1": "475d1d8bf45cd3b93e076e6a88faebf385d6c409"
+      },
+      {
+        "path": "apps/api/tests/startup.test.ts",
+        "mode": 420,
+        "size": 8613,
+        "sha256": "ae7631bb472cffbb010cb6c270ec12a4263fb799ecc3a0a5d996096435073222",
+        "sha1": "f644caf2f6502742f4113faf45d42e3ad860c910"
+      },
+      {
+        "path": "apps/api/tests/supabase-local.test.ts",
+        "mode": 420,
+        "size": 2755,
+        "sha256": "fcc5706721433539b9c23caeb116340168859795286ee3ca86e8cd4cf4254682",
+        "sha1": "ddebe1b084d7fe135682c3ce505f0ae83c806871"
+      },
+      {
+        "path": "apps/api/tests/tls.ts",
+        "mode": 420,
+        "size": 3244,
+        "sha256": "1194c4ee423fdf1771044d6a77c4d831e2db85652c82b0406e3ba3ad6ee04707",
+        "sha1": "8e14257b0f413a997013d9be8de728cfbdd860a5"
+      },
+      {
+        "path": "apps/api/tsconfig.json",
+        "mode": 420,
+        "size": 658,
+        "sha256": "b56dea564fdca72cf4b636a3eb576c07b4fbfce54cc40f68a624979560b30f35",
+        "sha1": "367500950ef9fd8059758bc5f5e41c7e5af2411c"
+      },
+      {
+        "path": "apps/api/vercel.json",
+        "mode": 420,
+        "size": 232,
+        "sha256": "b923623fcf78212ff559aecc70ff849115b88c98a0cdb8b8cae57dfb08a68042",
+        "sha1": "c00dedda8e08a4aff6a96bc9c92b8dfa3f6c4847"
+      },
+      {
+        "path": "package-lock.json",
+        "mode": 420,
+        "size": 299744,
+        "sha256": "ee7576a6a4958da1d23cd5fa197bd9e5bddf981339f506840531442486a58b14",
+        "sha1": "8186ba7b0806cfb618be50c4bf5a5c9c80017936"
+      },
+      {
+        "path": "package.json",
+        "mode": 420,
+        "size": 1434,
+        "sha256": "5e514d5e822305dda595914446be8f453f90f224a01821bccf1441b3bb04f4bf",
+        "sha1": "d6b8d5454dac42b8d9d3fe611d32efe2ffc308fa"
+      },
+      {
+        "path": "specs/001-connectivity-foundation/contracts/openapi.json",
+        "mode": 420,
+        "size": 50055,
+        "sha256": "42fc238be8449dc9d0434c8f0a90cd0543e0b35d8b29c0d83da4660040aa0595",
+        "sha1": "863a0facbee656c6e3f11d3b4cab71d0720175b3"
+      }
+    ],
+    "delta": [
+      {
+        "path": "apps/api/scripts/stage-operator.mjs",
+        "before": {
+          "path": "apps/api/scripts/stage-operator.mjs",
+          "mode": 420,
+          "size": 4427,
+          "sha256": "9a0db6a8ba86b2030ed6332a2ad75f9bea1943c526d4c8303c06c65861ee01ba",
+          "sha1": "759c405d206b74a9ea46bfe4f3c07e0be6fcace0"
+        },
+        "after": {
+          "path": "apps/api/scripts/stage-operator.mjs",
+          "mode": 420,
+          "size": 5061,
+          "sha256": "0532f02c8e442895fe753db57890a67f33e29273bdaf2ac922af204b6e09cf95",
+          "sha1": "0dbb6eb0a1f913c5b198b55d8c85fa31a29a3a90"
+        }
+      },
+      {
+        "path": "apps/api/tests/artifact.test.ts",
+        "before": {
+          "path": "apps/api/tests/artifact.test.ts",
+          "mode": 420,
+          "size": 8252,
+          "sha256": "6816e4f2e05c6ff8a863d4cf4d2d5c386a16f28728d259976b376834857278b0",
+          "sha1": "d5201ec65ecbcb88bccf30edaae7e15de23282b1"
+        },
+        "after": {
+          "path": "apps/api/tests/artifact.test.ts",
+          "mode": 420,
+          "size": 11738,
+          "sha256": "df38b7b00c8d340558d98ddebab49b2c8c269d3388e1a3d31f2bf7b3494fa171",
+          "sha1": "7eaeee65c66474c5bccee1cdd15b623617f53db9"
+        }
+      }
+    ],
+    "allOther130BuildSourceRecordsUnchanged": true
+  },
+  "historicalReview": {
+    "path": "specs/010-etsy-connectivity/review-manifest.json",
+    "sha256": "a925080d6d587187c67c0581c9283655ead6711dbabb918cd4dfa0d3f9a3645a",
+    "byteIdentical": true,
+    "reviewedEtsyFileCount": 24,
+    "reviewedEtsyDigest": "4622d379a53e5090eff488ec80f68bc13f58e6162daa31340d70575102517498",
+    "reviewedEtsyFilesUnchanged": true,
+    "meaning": "Original full review reported one P2, resolved by revoke/deferred operational prune; accepted fix-only recheck. Does not review the new packaging delta."
+  },
+  "repair": {
+    "cause": "Successful compilation/staging omitted transitive local modules required to import staged routine migration/delivery entrypoints.",
+    "parser": "5.9.3",
+    "requiredPublicScripts": [
+      "activation-archive-transport.mjs",
+      "activation-candidate-recovery.js",
+      "activation-configuration.js",
+      "activation-diagnostic.js",
+      "activation-held-contract.mjs",
+      "activation-held-correction-contract.mjs",
+      "activation-held-correction.js",
+      "activation-held-database-repair.js",
+      "activation-held-proof.js",
+      "activation-held.js",
+      "activation-input-helper.js",
+      "activation-input-transfer.js",
+      "activation-inputs.js",
+      "activation-journal.js",
+      "activation-preflight-disposition.mjs",
+      "activation-recovered-provider.js",
+      "activation-recovery-io.js",
+      "activation-recovery-origin.js",
+      "activation-recovery-tool.mjs",
+      "activation-retained.mjs",
+      "activation-schema-diagnostic.js",
+      "activation.js",
+      "app-roles.js",
+      "artifact.js",
+      "bootstrap-app-owner.js",
+      "bounded.js",
+      "build-artifact.js",
+      "ci-archive.js",
+      "ci-delivery.js",
+      "ci-migrations.js",
+      "ci-provider.js",
+      "ci-tools.js",
+      "hidden-input.mjs",
+      "hosted-acceptance.js",
+      "migrate.js",
+      "migration-files.mjs",
+      "migration-report.js",
+      "migration-status.js",
+      "migrations.js",
+      "private-files.mjs",
+      "release-journal.js",
+      "vercel-deploy.js"
+    ],
+    "addedAllowlistEntries": [
+      "activation-archive-transport.mjs",
+      "activation-candidate-recovery.js",
+      "activation-diagnostic.js",
+      "activation-held-contract.mjs",
+      "activation-held-correction-contract.mjs",
+      "activation-held-correction.js",
+      "activation-held-database-repair.js",
+      "activation-held-proof.js",
+      "activation-held.js",
+      "activation-input-helper.js",
+      "activation-input-transfer.js",
+      "activation-preflight-disposition.mjs",
+      "activation-recovered-provider.js",
+      "activation-recovery-io.js",
+      "activation-recovery-origin.js",
+      "activation-recovery-tool.mjs",
+      "activation-retained.mjs",
+      "activation-schema-diagnostic.js",
+      "hidden-input.mjs"
+    ],
+    "absentCompiledImports": [],
+    "runtimeExecutable": "activation-recovery-io.js declares activation-recovery-tool.mjs through local new URL(..., import.meta.url) execution paths.",
+    "outputDelta": {
+      "addedFiles": [
+        "apps/api/build/scripts/activation-archive-transport.mjs",
+        "apps/api/build/scripts/activation-candidate-recovery.js",
+        "apps/api/build/scripts/activation-diagnostic.js",
+        "apps/api/build/scripts/activation-held-contract.mjs",
+        "apps/api/build/scripts/activation-held-correction-contract.mjs",
+        "apps/api/build/scripts/activation-held-correction.js",
+        "apps/api/build/scripts/activation-held-database-repair.js",
+        "apps/api/build/scripts/activation-held-proof.js",
+        "apps/api/build/scripts/activation-held.js",
+        "apps/api/build/scripts/activation-input-helper.js",
+        "apps/api/build/scripts/activation-input-transfer.js",
+        "apps/api/build/scripts/activation-preflight-disposition.mjs",
+        "apps/api/build/scripts/activation-recovered-provider.js",
+        "apps/api/build/scripts/activation-recovery-io.js",
+        "apps/api/build/scripts/activation-recovery-origin.js",
+        "apps/api/build/scripts/activation-recovery-tool.mjs",
+        "apps/api/build/scripts/activation-retained.mjs",
+        "apps/api/build/scripts/activation-schema-diagnostic.js",
+        "apps/api/build/scripts/hidden-input.mjs"
+      ],
+      "priorFileBytesModesAndDirectoriesUnchanged": true
+    },
+    "businessRuntimeSqlReleaseGuardsOrDependenciesChanged": false
+  },
+  "tools": {
+    "compileHost": "darwin/arm64",
+    "node": "24.22.1",
+    "nodeBinarySha256": "6f32069480ec14d52b6d7b1f3c7124cfbbc46203abf5ddf5c65b127435f3f329",
+    "npm": "11.19.1",
+    "dependencyInstall": false,
+    "productionDependencyPackagesInitiallyStaged": 157,
+    "linuxImage": "docker.io/library/node@sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea",
+    "imagePull": false,
+    "linuxRuntime": {
+      "node": "24.22.1",
+      "platform": "linux",
+      "arch": "x64",
+      "nodeBinarySha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb"
+    },
+    "nativeVercelBuild": false,
+    "nativeToolBootstrap": false
+  },
+  "verification": {
+    "initialCompileStage": {
+      "terminal": "t186",
+      "exitCode": 0,
+      "packagingAcceptance": false
+    },
+    "failedBefore": {
+      "log": "linux-package-smoke.log",
+      "exitCode": 1,
+      "result": "BLOCKED_OPERATOR_IMPORT_CLOSURE",
+      "missingModules": [
+        "Cannot find module '/package/apps/api/build/scripts/activation-diagnostic.js' imported from /package/apps/api/build/scripts/app-roles.js",
+        "Cannot find module '/package/apps/api/build/scripts/activation-recovery-origin.js' imported from /package/apps/api/build/scripts/activation-journal.js"
+      ]
+    },
+    "affectedChecks": {
+      "command": "npm run typecheck --workspace @esty-admin/api && npm run build --workspace @esty-admin/api && node --test --test-name-pattern=\"staged operator imports\" apps/api/build/tests/artifact.test.js",
+      "log": "packaging-check-01.log",
+      "exitCode": 0,
+      "typecheck": "PASS",
+      "buildAndMigrationManifestCheck": "PASS",
+      "targetedTests": {
+        "passed": 1,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "actualStagerExecutedInsideRegression": true,
+      "isolatedPackageBoundary": "Fresh package outside checkout, explicit minimal environment/no NODE_PATH, package/probe/guard-only filesystem reads, no filesystem write/child-process/addon permission, network tripwires; real imports and no-input CLIs."
+    },
+    "linuxSmoke": {
+      "log": "linux-package-smoke-fixed.log",
+      "exitCode": 0,
+      "mounts": "Only fixed public package and temporary public smoke harness; no checkout/auth/socket mount.",
+      "controls": [
+        "--pull=never",
+        "--platform=linux/amd64",
+        "--network=none",
+        "--read-only",
+        "--cap-drop=ALL",
+        "--security-opt=no-new-privileges",
+        "--pids-limit=64",
+        "--memory=512m",
+        "--cpus=1",
+        "read-only public bind mounts",
+        "empty HOME"
+      ],
+      "result": {
+        "mode": "development-operator-package",
+        "releaseArtifact": false,
+        "node": "v24.22.1",
+        "platform": "linux",
+        "arch": "x64",
+        "nodeSha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb",
+        "network": "none",
+        "provider": false,
+        "sql": false,
+        "closure": [
+          {
+            "entry": "ci-migrations.js",
+            "loaded": true
+          },
+          {
+            "entry": "ci-delivery.js",
+            "loaded": true
+          }
+        ],
+        "inventory": {
+          "files": 6326,
+          "directories": 683,
+          "digest": "426eaf8bcdf90ad5e3ebe722abb3d4508dff6949a1fa4afc6313b04c26b06ca5"
+        },
+        "migrationDigest": "1abeceddcc07eadf5b7929ed52a786ec8a807a73568f1e214bfab556c3859540",
+        "migrations": [
+          {
+            "name": "1792972800000-foundation",
+            "sha256": "c3374f370c42d8543bde5771d4cddd91990e643e8969fcaf4bf1c5ffe3e4e851"
+          },
+          {
+            "name": "1792972800001-app-foundation",
+            "sha256": "4416736cb809720359dd0d650a3d530e6c3836be683f7c1700a8da8138df9608"
+          },
+          {
+            "name": "1792972800002-app-session-check",
+            "sha256": "49316100a5c98a852ef28ccb99d6e2a4306da9d5baf9631d4643a26d9d1c82f2"
+          },
+          {
+            "name": "1794890229976-etsy-connectivity",
+            "sha256": "45ab221e19b11735809d23d77d6acb86f7c3a983bf2f40c9905ff9a1b5de4688"
+          }
+        ],
+        "strictOldBefore": true,
+        "strictOldAfterTarget": false,
+        "strictTargetAfter": true,
+        "retiredBridgeRejected": true,
+        "publicBuildCli": {
+          "exitCode": 0,
+          "stdout": "ARTIFACT_BUILD_INPUT_REQUIRED: --repository <public-source-root> --work <new-public-directory> --destination <new-artifact-directory> --cli <public-vercel/dist/vc.js> --mode development|release. No operation performed.",
+          "stderr": ""
+        },
+        "deliveryCli": {
+          "exitCode": 1,
+          "stdout": "",
+          "stderr": "BE_DELIVERY_NOT_ACCEPTED: inspect the durable intent; do not rerun blindly."
+        },
+        "result": "PASS"
+      }
+    },
+    "unrelatedSuitesRun": false,
+    "sqlFixtureStarted": false
+  },
+  "outputs": {
+    "classification": "Darwin-compiled development operator packages; fixed package exercised in pinned Linux/x64. Not native Linux Vercel build output or production release artifacts.",
+    "preFix": {
+      "path": "pre-fix-operator",
+      "files": 6307,
+      "directories": 683,
+      "inventoryDigest": "68c27e118d920059981f9d428311bc30011402b46c4e906dc1bc9b88634f195a"
+    },
+    "postFix": {
+      "path": "post-fix-operator",
+      "files": 6326,
+      "directories": 683,
+      "inventoryDigest": "426eaf8bcdf90ad5e3ebe722abb3d4508dff6949a1fa4afc6313b04c26b06ca5"
+    },
+    "inventoryAlgorithm": "SHA256(artifact.ts canonical(inventory(packageRoot)))",
+    "fullInventoryFiles": [
+      {
+        "path": "pre-fix-operator-inventory.json",
+        "sha256": "bf94eb7d3cf8f0b4c9c069444cbd71ddaa2c4c925a6f98da3d85eff2c16a1a42",
+        "canonicalInventoryDigest": "68c27e118d920059981f9d428311bc30011402b46c4e906dc1bc9b88634f195a"
+      },
+      {
+        "path": "post-fix-operator-inventory.json",
+        "sha256": "b9572cdad9afb9fa18a6868710af74c4650631a96df8a6ce3168bfa6f1c38c7e",
+        "canonicalInventoryDigest": "426eaf8bcdf90ad5e3ebe722abb3d4508dff6949a1fa4afc6313b04c26b06ca5"
+      }
+    ]
+  },
+  "schemaTransition": {
+    "previous": [
+      {
+        "name": "1792972800000-foundation",
+        "sha256": "c3374f370c42d8543bde5771d4cddd91990e643e8969fcaf4bf1c5ffe3e4e851"
+      },
+      {
+        "name": "1792972800001-app-foundation",
+        "sha256": "4416736cb809720359dd0d650a3d530e6c3836be683f7c1700a8da8138df9608"
+      },
+      {
+        "name": "1792972800002-app-session-check",
+        "sha256": "49316100a5c98a852ef28ccb99d6e2a4306da9d5baf9631d4643a26d9d1c82f2"
+      }
+    ],
+    "previousDigest": "149cb530551c0f0e2b734c1aa1086eac5615e01ebca152a8203490c8d93200c3",
+    "migrations": [
+      {
+        "name": "1792972800000-foundation",
+        "sha256": "c3374f370c42d8543bde5771d4cddd91990e643e8969fcaf4bf1c5ffe3e4e851"
+      },
+      {
+        "name": "1792972800001-app-foundation",
+        "sha256": "4416736cb809720359dd0d650a3d530e6c3836be683f7c1700a8da8138df9608"
+      },
+      {
+        "name": "1792972800002-app-session-check",
+        "sha256": "49316100a5c98a852ef28ccb99d6e2a4306da9d5baf9631d4643a26d9d1c82f2"
+      },
+      {
+        "name": "1794890229976-etsy-connectivity",
+        "sha256": "45ab221e19b11735809d23d77d6acb86f7c3a983bf2f40c9905ff9a1b5de4688"
+      }
+    ],
+    "targetDigest": "1abeceddcc07eadf5b7929ed52a786ec8a807a73568f1e214bfab556c3859540",
+    "routineMode": "versioned-migration",
+    "additivePacketMechanismExists": true,
+    "compatibilityCheckedBeforeAndAfterSql": true,
+    "pureContractObserved": {
+      "strictOldBefore": true,
+      "strictOldAfterTarget": false,
+      "strictTargetAfter": true,
+      "retiredBridgeRejected": true
+    },
+    "acceptedD2Inspected": false,
+    "suppliedAcceptedCandidate": "dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7",
+    "decision": "Before SQL, supply approved exact compatible-predecessor evidence or authorize a narrow strict-readiness-preserving transition design/implementation and recovery plan. Neither option is selected here.",
+    "missingApprovedPacketInputs": [
+      "clean-main revision/tree and immutable native release artifact",
+      "authoritative previous hosted history",
+      "approved Supabase target and secure SQL-envelope digest",
+      "exact routine predecessor revision/artifact/config binding",
+      "compatibilityApproval",
+      "recoveryApproval",
+      "completed canonical packet approval/digest"
+    ]
+  },
+  "configuration": {
+    "injected": false,
+    "keysGenerated": false,
+    "etsyRemainsDisabledUntilSeparateAuthority": true,
+    "existingRegistrationAccessRolesBootstrapD1D2Login": "Accepted supplied facts, not replayed/probed.",
+    "d1DigestExcludesEtsyFields": true,
+    "guide": "quickstart.md#safe-etsy-runtime-configuration-guide--no-injection-performed",
+    "secretsRequestedOrRead": false
+  },
+  "documentation": [
+    {
+      "path": "specs/010-etsy-connectivity/plan.md",
+      "sha256": "f6bb264eb62424d389503ee902f01d76de174dc3b5581506cc4c008a42626989",
+      "bytes": 22167,
+      "reviewedPreparationSha256": "b12d87fea9c8576d91ff6450f9c7c41624d6787591babb1892e17f1b9d0aa9d5",
+      "reviewedPreparationBytes": 21565,
+      "publishedSha256": "73dbaf23ad0713bb577ff3ea131daf0c62e707b1bbef3bf3a7c47c79c112cf66",
+      "publishedBodyPreservedByteForByte": true
+    },
+    {
+      "path": "specs/010-etsy-connectivity/quickstart.md",
+      "sha256": "1ca0a5a59e53534bc467a5867cb27b630e6669cd6a60c90c825447356ec1d368",
+      "bytes": 46912,
+      "reviewedPreparationSha256": "83d3d3d37f96eb69d3bee9feb13d9ab1282119688c03824f12412aff9ffea3b1",
+      "reviewedPreparationBytes": 46286,
+      "publishedSha256": "3ec21ef71ed13d20513743b6102d0c31cc96ba363bc9cc4b7bf869c4a9a0f467",
+      "publishedBodyPreservedByteForByte": true
+    }
+  ],
+  "protectedRootSha256": {
+    "package.json": "5e514d5e822305dda595914446be8f453f90f224a01821bccf1441b3bb04f4bf",
+    "package-lock.json": "ee7576a6a4958da1d23cd5fa197bd9e5bddf981339f506840531442486a58b14"
+  },
+  "externalEvidence": {
+    "directoryBasename": "esty-etsy-release-prep-jna4kaz5",
+    "absoluteLocation": "Provided privately in coordinator receipt; task-owned external public scratch, mode0700.",
+    "retainedFiles": [
+      {
+        "path": "linux-package-smoke.log",
+        "sha256": "03cad660c106e3f2834463281557b50614a79f0a34c7172a927b1f9d7737dd11",
+        "bytes": 2133
+      },
+      {
+        "path": "packaging-check-01.log",
+        "sha256": "bc04b166cda268875861f725368a1a8432b6f98a9855602451cdb89928fcba94",
+        "bytes": 726
+      },
+      {
+        "path": "linux-package-smoke-fixed.log",
+        "sha256": "e72f27623486cbea259971870af5971a85117de93db97ab6c0684764436d4e94",
+        "bytes": 2613
+      },
+      {
+        "path": "pre-fix-script-closure.json",
+        "sha256": "20e06a48a0856376908477919c99b47c650b0a9e1a46b964c1a5f775d0937c03",
+        "bytes": 26710
+      },
+      {
+        "path": "pre-fix-runtime-closure.json",
+        "sha256": "fe44fd057aab92a9ed22d1cf0bb3137c27b7907fe8b4cd3b5c8e2350ee003b76",
+        "bytes": 27416
+      }
+    ],
+    "temporaryHarnessHashes": [
+      {
+        "path": "pre-fix-package-smoke.mjs",
+        "sha256": "42ef121bea6aa5a16c5c9b2b9c257a786a682ab5edcefe9d98f4b79292a53534",
+        "bytes": 2991,
+        "removedAfterExecution": true
+      },
+      {
+        "path": "package-smoke.mjs",
+        "sha256": "0004b6367b04a7812b310348529a93bb86cdaa50dc672b257dc19f4c1c0c7d1d",
+        "bytes": 3493,
+        "removedAfterExecution": true
+      }
+    ]
+  },
+  "cleanup": {
+    "fixedSmokeContainer": "esty-etsy-package-fix-f12476cbbc04",
+    "removedAndAbsenceChecked": true,
+    "regressionScratchRemovedByAwaitedTeardown": true,
+    "temporarySmokeLaunchersRemoved": true,
+    "taskOwnedEmptyHomeAuthDockerConfigNpmConfigAndNpmScratchRemoved": true,
+    "publicPackagesInventoriesFailureAndSuccessEvidenceRetained": true,
+    "worktreeIgnoredBuildAndDependenciesRetained": true,
+    "sharedServicesVolumesAndOtherWorktreesUntouched": true,
+    "agentsServicesWatchersStarted": false
+  },
+  "gates": {
+    "checkedTasksUnchanged": "T001–T018 and T023; T011 is BE-only.",
+    "openTasks": "T019–T022 and T024–T026.",
+    "operatorPrune": "Deferred and ungranted.",
+    "packagingDeltaIndependentReview": "ACCEPTED_BY_T151_NO_CONFIRMED_ACTIONABLE_FINDINGS",
+    "sourcePublicationMainAlignment": "SEPARATE_AUTHORIZATION_REQUIRED",
+    "nativeReleaseArtifactApproval": "NOT_PRODUCED",
+    "hostedSchemaConfigurationRelease": "NOT_EXECUTED",
+    "realProviderAcceptance": "NOT_EXECUTED",
+    "generalFeJourney": "DEFERRED"
+  },
+  "prohibitedEffectsExecuted": {
+    "gitMutationPublicationMerge": false,
+    "privateAuthCacheCredentialRead": false,
+    "cloudSqlAuthEtsyProviderCalls": false,
+    "runtimeInjectionDeploymentDnsBilling": false,
+    "rootDependencyOrFeSharedDocumentChanges": false
+  }
+}

@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import test from 'node:test';
 import { chmod, writeFile, readFile, unlink, symlink, cp, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { artifactFixture } from './artifact-fixture.js';
 import { assembleArtifact, canonical, inventory, readArtifactFile, sha256, snapshotArtifact, toolPins, verifyArtifact } from '../scripts/artifact.js';
 import { verifyToolPackage } from '../scripts/build-artifact.js';
@@ -102,4 +104,63 @@ test('tool package integrity gates provenance on complete own-package contents a
       assert.throws(() => verifyToolPackage('vercel', installed, published));
     }
   });
+});
+
+test('staged operator imports and no-input CLIs remain closed over the isolated package', { timeout: 90000 }, async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'esty-staged-operator-')));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const home = join(root, 'home'), isolated = join(root, 'package');
+  await mkdir(home);
+  const env = { PATH: `${dirname(process.execPath)}:/usr/bin:/bin`, HOME: home, XDG_CONFIG_HOME: home, XDG_DATA_HOME: home };
+  const api = fileURLToPath(new URL('../../', import.meta.url));
+  const staged = spawnSync(process.execPath, [join(api, 'scripts/stage-operator.mjs')], {
+    cwd: root, env, encoding: 'utf8', timeout: 45000,
+  });
+  assert.equal(staged.status, 0, staged.stderr);
+  await cp(join(api, 'build/operator'), isolated, { recursive: true });
+  const before = inventory(isolated);
+  const scripts = join(isolated, 'apps/api/build/scripts');
+  const guard = join(root, 'no-network.mjs'), probe = join(root, 'probe.mjs');
+  await writeFile(guard, `
+    import net from 'node:net';
+    import tls from 'node:tls';
+    import dgram from 'node:dgram';
+    let attempts = 0;
+    const deny = () => { attempts++; throw new Error('Unexpected network attempt'); };
+    globalThis.fetch = deny;
+    net.Socket.prototype.connect = deny;
+    tls.connect = deny;
+    dgram.createSocket = deny;
+    process.on('exit', () => { if (attempts) process.exitCode = 97; });
+  `);
+  await writeFile(probe, `
+    import assert from 'node:assert/strict';
+    // Exercise runtime-selected isolated package boundaries, never checkout imports.
+    const migration = await import(${JSON.stringify(pathToFileURL(join(scripts, 'ci-migrations.js')).href)});
+    const delivery = await import(${JSON.stringify(pathToFileURL(join(scripts, 'ci-delivery.js')).href)});
+    assert.equal(typeof migration.executeRoutineMigration, 'function');
+    assert.equal(typeof delivery.deliver, 'function');
+    assert.throws(() => migration.approvedSchema(undefined));
+    assert.throws(() => delivery.deliveryContext({}, 'a'.repeat(40)));
+    console.log(JSON.stringify({ unapprovedSchema: 'refused', unapprovedDelivery: 'refused' }));
+  `);
+  // No checkout reads, writes, child processes, addons or ambient module/auth paths.
+  const permissions = ['--permission', `--allow-fs-read=${isolated}`, `--allow-fs-read=${guard}`,
+    `--allow-fs-read=${probe}`, '--import', pathToFileURL(guard).href];
+  const imported = spawnSync(process.execPath, [...permissions, probe], {
+    cwd: isolated, env, encoding: 'utf8', timeout: 15000,
+  });
+  assert.equal(imported.status, 0, imported.stderr);
+  assert.deepEqual(JSON.parse(imported.stdout), { unapprovedSchema: 'refused', unapprovedDelivery: 'refused' });
+  const buildCli = spawnSync(process.execPath, [...permissions, join(scripts, 'build-artifact.js')], {
+    cwd: isolated, env, encoding: 'utf8', timeout: 15000,
+  });
+  assert.equal(buildCli.status, 0, buildCli.stderr);
+  assert.match(buildCli.stdout, /^ARTIFACT_BUILD_INPUT_REQUIRED:/);
+  const deliveryCli = spawnSync(process.execPath, [...permissions, join(scripts, 'ci-delivery.js')], {
+    cwd: isolated, env, encoding: 'utf8', timeout: 15000,
+  });
+  assert.equal(deliveryCli.status, 1, deliveryCli.stderr);
+  assert.match(deliveryCli.stderr, /^BE_DELIVERY_NOT_ACCEPTED:/m);
+  assert.deepEqual(inventory(isolated), before);
 });
