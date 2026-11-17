@@ -18,21 +18,31 @@ export function useBoardSearch() {
 }
 
 function Sidebar({ section, onNavigate }: { section: Section; onNavigate?: () => void }) {
-  const { beginRoute } = useAppSession();
+  const { navigate } = useAppSession();
   return <>
     <a className={styles.brand} href="#main-content" onClick={onNavigate}><span className={styles.brandMark}><Icon name="pen" /></span>SketchPad</a>
     <nav className={styles.navigation} aria-label="Application">
-      <Link className={section === "dashboard" ? styles.selected : undefined} href={section === "dashboard" ? "#main-content" : "/application"} prefetch={false} aria-current={section === "dashboard" ? "page" : undefined} onNavigate={section === "dashboard" ? undefined : beginRoute} onClick={onNavigate}><Icon name="dashboard" />Dashboard</Link>
-      <Link className={section === "team" ? styles.selected : undefined} href="/settings/team" prefetch={false} aria-current={section === "team" ? "page" : undefined} onNavigate={section === "team" ? undefined : beginRoute} onClick={onNavigate}><Icon name="team" />Team <span className={styles.badge}>3</span></Link>
-      <Link className={section === "settings" ? styles.selected : undefined} href="/settings" prefetch={false} aria-current={section === "settings" ? "page" : undefined} onNavigate={section === "settings" ? undefined : beginRoute} onClick={onNavigate}><Icon name="settings" />Settings</Link>
+      <Link className={section === "dashboard" ? styles.selected : undefined} href={section === "dashboard" ? "#main-content" : "/application"} prefetch={false} aria-current={section === "dashboard" ? "page" : undefined} onNavigate={section === "dashboard" ? undefined : event => { event.preventDefault(); navigate("/application"); }} onClick={onNavigate}><Icon name="dashboard" />Dashboard</Link>
+      <Link className={section === "team" ? styles.selected : undefined} href="/settings/team" prefetch={false} aria-current={section === "team" ? "page" : undefined} onNavigate={section === "team" ? undefined : event => { event.preventDefault(); navigate("/settings/team"); }} onClick={onNavigate}><Icon name="team" />Team <span className={styles.badge}>3</span></Link>
+      <Link className={section === "settings" ? styles.selected : undefined} href="/settings" prefetch={false} aria-current={section === "settings" ? "page" : undefined} onNavigate={section === "settings" ? undefined : event => { event.preventDefault(); navigate("/settings"); }} onClick={onNavigate}><Icon name="settings" />Settings</Link>
     </nav>
   </>;
+}
+
+function NavigationProgress({ pending }: { pending: boolean }) {
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    if (!pending) return;
+    const timer = window.setTimeout(() => setVisible(true), 150);
+    return () => { window.clearTimeout(timer); setVisible(false); };
+  }, [pending]);
+  return pending && visible ? <span className={styles.navigationProgress} role="status">Loading…</span> : null;
 }
 
 export function ApplicationShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const section: Section = pathname === "/settings/team" ? "team" : pathname === "/settings" ? "settings" : "dashboard";
-  const { view } = useAppSession();
+  const { view, navigationPending, navigationId } = useAppSession();
   const [query, setQuery] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawer = useRef<HTMLDialogElement>(null);
@@ -87,7 +97,10 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
         </div>
       </header>
       <p className={styles.sampleNotice}>{section === "dashboard" ? "Sample project content; boards and activity are not connected." : section === "team" ? "Sample team content — not the live workspace member list." : "Sample settings — changes are not saved."}</p>
-      <BoardSearchContext value={{ query, onQueryChange: setQuery }}>{children}</BoardSearchContext>
+      <NavigationProgress key={navigationId} pending={navigationPending} />
+      <div className={styles.routeBody} inert={navigationPending} data-route-pending={navigationPending}>
+        <BoardSearchContext value={{ query, onQueryChange: setQuery }}>{children}</BoardSearchContext>
+      </div>
     </main>
   </div>;
 }

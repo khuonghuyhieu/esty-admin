@@ -668,3 +668,75 @@ test("an old route generation cannot admit a newer login or clear its cookies", 
   assert.equal(client.header(), newer);
   assert.equal(client.requests.includes("begin"), false);
 });
+
+test("navigation intent overlaps reads and consumes one current check without a completed-result cache", async t => {
+  const contextHeld = Promise.withResolvers<void>(), meReached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  t.after(() => release.resolve());
+  let contexts = 0, reads = 0;
+  const client = clientSessionHarness(t, deniedRefresh, async operation => {
+    if (operation === "context" && ++contexts === 2) { contextHeld.resolve(); await release.promise; }
+  }, async () => {
+    if (++reads === 2) meReached.resolve();
+    return Response.json(appMe);
+  });
+  const mounted = client.mount(false);
+  const generation = readAuthCookies(config, client.header()).context!.generation;
+  await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  const pending = mounted.controller.prepareRoute("/settings");
+  await Promise.all([contextHeld.promise, meReached.promise]);
+  const same = mounted.controller.prepareRoute("/settings");
+  assert.equal(same, pending, "Only the identical in-flight transition coalesces");
+  assert.equal(mounted.views.at(-1)?.routePending, true);
+  release.resolve();
+  assert.equal(await pending, true);
+  assert.equal(await mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation }), true);
+  assert.equal(reads, 2, "Route receipt consumes its own transition, not another backend lookup");
+  await mounted.controller.prepareRoute("/settings");
+  assert.equal(reads, 3, "A completed route admission is never reused for a new navigation");
+});
+
+for (const status of [401, 403, 503]) {
+  test(`current me ${status} conceals before a held context and cannot publish a late identity`, async t => {
+    const contextHeld = Promise.withResolvers<void>(), release = Promise.withResolvers<void>(), denied = Promise.withResolvers<void>();
+    t.after(() => release.resolve());
+    let contexts = 0, reads = 0;
+    const client = clientSessionHarness(t, deniedRefresh, async operation => {
+      if (operation === "context" && ++contexts === 2) { contextHeld.resolve(); await release.promise; }
+      if (operation === "me" && reads === 2) queueMicrotask(() => queueMicrotask(() => denied.resolve()));
+    }, async () => ++reads === 1 ? Response.json(appMe) : Response.json({
+      code: status === 401 ? "unauthenticated" : status === 403 ? "forbidden" : "upstream_unavailable",
+      requestId: appRequestId,
+    }, { status }));
+    const mounted = client.mount(false);
+    const generation = readAuthCookies(config, client.header()).context!.generation;
+    await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+    const pending = mounted.controller.prepareRoute("/settings");
+    await Promise.all([contextHeld.promise, denied.promise]);
+    // Drain response parsing microtasks without releasing the held context.
+    await new Promise<void>(resolve => setImmediate(resolve));
+    assert.equal(mounted.views.at(-1)?.me, null);
+    assert.equal(mounted.views.at(-1)?.phase, status === 401 ? "checking" : status === 403 ? "forbidden" : "unavailable");
+    mounted.controller.invalidate("changed");
+    release.resolve();
+    assert.equal(await pending, false);
+    assert.equal(mounted.views.at(-1)?.phase, "changed");
+    assert.equal(client.requests.includes("refresh"), false, "Invalidated routes cannot refresh after their context arrives");
+  });
+}
+
+test("a completed intent cannot be consumed after logout or a newer auth generation", async t => {
+  const client = clientSessionHarness(t, async () => new Response(null, { status: 204 }), undefined, async () => Response.json(appMe));
+  const mounted = client.mount(false);
+  const generation = readAuthCookies(config, client.header()).context!.generation;
+  await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  await mounted.controller.prepareRoute("/settings");
+  await mounted.controller.signOut();
+  assert.equal(await mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation }), false);
+  assert.equal(mounted.views.at(-1)?.me, null);
+  client.replaceSession();
+  await mounted.controller.revalidate(true, true);
+  const newer = mounted.views.at(-1)?.generation;
+  assert.notEqual(newer, generation);
+  assert.equal(await mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation }), false);
+  assert.equal(mounted.views.at(-1)?.phase, "changed");
+});

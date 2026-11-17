@@ -24,7 +24,7 @@ export default defineConfig({
   workers: session ? 1 : 2,
   outputDir: session ? "./test-results/session-run" : "./test-results/connectivity-run",
   reporter: [["list"], ["html", { open: "never", outputFolder: session ? "./playwright-report/session-run" : "./playwright-report/connectivity-run" }]],
-  use: { baseURL: session ? sessionTarget.webOrigin : "http://127.0.0.1:3100", colorScheme: "light", deviceScaleFactor: 1, trace: session ? "off" : "retain-on-failure", screenshot: session ? "off" : "only-on-failure" },
+  use: { baseURL: session ? sessionTarget.webOrigin : "http://127.0.0.1:3100", channel: session ? "chromium" : undefined, colorScheme: "light", deviceScaleFactor: 1, trace: session ? "off" : "retain-on-failure", screenshot: session ? "off" : "only-on-failure" },
   projects: [
     { name: "desktop-chromium", use: { browserName: "chromium", viewport: { width: 1440, height: 1000 } } },
     { name: "mobile-chromium", grepInvert: session ? /@security-desktop/ : undefined, use: { browserName: "chromium", viewport: { width: 360, height: 800 } } },

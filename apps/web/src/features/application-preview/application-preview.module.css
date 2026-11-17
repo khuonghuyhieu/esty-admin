@@ -21,6 +21,8 @@
 .preview svg { flex-shrink: 0; }
 .preview :focus-visible { outline: 3px solid var(--ink); outline-offset: 4px; }
 .main { margin-left: 280px; padding: 16px 32px 40px; min-width: 0; }
+.routeBody { min-height: 60vh; }
+.navigationProgress { position: fixed; bottom: 20px; right: 20px; z-index: 30; padding: 6px 12px; border: 2px solid var(--ink); border-radius: 6px; background: var(--paper); color: var(--ink); font-size: 0.8125rem; pointer-events: none; }
 .sidebar, .drawer { background: var(--paper); padding: 16px 12px; border: 0; border-right: 3px solid var(--ink); }
 .sidebar { position: fixed; inset: 0 auto 0 0; width: 280px; display: flex; flex-direction: column; overflow-y: auto; }
 .brand { display: flex; align-items: center; gap: 12px; padding: 0 4px 24px; border-bottom: 2px solid var(--ink); font-size: 1.25rem; font-weight: 600; text-decoration: none; }

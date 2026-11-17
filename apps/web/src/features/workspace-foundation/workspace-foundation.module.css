@@ -20,6 +20,7 @@
 .login :focus-visible { outline: 3px solid var(--ink); outline-offset: 4px; }
 .error { color: #94333f; font-size: 0.875rem; }
 .sessionMessage { margin-bottom: 20px; font-size: 0.9375rem; line-height: 1.6; overflow-wrap: anywhere; }
+.loginFeedback { min-height: 68px; }
 .sessionActions { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin-block: 16px 24px; }
 .sessionActions a { min-height: 44px; display: inline-flex; align-items: center; font-weight: 600; }
 .login button:disabled { cursor: not-allowed; opacity: 0.65; }

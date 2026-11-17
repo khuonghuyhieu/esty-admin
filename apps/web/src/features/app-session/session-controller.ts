@@ -10,6 +10,7 @@ export interface SessionView {
   error: SessionErrorCode | null;
   providerOutcome?: "confirmed" | "unknown";
   routePending?: boolean;
+  routePath?: ReturnPath;
 }
 export interface InitialSession { restore: boolean }
 export interface RouteAdmission {
@@ -32,6 +33,7 @@ export class SessionController {
   private restorable: boolean;
   private requiresExplicitCheck = false;
   private notify: (view: SessionView) => void;
+  private routeWork: { path: ReturnPath; generation: string; epoch: number; routeEpoch: number; promise: Promise<boolean> } | null = null;
 
   constructor(initial: InitialSession, notify: (view: SessionView) => void) {
     this.restorable = initial.restore;
@@ -65,8 +67,8 @@ export class SessionController {
     this.channel = null;
   }
 
-  private show(phase: SessionPhase, error: SessionErrorCode | null = null, me: AppMe | null = null, generation: string | null = null, providerOutcome?: "confirmed" | "unknown"): void {
-    this.view = { phase, error, me, generation, ...(providerOutcome ? { providerOutcome } : {}) };
+  private show(phase: SessionPhase, error: SessionErrorCode | null = null, me: AppMe | null = null, generation: string | null = null, providerOutcome?: "confirmed" | "unknown", routePath?: ReturnPath): void {
+    this.view = { phase, error, me, generation, ...(providerOutcome ? { providerOutcome } : {}), ...(routePath ? { routePath } : {}) };
     this.notify(this.view);
   }
 
@@ -82,6 +84,17 @@ export class SessionController {
     this.notify(this.view);
   }
 
+  prepareRoute(path: ReturnPath): Promise<boolean> {
+    if (this.requiresExplicitCheck || this.view.phase !== "ready" || !this.view.generation) return Promise.resolve(false);
+    const existing = this.routeWork;
+    if (existing && existing.path === path && existing.generation === this.view.generation
+      && existing.epoch === this.epoch && existing.routeEpoch === this.routeEpoch && this.view.routePending) return existing.promise;
+    const generation = this.view.generation;
+    const promise = this.revalidate(true, false, { path, generation, restore: true, phase: "ready" });
+    this.routeWork = { path, generation, epoch: this.epoch, routeEpoch: this.routeEpoch, promise };
+    return promise;
+  }
+
   concealDeniedRoute(admission: RouteAdmission): void {
     if (admission.phase === "ready" || this.view.phase !== "ready"
       || admission.generation !== this.view.generation || this.requiresExplicitCheck) return;
@@ -93,6 +106,14 @@ export class SessionController {
   async admitRoute(admission: RouteAdmission): Promise<boolean> {
     if (this.requiresExplicitCheck || ["signed-out", "signout-unconfirmed", "unsupported", "changed"].includes(this.view.phase)) return false;
     this.concealDeniedRoute(admission);
+    const prepared = this.routeWork;
+    if (admission.phase === "ready" && prepared?.path === admission.path
+      && prepared.generation === admission.generation && prepared.epoch === this.epoch && prepared.routeEpoch === this.routeEpoch) {
+      this.routeWork = null;
+      const accepted = await prepared.promise;
+      return accepted && prepared.epoch === this.epoch && prepared.routeEpoch === this.routeEpoch
+        && this.view.phase === "ready" && this.view.generation === admission.generation;
+    }
     const epoch = this.epoch;
     const routeEpoch = this.routeEpoch + 1;
     await this.revalidate(admission.restore, false, admission);
@@ -156,7 +177,22 @@ export class SessionController {
     const authEpoch = this.epoch;
     const routeIsCurrent = () => routeEpoch === this.routeEpoch;
     await this.locked(async (signal, epoch) => {
-      const context = await this.context(signal);
+      const contextRead = this.context(signal);
+      // Both reads are inside the same origin-wide lock. A definitive failure
+      // conceals immediately, even while context transport is held or unavailable.
+      const meRead = !admission || admission.phase === "ready"
+        ? this.request("/api/app/me", signal).then(
+          value => ({ value, error: null }),
+          (error: unknown) => {
+            if (epoch === this.epoch && routeIsCurrent() && !signal.aborted) {
+              const failure = error instanceof SessionFailure ? error : new SessionFailure(503, "upstream_unavailable");
+              this.show(failure.status === 401 ? "checking" : failure.status === 403 && failure.code === "forbidden" ? "forbidden" : "unavailable", failure.code);
+            }
+            return { value: null, error };
+          },
+        )
+        : Promise.resolve({ value: null, error: null });
+      const [context, result] = await Promise.all([contextRead, meRead]);
       if (epoch !== this.epoch || !routeIsCurrent()) return;
       if (admission) {
         if (admission.generation !== context.generation) {
@@ -169,7 +205,10 @@ export class SessionController {
       }
       let me: unknown;
       // Cached RSC/history payloads never substitute for a current admission check.
-      try { me = await this.request("/api/app/me", signal); }
+      try {
+        if (result.error) throw result.error;
+        me = result.value;
+      }
       catch (error) {
         if (!(error instanceof SessionFailure) || error.status !== 401 || !allowRefresh || epoch !== this.epoch || !routeIsCurrent()) throw error;
         // Expiry is an actual loss of admission, not ordinary route loading.
@@ -197,7 +236,7 @@ export class SessionController {
       if (epoch !== this.epoch || !routeIsCurrent()) return;
       if (!isAppMe(me)) throw new SessionFailure(503, "upstream_unavailable");
       this.restorable = true;
-      this.show("ready", null, me, context.generation);
+      this.show("ready", null, me, context.generation, undefined, admission?.path);
     }, routeIsCurrent);
     return authEpoch === this.epoch && routeIsCurrent() && this.view.phase === "ready";
   }

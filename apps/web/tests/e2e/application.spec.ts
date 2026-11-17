@@ -1073,7 +1073,11 @@ test("persistent protected navigation keeps chrome and controller through delaye
   try {
     await navigateFoundation(page, "Settings");
     await reached.promise;
-    await expect(page.getByRole("main").getByRole("status")).toHaveText("Loading page…");
+    await expect(page).toHaveURL(/\/application$/);
+    await expect(page.getByRole("heading", { name: "Project dashboard", exact: true })).toBeVisible();
+    await expect(page.getByRole("table", { name: "Whiteboard projects", exact: true })).toBeVisible();
+    await expect(page.locator("[data-route-pending=true]")).toHaveAttribute("inert", "");
+    await expect(page.getByRole("status", { name: "", exact: true }).filter({ hasText: /^Loading…$/ })).toBeVisible();
     await expect(page.locator('header button[aria-haspopup="menu"]')).toBeVisible();
     await expect(page.getByText("Checking your session…", { exact: true })).toHaveCount(0);
     await page.screenshot({ path: info.outputPath("navigation-pending.png"), fullPage: true });
@@ -1095,10 +1099,31 @@ test("persistent protected navigation keeps chrome and controller through delaye
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: info.outputPath(`navigation-${name.toLowerCase()}.png`), fullPage: true });
   }
-  await page.goBack();
-  await expect(page.getByRole("heading", { name: "Whiteboard projects", exact: true })).toBeVisible();
-  await page.goForward();
-  await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toBeVisible();
+  for (const direction of ["back", "forward"] as const) {
+    const contextReached = Promise.withResolvers<void>(), releaseContext = Promise.withResolvers<void>();
+    await page.route("**/api/auth/context", async route => {
+      const response = await fetchInterceptedRoute(route);
+      contextReached.resolve(); await releaseContext.promise;
+      await route.fulfill({ response });
+    });
+    try {
+      if (direction === "back") await page.goBack();
+      else await page.goForward();
+      await contextReached.promise;
+      await expect(page.getByRole("heading", { name: direction === "back" ? "Account" : "Whiteboard projects", exact: true })).toBeVisible();
+      await expect(page.getByRole("heading", { name: direction === "back" ? "Settings" : "Project dashboard", exact: true })).toBeVisible();
+      await expect(page.locator("[data-route-pending=true]")).toHaveAttribute("inert", "");
+      await expect(page.getByText("Loading…", { exact: true })).toBeVisible();
+      await page.screenshot({ path: info.outputPath(`history-${direction}-pending.png`), fullPage: true });
+    } finally {
+      releaseContext.resolve();
+      await page.unrouteAll({ behavior: "wait" });
+    }
+    await expect(page).toHaveURL(new RegExp(direction === "back" ? "/application$" : "/settings$"));
+    await expect(page.getByRole("heading", { name: direction === "back" ? "Whiteboard projects" : "Account", exact: true })).toBeVisible();
+    await expect(page.locator("[data-route-pending=true]")).toHaveCount(0);
+    await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
+  }
   const evidence = await page.evaluate(() => ({
     headerRetained: window.__navigationEvidence!.header === document.querySelector("header"),
     sidebarRetained: window.__navigationEvidence!.sidebar === document.querySelector("aside"),
@@ -1110,20 +1135,15 @@ test("persistent protected navigation keeps chrome and controller through delaye
   await assertBrowserCredentialIsolation(page);
 });
 
-test("persistent route admission propagates real server membership denial and API outage", { tag: "@security-desktop" }, async ({ page, context }, testInfo) => {
+test("persistent route admission propagates real current membership denial and API outage before held context", { tag: "@security-desktop" }, async ({ page, context }, testInfo) => {
   await clearBrowserSession(context);
   await signIn(page, "member");
-  const before = await currentMe(page);
   await fixtureControl("set-member", { target: "member", status: "disabled" });
-  let syntheticMeReads = 0;
-  // Deliberately stale BFF peer: the actual server-route denial must not be ignored by ready chrome.
-  await page.route("**/api/app/me", route => {
-    syntheticMeReads++;
-    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(before) });
-  });
+  let currentMeReads = 0;
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/app/me") currentMeReads++; });
   const deniedContext = Promise.withResolvers<void>(), releaseDeniedContext = Promise.withResolvers<void>();
   await page.route("**/api/auth/context", async route => {
-    const response = await route.fetch();
+    const response = await fetchInterceptedRoute(route);
     deniedContext.resolve();
     await releaseDeniedContext.promise;
     await route.fulfill({ response });
@@ -1134,7 +1154,7 @@ test("persistent route admission propagates real server membership denial and AP
     await expect(page.getByRole("main").getByRole("alert")).toContainText("Access is unavailable");
     await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
     await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toHaveCount(0);
-    expect(syntheticMeReads).toBe(0);
+    expect(currentMeReads).toBe(1);
     await page.screenshot({ path: testInfo.outputPath("membership-denial-context-held.png") });
     releaseDeniedContext.resolve();
   } finally {
@@ -1147,7 +1167,7 @@ test("persistent route admission propagates real server membership denial and AP
   await fixtureControl("fault", { target: "api", active: true });
   const outageContext = Promise.withResolvers<void>(), releaseOutageContext = Promise.withResolvers<void>();
   await page.route("**/api/auth/context", async route => {
-    const response = await route.fetch();
+    const response = await fetchInterceptedRoute(route);
     outageContext.resolve();
     await releaseOutageContext.promise;
     await route.fulfill({ response });
@@ -1192,4 +1212,84 @@ test("delayed protected route payload cannot resurrect admission after real loca
     await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toHaveCount(0);
     expect((await fixtureControl("replay", { handle: registered.handle })).status).toBe(401);
   } finally { release.resolve(); await page.unroute("**/settings?*"); }
+});
+
+test("rapid navigation checks the final destination once and never exposes stale controls", { tag: "@security-desktop" }, async ({ page }) => {
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  const reads: string[] = [];
+  page.on("request", request => { if (new URL(request.url()).pathname === "/api/app/me") reads.push(request.url()); });
+  await page.route("**/settings?*", async route => {
+    if (route.request().headers().rsc !== "1") return route.continue();
+    reached.resolve(); await release.promise; await route.continue();
+  });
+  try {
+    await navigateFoundation(page, "Settings");
+    await reached.promise;
+    await expect(page).toHaveURL(/\/application$/);
+    await navigateFoundation(page, "Team");
+    release.resolve();
+    await expect(page).toHaveURL(/\/settings\/team$/);
+    await expect(page.getByRole("heading", { name: "Your team", exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toHaveCount(0);
+    await expect(page.locator("[data-route-pending=true]")).toHaveCount(0);
+    expect(reads.length).toBeLessThanOrEqual(2);
+    expect(reads.length).toBeGreaterThanOrEqual(1);
+  } finally { release.resolve(); await page.unrouteAll({ behavior: "wait" }); }
+});
+
+test("sample RSC delivery never serializes actual private identity before current admission", { tag: "@security-desktop" }, async ({ page, context }) => {
+  await clearBrowserSession(context);
+  const me = await signIn(page, "member");
+  await fixtureControl("set-member", { target: "member", status: "disabled" });
+  try {
+    for (const path of ["/application", "/settings", "/settings/team"]) {
+      const response = await context.request.get(path, { headers: { RSC: "1", "sec-fetch-site": "same-origin" } });
+      expect(response.status()).toBe(200);
+      const payload = await response.text();
+      for (const secret of [me.profile.userId, me.email, me.profile.displayName, me.workspace.id, me.workspace.displayName]) {
+        expect(payload).not.toContain(secret);
+      }
+    }
+    await page.goto("/settings");
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("Access is unavailable");
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toHaveCount(0);
+  } finally { await fixtureControl("set-member", { target: "member", status: "active" }); }
+});
+
+test("navigation indicator waits150ms and a fast completed transition cancels it", { tag: "@security-desktop" }, async ({ page }) => {
+  await page.clock.install({ time: new Date("2030-01-01T00:00:00Z") });
+  await page.clock.pauseAt(new Date("2030-01-01T00:00:01Z"));
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  await page.route("**/settings?*", async route => {
+    if (route.request().headers().rsc !== "1") return route.continue();
+    reached.resolve(); await release.promise; await route.continue();
+  });
+  try {
+    await page.locator('aside a[href="/settings"]').evaluate((link: HTMLAnchorElement) => link.click());
+    await reached.promise;
+    await page.clock.runFor(149);
+    await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
+    await expect(page).toHaveURL(/\/application$/);
+    await page.clock.runFor(1);
+    await expect(page.getByText("Loading…", { exact: true })).toBeVisible();
+    await page.locator('aside a[href="/settings"]').evaluate((link: HTMLAnchorElement) => link.click());
+    await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
+    await page.clock.runFor(149);
+    await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
+    await page.clock.runFor(1);
+    await expect(page.getByText("Loading…", { exact: true })).toBeVisible();
+    release.resolve();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator("[data-route-pending=true]")).toHaveCount(0);
+    await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
+  } finally { release.resolve(); await page.unrouteAll({ behavior: "wait" }); }
+  // Browser timer is paused: real Auth/BFF/Nest still run; no cached/mock admission.
+  // Completing before advancing150ms must cancel the pending visual timer.
+  await page.locator('aside a[href="/settings/team"]').evaluate((link: HTMLAnchorElement) => link.click());
+  await expect(page).toHaveURL(/\/settings\/team$/);
+  await expect(page.getByRole("heading", { name: "Your team", exact: true })).toBeVisible();
+  await expect(page.locator("[data-route-pending=true]")).toHaveCount(0);
+  await page.clock.runFor(150);
+  await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
 });

@@ -39,7 +39,7 @@ export function LoginScreen() {
       <div className={styles.loginBrand}><Icon name="pen" size={24} />SketchPad</div>
       <section className={styles.loginCard} aria-labelledby="login-title">
         <h1 id="login-title">Sign in</h1>
-        <div ref={feedback} tabIndex={-1}><SessionMessage /></div>
+        <div ref={feedback} tabIndex={-1} className={styles.loginFeedback}><SessionMessage /></div>
         {["forbidden", "signout-unconfirmed"].includes(view.phase) && <div className={styles.sessionActions}><button type="button" onClick={() => void signOut()}>Sign out</button></div>}
         {view.phase === "changed" && <div className={styles.sessionActions}><button type="button" onClick={() => void revalidate()}>Check session</button></div>}
         <form noValidate onSubmit={submit} className={styles.form} aria-busy={busy}>

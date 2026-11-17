@@ -1,18 +1,23 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, startTransition, useCallback, useContext, useEffectEvent, useLayoutEffect, useRef, useState, useTransition, type ReactNode } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { SessionController, type InitialSession, type RouteAdmission, type SessionView } from "./session-controller";
 import type { ReturnPath } from "./config";
+import { subscribeHistoryNavigation } from "./history-navigation";
 import styles from "../workspace-foundation/workspace-foundation.module.css";
 
+type RoutePreparation = { path: ReturnPath; result: Promise<boolean> };
 interface SessionActions {
   view: SessionView;
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   revalidate: () => Promise<void>;
-  beginRoute: () => void;
+  navigate: (path: ReturnPath) => void;
+  navigationPending: boolean;
+  navigationId: number;
+  routePreparation: RoutePreparation | null;
   concealDeniedRoute: (admission: RouteAdmission) => void;
   admitRoute: (admission: RouteAdmission) => Promise<boolean>;
 }
@@ -65,15 +70,26 @@ export function SessionProvider({ children, initial, mode = "protected", returnT
   const destination = mode === "protected" ? (pathname === "/settings" || pathname === "/settings/team" ? pathname : "/application") : returnTo;
   const [view, setView] = useState<SessionView>(checking);
   const controller = useRef<SessionController | null>(null);
+  const [navigationPending, startNavigation] = useTransition();
+  const [navigationId, setNavigationId] = useState(0);
+  const [routePreparation, setRoutePreparation] = useState<RoutePreparation | null>(null);
   const privateContent = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    if (privateContent.current) privateContent.current.hidden = view.phase !== "ready";
+  }, [view]);
   const currentPath = useRef(pathname);
   useLayoutEffect(() => { currentPath.current = pathname; }, [pathname]);
   const restore = initial.restore;
   const onView = useEffectEvent((next: SessionView) => {
     // Conceal synchronously before page freezing or a concurrent React commit.
-    if (privateContent.current) privateContent.current.hidden = next.phase !== "ready";
-    setView(next);
+    if (privateContent.current && next.phase !== "ready") privateContent.current.hidden = true;
+    // Reveal identity and body together; an imperative unhide exposes pre-commit geometry.
+    if (next.phase === "ready" && next.routePath) startTransition(() => setView(next));
+    else setView(next);
     if (mode === "login" && next.phase === "ready") { router.replace(destination); router.refresh(); }
+    if (mode === "protected" && next.phase === "signed-out" && next.error) {
+      router.replace(`/login?returnTo=${encodeURIComponent(destination)}`);
+    }
   });
 
   useLayoutEffect(() => {
@@ -90,28 +106,32 @@ export function SessionProvider({ children, initial, mode = "protected", returnT
     const hide = () => current.invalidate();
     const show = (event: PageTransitionEvent) => { if (event.persisted) void revalidate(); };
     const history = () => {
-      // Same-document history is a route check, not a new authentication lifecycle.
-      if (currentPath.current !== window.location.pathname) {
-        currentPath.current = window.location.pathname;
-        if (mode === "protected") current.beginRoute();
-        else void revalidate();
-      }
+      // Join Next's restoration transition before it renders a cached destination.
+      const path = window.location.pathname;
+      if (currentPath.current === path) return;
+      currentPath.current = path;
+      if (mode === "protected" && (path === "/application" || path === "/settings" || path === "/settings/team")) {
+        setNavigationId(id => id + 1);
+        const admission = current.prepareRoute(path);
+        setRoutePreparation({ path, result: admission });
+        startNavigation(async () => { await admission; });
+      } else if (mode === "protected") current.beginRoute();
+      else void revalidate();
     };
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("pagehide", hide);
     window.addEventListener("pageshow", show);
-    // Conceal the prior body before Next restores a cached history segment.
-    window.addEventListener("popstate", history, true);
+    const unsubscribeHistory = subscribeHistoryNavigation(history);
     current.start(mode === "login");
     return () => {
       current.stop();
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("pagehide", hide);
       window.removeEventListener("pageshow", show);
-      window.removeEventListener("popstate", history, true);
+      unsubscribeHistory();
       if (controller.current === current) controller.current = null;
     };
-  }, [mode, restore, router]);
+  }, [mode, restore, router, startNavigation]);
 
   const unavailable = useCallback(() => setView({ ...checking, phase: "unsupported" }), []);
   const signIn = useCallback(async (email: string, password: string) => {
@@ -128,10 +148,20 @@ export function SessionProvider({ children, initial, mode = "protected", returnT
       if (admitted && mode === "protected") router.refresh();
     } else unavailable();
   }, [mode, router, unavailable]);
-  const beginRoute = useCallback(() => controller.current?.beginRoute(), []);
+  const navigate = useCallback((path: ReturnPath) => {
+    const current = controller.current;
+    if (!current) return;
+    setNavigationId(id => id + 1);
+    const admission = current.prepareRoute(path);
+    setRoutePreparation({ path, result: admission });
+    startNavigation(async () => {
+      router.push(path);
+      await admission;
+    });
+  }, [router]);
   const concealDeniedRoute = useCallback((admission: RouteAdmission) => controller.current?.concealDeniedRoute(admission), []);
   const admitRoute = useCallback(async (admission: RouteAdmission) => controller.current?.admitRoute(admission) ?? false, []);
-  const actions: SessionActions = { view, signIn, signOut, revalidate, beginRoute, concealDeniedRoute, admitRoute };
+  const actions: SessionActions = { view, signIn, signOut, revalidate, navigate, navigationPending, navigationId, routePreparation, concealDeniedRoute, admitRoute };
   return <SessionContext value={actions}>
     {mode === "login" ? children : <>
       <div ref={privateContent} hidden={view.phase !== "ready"}>{children}</div>

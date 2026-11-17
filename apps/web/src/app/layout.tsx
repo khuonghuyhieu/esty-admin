@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import { readSiteConfig } from "@/lib/site-config";
+import { HistoryNavigationEvents } from "@/features/app-session/history-navigation";
 import "./globals.css";
 
 const displayFont = localFont({
@@ -27,6 +28,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
   return (
     <html lang="en" className={`${displayFont.variable} ${bodyFont.variable}`}><body>
       <a className="skip-link" href="#main-content">Skip to content</a>
+      <HistoryNavigationEvents />
       {children}
     </body></html>
   );
