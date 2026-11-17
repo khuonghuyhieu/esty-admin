@@ -32,6 +32,122 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/app/integrations/etsy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Owner-only local persisted status. Zero provider requests or refresh. */
+        get: operations["getEtsyConnection"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/app/integrations/etsy/invitations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getEtsyInvitations"];
+        put?: never;
+        post: operations["createEtsyInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/app/integrations/etsy/invitations/{id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["cancelEtsyInvitation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/app/integrations/etsy/disconnect": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["disconnectEtsyConnection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/app/integrations/etsy/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Explicit Owner sync: getMe, bound getShop and at most one durable refresh. Never background polling. */
+        post: operations["syncEtsyShop"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/etsy/invite/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Exact configured Host and same Origin only. Scoped invitation proof; no app membership. Maximum8KiB JSON. Recipient confirmation page is separately FE-owned. */
+        post: operations["startEtsyConsent"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/integrations/etsy/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Exact configured Host/raw path only; single-use transaction-authenticated callback. Success query is exactly state+code; denial is state+error with optional error_description/error_uri. Maximum4096 bytes; duplicate and unknown fields rejected. No public status or confirmation page. */
+        get: operations["completeEtsyConsent"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/app/me": {
         parameters: {
             query?: never;
@@ -202,9 +318,83 @@ export interface components {
             /** @enum {string} */
             reason: "database_unavailable" | "database_timeout" | "migrations_pending";
         };
+        EtsyConnection: {
+            /** Format: uuid */
+            connectionId: string | null;
+            /** @enum {string} */
+            state: "unconnected" | "verification_pending" | "active" | "reconnect_required" | "refresh_unknown" | "disconnected";
+            revision: number;
+            shopId: string | null;
+            etsyUserId: string | null;
+            /** Format: date-time */
+            verifiedAt: string | null;
+            /** Format: date-time */
+            observedAt: string | null;
+            /** @description Persisted consent/refresh phase; expired submitted work is reported unknown without reconciliation writes or provider requests */
+            attemptPhase: string | null;
+            outcome: string | null;
+        };
+        EtsyInvitation: {
+            /** Format: uuid */
+            id: string;
+            shopId: string;
+            /** @enum {string} */
+            state: "pending" | "in_progress" | "connected" | "declined" | "expired" | "cancelled" | "failed" | "outcome_unknown";
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            expiresAt: string;
+        };
+        EtsyInvitationPage: {
+            items: components["schemas"]["EtsyInvitation"][];
+            /** Format: uuid */
+            nextCursor: string | null;
+            connection: components["schemas"]["EtsyConnection"];
+        };
+        EtsyCreateInvitation: {
+            expectedShopId: string;
+            expectedRevision: number;
+            /** Format: uuid */
+            idempotencyKey: string;
+        };
+        EtsyCreatedInvitation: {
+            /** Format: uuid */
+            invitationId: string;
+            revision: number;
+            /** Format: date-time */
+            expiresAt: string;
+            /**
+             * Format: uri
+             * @description Secret invitation fragment; never retained in tables, logs or idempotency replays
+             */
+            shareUrl?: string;
+        };
+        EtsyMutation: {
+            expectedRevision: number;
+            /** Format: uuid */
+            idempotencyKey: string;
+        };
+        EtsyDisposition: {
+            revision: number;
+            localDisconnected: boolean;
+            /** @enum {string} */
+            providerRevocation: "not_confirmed";
+        };
+        EtsyShopObservation: {
+            etsyUserId: string;
+            shopId: string;
+            shopName: string;
+            currencyCode: string;
+            /** Format: uuid */
+            connectionId: string;
+            revision: number;
+            /** Format: date-time */
+            observedAt: string;
+        };
         AppError: {
             /** @enum {string} */
-            code: "invalid_request" | "unauthenticated" | "forbidden" | "not_found" | "revision_conflict" | "last_owner" | "invitation_conflict" | "delivery_unavailable" | "dependency_unavailable" | "bootstrap_conflict";
+            code: "invalid_request" | "unauthenticated" | "forbidden" | "not_found" | "revision_conflict" | "last_owner" | "invitation_conflict" | "delivery_unavailable" | "dependency_unavailable" | "bootstrap_conflict" | "configuration_unavailable" | "upstream_unavailable" | "upstream_rate_limited" | "reconnect_required" | "outcome_unknown" | "connection_changed" | "connection_busy";
+            retryAfterSeconds?: number;
             /** Format: uuid */
             requestId: string;
         };
@@ -239,7 +429,7 @@ export interface components {
             readonly email: string;
             workspace: components["schemas"]["AppWorkspace"];
             membership: components["schemas"]["AppMember"];
-            capabilities: ("profile.read.self" | "profile.update.self" | "team.read" | "team.invite" | "team.invite.manage" | "team.role.assign" | "team.membership.manage" | "workspace.read" | "workspace.update" | "audit.read")[];
+            capabilities: ("profile.read.self" | "profile.update.self" | "team.read" | "team.invite" | "team.invite.manage" | "team.role.assign" | "team.membership.manage" | "workspace.read" | "workspace.update" | "audit.read" | "etsy.connection.read" | "etsy.connection.manage")[];
         };
         AppNamePatch: {
             /** @description Trimmed nonblank Unicode name; reject control characters and malformed Unicode. */
@@ -304,7 +494,7 @@ export interface components {
             /** Format: uuid */
             actorUserId: string;
             /** @enum {string} */
-            action: "workspace.bootstrap" | "profile.update" | "workspace.update" | "membership.update" | "invitation.create" | "invitation.revoke" | "invitation.accept" | "invitation.delivery" | "invitation.reconcile";
+            action: "workspace.bootstrap" | "profile.update" | "workspace.update" | "membership.update" | "invitation.create" | "invitation.revoke" | "invitation.accept" | "invitation.delivery" | "invitation.reconcile" | "etsy.invitation.create" | "etsy.invitation.cancel" | "etsy.attempt.start" | "etsy.callback" | "etsy.sync" | "etsy.refresh" | "etsy.disconnect" | "etsy.prune";
             /** Format: uuid */
             targetId: string;
             /** @enum {string} */
@@ -460,6 +650,237 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Degraded"];
                 };
+            };
+        };
+    };
+    getEtsyConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Local status */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtsyConnection"];
+                };
+            };
+            401: components["responses"]["AppUnauthorized"];
+            default: components["responses"]["AppBadRequest"];
+        };
+    };
+    getEtsyInvitations: {
+        parameters: {
+            query?: {
+                limit?: number;
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Safe paginated history without link secrets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtsyInvitationPage"];
+                };
+            };
+            401: components["responses"]["AppUnauthorized"];
+            default: components["responses"]["AppBadRequest"];
+        };
+    };
+    createEtsyInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EtsyCreateInvitation"];
+            };
+        };
+        responses: {
+            /** @description Durable receipt; shareUrl appears only on first acknowledged creation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtsyCreatedInvitation"];
+                };
+            };
+            401: components["responses"]["AppUnauthorized"];
+            default: components["responses"]["AppBadRequest"];
+        };
+    };
+    cancelEtsyInvitation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EtsyMutation"];
+            };
+        };
+        responses: {
+            /** @description Local cancellation receipt */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtsyDisposition"];
+                };
+            };
+            401: components["responses"]["AppUnauthorized"];
+            default: components["responses"]["AppBadRequest"];
+        };
+    };
+    disconnectEtsyConnection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EtsyMutation"];
+            };
+        };
+        responses: {
+            /** @description Local disconnect, not provider revocation */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtsyDisposition"];
+                };
+            };
+            401: components["responses"]["AppUnauthorized"];
+            default: components["responses"]["AppBadRequest"];
+        };
+    };
+    syncEtsyShop: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    expectedRevision: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Fresh verified four-field projection */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtsyShopObservation"];
+                };
+            };
+            401: components["responses"]["AppUnauthorized"];
+            default: components["responses"]["AppBadRequest"];
+        };
+    };
+    startEtsyConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    secret: string;
+                };
+            };
+        };
+        responses: {
+            /** @description One bound Etsy consent navigation; private/no-store/no-referrer */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Generic invalid or consumed invitation */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Generic dependency failure */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    completeEtsyConsent: {
+        parameters: {
+            query: {
+                state: string;
+                code?: string;
+                error?: string;
+                error_description?: string;
+                error_uri?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fixed clean neutral return origin; not proof of connection success */
+            303: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Generic invalid, expired or replayed transaction */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Generic dependency failure */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
