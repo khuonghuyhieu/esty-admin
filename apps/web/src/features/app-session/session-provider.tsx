@@ -1,9 +1,9 @@
 "use client";
 
-import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffectEvent, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { SessionController, type InitialSession, type SessionView } from "./session-controller";
+import { usePathname, useRouter } from "next/navigation";
+import { SessionController, type InitialSession, type RouteAdmission, type SessionView } from "./session-controller";
 import type { ReturnPath } from "./config";
 import styles from "../workspace-foundation/workspace-foundation.module.css";
 
@@ -12,6 +12,9 @@ interface SessionActions {
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
   revalidate: () => Promise<void>;
+  beginRoute: () => void;
+  concealDeniedRoute: (admission: RouteAdmission) => void;
+  admitRoute: (admission: RouteAdmission) => Promise<boolean>;
 }
 const SessionContext = createContext<SessionActions | null>(null);
 const checking: SessionView = { phase: "checking", me: null, generation: null, error: null };
@@ -58,52 +61,81 @@ function SessionGate({ returnTo }: { returnTo: ReturnPath }) {
 
 export function SessionProvider({ children, initial, mode = "protected", returnTo = "/application" }: { children: ReactNode; initial: InitialSession; mode?: "protected" | "login"; returnTo?: ReturnPath }) {
   const router = useRouter();
+  const pathname = usePathname();
+  const destination = mode === "protected" ? (pathname === "/settings" || pathname === "/settings/team" ? pathname : "/application") : returnTo;
   const [view, setView] = useState<SessionView>(checking);
   const controller = useRef<SessionController | null>(null);
   const privateContent = useRef<HTMLDivElement>(null);
+  const currentPath = useRef(pathname);
+  useLayoutEffect(() => { currentPath.current = pathname; }, [pathname]);
   const restore = initial.restore;
+  const onView = useEffectEvent((next: SessionView) => {
+    // Conceal synchronously before page freezing or a concurrent React commit.
+    if (privateContent.current) privateContent.current.hidden = next.phase !== "ready";
+    setView(next);
+    if (mode === "login" && next.phase === "ready") { router.replace(destination); router.refresh(); }
+  });
 
-  useEffect(() => {
-    const current = new SessionController({ restore }, next => {
-      // Synchronous concealment also covers page freezing before React commits.
-      if (privateContent.current) privateContent.current.hidden = next.phase !== "ready";
-      setView(next);
-      if (mode === "login" && next.phase === "ready") { router.replace(returnTo); router.refresh(); }
-    });
+  useLayoutEffect(() => {
+    const current = new SessionController({ restore }, next => onView(next));
     controller.current = current;
+    const revalidate = async () => {
+      const admitted = await current.revalidate();
+      if (admitted && mode === "protected") router.refresh();
+    };
     const visibility = () => {
       if (document.visibilityState === "hidden") current.invalidate();
-      else void current.revalidate();
+      else void revalidate();
     };
     const hide = () => current.invalidate();
-    const show = (event: PageTransitionEvent) => { if (event.persisted) void current.revalidate(); };
-    const history = () => { current.invalidate(); void current.revalidate(); };
+    const show = (event: PageTransitionEvent) => { if (event.persisted) void revalidate(); };
+    const history = () => {
+      // Same-document history is a route check, not a new authentication lifecycle.
+      if (currentPath.current !== window.location.pathname) {
+        currentPath.current = window.location.pathname;
+        if (mode === "protected") current.beginRoute();
+        else void revalidate();
+      }
+    };
     document.addEventListener("visibilitychange", visibility);
     window.addEventListener("pagehide", hide);
     window.addEventListener("pageshow", show);
-    window.addEventListener("popstate", history);
-    current.start();
+    // Conceal the prior body before Next restores a cached history segment.
+    window.addEventListener("popstate", history, true);
+    current.start(mode === "login");
     return () => {
       current.stop();
       document.removeEventListener("visibilitychange", visibility);
       window.removeEventListener("pagehide", hide);
       window.removeEventListener("pageshow", show);
-      window.removeEventListener("popstate", history);
+      window.removeEventListener("popstate", history, true);
       if (controller.current === current) controller.current = null;
     };
-  }, [mode, restore, returnTo, router]);
+  }, [mode, restore, router]);
 
-  const unavailable = () => setView({ ...checking, phase: "unsupported" });
-  const actions: SessionActions = {
-    view,
-    signIn: async (email, password) => { if (controller.current) await controller.current.signIn(email, password, returnTo); else unavailable(); },
-    signOut: async () => { if (controller.current) await controller.current.signOut(); else unavailable(); },
-    revalidate: async () => { if (controller.current) await controller.current.revalidate(undefined, true); else unavailable(); },
-  };
+  const unavailable = useCallback(() => setView({ ...checking, phase: "unsupported" }), []);
+  const signIn = useCallback(async (email: string, password: string) => {
+    if (controller.current) await controller.current.signIn(email, password, destination);
+    else unavailable();
+  }, [destination, unavailable]);
+  const signOut = useCallback(async () => {
+    if (controller.current) await controller.current.signOut();
+    else unavailable();
+  }, [unavailable]);
+  const revalidate = useCallback(async () => {
+    if (controller.current) {
+      const admitted = await controller.current.revalidate(undefined, true);
+      if (admitted && mode === "protected") router.refresh();
+    } else unavailable();
+  }, [mode, router, unavailable]);
+  const beginRoute = useCallback(() => controller.current?.beginRoute(), []);
+  const concealDeniedRoute = useCallback((admission: RouteAdmission) => controller.current?.concealDeniedRoute(admission), []);
+  const admitRoute = useCallback(async (admission: RouteAdmission) => controller.current?.admitRoute(admission) ?? false, []);
+  const actions: SessionActions = { view, signIn, signOut, revalidate, beginRoute, concealDeniedRoute, admitRoute };
   return <SessionContext value={actions}>
     {mode === "login" ? children : <>
-      <div ref={privateContent} hidden={view.phase !== "ready"}>{view.phase === "ready" ? children : null}</div>
-      {view.phase !== "ready" && <SessionGate returnTo={returnTo} />}
+      <div ref={privateContent} hidden={view.phase !== "ready"}>{children}</div>
+      {view.phase !== "ready" && <SessionGate returnTo={destination} />}
     </>}
   </SessionContext>;
 }

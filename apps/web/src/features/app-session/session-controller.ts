@@ -9,8 +9,15 @@ export interface SessionView {
   generation: string | null;
   error: SessionErrorCode | null;
   providerOutcome?: "confirmed" | "unknown";
+  routePending?: boolean;
 }
 export interface InitialSession { restore: boolean }
+export interface RouteAdmission {
+  path: ReturnPath;
+  generation: string | null;
+  restore: boolean;
+  phase: "ready" | "forbidden" | "unavailable";
+}
 interface Context { generation: string; csrf: string }
 const boundaryCodes: readonly SessionErrorCode[] = ["csrf_denied", "session_changed", "upstream_unavailable", "invalid_credentials", "rate_limited"];
 const lockName = "lovora-app-session";
@@ -18,6 +25,8 @@ const nonce = /^[A-Za-z0-9_-]{43}$/;
 
 export class SessionController {
   private epoch = 0;
+  private routeEpoch = 0;
+  private view: SessionView = { phase: "checking", me: null, generation: null, error: null };
   private lifecycle: AbortController | null = null;
   private channel: BroadcastChannel | null = null;
   private restorable: boolean;
@@ -29,7 +38,7 @@ export class SessionController {
     this.notify = notify;
   }
 
-  start(): void {
+  start(validate = true): void {
     if (!window.isSecureContext || !navigator.locks || typeof BroadcastChannel === "undefined") {
       this.show("unsupported");
       return;
@@ -45,7 +54,7 @@ export class SessionController {
       this.requiresExplicitCheck = true;
       this.invalidate("changed");
     };
-    void this.revalidate(this.restorable);
+    if (validate) void this.revalidate(this.restorable);
   }
 
   stop(): void {
@@ -57,13 +66,39 @@ export class SessionController {
   }
 
   private show(phase: SessionPhase, error: SessionErrorCode | null = null, me: AppMe | null = null, generation: string | null = null, providerOutcome?: "confirmed" | "unknown"): void {
-    this.notify({ phase, error, me, generation, ...(providerOutcome ? { providerOutcome } : {}) });
+    this.view = { phase, error, me, generation, ...(providerOutcome ? { providerOutcome } : {}) };
+    this.notify(this.view);
   }
 
   invalidate(phase: "checking" | "changed" = "checking"): void {
     if (this.requiresExplicitCheck && phase === "checking") return;
     this.epoch++;
     this.show(phase);
+  }
+
+  beginRoute(): void {
+    this.routeEpoch++;
+    this.view = { ...this.view, routePending: true };
+    this.notify(this.view);
+  }
+
+  concealDeniedRoute(admission: RouteAdmission): void {
+    if (admission.phase === "ready" || this.view.phase !== "ready"
+      || admission.generation !== this.view.generation || this.requiresExplicitCheck) return;
+    // A current denial is already authoritative; context verification must not prolong private chrome.
+    this.routeEpoch += 1;
+    this.show(admission.phase, admission.phase === "forbidden" ? "forbidden" : "upstream_unavailable");
+  }
+
+  async admitRoute(admission: RouteAdmission): Promise<boolean> {
+    if (this.requiresExplicitCheck || ["signed-out", "signout-unconfirmed", "unsupported", "changed"].includes(this.view.phase)) return false;
+    this.concealDeniedRoute(admission);
+    const epoch = this.epoch;
+    const routeEpoch = this.routeEpoch + 1;
+    await this.revalidate(admission.restore, false, admission);
+    return epoch === this.epoch && routeEpoch === this.routeEpoch
+      && this.view.phase === "ready" && !this.view.routePending
+      && this.view.generation === admission.generation;
   }
 
   private changed(generation?: string): void {
@@ -94,17 +129,17 @@ export class SessionController {
     return value as Context;
   }
 
-  private async locked(action: (signal: AbortSignal, epoch: number) => Promise<void>): Promise<void> {
+  private async locked(action: (signal: AbortSignal, epoch: number) => Promise<void>, current = () => true): Promise<void> {
     const lifecycle = this.lifecycle;
     const epoch = this.epoch;
     if (!lifecycle) { this.show("unsupported"); return; }
     try {
       await navigator.locks.request(lockName, { mode: "exclusive", signal: lifecycle.signal }, async () => {
-        if (epoch !== this.epoch || lifecycle.signal.aborted) return;
+        if (epoch !== this.epoch || lifecycle.signal.aborted || !current()) return;
         await action(lifecycle.signal, epoch);
       });
     } catch (error) {
-      if (epoch !== this.epoch || lifecycle.signal.aborted) return;
+      if (epoch !== this.epoch || lifecycle.signal.aborted || !current()) return;
       const failure = error instanceof SessionFailure ? error : new SessionFailure(503, "upstream_unavailable");
       if (failure.status === 401) { this.restorable = false; this.show("signed-out", failure.code); }
       else if (failure.status === 403 && failure.code === "forbidden") { this.restorable = true; this.show("forbidden", failure.code); }
@@ -112,25 +147,41 @@ export class SessionController {
     }
   }
 
-  async revalidate(allowRefresh = this.restorable, explicit = false): Promise<void> {
-    if (this.requiresExplicitCheck && !explicit) return;
+  async revalidate(allowRefresh = this.restorable, explicit = false, admission?: RouteAdmission): Promise<boolean> {
+    if (this.requiresExplicitCheck && !explicit) return false;
     this.requiresExplicitCheck = false;
-    this.invalidate();
+    if (admission) this.beginRoute();
+    else this.invalidate();
+    const routeEpoch = this.routeEpoch;
+    const authEpoch = this.epoch;
+    const routeIsCurrent = () => routeEpoch === this.routeEpoch;
     await this.locked(async (signal, epoch) => {
       const context = await this.context(signal);
+      if (epoch !== this.epoch || !routeIsCurrent()) return;
+      if (admission) {
+        if (admission.generation !== context.generation) {
+          this.requiresExplicitCheck = true;
+          this.invalidate("changed");
+          return;
+        }
+        if (admission.phase === "forbidden") throw new SessionFailure(403, "forbidden");
+        if (admission.phase === "unavailable") throw new SessionFailure(503, "upstream_unavailable");
+      }
       let me: unknown;
       // Cached RSC/history payloads never substitute for a current admission check.
       try { me = await this.request("/api/app/me", signal); }
       catch (error) {
-        if (!(error instanceof SessionFailure) || error.status !== 401 || !allowRefresh || epoch !== this.epoch) throw error;
+        if (!(error instanceof SessionFailure) || error.status !== 401 || !allowRefresh || epoch !== this.epoch || !routeIsCurrent()) throw error;
+        // Expiry is an actual loss of admission, not ordinary route loading.
+        this.show("checking");
         try {
           const refreshed = await this.request("/api/auth/refresh", signal, context);
           me = refreshed && typeof refreshed === "object" && "me" in refreshed ? refreshed.me : null;
         } catch (failure) {
           if (!(failure instanceof SessionFailure) || failure.status !== 401) throw failure;
-          if (epoch !== this.epoch || signal.aborted) return;
+          if (epoch !== this.epoch || signal.aborted || !routeIsCurrent()) return;
           const current = await this.context(signal);
-          if (epoch !== this.epoch || signal.aborted) return;
+          if (epoch !== this.epoch || signal.aborted || !routeIsCurrent()) return;
           if (current.generation !== context.generation) {
             this.requiresExplicitCheck = true;
             this.invalidate("changed");
@@ -138,16 +189,17 @@ export class SessionController {
           }
           // Failed refresh stays cookieless; only this locked, still-current transition may reset.
           await this.request("/api/auth/begin", signal, current);
-          if (epoch !== this.epoch || signal.aborted) return;
+          if (epoch !== this.epoch || signal.aborted || !routeIsCurrent()) return;
           this.changed();
           throw failure;
         }
       }
-      if (epoch !== this.epoch) return;
+      if (epoch !== this.epoch || !routeIsCurrent()) return;
       if (!isAppMe(me)) throw new SessionFailure(503, "upstream_unavailable");
       this.restorable = true;
       this.show("ready", null, me, context.generation);
-    });
+    }, routeIsCurrent);
+    return authEpoch === this.epoch && routeIsCurrent() && this.view.phase === "ready";
   }
 
   async signIn(email: string, password: string, returnTo: ReturnPath): Promise<void> {

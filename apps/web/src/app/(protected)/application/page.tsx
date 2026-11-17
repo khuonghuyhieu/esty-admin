@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { ApplicationPreview } from "@/features/application-preview/application-preview";
 import { guardApplication } from "@/features/app-session/server";
-import { SessionProvider } from "@/features/app-session/session-provider";
+import { ProtectedRoute } from "@/features/app-session/protected-route";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,5 +14,5 @@ export const metadata: Metadata = {
 
 export default async function ApplicationPage() {
   const initial = await guardApplication("/application");
-  return <SessionProvider initial={initial}><ApplicationPreview /></SessionProvider>;
+  return <ProtectedRoute admission={initial}>{initial.phase === "ready" ? <ApplicationPreview /> : null}</ProtectedRoute>;
 }

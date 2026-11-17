@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { SettingsScreen } from "@/features/workspace-foundation/settings-screen";
 import { guardApplication } from "@/features/app-session/server";
-import { SessionProvider } from "@/features/app-session/session-provider";
+import { ProtectedRoute } from "@/features/app-session/protected-route";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,5 +14,5 @@ export const metadata: Metadata = {
 
 export default async function SettingsPage() {
   const initial = await guardApplication("/settings");
-  return <SessionProvider initial={initial} returnTo="/settings"><SettingsScreen /></SessionProvider>;
+  return <ProtectedRoute admission={initial}>{initial.phase === "ready" ? <SettingsScreen /> : null}</ProtectedRoute>;
 }

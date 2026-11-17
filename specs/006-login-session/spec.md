@@ -63,3 +63,10 @@ Auth session and app membership/profile/workspace are existing005 entities. New 
 ## Dependencies and completion boundary
 
 Use the accepted [005 BE handoff](../005-app-foundation/quickstart.md), without changing it. Synthetic owner/workspace provisioning and isolated resources require a fresh execution grant; real owner inputs remain a separate gate, not a repeated baseline question. Production adoption additionally depends on [001's versioned migration-delivery prerequisite](../001-connectivity-foundation/plan.md#future-versioned-production-migration-integration--plan-only), linked rather than copied. Local journey completion is not hosted/product acceptance or publication authority. Features007/008/009 depend on this integrated session foundation, not merely its FE implementation.
+
+
+## Owner navigation feedback — 2026-11-17
+
+The owner requests smooth sidebar navigation between Dashboard, Settings and Team. A valid admitted session must not be reset merely because the route changes. Keep the shared sidebar, header and session lifecycle mounted; replace the route content and update its heading/active navigation. Loading feedback belongs to the content region during ordinary navigation. Initial admission, actual session invalidation, denied membership, logout and uncertain authentication remain explicit security states, not hidden success.
+
+This is an incremental006 navigation improvement, not a redesign, new business feature, authentication replacement or authorization cache. Public routes and login remain outside the protected application shell. Preserve direct-load, reload, refresh, multi-tab/logout and current membership checks. Data APIs and mutations continue to enforce current access independently of a persistent layout. Existing local completion evidence above is historical and does not cover this increment.

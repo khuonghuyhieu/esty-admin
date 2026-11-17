@@ -16,7 +16,14 @@ const hash = bytes => createHash("sha256").update(bytes).digest("hex");
 const protectedPaths = ["apps/web/next-env.d.ts", "apps/web/tsconfig.json", "package.json", "package-lock.json", ".specify/feature.json", "README.md", "PROJECT_STATE.md", "apps/web/src/lib/api/generated.ts", "specs/001-connectivity-foundation/contracts/openapi.json"];
 
 async function protectedHashes() {
-  return Object.fromEntries(await Promise.all(protectedPaths.map(async path => [path, hash(await readFile(join(repository, path)))])));
+  return Object.fromEntries(await Promise.all(protectedPaths.map(async path => {
+    try { return [path, hash(await readFile(join(repository, path)))]; }
+    catch (error) {
+      // Fresh task worktrees may not have the local-only feature pointer; preserve absence.
+      if (path === ".specify/feature.json" && error.code === "ENOENT") return [path, null];
+      throw error;
+    }
+  })));
 }
 
 async function syntheticEnvironment() {

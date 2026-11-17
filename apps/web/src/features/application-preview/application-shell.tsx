@@ -1,27 +1,37 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { ProfileMenu } from "../workspace-foundation/profile-menu";
 import { useAppSession } from "../app-session/session-provider";
 import { Icon } from "./icon";
-import { ProjectsTable } from "./projects-table";
 import styles from "./application-preview.module.css";
 
 type Section = "dashboard" | "team" | "settings";
+const BoardSearchContext = createContext<{ query: string; onQueryChange: (query: string) => void } | null>(null);
+
+export function useBoardSearch() {
+  const search = useContext(BoardSearchContext);
+  if (!search) throw new Error("Board search requires the application shell");
+  return search;
+}
 
 function Sidebar({ section, onNavigate }: { section: Section; onNavigate?: () => void }) {
+  const { beginRoute } = useAppSession();
   return <>
     <a className={styles.brand} href="#main-content" onClick={onNavigate}><span className={styles.brandMark}><Icon name="pen" /></span>SketchPad</a>
     <nav className={styles.navigation} aria-label="Application">
-      <Link className={section === "dashboard" ? styles.selected : undefined} href={section === "dashboard" ? "#main-content" : "/application"} prefetch={false} aria-current={section === "dashboard" ? "page" : undefined} onClick={onNavigate}><Icon name="dashboard" />Dashboard</Link>
-      <Link className={section === "team" ? styles.selected : undefined} href="/settings/team" prefetch={false} aria-current={section === "team" ? "page" : undefined} onClick={onNavigate}><Icon name="team" />Team <span className={styles.badge}>3</span></Link>
-      <Link className={section === "settings" ? styles.selected : undefined} href="/settings" prefetch={false} aria-current={section === "settings" ? "page" : undefined} onClick={onNavigate}><Icon name="settings" />Settings</Link>
+      <Link className={section === "dashboard" ? styles.selected : undefined} href={section === "dashboard" ? "#main-content" : "/application"} prefetch={false} aria-current={section === "dashboard" ? "page" : undefined} onNavigate={section === "dashboard" ? undefined : beginRoute} onClick={onNavigate}><Icon name="dashboard" />Dashboard</Link>
+      <Link className={section === "team" ? styles.selected : undefined} href="/settings/team" prefetch={false} aria-current={section === "team" ? "page" : undefined} onNavigate={section === "team" ? undefined : beginRoute} onClick={onNavigate}><Icon name="team" />Team <span className={styles.badge}>3</span></Link>
+      <Link className={section === "settings" ? styles.selected : undefined} href="/settings" prefetch={false} aria-current={section === "settings" ? "page" : undefined} onNavigate={section === "settings" ? undefined : beginRoute} onClick={onNavigate}><Icon name="settings" />Settings</Link>
     </nav>
   </>;
 }
 
-export function ApplicationShell({ children, section = "dashboard" }: { children: ReactNode; section?: Section }) {
+export function ApplicationShell({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
+  const section: Section = pathname === "/settings/team" ? "team" : pathname === "/settings" ? "settings" : "dashboard";
   const { view } = useAppSession();
   const [query, setQuery] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -41,7 +51,10 @@ export function ApplicationShell({ children, section = "dashboard" }: { children
     };
   }, [drawerOpen]);
 
-  if (!view.me) return null;
+  useEffect(() => {
+    if (view.phase !== "ready") drawer.current?.close();
+  }, [view.phase]);
+
 
   return <div className={styles.preview}>
     <aside className={styles.sidebar}><Sidebar section={section} /></aside>
@@ -60,22 +73,21 @@ export function ApplicationShell({ children, section = "dashboard" }: { children
       <button className={styles.drawerClose} aria-label="Close sidebar" onClick={() => drawer.current?.close()}><Icon name="close" /></button>
       <Sidebar section={section} onNavigate={() => drawer.current?.close()} />
     </dialog>
-    <main id="main-content" tabIndex={-1} className={styles.main}>
+    <main id={view.phase === "ready" ? "main-content" : undefined} tabIndex={-1} className={styles.main}>
       <header className={styles.header}>
         <div className={styles.heading}>
           <button ref={trigger} className={styles.drawerTrigger} aria-label="Open sidebar" aria-haspopup="dialog" aria-expanded={drawerOpen} onClick={() => { drawer.current?.showModal(); setDrawerOpen(true); }}><Icon name="menu" /></button>
-          <h1>{section === "dashboard" ? "Project dashboard" : section === "team" ? "Team" : "Settings"}</h1>
+          {view.phase === "ready" && <h1>{section === "dashboard" ? "Project dashboard" : section === "team" ? "Team" : "Settings"}</h1>}
         </div>
         <div className={styles.headerControls}>
-          <button className={styles.workspace} type="button" onClick={event => event.preventDefault()}><Icon name="pen" size={16} /><span>{view.me.workspace.displayName}</span><Icon name="chevron" size={14} /></button>
+          <button className={styles.workspace} type="button" onClick={event => event.preventDefault()}><Icon name="pen" size={16} /><span>{view.me?.workspace.displayName}</span><Icon name="chevron" size={14} /></button>
           {section === "dashboard" && <label className={styles.search}><Icon name="search" size={16} /><span className={styles.srOnly}>Search boards</span><input type="search" name="board-search" autoComplete="off" placeholder="Search boards…" value={query} onChange={(event) => setQuery(event.target.value)} /></label>}
           <button className={styles.notifications} type="button" onClick={event => event.preventDefault()} aria-label="Notifications (3 unread)"><Icon name="bell" size={18} /><span>3</span></button>
           <ProfileMenu />
         </div>
       </header>
       <p className={styles.sampleNotice}>{section === "dashboard" ? "Sample project content; boards and activity are not connected." : section === "team" ? "Sample team content — not the live workspace member list." : "Sample settings — changes are not saved."}</p>
-      {children}
-      {section === "dashboard" && <ProjectsTable query={query} onQueryChange={setQuery} />}
+      <BoardSearchContext value={{ query, onQueryChange: setQuery }}>{children}</BoardSearchContext>
     </main>
   </div>;
 }

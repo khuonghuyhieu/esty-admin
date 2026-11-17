@@ -5,6 +5,7 @@ import { readSessionConfig, type ReturnPath } from "./config";
 import { readAuthCookies } from "./cookies";
 import { currentAppMe } from "./app-client";
 import { SessionFailure } from "./errors";
+import type { RouteAdmission } from "./session-controller";
 
 export async function hasRestorableSession(): Promise<boolean> {
   try {
@@ -14,19 +15,25 @@ export async function hasRestorableSession(): Promise<boolean> {
   } catch { return false; }
 }
 
-export async function guardApplication(returnTo: ReturnPath): Promise<{ restore: boolean }> {
+export async function guardApplication(returnTo: ReturnPath): Promise<RouteAdmission> {
   let unauthenticated = false;
   let restore = false;
+  let generation: string | null = null;
+  let phase: RouteAdmission["phase"] = "unavailable";
   try {
     const config = readSessionConfig();
-    const { session } = readAuthCookies(config, (await headers()).get("cookie"));
+    const { session, context } = readAuthCookies(config, (await headers()).get("cookie"));
+    generation = context?.generation ?? null;
     restore = !!session;
     if (!session) unauthenticated = true;
-    else await currentAppMe(config, session.accessToken, AbortSignal.timeout(8000));
+    else {
+      await currentAppMe(config, session.accessToken, AbortSignal.timeout(8000));
+      phase = "ready";
+    }
   } catch (error) {
     unauthenticated = error instanceof SessionFailure && error.status === 401;
-    // Forbidden/unavailable are rendered by the session gate, never as admitted content.
+    phase = error instanceof SessionFailure && error.status === 403 ? "forbidden" : "unavailable";
   }
   if (unauthenticated) redirect(`/login?returnTo=${encodeURIComponent(returnTo)}`);
-  return { restore };
+  return { path: returnTo, generation, restore, phase };
 }

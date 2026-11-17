@@ -1,7 +1,6 @@
 "use client";
 
 import { useId, useRef, useState, type KeyboardEvent } from "react";
-import { ApplicationShell } from "../application-preview/application-shell";
 import { Icon } from "../application-preview/icon";
 import { illustrativePermissions, illustrativeRoles } from "./fixtures";
 import { selectMembers } from "./member-search";
@@ -24,7 +23,7 @@ export function TeamScreen() {
     (next === "users" ? users : roles).current?.focus();
   }
 
-  return <ApplicationShell section="team">
+  return <>
     <section className={styles.card} aria-label="Team administration">
       <h2>Your team</h2>
       <div className={styles.tabs} role="tablist" aria-label="Team views">
@@ -54,5 +53,5 @@ export function TeamScreen() {
         <div className={styles.actions}><button type="button" onClick={event => event.preventDefault()}>Edit permissions</button><button type="button" onClick={event => event.preventDefault()}>Save role</button></div>
       </div>
     </section>
-  </ApplicationShell>;
+  </>;
 }

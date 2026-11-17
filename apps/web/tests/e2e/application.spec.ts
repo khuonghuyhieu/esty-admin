@@ -2,7 +2,11 @@ import { expect, test, type Locator, type Page } from "@playwright/test";
 import { assertBrowserCredentialIsolation, browserTransition, clearBrowserSession, currentMe, enterPassword, fetchInterceptedRoute, fixtureControl, registerBrowserSession, sessionFixture, signIn } from "./app-session-fixture";
 
 declare global {
-  interface Window { __sessionCspViolations?: string[]; }
+  interface Window {
+    __sessionCspViolations?: string[];
+    __sessionLifecycleStarts?: number;
+    __navigationEvidence?: { header: Element | null; sidebar: Element | null; checking: number };
+  }
 }
 
 const initialTitles = ["Sprint retro — June", "Q2 Product Planning", "Design System v3", "User research synthesis", "Mobile UX — Checkout flow"];
@@ -10,6 +14,14 @@ const initialTitles = ["Sprint retro — June", "Q2 Product Planning", "Design S
 test.beforeEach(async ({ page }, info) => {
   sessionFixture();
   await page.context().addInitScript(() => {
+    const NativeChannel = window.BroadcastChannel;
+    window.__sessionLifecycleStarts = 0;
+    window.BroadcastChannel = class extends NativeChannel {
+      constructor(name: string) {
+        super(name);
+        if (name === "lovora-app-session") window.__sessionLifecycleStarts!++;
+      }
+    };
     const violations: string[] = [];
     Object.defineProperty(window, "__sessionCspViolations", { value: violations });
     document.addEventListener("securitypolicyviolation", event => violations.push(event.effectiveDirective));
@@ -952,7 +964,8 @@ test("transient refresh503 preserves actual cookies without cleanup or retry", {
   }));
   try {
     await fixtureControl("fault", { target: "auth", active: true });
-    await page.reload();
+    // Revalidate the mounted client: a fresh server render correctly denies the Auth outage before this synthetic me fault.
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
     await expect(page.getByRole("main").getByRole("alert")).toContainText("temporarily unavailable", { timeout: 15000 });
     await page.evaluate(() => navigator.locks.request("lovora-app-session", () => undefined));
     expect(refreshes).toBe(1);
@@ -1040,4 +1053,143 @@ test("public connectivity entry creates a protected document and public exit rem
   await page.getByRole("link", { name: "Read the privacy overview", exact: true }).click();
   await expect(page).toHaveURL(/\/privacy$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy overview");
+});
+
+test("persistent protected navigation keeps chrome and controller through delayed content and history", async ({ page }, info) => {
+  const starts = await page.evaluate(() => {
+    window.__navigationEvidence = { header: document.querySelector("header"), sidebar: document.querySelector("aside"), checking: 0 };
+    new MutationObserver(() => {
+      if (document.body.innerText.includes("Checking your session")) window.__navigationEvidence!.checking++;
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    return window.__sessionLifecycleStarts;
+  });
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  await page.route("**/settings?*", async route => {
+    if (route.request().headers().rsc !== "1") return route.continue();
+    reached.resolve();
+    await release.promise;
+    await route.continue();
+  });
+  try {
+    await navigateFoundation(page, "Settings");
+    await reached.promise;
+    await expect(page.getByRole("main").getByRole("status")).toHaveText("Loading page…");
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toBeVisible();
+    await expect(page.getByText("Checking your session…", { exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("navigation-pending.png"), fullPage: true });
+  } finally { release.resolve(); }
+  await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toBeVisible();
+  await page.unroute("**/settings?*");
+  for (const [name, path, heading] of [
+    ["Team", "/settings/team", "Your team"], ["Dashboard", "/application", "Whiteboard projects"],
+    ["Settings", "/settings", "Account"],
+  ] as const) {
+    await navigateFoundation(page, name);
+    await expect(page).toHaveURL(new RegExp(`${path}$`));
+    await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+    await expect(page.locator("aside").getByRole("link", { name: name === "Team" ? "Team 3" : name, exact: true, includeHidden: true })).toHaveAttribute("aria-current", "page");
+    if (page.viewportSize()!.width < 1024) {
+      await expect(page.getByRole("dialog", { name: "Application navigation" })).not.toBeVisible();
+      await expect(page.getByRole("button", { name: "Open sidebar", exact: true })).toBeFocused();
+    }
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: info.outputPath(`navigation-${name.toLowerCase()}.png`), fullPage: true });
+  }
+  await page.goBack();
+  await expect(page.getByRole("heading", { name: "Whiteboard projects", exact: true })).toBeVisible();
+  await page.goForward();
+  await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toBeVisible();
+  const evidence = await page.evaluate(() => ({
+    headerRetained: window.__navigationEvidence!.header === document.querySelector("header"),
+    sidebarRetained: window.__navigationEvidence!.sidebar === document.querySelector("aside"),
+    checkingObserved: window.__navigationEvidence!.checking,
+    controllerStarts: window.__sessionLifecycleStarts,
+  }));
+  expect(evidence).toEqual({ headerRetained: true, sidebarRetained: true, checkingObserved: 0, controllerStarts: starts });
+  await info.attach("navigation-transition", { body: JSON.stringify(evidence), contentType: "application/json" });
+  await assertBrowserCredentialIsolation(page);
+});
+
+test("persistent route admission propagates real server membership denial and API outage", { tag: "@security-desktop" }, async ({ page, context }, testInfo) => {
+  await clearBrowserSession(context);
+  await signIn(page, "member");
+  const before = await currentMe(page);
+  await fixtureControl("set-member", { target: "member", status: "disabled" });
+  let syntheticMeReads = 0;
+  // Deliberately stale BFF peer: the actual server-route denial must not be ignored by ready chrome.
+  await page.route("**/api/app/me", route => {
+    syntheticMeReads++;
+    return route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(before) });
+  });
+  const deniedContext = Promise.withResolvers<void>(), releaseDeniedContext = Promise.withResolvers<void>();
+  await page.route("**/api/auth/context", async route => {
+    const response = await route.fetch();
+    deniedContext.resolve();
+    await releaseDeniedContext.promise;
+    await route.fulfill({ response });
+  });
+  try {
+    await navigateFoundation(page, "Settings");
+    await deniedContext.promise;
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("Access is unavailable");
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toHaveCount(0);
+    expect(syntheticMeReads).toBe(0);
+    await page.screenshot({ path: testInfo.outputPath("membership-denial-context-held.png") });
+    releaseDeniedContext.resolve();
+  } finally {
+    releaseDeniedContext.resolve();
+    await page.unrouteAll({ behavior: "wait" });
+    await fixtureControl("set-member", { target: "member", status: "active" });
+  }
+  await page.getByRole("link", { name: "Go to sign in" }).click();
+  await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toBeVisible();
+  await fixtureControl("fault", { target: "api", active: true });
+  const outageContext = Promise.withResolvers<void>(), releaseOutageContext = Promise.withResolvers<void>();
+  await page.route("**/api/auth/context", async route => {
+    const response = await route.fetch();
+    outageContext.resolve();
+    await releaseOutageContext.promise;
+    await route.fulfill({ response });
+  });
+  try {
+    await navigateFoundation(page, "Team");
+    await outageContext.promise;
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("temporarily unavailable");
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Your team", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: testInfo.outputPath("api-outage-context-held.png") });
+    releaseOutageContext.resolve();
+  } finally {
+    releaseOutageContext.resolve();
+    await page.unrouteAll({ behavior: "wait" });
+    await fixtureControl("fault", { target: "api", active: false });
+  }
+  await page.getByRole("button", { name: "Check session", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Your team", exact: true })).toBeVisible();
+});
+
+test("delayed protected route payload cannot resurrect admission after real local logout", { tag: "@security-desktop" }, async ({ page, context }) => {
+  const registered = await registerBrowserSession(context);
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  await page.route("**/settings?*", async route => {
+    if (route.request().headers().rsc !== "1") return route.continue();
+    const response = await route.fetch();
+    expect(response.status()).toBe(200);
+    reached.resolve();
+    await release.promise;
+    await route.fulfill({ response });
+  });
+  try {
+    await navigateFoundation(page, "Settings");
+    await reached.promise;
+    await page.locator('header button[aria-haspopup="menu"]').click();
+    await page.getByRole("menuitem", { name: "Sign out", exact: true }).click();
+    await expect(page.getByRole("status")).toContainText("This session was revoked");
+    release.resolve();
+    await expect(page).toHaveURL(/\/settings$/);
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
+    await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toHaveCount(0);
+    expect((await fixtureControl("replay", { handle: registered.handle })).status).toBe(401);
+  } finally { release.resolve(); await page.unroute("**/settings?*"); }
 });

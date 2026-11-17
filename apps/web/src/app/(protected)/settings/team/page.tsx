@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { TeamScreen } from "@/features/workspace-foundation/team-screen";
 import { guardApplication } from "@/features/app-session/server";
-import { SessionProvider } from "@/features/app-session/session-provider";
+import { ProtectedRoute } from "@/features/app-session/protected-route";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -14,5 +14,5 @@ export const metadata: Metadata = {
 
 export default async function TeamPage() {
   const initial = await guardApplication("/settings/team");
-  return <SessionProvider initial={initial} returnTo="/settings/team"><TeamScreen /></SessionProvider>;
+  return <ProtectedRoute admission={initial}>{initial.phase === "ready" ? <TeamScreen /> : null}</ProtectedRoute>;
 }

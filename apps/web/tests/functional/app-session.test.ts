@@ -411,10 +411,10 @@ test("request disconnect cancels the in-flight Auth grant before current admissi
   assert.deepEqual(response.headers.getSetCookie(), []);
 });
 
-function clientSessionHarness(t: TestContext, refresh: () => Promise<Response>, beforeDelivery?: (operation: SessionOperation) => Promise<void>) {
+function clientSessionHarness(t: TestContext, refresh: () => Promise<Response>, beforeDelivery?: (operation: SessionOperation) => Promise<void>, me = () => Promise.resolve(Response.json({ code: "unauthenticated", requestId: appRequestId }, { status: 401 }))) {
   const cookies = new Map<string, string>();
   const operations: Record<string, SessionOperation> = {
-    "/api/auth/context": "context", "/api/auth/begin": "begin", "/api/auth/refresh": "refresh", "/api/app/me": "me",
+    "/api/auth/context": "context", "/api/auth/begin": "begin", "/api/auth/refresh": "refresh", "/api/auth/logout": "logout", "/api/app/me": "me",
   };
   const requests: SessionOperation[] = [];
   const controllers: SessionController[] = [];
@@ -431,7 +431,7 @@ function clientSessionHarness(t: TestContext, refresh: () => Promise<Response>, 
   replaceSession();
   const provider: Fetcher = async input => String(input).startsWith(config.authUrl)
     ? refresh()
-    : Response.json({ code: "unauthenticated", requestId: appRequestId }, { status: 401 });
+    : me();
   t.mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
     const operation = operations[String(input)];
     assert.ok(operation, "Only the fixed session operations are allowed");
@@ -457,7 +457,7 @@ function clientSessionHarness(t: TestContext, refresh: () => Promise<Response>, 
     if (windowDescriptor) Object.defineProperty(globalThis, "window", windowDescriptor);
     else Reflect.deleteProperty(globalThis, "window");
   });
-  function mount() {
+  function mount(validate = true) {
     const settled = Promise.withResolvers<SessionView>();
     const views: SessionView[] = [];
     const controller = new SessionController({ restore: !!readAuthCookies(config, header()).session }, view => {
@@ -465,7 +465,7 @@ function clientSessionHarness(t: TestContext, refresh: () => Promise<Response>, 
       if (view.phase !== "checking") settled.resolve(view);
     });
     controllers.push(controller);
-    controller.start();
+    controller.start(validate);
     return { controller, views, settled: settled.promise };
   }
   return { mount, header, requests, replaceSession };
@@ -514,7 +514,7 @@ test("late definitive refresh rejection cannot reset a newer cookie generation a
   const newer = client.header();
   release.resolve();
   assert.equal((await mounted.settled).phase, "changed");
-  await mounted.controller.revalidate();
+  assert.equal(await mounted.controller.revalidate(), false);
   await drainSessionLock();
   assert.equal(client.header(), newer);
   assert.equal(client.requests.includes("begin"), false);
@@ -544,9 +544,127 @@ for (const boundary of ["refresh response", "context reread"] as const) {
     assert.equal((await mounted.settled).phase, "changed");
     release.resolve();
     await drainSessionLock();
-    await mounted.controller.revalidate();
+    assert.equal(await mounted.controller.revalidate(), false);
     assert.equal(client.header(), original);
     assert.equal(client.requests.includes("begin"), false);
     assert.equal(mounted.views.at(-1)?.phase, "changed");
   });
 }
+
+test("protected navigation retains admitted chrome while each new route checks current membership", async t => {
+  const delayed = Promise.withResolvers<void>();
+  const reached = Promise.withResolvers<void>();
+  let reads = 0;
+  const client = clientSessionHarness(t, deniedRefresh, undefined, async () => {
+    if (++reads === 2) { reached.resolve(); await delayed.promise; }
+    return Response.json(appMe);
+  });
+  t.after(() => delayed.resolve());
+  const mounted = client.mount(false);
+  const generation = readAuthCookies(config, client.header()).context!.generation;
+  assert.equal(await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation }), true);
+  const before = mounted.views.length;
+  const navigation = mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation });
+  await reached.promise;
+  assert.equal(mounted.views.at(-1)?.phase, "ready");
+  assert.equal(mounted.views.at(-1)?.routePending, true);
+  assert.deepEqual(mounted.views.at(-1)?.me, appMe);
+  delayed.resolve();
+  assert.equal(await navigation, true);
+  assert.equal(mounted.views.slice(before).some(view => view.phase === "checking"), false);
+  assert.equal(mounted.views.at(-1)?.routePending, undefined);
+  assert.equal(reads, 2);
+});
+
+for (const phase of ["forbidden", "unavailable"] as const) {
+  test(`current server ${phase} conceals an already admitted session instead of trusting the old shell`, async t => {
+    const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+    t.after(() => release.resolve());
+    let contexts = 0;
+    const client = clientSessionHarness(t, deniedRefresh, async operation => {
+      if (operation === "context" && ++contexts === 2) { reached.resolve(); await release.promise; }
+    }, async () => Response.json(appMe));
+    const mounted = client.mount(false);
+    const generation = readAuthCookies(config, client.header()).context!.generation;
+    await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+    const pending = mounted.controller.admitRoute({ path: "/settings/team", phase, restore: true, generation });
+    await reached.promise;
+    assert.equal(mounted.views.at(-1)?.phase, phase, "Known denial conceals identity before the delayed context response");
+    assert.equal(mounted.views.at(-1)?.me, null);
+    release.resolve();
+    assert.equal(await pending, false);
+    assert.equal(mounted.views.at(-1)?.phase, phase);
+    assert.equal(mounted.views.at(-1)?.me, null);
+    assert.equal(client.requests.filter(operation => operation === "me").length, 1);
+  });
+}
+
+test("late route failure cannot overwrite a newer route admission", async t => {
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  t.after(() => release.resolve());
+  let reads = 0;
+  const client = clientSessionHarness(t, deniedRefresh, undefined, async () => {
+    if (++reads === 2) {
+      reached.resolve(); await release.promise;
+      return Response.json({ code: "upstream_unavailable" }, { status: 503 });
+    }
+    return Response.json(appMe);
+  });
+  const mounted = client.mount(false);
+  const generation = readAuthCookies(config, client.header()).context!.generation;
+  await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  const old = mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation });
+  await reached.promise;
+  const newer = mounted.controller.admitRoute({ path: "/settings/team", phase: "ready", restore: true, generation });
+  release.resolve();
+  assert.equal(await old, false);
+  assert.equal(await newer, true);
+  assert.equal(mounted.views.some(view => view.phase === "unavailable"), false);
+  assert.equal(mounted.views.at(-1)?.phase, "ready");
+});
+
+test("logout intent fences delayed route success and prevents private identity resurrection", async t => {
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  t.after(() => release.resolve());
+  let reads = 0;
+  const client = clientSessionHarness(t, async () => new Response(null, { status: 204 }), undefined, async () => {
+    if (++reads === 2) { reached.resolve(); await release.promise; }
+    return Response.json(appMe);
+  });
+  const mounted = client.mount(false);
+  const generation = readAuthCookies(config, client.header()).context!.generation;
+  await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  const route = mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation });
+  await reached.promise;
+  const logout = mounted.controller.signOut();
+  const intent = mounted.views.length;
+  release.resolve();
+  assert.equal(await route, false);
+  await logout;
+  const requests = client.requests.length;
+  assert.equal(await mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation }), false);
+  assert.equal(client.requests.length, requests);
+  assert.equal(mounted.views.at(-1)?.phase, "signed-out");
+  assert.equal(mounted.views.slice(intent).some(view => view.me !== null), false);
+  assert.equal(readAuthCookies(config, client.header()).session, null);
+});
+
+test("an old route generation cannot admit a newer login or clear its cookies", async t => {
+  const client = clientSessionHarness(t, deniedRefresh, undefined, async () => Response.json(appMe));
+  const mounted = client.mount(false);
+  const generation = readAuthCookies(config, client.header()).context!.generation;
+  await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  client.replaceSession();
+  const newer = client.header();
+  await mounted.controller.revalidate();
+  const admitted = mounted.views.at(-1);
+  assert.equal(admitted?.phase, "ready");
+  assert.notEqual(admitted?.generation, generation);
+  mounted.controller.concealDeniedRoute({ path: "/settings", phase: "forbidden", restore: true, generation });
+  assert.equal(mounted.views.at(-1), admitted, "An old receipt cannot conceal a newly admitted generation");
+  assert.equal(await mounted.controller.admitRoute({ path: "/settings", phase: "forbidden", restore: true, generation }), false);
+  assert.equal(mounted.views.at(-1)?.phase, "changed");
+  assert.equal(mounted.views.at(-1)?.me, null);
+  assert.equal(client.header(), newer);
+  assert.equal(client.requests.includes("begin"), false);
+});

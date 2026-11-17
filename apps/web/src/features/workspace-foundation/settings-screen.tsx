@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { ApplicationShell } from "../application-preview/application-shell";
 import { sampleSettings } from "./fixtures";
 import styles from "./workspace-foundation.module.css";
 
@@ -10,7 +9,7 @@ export function SettingsScreen() {
   const changed = settings.displayName !== sampleSettings.displayName || settings.email !== sampleSettings.email
     || settings.workspaceName !== sampleSettings.workspaceName;
 
-  return <ApplicationShell section="settings">
+  return <>
     <div className={styles.settingsGrid}>
       <section className={styles.card} aria-labelledby="account-heading">
         <h2 id="account-heading" className={styles.sectionHeading}>Account</h2>
@@ -28,5 +27,5 @@ export function SettingsScreen() {
       <p role="status" className={styles.settingsStatus}>{changed ? "Unsaved changes" : ""}</p>
       <button type="button" onClick={event => event.preventDefault()}>Save changes</button>
     </div>
-  </ApplicationShell>;
+  </>;
 }
