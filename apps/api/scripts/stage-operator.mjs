@@ -18,6 +18,12 @@ try {
   for (const name of ['migrate.js', 'migrations.js', 'migration-files.mjs', 'migration-status.js', 'migration-report.js', 'private-files.mjs', 'bounded.js',
     'artifact.js', 'build-artifact.js', 'ci-tools.js', 'ci-archive.js', 'ci-provider.js', 'ci-delivery.js', 'ci-migrations.js', 'vercel-deploy.js', 'hosted-acceptance.js',
     'release-journal.js', 'activation-journal.js', 'activation-inputs.js', 'activation-configuration.js', 'activation.js',
+    'activation-archive-transport.mjs', 'activation-candidate-recovery.js', 'activation-diagnostic.js',
+    'activation-held-contract.mjs', 'activation-held-correction-contract.mjs', 'activation-held-correction.js',
+    'activation-held-database-repair.js', 'activation-held-proof.js', 'activation-held.js',
+    'activation-input-helper.js', 'activation-input-transfer.js', 'activation-preflight-disposition.mjs',
+    'activation-recovered-provider.js', 'activation-recovery-io.js', 'activation-recovery-origin.js',
+    'activation-recovery-tool.mjs', 'activation-retained.mjs', 'activation-schema-diagnostic.js', 'hidden-input.mjs',
     'app-roles.js', 'bootstrap-app-owner.js']) {
     await cp(join(appRoot, 'build/scripts', name), join(targetApp, 'build/scripts', name));
   }

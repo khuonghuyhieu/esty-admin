@@ -2,6 +2,7 @@ export const capabilities = [
   'profile.read.self', 'profile.update.self', 'team.read', 'team.invite',
   'team.invite.manage', 'team.role.assign', 'team.membership.manage',
   'workspace.read', 'workspace.update', 'audit.read',
+  'etsy.connection.read', 'etsy.connection.manage',
 ] as const;
 export type Capability = typeof capabilities[number];
 export type Role = 'owner' | 'member';

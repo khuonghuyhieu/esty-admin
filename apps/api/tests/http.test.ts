@@ -410,11 +410,13 @@ test('app-enabled local HTTP enforces both credential boundaries before DB and k
 
 test('activation health attests actual bound configuration only after technical authorization', async t => {
   const peer = await silentPeer();
-  const values = { DATABASE_URL: url(peer.port), APP_SCHEMA_MODE: 'activation-bridge',
-    APP_FOUNDATION_ENABLED: 'false', PREVIEW_ACCESS_KEY: 'a'.repeat(64) };
+  t.after(() => peer.close());
+  const values = { DATABASE_URL: `postgresql://app_runtime:synthetic-only@127.0.0.1:${peer.port}/fixture`, APP_SCHEMA_MODE: 'strict',
+    APP_FOUNDATION_ENABLED: 'true', APP_WORKSPACE_ID: randomUUID(), APP_AUTH_URL: `http://127.0.0.1:${peer.port}`,
+    APP_AUTH_API_KEY: 'synthetic-public-key', PREVIEW_ACCESS_KEY: 'a'.repeat(64) };
   const digest = runtimeConfigDigest(values);
   const app = await createApplication(parseConfig({ ...values, APP_ACTIVATION_CONFIG_DIGEST: digest }));
-  t.after(async () => { await app.close(); await peer.close(); });
+  t.after(() => app.close());
   await app.listen(0, '127.0.0.1');
   const origin = await app.getUrl();
   for (const path of ['/health/live', '/health/ready']) {

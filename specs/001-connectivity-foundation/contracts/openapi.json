@@ -62,6 +62,113 @@
         }
       }
     },
+    "/v1/app/integrations/etsy": {
+      "get": {
+        "operationId": "getEtsyConnection",
+        "description": "Owner-only local persisted status. Zero provider requests or refresh.",
+        "security": [{"PreviewAccess": [], "AppAccessToken": []}],
+        "responses": {
+          "200": {"description": "Local status", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EtsyConnection"}}}},
+          "401": {"$ref": "#/components/responses/AppUnauthorized"},
+          "default": {"$ref": "#/components/responses/AppBadRequest"}
+        }
+      }
+    },
+    "/v1/app/integrations/etsy/invitations": {
+      "get": {
+        "operationId": "getEtsyInvitations",
+        "security": [{"PreviewAccess": [], "AppAccessToken": []}],
+        "parameters": [
+          {"in": "query", "name": "limit", "schema": {"type": "integer", "minimum": 1, "maximum": 100, "default": 25}},
+          {"in": "query", "name": "cursor", "schema": {"type": "string", "format": "uuid"}}
+        ],
+        "responses": {
+          "200": {"description": "Safe paginated history without link secrets", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EtsyInvitationPage"}}}},
+          "401": {"$ref": "#/components/responses/AppUnauthorized"},
+          "default": {"$ref": "#/components/responses/AppBadRequest"}
+        }
+      },
+      "post": {
+        "operationId": "createEtsyInvitation",
+        "security": [{"PreviewAccess": [], "AppAccessToken": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EtsyCreateInvitation"}}}},
+        "responses": {
+          "200": {"description": "Durable receipt; shareUrl appears only on first acknowledged creation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EtsyCreatedInvitation"}}}},
+          "401": {"$ref": "#/components/responses/AppUnauthorized"},
+          "default": {"$ref": "#/components/responses/AppBadRequest"}
+        }
+      }
+    },
+    "/v1/app/integrations/etsy/invitations/{id}/cancel": {
+      "post": {
+        "operationId": "cancelEtsyInvitation",
+        "security": [{"PreviewAccess": [], "AppAccessToken": []}],
+        "parameters": [{"in": "path", "name": "id", "required": true, "schema": {"type": "string", "format": "uuid"}}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EtsyMutation"}}}},
+        "responses": {
+          "200": {"description": "Local cancellation receipt", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EtsyDisposition"}}}},
+          "401": {"$ref": "#/components/responses/AppUnauthorized"},
+          "default": {"$ref": "#/components/responses/AppBadRequest"}
+        }
+      }
+    },
+    "/v1/app/integrations/etsy/disconnect": {
+      "post": {
+        "operationId": "disconnectEtsyConnection",
+        "security": [{"PreviewAccess": [], "AppAccessToken": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EtsyMutation"}}}},
+        "responses": {
+          "200": {"description": "Local disconnect, not provider revocation", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EtsyDisposition"}}}},
+          "401": {"$ref": "#/components/responses/AppUnauthorized"},
+          "default": {"$ref": "#/components/responses/AppBadRequest"}
+        }
+      }
+    },
+    "/v1/app/integrations/etsy/read": {
+      "post": {
+        "operationId": "syncEtsyShop",
+        "description": "Explicit Owner sync: getMe, bound getShop and at most one durable refresh. Never background polling.",
+        "security": [{"PreviewAccess": [], "AppAccessToken": []}],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["expectedRevision"], "properties": {"expectedRevision": {"type": "integer", "minimum": 0}}}}}},
+        "responses": {
+          "200": {"description": "Fresh verified four-field projection", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/EtsyShopObservation"}}}},
+          "401": {"$ref": "#/components/responses/AppUnauthorized"},
+          "default": {"$ref": "#/components/responses/AppBadRequest"}
+        }
+      }
+    },
+    "/integrations/etsy/invite/start": {
+      "post": {
+        "operationId": "startEtsyConsent",
+        "description": "Exact configured Host and same Origin only. Scoped invitation proof; no app membership. Maximum8KiB JSON. Recipient confirmation page is separately FE-owned.",
+        "security": [],
+        "requestBody": {"required": true, "content": {"application/json": {"schema": {"type": "object", "additionalProperties": false, "required": ["secret"], "properties": {"secret": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$"}}}}}},
+        "responses": {
+          "303": {"description": "One bound Etsy consent navigation; private/no-store/no-referrer"},
+          "400": {"description": "Generic invalid or consumed invitation"},
+          "503": {"description": "Generic dependency failure"}
+        }
+      }
+    },
+    "/integrations/etsy/callback": {
+      "get": {
+        "operationId": "completeEtsyConsent",
+        "description": "Exact configured Host/raw path only; single-use transaction-authenticated callback. Success query is exactly state+code; denial is state+error with optional error_description/error_uri. Maximum4096 bytes; duplicate and unknown fields rejected. No public status or confirmation page.",
+        "security": [],
+        "parameters": [
+          {"in": "query", "name": "state", "required": true, "schema": {"type": "string", "pattern": "^[A-Za-z0-9_-]{43}$"}},
+          {"in": "query", "name": "code", "schema": {"type": "string", "maxLength": 2048}},
+          {"in": "query", "name": "error", "schema": {"type": "string"}},
+          {"in": "query", "name": "error_description", "schema": {"type": "string"}},
+          {"in": "query", "name": "error_uri", "schema": {"type": "string"}}
+        ],
+        "responses": {
+          "303": {"description": "Fixed clean neutral return origin; not proof of connection success"},
+          "400": {"description": "Generic invalid, expired or replayed transaction"},
+          "503": {"description": "Generic dependency failure"}
+        }
+      }
+    },
     "/v1/app/me": {
       "get": {
         "operationId": "getAppMe",
@@ -888,6 +995,78 @@
           }
         }
       },
+      "EtsyConnection": {
+        "type": "object", "additionalProperties": false,
+        "required": ["connectionId", "state", "revision", "shopId", "etsyUserId", "verifiedAt", "observedAt", "outcome", "attemptPhase"],
+        "properties": {
+          "connectionId": {"type": ["string", "null"], "format": "uuid"},
+          "state": {"type": "string", "enum": ["unconnected", "verification_pending", "active", "reconnect_required", "refresh_unknown", "disconnected"]},
+          "revision": {"type": "integer", "minimum": 0},
+          "shopId": {"type": ["string", "null"]},
+          "etsyUserId": {"type": ["string", "null"]},
+          "verifiedAt": {"type": ["string", "null"], "format": "date-time"},
+          "observedAt": {"type": ["string", "null"], "format": "date-time"},
+          "attemptPhase": {"type": ["string", "null"], "description": "Persisted consent/refresh phase; expired submitted work is reported unknown without reconciliation writes or provider requests"},
+          "outcome": {"type": ["string", "null"]}
+        }
+      },
+      "EtsyInvitation": {
+        "type": "object", "additionalProperties": false, "required": ["id", "shopId", "state", "createdAt", "expiresAt"],
+        "properties": {
+          "id": {"type": "string", "format": "uuid"},
+          "shopId": {"type": "string", "pattern": "^[1-9][0-9]{0,18}$"},
+          "state": {"type": "string", "enum": ["pending", "in_progress", "connected", "declined", "expired", "cancelled", "failed", "outcome_unknown"]},
+          "createdAt": {"type": "string", "format": "date-time"},
+          "expiresAt": {"type": "string", "format": "date-time"}
+        }
+      },
+      "EtsyInvitationPage": {
+        "type": "object", "additionalProperties": false, "required": ["items", "nextCursor", "connection"],
+        "properties": {
+          "items": {"type": "array", "maxItems": 100, "items": {"$ref": "#/components/schemas/EtsyInvitation"}},
+          "nextCursor": {"type": ["string", "null"], "format": "uuid"},
+          "connection": {"$ref": "#/components/schemas/EtsyConnection"}
+        }
+      },
+      "EtsyCreateInvitation": {
+        "type": "object", "additionalProperties": false, "required": ["expectedShopId", "expectedRevision", "idempotencyKey"],
+        "properties": {
+          "expectedShopId": {"type": "string", "pattern": "^[1-9][0-9]{0,18}$"},
+          "expectedRevision": {"type": "integer", "minimum": 0},
+          "idempotencyKey": {"type": "string", "format": "uuid"}
+        }
+      },
+      "EtsyCreatedInvitation": {
+        "type": "object", "additionalProperties": false, "required": ["invitationId", "revision", "expiresAt"],
+        "properties": {
+          "invitationId": {"type": "string", "format": "uuid"}, "revision": {"type": "integer", "minimum": 1},
+          "expiresAt": {"type": "string", "format": "date-time"},
+          "shareUrl": {"type": "string", "format": "uri", "description": "Secret invitation fragment; never retained in tables, logs or idempotency replays"}
+        }
+      },
+      "EtsyMutation": {
+        "type": "object", "additionalProperties": false, "required": ["expectedRevision", "idempotencyKey"],
+        "properties": {"expectedRevision": {"type": "integer", "minimum": 0}, "idempotencyKey": {"type": "string", "format": "uuid"}}
+      },
+      "EtsyDisposition": {
+        "type": "object", "additionalProperties": false, "required": ["revision", "localDisconnected", "providerRevocation"],
+        "properties": {
+          "revision": {"type": "integer", "minimum": 1}, "localDisconnected": {"type": "boolean"},
+          "providerRevocation": {"type": "string", "enum": ["not_confirmed"]}
+        }
+      },
+      "EtsyShopObservation": {
+        "type": "object", "additionalProperties": false,
+        "required": ["etsyUserId", "shopId", "shopName", "currencyCode", "connectionId", "revision", "observedAt"],
+        "properties": {
+          "etsyUserId": {"type": "string", "pattern": "^[1-9][0-9]{0,18}$"},
+          "shopId": {"type": "string", "pattern": "^[1-9][0-9]{0,18}$"},
+          "shopName": {"type": "string", "minLength": 1, "maxLength": 256},
+          "currencyCode": {"type": "string", "pattern": "^[A-Z]{3}$"},
+          "connectionId": {"type": "string", "format": "uuid"}, "revision": {"type": "integer", "minimum": 1},
+          "observedAt": {"type": "string", "format": "date-time"}
+        }
+      },
       "AppError": {
         "type": "object",
         "additionalProperties": false,
@@ -908,8 +1087,20 @@
               "invitation_conflict",
               "delivery_unavailable",
               "dependency_unavailable",
-              "bootstrap_conflict"
+              "bootstrap_conflict",
+              "configuration_unavailable",
+              "upstream_unavailable",
+              "upstream_rate_limited",
+              "reconnect_required",
+              "outcome_unknown",
+              "connection_changed",
+              "connection_busy"
             ]
+          },
+          "retryAfterSeconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400
           },
           "requestId": {
             "type": "string",
@@ -1051,7 +1242,9 @@
                 "team.membership.manage",
                 "workspace.read",
                 "workspace.update",
-                "audit.read"
+                "audit.read",
+                "etsy.connection.read",
+                "etsy.connection.manage"
               ]
             }
           }
@@ -1325,7 +1518,15 @@
               "invitation.revoke",
               "invitation.accept",
               "invitation.delivery",
-              "invitation.reconcile"
+              "invitation.reconcile",
+              "etsy.invitation.create",
+              "etsy.invitation.cancel",
+              "etsy.attempt.start",
+              "etsy.callback",
+              "etsy.sync",
+              "etsy.refresh",
+              "etsy.disconnect",
+              "etsy.prune"
             ]
           },
           "targetId": {

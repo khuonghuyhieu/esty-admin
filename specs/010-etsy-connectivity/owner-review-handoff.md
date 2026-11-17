@@ -1,5 +1,111 @@
 # Owner Review Handoff: Etsy Connectivity
 
+## Accepted backend review closeout — READY_FOR_OWNER_NEXT_LAYER
+
+**Coordinator t151 accepted the original P2 resolution after exact fix-hash inspection and reviewer t175's FIX-ONLY recheck.** The original full review reported one confirmed P2; the independent fix-only pass reported no further confirmed actionable finding within that delta. This is not a no-findings full review or approval of deferred operational pruning. Coordinator observed company Codex gpt-6-luna medium, actual REVIEW_MODEL_READY and the UI model. Reviewer ran no tests/builds and made no edits. No session UUID is asserted.
+
+Accepted evidence: migration lines130–139 revoke PUBLIC/app_operator/app_runtime EXECUTE, with no ordinary/API/public prune route; targeted test473–525 exercises fourteen42501 denials, seven unchanged table snapshots and zero spoofed audit/provider activity. Runtime results and intermediate failures below remain unchanged; docs-only closeout ran no source generation, tests/builds, service/DB/Auth/provider/install/Git/FE actions or reviewer startup.
+
+**T023 is complete for this reviewed BE increment.** Checked: T001–T018 and T023. Open: T019 operational prune, T020–T022 FE/confirmation/browser E2E, T024 hosted/publication/migration/ingress, T025 actual Etsy acceptance and T026 overall feature closeout. T011 still covers only its BE portion. The retained prune function has no authenticated operational pathway; a future approved current-Owner/purpose-bound authority flow with real attribution remains necessary.
+
+Source identity is unchanged from the accepted P2 freeze. The current review-manifest.json lists all33 current file hashes and a separately defined digest of the24 source/canonical entries; its own hash is supplied only in the coordinator receipt. Four existing Markdown documents plus the manifest changed during this closeout, so the original33 files are not all described as unchanged.
+
+- First-freeze manifest SHA256: `5bc51a30be8c60cf1a40fc251e8f988357af3b5340b726d13a125eba13b67e09`.
+- Accepted fix-freeze manifest SHA256: `61d6b9b4b49ecbddc41b7b2ac869de946f791f69a3a90dadd16ef19b8b4f480a`.
+- Final manifest records exact docs-only before/after deltas, unchanged source/root identities and document/link/fence/non-Git diff checks; no self-referential hash is embedded.
+
+**Ownership returned:** OMP t15j returns BE source and010 documentation ownership to coordinator t151 and STOP WRITES. Existing ignored worktree-local dependencies/build output remain for reproduction. No source worker, reviewer or runtime is started by this receipt. Coordinator selects and authorizes the next layer; this worker does not message root or other agents.
+
+Remaining limits: operational prune; FE table/confirmation/browser and visual acceptance; live TTL/retention/origin/shop/key/backup policy; publication/artifact/additive migration-before-deploy/ingress privacy; actual Etsy consent/read/lifecycle. Existing accepted foundation and app access are reused without setup replay or secret requests. The reviewed local backend increment is not the complete Etsy product or a production enablement grant.
+
+## Historical fix-freeze receipt — retained unchanged below
+
+The following pending-review statuses describe the earlier freeze; only review acceptance and docs-only ownership closeout are superseded above.
+
+## Frozen P2 correction — READY_FOR_BE_ETSY_P2_FIX_REVIEW
+
+**STOP WRITES; coordinator t151 owns the fix-only recheck.** This correction follows the original independent review, not a no-findings review. Coordinator reported company Codex gpt-6-luna medium reviewer t175 with REVIEW_MODEL_READY and read-only sandbox. The reviewer reported one confirmed P2 and ran no tests/builds; coordinator confirmed it and explicitly accepted fail-closed deferral as the least-scope correction.
+
+**Original P2, preserved:** new migration `1794890229976-etsy-connectivity.mjs` lines81–90/126–134 granted app_operator EXECUTE on SECURITY DEFINER prune_etsy, accepted caller-supplied workspace/actor UUIDs, treated an active Owner membership as authorization and audited that supplied actor. The pre-fix test at etsy.test.ts461+ explicitly allowed this impersonation. A UUID identifies a subject; it is not authenticated actor/purpose approval.
+
+**Correction:** the new, unapplied010 migration explicitly denies EXECUTE to PUBLIC/app_operator/app_runtime. The bounded function remains migration-owned/ungranted, with no authenticated operational pathway claimed. No new role, session, approval UUID/store or arbitrary session variable was introduced. Ordinary app_runtime table access and public ingress were not changed. T019's operational prune portion is reopened/deferred; safe audit and ordinary lifecycle/expiry behavior retain their previous evidence. Future operational prune needs separately approved verifiable current-Owner/purpose-bound authority and real actor attribution.
+
+Only three source artifacts changed from the first freeze: the new010 migration, its generated migration-manifest checksum and the directly affected prune test. Five010 Markdown evidence files and review-manifest.json record the correction. All other first-freeze file bytes, original applied migrations, root manifests and the earlier handoff text below are preserved. The manifest retains the previous freeze and original nine-document coordinator baseline, plus exact before/after hash deltas. Previous manifest SHA256: `5bc51a30be8c60cf1a40fc251e8f988357af3b5340b726d13a125eba13b67e09`; current manifest's own hash is supplied in the coordinator receipt.
+
+**Actual narrow verification:** generation succeeded; final t17f typecheck/build/migration check exited0, targeted prune test1/1 passed and separate emitted Nest/PostgreSQL CLI smoke passed. PUBLIC/runtime/operator EXECUTE is denied. Fourteen real operator/runtime invocations covering known active Owner, repeated receipt, Member/foreign IDs/workspace and policy boundaries/nulls all return42501; eligible target rows and all seven inspected tables/audit remain unchanged. CLI smoke independently retained one eligible row with zero spoofed audit rows/provider requests. No authorized operational success path is supplied. Prior21/21,4/4 and6/6 totals remain historical; unrelated suites were not rerun.
+
+Intermediate results are retained in [quickstart.md](quickstart.md#confirmed-p2-correction--targeted-evidence): t17c failed typecheck on nullable pg tuple inference before resources started; explicit tuple typing corrected it. t17d passed but warned about concurrent queries on one pg client; sequential snapshots fixed the cause. Final t17f passed without that warning. Three nonce-owned fixture containers were confirmed absent after their cleanup; temporary CLI/launcher scratch was removed. No shared volume/service, FE/browser/provider/private/install/Git/deploy action or worker/reviewer startup occurred.
+
+**Next:** t151 requests one Luna fix-only inspection of this delta. OMP remains frozen until confirmed findings or closeout authorization. Operational prune remains deferred even if this security fix is accepted; independent acceptance of the fix, FE/browser, hosted and real Etsy gates are not implied.
+
+## Historical pre-fix freeze — retained unchanged below
+
+The following first-freeze completeness and prune-success statements are historical; the confirmed P2 and operational deferral above supersede that portion only.
+
+## Frozen backend increment — READY_FOR_BE_ETSY_REVIEW
+
+**BE layers1–4 / T001–T019 backend portions are implemented and locally verified.** OMP t15j is frozen; coordinator t151 owns the next separate company Codex Luna review and must verify model/runtime availability. OMP did not start a reviewer. T011 explicitly excludes the FE confirmation/fragment page, now retained in T020. This is not completion of the full Etsy product or approval to enable production.
+
+Worktree: `/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin-worktrees/etsy-connectivity`, branch `feat/etsy-connectivity`, committed base `a9b3d70ceff042b893fa06877eca197d3d31c06c`. No commit/push/rebase/stash/reset or other Git mutation occurred. The coordinator's nine dirty010 Markdown documents were the intentional starting baseline, not worker-created source. [review-manifest.json](review-manifest.json) records those initial hashes, final file hashes and authorship categories; it excludes its own self-referential hash, which is sent in the coordinator receipt. The original historical handoff suffix below remains byte-identical.
+
+### Implemented review surface
+
+- Disabled-by-default, strict server-only configuration; explicit bounded invitation/retention inputs and safe examples. No real key/account setup or silent24-hour policy.
+- Fixed-origin native Etsy exchange/refresh/getMe/getShop, S256, lossless IDs, bounded TLS/body/deadline/cancellation, narrow selected upstream types and AES-GCM row/purpose/key binding. No general proxy, dependency addition or runtime schema acquisition.
+- One additive migration and canonical001 OpenAPI/generated BE changes: Owner invitation create/history/cancel; passive local connection status; explicit four-field sync; same-shop reconnect and local disconnect. Hashed invitation secrets and one-time share URL, exact idempotency receipts and scoped privileges.
+- Exact POST start and GET callback transaction exceptions only. No recipient GET exception or FE page. Single exchange, encrypted candidate, verified ownership before activation, epoch/version/current-authority fences, exact commit reconciliation, durable refresh submission/unknown outcomes and cooldown. No old-token retry, polling or background work.
+- Bounded explicit app_operator-only prune preserves audit, binding and active-version replay fences; no automatic prune, remote revoke or key rewrap.
+
+### Actual evidence and retained failures
+
+[quickstart.md](quickstart.md#final-backend-verification-and-failure-disclosure) contains exact commands and failure disclosure. Node24.22.1 used explicitly; existing dependencies were copied CoW under coordinator authorization, never installed or changed in the original checkout.
+
+| Evidence | Observed result |
+|---|---|
+| Canonical/upstream/migration checks, typecheck/build (t16h) | exit0 |
+| Final actual two-worker Nest/PostgreSQL/synthetic TLS Etsy suite (t16r) |21/21 passed,0 failed/cancelled/skipped; actual token timeout and SQL-lock503 included |
+| Four affected strict-schema/retired-bridge regression cases (t16h) |4/4 passed |
+| Existing startup/failure cases (t16h) |6/6 passed |
+| Separate emitted CLI HTTP/SQL/TLS smoke (t16n) | PASS: unconnected→invitation→start303→callback303→active→sync200→disconnect200; status0 provider requests, exchange1; not browser/real provider |
+| Pinned full upstream schema modified-input check | rejected exit1 as expected; original generation/check exit0 |
+
+Initial dependency/runtime absence stopped work until an explicit binding grant. The first Host-header integration attempt failed and was fixed in the raw HTTP test fixture, not by weakening guards. The expanded existing regression attempt exposed obsolete bridge expectations and an early-teardown leak; t168 was stopped, not called a passing suite. Four affected tests were repaired for strict additive schema and teardown, then passed. Production bridge identity/transition code remained unchanged. No full-suite-success claim is made.
+
+Owned runner fixtures cleaned themselves. The separate manual fixture `esty-etsy-dedbd044433d2211` was removed after exact ID/label verification and confirmed absent; no shared service or volume operation occurred. Temporary smoke/schema/synthetic credentials/TLS scratch is removed at freeze; ignored dependency copies/build outputs remain for reproduction. No worker/reviewer/watcher remains running from this increment.
+
+### Ownership, consumer delta and next action
+
+Changed scope is apps/api, the single001 canonical OpenAPI file and010 artifacts. Root package/lock/ignore, shared pointer, AGENTS/architecture/README/PROJECT_STATE, apps/web and feature006 remain untouched. Original three migration bytes are preserved. The unchanged010 requirements checklist remains coordinator baseline.
+
+FE consumer details are in [contracts](contracts/proposed-api.md#current-backend-delivery-and-fe-consumer-delta): regenerate under FE lease; preserve006 BFF method/origin/CSRF/session-generation checks; Owner-only capabilities; optional bounded retryAfterSeconds/Retry-After; one-time invitation link; passive status with attemptPhase; explicit sync only. FE must own confirmation/fragment handling and same-origin ingress transport before enablement. No UI/browser implementation was substituted with backend tests.
+
+Coordinator next: inspect the frozen manifest/source and obtain one scoped read-only review for correctness, security, regressions and meaningful missing tests; send only confirmed findings back to OMP for fixes and affected rechecks. No additional source writes, reviewer startup, publication or deployment follows from this receipt.
+
+Remaining gates: independent review; FE table/confirmation/browser E2E and visual acceptance; live invitation/return origin, TTL/retention/shop/key/backup decisions; hosted additive migration/artifact/ingress/privacy approval; actual intended-account Etsy consent/read/lifecycle. Reuse supplied accepted D1/D2/Auth and existing app registration/access without setup replay or secret requests.
+
+## Historical coordinator planning baseline — retained verbatim below
+
+The following planning statuses, task counts and original hashes describe earlier checkpoints only; the frozen backend receipt above supersedes them for this increment.
+
+## Current layered planning amendment
+
+**OWNER_DIRECTION_CAPTURED — planning only.** Current branch `feat/etsy-connectivity`, verified clean starting HEAD/base `a9b3d70ceff042b893fa06877eca197d3d31c06c`. This amendment changes010 planning documents only; original packet/analysis/U1 receipts below remain historical, including original hashes/counts/single-callback/operator-only assumptions. They are not current implementation approval or current-hash claims.
+
+Owner decisions: existing developer app registered and granted access, sufficient resources; one shop and four-field metadata first; Owner creates an invitation row/link for a shop operator, manages it in a table, manually presses Check status or Sync shop info; avoid polling. Configuration/environment is the first layer, before connection feature setup. The current [plan](plan.md) and [tasks](tasks.md) supersede old initiation/approval/phase routing below. T001–T026 remain unchecked; their contents are now layered, not completed work.
+
+Supplied root context: D1 CURRENT_CONFIG_ATTESTED, D2 BE_ACCEPTED, Hieu/Lovora/Owner and successful app.lovora.us login; BE candidate `dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7`; journal675 events32,next=fe. Do not replay roles, migration/bootstrap/D1/D2 or request secrets; retained f162 is historical. New010 migration/release/consent remains distinct. This amendment does not edit stale PROJECT_STATE or independently verify supplied facts.
+
+Layer order: (1) server-only config validation and safe setup procedure, (2) reusable selected-operation client/encryption and upstream schema preparation, (3) invitation persistence/Owner API, (4) explicit recipient start/callback/verified metadata/lifecycle, (5) separately owned manual Owner table, (6) new010 hosted and real Etsy proof. First future implementation increment stops after synthetic configuration checks and review, with no automatic setup or feature continuation.
+
+Design consequences: callback commits without Owner checking; Check status reads local state only; Sync calls Etsy. Link sharing uses an invitation with separate expiry, not a five-minute OAuth URL issued before the recipient is ready. Exact invitation inspection/start ingress extends the former callback-only exception and needs scoped security review. Recipient consent never grants Lovora membership. Current FE navigation owns apps/web/session/browser fixtures; nothing there changes.
+
+Remaining before their applicable layer: invitation TTL (24 hours is proposed, not accepted), exact invitation origin/hosting ownership, confirmed expected-shop input and retention/key/backup policy. Existing app approval is not reopened. Broad upstream types do not enable more datasets, scopes, shops, writes or webhooks. No worker/reviewer or runtime is started by this plan.
+
+Actual planning checks: command-local prerequisite check and setup-plan helper exited0; setup-plan preserved the existing plan and the shared feature pointer was not persisted. The final prerequisite check exited0. All nine010 Markdown documents have balanced fences;38 local links and three referenced fragments resolve; T001–T026 are unique/sequential and all unchecked. Changed-path inspection found exactly nine010 documents; the entire original handoff suffix remains byte-identical. Scoped git diff --check passed. Extension configuration is absent; no before/after hooks apply. These are writer-run document checks, not independent review or application tests. No application tests/builds, installs, secrets/account/provider/DB/deploy actions, Git mutation/publication or shared-doc/pointer edits are authorized or performed.
+
+## Historical original packet and review receipts
+
+
 **READY_FOR_OWNER_PLAN_REVIEW — docs only.** This packet proposes an early BE connection to the existing Etsy account/shop; it does not implement or enable any endpoint, credential store, migration, app registration, deployment or provider action. Existing owner-reported main is unchanged by this work; no Git inspection/publication or new agent/reviewer was performed.
 
 ## Proposed owner decision

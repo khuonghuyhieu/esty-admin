@@ -1,0 +1,730 @@
+{
+  "status": "READY_FOR_OWNER_NEXT_LAYER_STOP_WRITES",
+  "baseCommit": "a9b3d70ceff042b893fa06877eca197d3d31c06c",
+  "branch": "feat/etsy-connectivity",
+  "writerTerminal": "t15j",
+  "reviewCoordinatorTerminal": "t151",
+  "scope": "Docs-only accepted BE review closeout; source unchanged from accepted P2 freeze; operational prune and later layers remain open.",
+  "selfHash": "Excluded to avoid self-reference; exact manifest SHA256 supplied in coordinator receipt.",
+  "previousManifestSha256": "61d6b9b4b49ecbddc41b7b2ac869de946f791f69a3a90dadd16ef19b8b4f480a",
+  "confirmedReview": {
+    "reviewerTerminal": "t175",
+    "model": "gpt-6-luna medium",
+    "runtimeEvidence": "REVIEW_MODEL_READY reported by coordinator t151",
+    "confirmedFindings": 1,
+    "severity": "P2",
+    "finding": "Operator-supplied active Owner UUID admitted SECURITY DEFINER prune and spoofed audit attribution.",
+    "originalLocation": "1794890229976-etsy-connectivity.mjs:81-90/126-134; etsy.test.ts:461+",
+    "decision": "Coordinator accepted fail-closed PUBLIC/runtime/operator EXECUTE denial and operational prune deferral.",
+    "fixOnlyRecheck": "Independent FIX-ONLY recheck reported no further confirmed actionable finding in delta; coordinator t151 accepted P2 resolution after exact hash inspection.",
+    "originalFullReviewFindingCount": 1,
+    "confirmedUnresolvedFindingsInReviewedScope": 0,
+    "reviewerTestsBuildsEdits": false
+  },
+  "coordinatorBaselineSha256": {
+    "specs/010-etsy-connectivity/checklists/requirements.md": "217712dd2bc2fdb2271a41fbf9368fcd2840be3f92114d17996af8aaf17be28f",
+    "specs/010-etsy-connectivity/contracts/proposed-api.md": "9b318dc3b57b7e393b86998748b573ded1b60dca9d7e9ab42d02ceff27a45b59",
+    "specs/010-etsy-connectivity/data-model.md": "1399e3305e282d9ed2a8d3aee0ade9fe48064fcc1a0dab85d251d7315bb0c858",
+    "specs/010-etsy-connectivity/owner-review-handoff.md": "11b939affd7cbe74bc2611a2097132ba8a09c203550487d52249f6026a078b67",
+    "specs/010-etsy-connectivity/plan.md": "8b84a015131fb34cb4a206ab278ccdf52ab63ec01bee35cba3e76253e30ff443",
+    "specs/010-etsy-connectivity/quickstart.md": "6e068c384f7b566bc56626903e52850bff283e88422e7f89fce91aa7459e926d",
+    "specs/010-etsy-connectivity/research.md": "3b45fd52304691ae2a8ec57fa4a7f2e45fc597cab6595062c287a66c6206c16f",
+    "specs/010-etsy-connectivity/spec.md": "d2005283f9c242904a7a6211a2bc21c3ffd5a5769fbdbedc692837a9e3be6992",
+    "specs/010-etsy-connectivity/tasks.md": "a3a604f0664eaacd27dbacf8d347ee47dc87dd639f7c1e89b6b5eea4d7392d9e"
+  },
+  "files": [
+    {
+      "path": "apps/api/.env.example",
+      "sha256": "e227af0c46ed8c785ec62d3ecd9ed4df7c573d5c9dfc511ce86ab1d8f8cbc674",
+      "bytes": 6907,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/migrations/1794890229976-etsy-connectivity.mjs",
+      "sha256": "45ab221e19b11735809d23d77d6acb86f7c3a983bf2f40c9905ff9a1b5de4688",
+      "bytes": 10762,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/package.json",
+      "sha256": "bad7abbf46f45ecd13b6af936b14d9babfef5b269563ffc8283a3d0dd66ef4f8",
+      "bytes": 2586,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/scripts/etsy-codegen.mjs",
+      "sha256": "0846c7aefdd614a5aa674bd358344cf35d5a9c4d7665e2c0c8025706288b5f21",
+      "bytes": 3273,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/scripts/etsy-local-check.mjs",
+      "sha256": "98230aaf57d045becc6954c3d3cb20210ebc91ec4dd296eedbbdea7c61daa1bc",
+      "bytes": 3607,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/app-foundation/application/errors.ts",
+      "sha256": "a87b489439451df2bb94eb6c2fd960b1dbb0e540002c45a18a2633d0e920ea44",
+      "bytes": 1069,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/app-foundation/application/policy.ts",
+      "sha256": "9623578ba1f416faaaba28243ab12b9387813a432fd69d75f1e2c3838891067f",
+      "bytes": 1154,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/app-foundation/transport/error-filter.ts",
+      "sha256": "af7bd6fc9539d386a5d765858b3f9f8cd8f96109007fc9dbacc03652adaa3923",
+      "bytes": 1647,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/app.ts",
+      "sha256": "f8a486e02a71cf89d57ef2b365dbdf2fe26293d55f7c01b27726c64c21fff412",
+      "bytes": 4091,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/config/config.ts",
+      "sha256": "ac735f6b7d573e476f020543414b839bb710100a5f1138f0e815456652d490b6",
+      "bytes": 21965,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/etsy/controller.ts",
+      "sha256": "01964d3c0c37147af3f85f9041d5f8771c9fa75915d689e5845ef51ce05adc70",
+      "bytes": 1983,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/etsy/credentials.ts",
+      "sha256": "8301bd71ad3ec4bcd3bf7d2f6d0ef091cd8c39c50001d895a29082744c804090",
+      "bytes": 2488,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/etsy/ingress.ts",
+      "sha256": "65b16e38e28e7e1f9a7f90347a7923f9a87324bca72f0ab24bed2c70a8155924",
+      "bytes": 5816,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/etsy/provider.ts",
+      "sha256": "ca7d6690a2eab5784c8b579dec22be98e76722f285f876f0edd1939c1a87388d",
+      "bytes": 7077,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/etsy/service.ts",
+      "sha256": "ed7f195ca88b5feda6db4fc4ad1bef46a7613417bb36ccb13547f46752ac2d3d",
+      "bytes": 38081,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/generated/api.ts",
+      "sha256": "690c5c356e9698b1f4eedb31d0bed90b1ebef6eacb20a5434df599f07d6aba4b",
+      "bytes": 40898,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/generated/etsy-transport.json",
+      "sha256": "1231ae6d4399df67e9a770fc8ac7f3a4d0e2823e089c6ba3d8441e7eab2d9162",
+      "bytes": 1941,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/generated/etsy-transport.ts",
+      "sha256": "89fe2129a7ff64bc13bab2a8a8b89b11a40b41e8ca74a00a95347ace65552ada",
+      "bytes": 1525,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/src/generated/migrations.ts",
+      "sha256": "cb07cfe5d2ee7e8a75756ae2b7d9340453de1f0a2b807064ec30ff949fbf9fb4",
+      "bytes": 742,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/tests/config.test.ts",
+      "sha256": "82c48e30083d43a2bde196128851d988923b27b09a9cb7ff0f09bc6030925387",
+      "bytes": 21419,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/tests/etsy-fixture.ts",
+      "sha256": "3de132057d83b4eb9fb43a9034688b545a20d17f3ffcad16d08b726e6173fec4",
+      "bytes": 12162,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/tests/etsy.test.ts",
+      "sha256": "a90534032860c6f0ff69af28070c614818e5211df39694f5f80127a49accef25",
+      "bytes": 32963,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "apps/api/tests/http.test.ts",
+      "sha256": "2ed1d598c7ddbcce47990282888f0a64f628c8f47b5bb2f58201f6c86eec5324",
+      "bytes": 24106,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "specs/001-connectivity-foundation/contracts/openapi.json",
+      "sha256": "42fc238be8449dc9d0434c8f0a90cd0543e0b35d8b29c0d83da4660040aa0595",
+      "bytes": 50055,
+      "ownership": "worker-source-or-canonical"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/checklists/requirements.md",
+      "sha256": "217712dd2bc2fdb2271a41fbf9368fcd2840be3f92114d17996af8aaf17be28f",
+      "bytes": 3564,
+      "ownership": "coordinator-baseline-unchanged"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/contracts/proposed-api.md",
+      "sha256": "9b693493a42a205d36bfee9366c630ddb89a436d82aab35477e42988f14b6c01",
+      "bytes": 18872,
+      "ownership": "worker-edited-coordinator-baseline"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/data-model.md",
+      "sha256": "f6d6d07632caad18e492fb0be1f9fe168d49983183fdc1febb137d403a67d9aa",
+      "bytes": 18525,
+      "ownership": "worker-edited-coordinator-baseline"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/owner-review-handoff.md",
+      "sha256": "c1557b309c46b905eb13db53655ee218b7743e1ab06b76cde2a14be650aa93bc",
+      "bytes": 34869,
+      "ownership": "worker-edited-coordinator-baseline"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/plan.md",
+      "sha256": "cefb4deb49de2eea2e627bfce8861fbfa28b735408b89b334c9f161637d9ce8d",
+      "bytes": 16318,
+      "ownership": "worker-edited-coordinator-baseline"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/quickstart.md",
+      "sha256": "b19ebdf42f0c3ba950aedd5cbbbf3750cb1313cdf8c479344542ea206be821b9",
+      "bytes": 26204,
+      "ownership": "worker-edited-coordinator-baseline"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/research.md",
+      "sha256": "a1b8db8d32b21114d019120bd23e9ca7e4dc27dff57ae56a57c6470c7b1eea83",
+      "bytes": 15161,
+      "ownership": "worker-edited-coordinator-baseline"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/spec.md",
+      "sha256": "6596113a6342cc80c7072fe40bb905c52d1729fc8e7b1571c9a3e7301fbd218b",
+      "bytes": 15010,
+      "ownership": "worker-edited-coordinator-baseline"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/tasks.md",
+      "sha256": "afb579fcce594b9536b31d0c5cfbc0d3b4b34c7153878804fe5b8e5d5ef75b67",
+      "bytes": 9608,
+      "ownership": "worker-edited-coordinator-baseline"
+    }
+  ],
+  "fixDelta": [
+    {
+      "path": "apps/api/migrations/1794890229976-etsy-connectivity.mjs",
+      "beforeSha256": "875fdeb4b05f6b8ce3545dda4df63265fed5a143bfeebebf2956b0ff697d6bfa",
+      "afterSha256": "45ab221e19b11735809d23d77d6acb86f7c3a983bf2f40c9905ff9a1b5de4688"
+    },
+    {
+      "path": "apps/api/src/generated/migrations.ts",
+      "beforeSha256": "a660be2de5c10c3c16b16d8c7ad87af1bc3a0a71235220ed175b3d3ff39bcc3e",
+      "afterSha256": "cb07cfe5d2ee7e8a75756ae2b7d9340453de1f0a2b807064ec30ff949fbf9fb4"
+    },
+    {
+      "path": "apps/api/tests/etsy.test.ts",
+      "beforeSha256": "4457a7e5d4bd3514cef97caf338161d02affb5be57fc93a9370dcf8cdae1f3b1",
+      "afterSha256": "a90534032860c6f0ff69af28070c614818e5211df39694f5f80127a49accef25"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/data-model.md",
+      "beforeSha256": "71d61e2d5184fcb38794eae6d9db8d7a8c4f095cbbecbea60d55360666cb7926",
+      "afterSha256": "f6d6d07632caad18e492fb0be1f9fe168d49983183fdc1febb137d403a67d9aa"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/owner-review-handoff.md",
+      "beforeSha256": "eeaf785dfa256b467e953ac8c53f21048ddbd49e90cafaa47801cca808355b60",
+      "afterSha256": "ef3aba3f77e9463b90b703e9a93ec926f329d1e9ccee7fc0e3439f4de65f36dc"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/plan.md",
+      "beforeSha256": "2eff446deae352911bc6a18de24a3e08a782bb64b63e2d2f55fced8ca59d50d1",
+      "afterSha256": "92f74a18d4c4cca9089d841d7bb205365eb67288175e28bf81109fd8b6375cf5"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/quickstart.md",
+      "beforeSha256": "73aea2e59da62182cfd3269d239f52dcb8d434b1f7cf8aa47265aa3838976f60",
+      "afterSha256": "de8d751298b682c08db09ba5565bdf02d930be9fffa57a6d1ff3aacb1c9aa695"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/tasks.md",
+      "beforeSha256": "05e34191c490dbabae4a9cd1069fcbae6870d6771a11d1cd243a5bc9b2ba6b50",
+      "afterSha256": "04d6be7e1dfd3ba546ef2600a5f438c3fd270d78877755fd026ebc7bb02851d3"
+    }
+  ],
+  "unchangedFirstFreezeFileCount": 25,
+  "protectedRootSha256": {
+    "package.json": "5e514d5e822305dda595914446be8f453f90f224a01821bccf1441b3bb04f4bf",
+    "package-lock.json": "ee7576a6a4958da1d23cd5fa197bd9e5bddf981339f506840531442486a58b14"
+  },
+  "historicalHandoffSuffixSha256": "b7c451c2af876d8e70a138300d6c5c1910d8890522245f4aa42fab550319f8b7",
+  "verification": {
+    "node": "24.22.1",
+    "migrationGeneration": {
+      "terminal": "t17c",
+      "result": "succeeded before subsequent typecheck failure"
+    },
+    "typecheckBuildMigrationCheck": {
+      "terminal": "t17f",
+      "exitCode": 0
+    },
+    "targetedPrune": {
+      "terminal": "t17f",
+      "passed": 1,
+      "failed": 0,
+      "cancelled": 0,
+      "skipped": 0,
+      "deniedSqlCalls": 14,
+      "sqlState": "42501",
+      "roles": [
+        "PUBLIC",
+        "app_runtime",
+        "app_operator"
+      ],
+      "tablesUnchanged": 7,
+      "providerRequests": 0
+    },
+    "independentEmittedSmoke": {
+      "terminal": "t17f",
+      "result": "PASS",
+      "knownActiveOwnerOperatorCall": "42501",
+      "eligibleRowsRetained": 1,
+      "spoofedAuditRows": 0,
+      "providerRequests": 0,
+      "operationalPrune": "deferred"
+    },
+    "intermediateResults": [
+      {
+        "terminal": "t17c",
+        "exitCode": 2,
+        "result": "Nullable test tuple inference failed typecheck; corrected before resources."
+      },
+      {
+        "terminal": "t17d",
+        "exitCode": 0,
+        "result": "Targeted1/1 passed with single-pg-client concurrent-query warning; sequential snapshots corrected cause."
+      }
+    ],
+    "documentation": {
+      "localLinksResolved": 39,
+      "fragmentsResolved": 5,
+      "fencesBalanced": true,
+      "taskIds": "T001-T026 unique sequential",
+      "checked": 18,
+      "unchecked": 8,
+      "T019": "operational prune reopened"
+    },
+    "unrelatedSuitesRerun": false,
+    "entireExistingSuitePassed": false,
+    "commandsAndFailureDisclosure": "quickstart.md#confirmed-p2-correction--targeted-evidence"
+  },
+  "cleanup": {
+    "allThreeOwnedContainersConfirmedAbsent": true,
+    "ownedSmokeScratchRemoved": true,
+    "sharedResourcesTouched": false,
+    "dependenciesAndBuild": "retained"
+  },
+  "openGates": [
+    "T019 authenticated operational prune flow",
+    "FE confirmation/table/browser journey",
+    "live policy/origin/shop/key/backup inputs",
+    "hosted artifact/additive migration/ingress/privacy",
+    "actual Etsy consent/read/lifecycle"
+  ],
+  "gitMutation": false,
+  "deployment": false,
+  "realPrivateFileRead": false,
+  "previousFreeze": {
+    "status": "FROZEN_READY_FOR_BE_ETSY_REVIEW",
+    "baseCommit": "a9b3d70ceff042b893fa06877eca197d3d31c06c",
+    "branch": "feat/etsy-connectivity",
+    "writerTerminal": "t15j",
+    "reviewCoordinatorTerminal": "t151",
+    "scope": "BE layers1-4 / T001-T019 backend portions; T011 excludes FE confirmation page",
+    "selfHash": "Excluded to avoid self-reference; exact manifest SHA256 supplied in coordinator receipt.",
+    "coordinatorBaselineSha256": {
+      "specs/010-etsy-connectivity/checklists/requirements.md": "217712dd2bc2fdb2271a41fbf9368fcd2840be3f92114d17996af8aaf17be28f",
+      "specs/010-etsy-connectivity/contracts/proposed-api.md": "9b318dc3b57b7e393b86998748b573ded1b60dca9d7e9ab42d02ceff27a45b59",
+      "specs/010-etsy-connectivity/data-model.md": "1399e3305e282d9ed2a8d3aee0ade9fe48064fcc1a0dab85d251d7315bb0c858",
+      "specs/010-etsy-connectivity/owner-review-handoff.md": "11b939affd7cbe74bc2611a2097132ba8a09c203550487d52249f6026a078b67",
+      "specs/010-etsy-connectivity/plan.md": "8b84a015131fb34cb4a206ab278ccdf52ab63ec01bee35cba3e76253e30ff443",
+      "specs/010-etsy-connectivity/quickstart.md": "6e068c384f7b566bc56626903e52850bff283e88422e7f89fce91aa7459e926d",
+      "specs/010-etsy-connectivity/research.md": "3b45fd52304691ae2a8ec57fa4a7f2e45fc597cab6595062c287a66c6206c16f",
+      "specs/010-etsy-connectivity/spec.md": "d2005283f9c242904a7a6211a2bc21c3ffd5a5769fbdbedc692837a9e3be6992",
+      "specs/010-etsy-connectivity/tasks.md": "a3a604f0664eaacd27dbacf8d347ee47dc87dd639f7c1e89b6b5eea4d7392d9e"
+    },
+    "files": [
+      {
+        "path": "apps/api/.env.example",
+        "sha256": "e227af0c46ed8c785ec62d3ecd9ed4df7c573d5c9dfc511ce86ab1d8f8cbc674",
+        "bytes": 6907,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/migrations/1794890229976-etsy-connectivity.mjs",
+        "sha256": "875fdeb4b05f6b8ce3545dda4df63265fed5a143bfeebebf2956b0ff697d6bfa",
+        "bytes": 10422,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/package.json",
+        "sha256": "bad7abbf46f45ecd13b6af936b14d9babfef5b269563ffc8283a3d0dd66ef4f8",
+        "bytes": 2586,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/scripts/etsy-codegen.mjs",
+        "sha256": "0846c7aefdd614a5aa674bd358344cf35d5a9c4d7665e2c0c8025706288b5f21",
+        "bytes": 3273,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/scripts/etsy-local-check.mjs",
+        "sha256": "98230aaf57d045becc6954c3d3cb20210ebc91ec4dd296eedbbdea7c61daa1bc",
+        "bytes": 3607,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/app-foundation/application/errors.ts",
+        "sha256": "a87b489439451df2bb94eb6c2fd960b1dbb0e540002c45a18a2633d0e920ea44",
+        "bytes": 1069,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/app-foundation/application/policy.ts",
+        "sha256": "9623578ba1f416faaaba28243ab12b9387813a432fd69d75f1e2c3838891067f",
+        "bytes": 1154,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/app-foundation/transport/error-filter.ts",
+        "sha256": "af7bd6fc9539d386a5d765858b3f9f8cd8f96109007fc9dbacc03652adaa3923",
+        "bytes": 1647,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/app.ts",
+        "sha256": "f8a486e02a71cf89d57ef2b365dbdf2fe26293d55f7c01b27726c64c21fff412",
+        "bytes": 4091,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/config/config.ts",
+        "sha256": "ac735f6b7d573e476f020543414b839bb710100a5f1138f0e815456652d490b6",
+        "bytes": 21965,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/etsy/controller.ts",
+        "sha256": "01964d3c0c37147af3f85f9041d5f8771c9fa75915d689e5845ef51ce05adc70",
+        "bytes": 1983,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/etsy/credentials.ts",
+        "sha256": "8301bd71ad3ec4bcd3bf7d2f6d0ef091cd8c39c50001d895a29082744c804090",
+        "bytes": 2488,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/etsy/ingress.ts",
+        "sha256": "65b16e38e28e7e1f9a7f90347a7923f9a87324bca72f0ab24bed2c70a8155924",
+        "bytes": 5816,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/etsy/provider.ts",
+        "sha256": "ca7d6690a2eab5784c8b579dec22be98e76722f285f876f0edd1939c1a87388d",
+        "bytes": 7077,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/etsy/service.ts",
+        "sha256": "ed7f195ca88b5feda6db4fc4ad1bef46a7613417bb36ccb13547f46752ac2d3d",
+        "bytes": 38081,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/generated/api.ts",
+        "sha256": "690c5c356e9698b1f4eedb31d0bed90b1ebef6eacb20a5434df599f07d6aba4b",
+        "bytes": 40898,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/generated/etsy-transport.json",
+        "sha256": "1231ae6d4399df67e9a770fc8ac7f3a4d0e2823e089c6ba3d8441e7eab2d9162",
+        "bytes": 1941,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/generated/etsy-transport.ts",
+        "sha256": "89fe2129a7ff64bc13bab2a8a8b89b11a40b41e8ca74a00a95347ace65552ada",
+        "bytes": 1525,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/src/generated/migrations.ts",
+        "sha256": "a660be2de5c10c3c16b16d8c7ad87af1bc3a0a71235220ed175b3d3ff39bcc3e",
+        "bytes": 742,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/tests/config.test.ts",
+        "sha256": "82c48e30083d43a2bde196128851d988923b27b09a9cb7ff0f09bc6030925387",
+        "bytes": 21419,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/tests/etsy-fixture.ts",
+        "sha256": "3de132057d83b4eb9fb43a9034688b545a20d17f3ffcad16d08b726e6173fec4",
+        "bytes": 12162,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/tests/etsy.test.ts",
+        "sha256": "4457a7e5d4bd3514cef97caf338161d02affb5be57fc93a9370dcf8cdae1f3b1",
+        "bytes": 31280,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "apps/api/tests/http.test.ts",
+        "sha256": "2ed1d598c7ddbcce47990282888f0a64f628c8f47b5bb2f58201f6c86eec5324",
+        "bytes": 24106,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "specs/001-connectivity-foundation/contracts/openapi.json",
+        "sha256": "42fc238be8449dc9d0434c8f0a90cd0543e0b35d8b29c0d83da4660040aa0595",
+        "bytes": 50055,
+        "ownership": "worker-source-or-canonical"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/checklists/requirements.md",
+        "sha256": "217712dd2bc2fdb2271a41fbf9368fcd2840be3f92114d17996af8aaf17be28f",
+        "bytes": 3564,
+        "ownership": "coordinator-baseline-unchanged"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/contracts/proposed-api.md",
+        "sha256": "9b693493a42a205d36bfee9366c630ddb89a436d82aab35477e42988f14b6c01",
+        "bytes": 18872,
+        "ownership": "worker-edited-coordinator-baseline"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/data-model.md",
+        "sha256": "71d61e2d5184fcb38794eae6d9db8d7a8c4f095cbbecbea60d55360666cb7926",
+        "bytes": 18436,
+        "ownership": "worker-edited-coordinator-baseline"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/owner-review-handoff.md",
+        "sha256": "eeaf785dfa256b467e953ac8c53f21048ddbd49e90cafaa47801cca808355b60",
+        "bytes": 27446,
+        "ownership": "worker-edited-coordinator-baseline"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/plan.md",
+        "sha256": "2eff446deae352911bc6a18de24a3e08a782bb64b63e2d2f55fced8ca59d50d1",
+        "bytes": 16025,
+        "ownership": "worker-edited-coordinator-baseline"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/quickstart.md",
+        "sha256": "73aea2e59da62182cfd3269d239f52dcb8d434b1f7cf8aa47265aa3838976f60",
+        "bytes": 22191,
+        "ownership": "worker-edited-coordinator-baseline"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/research.md",
+        "sha256": "a1b8db8d32b21114d019120bd23e9ca7e4dc27dff57ae56a57c6470c7b1eea83",
+        "bytes": 15161,
+        "ownership": "worker-edited-coordinator-baseline"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/spec.md",
+        "sha256": "6596113a6342cc80c7072fe40bb905c52d1729fc8e7b1571c9a3e7301fbd218b",
+        "bytes": 15010,
+        "ownership": "worker-edited-coordinator-baseline"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/tasks.md",
+        "sha256": "05e34191c490dbabae4a9cd1069fcbae6870d6771a11d1cd243a5bc9b2ba6b50",
+        "bytes": 8894,
+        "ownership": "worker-edited-coordinator-baseline"
+      }
+    ],
+    "protectedRootSha256": {
+      "package.json": "5e514d5e822305dda595914446be8f453f90f224a01821bccf1441b3bb04f4bf",
+      "package-lock.json": "ee7576a6a4958da1d23cd5fa197bd9e5bddf981339f506840531442486a58b14"
+    },
+    "historicalHandoffSuffixSha256": "b7c451c2af876d8e70a138300d6c5c1910d8890522245f4aa42fab550319f8b7",
+    "verification": {
+      "node": "24.22.1",
+      "dependencies": "authorized worktree-local CoW copies; no install or dependency version change",
+      "documentation": {
+        "localLinksResolved": 38,
+        "fragmentsResolved": 4,
+        "markdownFencesBalanced": true,
+        "taskIdsUniqueSequential": "T001-T026",
+        "backendTasksChecked": 19,
+        "separateGatesUnchecked": 7,
+        "extensionConfigurationAbsent": true
+      },
+      "generationTypecheckBuild": {
+        "terminal": "t16h",
+        "exitCode": 0
+      },
+      "etsyFinal": {
+        "terminal": "t16r",
+        "exitCode": 0,
+        "tests": 21,
+        "passed": 21,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0
+      },
+      "affectedStrictSchemaRegressions": {
+        "terminal": "t16h",
+        "passed": 4
+      },
+      "startup": {
+        "terminal": "t16h",
+        "passed": 6
+      },
+      "emittedHttpSqlTlsSmoke": {
+        "terminal": "t16n",
+        "exitCode": 0,
+        "result": "PASS",
+        "statusProviderRequests": 0,
+        "tokenExchanges": 1,
+        "browser": false,
+        "realProvider": false
+      },
+      "failureDisclosure": "quickstart.md#final-backend-verification-and-failure-disclosure",
+      "entireExistingSuitePassed": false
+    },
+    "cleanup": {
+      "manualFixture": "esty-etsy-dedbd044433d2211",
+      "manualFixtureRemovedAndAbsenceVerified": true,
+      "ownedTemporaryScratchRemovedAndAbsenceVerified": true,
+      "runnerFixtures": "ownership-checked cleanup reported success",
+      "sharedVolumesTouched": false,
+      "ignoredDependenciesAndBuild": "retained for review reproduction"
+    },
+    "openGates": [
+      "coordinator-run independent review",
+      "FE confirmation/table/browser journey",
+      "live policy/origin/shop/key/backup inputs",
+      "hosted artifact/additive migration/ingress/privacy",
+      "actual Etsy consent/read/lifecycle"
+    ],
+    "gitMutation": false,
+    "deployment": false,
+    "realPrivateFileRead": false
+  },
+  "firstFreezeManifestSha256": "5bc51a30be8c60cf1a40fc251e8f988357af3b5340b726d13a125eba13b67e09",
+  "fixFreezeManifestSha256": "61d6b9b4b49ecbddc41b7b2ac869de946f791f69a3a90dadd16ef19b8b4f480a",
+  "fixDeltaScope": "Historical first-freeze to accepted fix-freeze delta only; current closeout document hashes are in files/closeoutDocDelta.",
+  "unchangedFirstFreezeFileCountScope": "Historical P2 fix-freeze comparison, not a claim about final closeout documents.",
+  "closeoutDocDelta": [
+    {
+      "path": "specs/010-etsy-connectivity/owner-review-handoff.md",
+      "beforeSha256": "ef3aba3f77e9463b90b703e9a93ec926f329d1e9ccee7fc0e3439f4de65f36dc",
+      "afterSha256": "c1557b309c46b905eb13db53655ee218b7743e1ab06b76cde2a14be650aa93bc"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/plan.md",
+      "beforeSha256": "92f74a18d4c4cca9089d841d7bb205365eb67288175e28bf81109fd8b6375cf5",
+      "afterSha256": "cefb4deb49de2eea2e627bfce8861fbfa28b735408b89b334c9f161637d9ce8d"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/quickstart.md",
+      "beforeSha256": "de8d751298b682c08db09ba5565bdf02d930be9fffa57a6d1ff3aacb1c9aa695",
+      "afterSha256": "b19ebdf42f0c3ba950aedd5cbbbf3750cb1313cdf8c479344542ea206be821b9"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/tasks.md",
+      "beforeSha256": "04d6be7e1dfd3ba546ef2600a5f438c3fd270d78877755fd026ebc7bb02851d3",
+      "afterSha256": "afb579fcce594b9536b31d0c5cfbc0d3b4b34c7153878804fe5b8e5d5ef75b67"
+    }
+  ],
+  "sourceIdentity": {
+    "sha256": "4622d379a53e5090eff488ec80f68bc13f58e6162daa31340d70575102517498",
+    "algorithm": "SHA256 of UTF-8 concatenated path + TAB + file SHA256 + LF, sorted by path for the24 worker-source-or-canonical entries",
+    "sourceFileCount": 24,
+    "unchangedFromAcceptedFixFreeze": true
+  },
+  "closeoutVerification": {
+    "localLinksResolved": 39,
+    "fragmentsResolved": 5,
+    "markdownFencesBalanced": true,
+    "taskIdsUniqueSequential": true,
+    "checkedTaskIds": [
+      "T001",
+      "T002",
+      "T003",
+      "T004",
+      "T005",
+      "T006",
+      "T007",
+      "T008",
+      "T009",
+      "T010",
+      "T011",
+      "T012",
+      "T013",
+      "T014",
+      "T015",
+      "T016",
+      "T017",
+      "T018",
+      "T023"
+    ],
+    "openTaskIds": [
+      "T019",
+      "T020",
+      "T021",
+      "T022",
+      "T024",
+      "T025",
+      "T026"
+    ],
+    "unchangedFixFreezeSourceFiles": 24,
+    "unchangedFixFreezeFilesIncludingDocs": 29,
+    "protectedRootHashesUnchanged": true,
+    "priorHandoffBytesPreserved": true,
+    "nonGitAddedLineWhitespaceAndConflictDiffCheck": "PASS for four Markdown documents and manifest",
+    "runtimeGenerationTestsBuildsServicesGitActions": false
+  },
+  "verificationScope": "Retained P2 runtime and document evidence from fix freeze; not rerun in docs-only closeout. Current document/task checks are in closeoutVerification.",
+  "ownership": {
+    "returnedTo": "t151",
+    "sourceAndDocsReturned": true,
+    "writer": "t15j",
+    "writerState": "STOP_WRITES",
+    "dependenciesAndBuild": "retained for reproduction",
+    "nextLayerRequiresNewAuthorization": true
+  }
+}

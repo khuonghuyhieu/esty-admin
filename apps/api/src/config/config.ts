@@ -28,6 +28,74 @@ export interface AppFoundationConfig {
   retentionPolicyId?: string;
 }
 
+export interface EtsyConfig {
+  clientId: string;
+  sharedSecret: string;
+  callbackUrl: string;
+  returnOrigin: string;
+  invitationOrigin: string;
+  invitationTtlSeconds: number;
+  retentionSeconds: number;
+  activeKeyId: string;
+  keyring: ReadonlyMap<string, Buffer>;
+}
+
+export function parseEtsyConfig(env: NodeJS.ProcessEnv): EtsyConfig | undefined {
+  if (env.ETSY_ENABLED === undefined || env.ETSY_ENABLED === 'false') return undefined;
+  const invalid = (field: string): never => {
+    throw new ConfigurationError(field, 'supply the explicitly approved server-only Etsy configuration.');
+  };
+  if (env.ETSY_ENABLED !== 'true') invalid('ETSY_ENABLED');
+  if (env.APP_FOUNDATION_ENABLED !== 'true') invalid('APP_FOUNDATION_ENABLED');
+  const credential = (field: string): string => {
+    const value = env[field];
+    if (!value || !/^[A-Za-z0-9_-]{1,256}$/.test(value)) return invalid(field);
+    return value;
+  };
+  const origin = (field: string): string => {
+    const value = env[field] ?? '';
+    try {
+      const parsed = new URL(value);
+      if (parsed.protocol !== 'https:' || parsed.origin !== value || parsed.username || parsed.password) return invalid(field);
+    } catch { return invalid(field); }
+    return value;
+  };
+  const duration = (field: string, minimum: number, maximum: number): number => {
+    const raw = env[field] ?? '';
+    if (!/^[1-9]\d{0,7}$/.test(raw) || Number(raw) < minimum || Number(raw) > maximum) return invalid(field);
+    return Number(raw);
+  };
+  const clientId = credential('ETSY_CLIENT_ID');
+  const sharedSecret = credential('ETSY_SHARED_SECRET');
+  const callbackUrl = env.ETSY_CALLBACK_URL;
+  if (callbackUrl !== 'https://api.lovora.us/integrations/etsy/callback') invalid('ETSY_CALLBACK_URL');
+  const returnOrigin = origin('ETSY_RETURN_ORIGIN');
+  const invitationOrigin = origin('ETSY_INVITATION_ORIGIN');
+  const invitationTtlSeconds = duration('ETSY_INVITATION_TTL_SECONDS', 300, 604800);
+  const retentionSeconds = duration('ETSY_RETENTION_SECONDS', 300, 2592000);
+  const activeKeyId = env.ETSY_TOKEN_ACTIVE_KEY_ID ?? '';
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(activeKeyId)) invalid('ETSY_TOKEN_ACTIVE_KEY_ID');
+  const keyring = new Map<string, Buffer>();
+  try {
+    const raw = env.ETSY_TOKEN_KEYRING ?? '';
+    if (raw.length > 1024) invalid('ETSY_TOKEN_KEYRING');
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) invalid('ETSY_TOKEN_KEYRING');
+    const entries = Object.entries(parsed as Record<string, unknown>);
+    if (entries.length < 1 || entries.length > 4) invalid('ETSY_TOKEN_KEYRING');
+    for (const [id, value] of entries) {
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(id) || typeof value !== 'string'
+        || !/^[A-Za-z0-9_-]{43}$/.test(value)) invalid('ETSY_TOKEN_KEYRING');
+      const key = Buffer.from(value as string, 'base64url');
+      if (key.length !== 32 || key.toString('base64url') !== value) invalid('ETSY_TOKEN_KEYRING');
+      keyring.set(id, key);
+    }
+    if (!keyring.has(activeKeyId)) invalid('ETSY_TOKEN_KEYRING');
+  } catch { invalid('ETSY_TOKEN_KEYRING'); }
+  return { clientId, sharedSecret, callbackUrl: callbackUrl!, returnOrigin, invitationOrigin,
+    invitationTtlSeconds, retentionSeconds, activeKeyId, keyring };
+}
+
 export interface ApiConfig {
   runtime: 'local' | 'vercel';
   schemaMode: AppSchemaMode;
@@ -38,6 +106,7 @@ export interface ApiConfig {
   previewAccessKey?: string;
   appFoundation?: AppFoundationConfig;
   activationConfigDigest?: string;
+  etsy?: EtsyConfig;
 }
 
 const loopback = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -224,6 +293,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
     throw new ConfigurationError('BROWSER_ORIGIN', 'use one exact origin without credentials, path, query or fragment; hosted origins require HTTPS.');
   }
   const appFoundation = appFoundationConfig(env, hosted, browserOrigin);
+  const etsy = parseEtsyConfig(env);
   const database = databaseConfig(env, hosted, 'DATABASE_URL');
   if (appFoundation && database.user !== (hosted ? `app_runtime.${env.SUPABASE_PROJECT_REF}` : 'app_runtime')) {
     throw new ConfigurationError('DATABASE_URL', 'app mode requires the separately provisioned least-privilege app_runtime identity.');
@@ -239,6 +309,7 @@ export function parseConfig(env: NodeJS.ProcessEnv): ApiConfig {
   }
   return { runtime: runtime as ApiConfig['runtime'], schemaMode: schemaMode as AppSchemaMode, host, port: Number(port), browserOrigin, database,
     ...(appFoundation ? { appFoundation } : {}),
+    ...(etsy ? { etsy } : {}),
     ...(activationConfigDigest ? { activationConfigDigest } : {}),
     ...(runtime === 'vercel' || appFoundation || schemaMode === 'activation-bridge' ? { previewAccessKey: env.PREVIEW_ACCESS_KEY } : {}) };
 }

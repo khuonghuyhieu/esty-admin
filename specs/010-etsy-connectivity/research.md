@@ -1,6 +1,26 @@
 # Research: Existing Etsy Connectivity
 
-Documentation research only. No Etsy account, app settings, keys, consent, token endpoint or business API was accessed. Public documentation and the public reference schema are not provider acceptance.
+Public protocol research plus synthetic/local implementation evidence only. No real Etsy account, app settings, keys, consent, token endpoint or business API was accessed. Public documentation/schema acquisition and synthetic TLS are not provider acceptance.
+
+## Current pinned transport acquisition
+
+The authorized implementation fetched the official public schema on2026-11-17:963685 bytes, SHA256 `d9560cf25d1169ee9900a551ffaa4a7ca7b24a621e53a3fc3e5a70064af6c5ae`, OpenAPI3.0.2/info3.0.0. This differs from the historical research digest below; no silent replacement of that historical evidence occurred.
+
+`apps/api/scripts/etsy-codegen.mjs --source <public-schema-file>` verifies the exact full-source digest and selected getMe/getShop operation/security/schema shape, then deterministically generates only selected Self/Shop transport fields in `src/generated/etsy-transport.json` and `.ts`. Provenance includes source URL/bytes/hash and openapi-typescript7.13.0. `--check` is offline and checks the retained projection/output; modified full-source input was actually rejected with exit1. There is no runtime schema download, broad executable client, new dependency or second Lovora API contract. Int64 fields map to decimal strings after lossless native JSON decoding.
+
+Actual local checks cover fixed native fetch/form/crypto behavior, full composite app header/bearer, shops_r-only token responses, complete token pairs, bounded body/deadline/cancellation, getMe-before-bound-getShop and authenticated envelope row/purpose/key substitution. Exact production entitlements, callback routing/privacy and real token semantics remain external gates.
+
+## Current owner amendment and public reference refresh
+
+The current conversation supersedes historical UNKNOWN-app and operator-only decisions below: the owner confirms developer-app registration/access/resources and selects Owner-created invitation rows, recipient consent, manual Check status and explicit Sync shop info. Environment/configuration precedes client/schema foundation and connection behavior. Supplied D1/D2/Auth acceptance is reused, not reverified here. Remaining exact secure input/target/registration details belong to later setup authority, not another app-access approval request.
+
+Public documentation was read during this brainstorming conversation: overview, authentication, quickstart, reference and webhooks. The dynamic reference still rendered Loading; its public official OpenAPI JSON was parsed in memory and reported OpenAPI3.0.2/info3.0.0,77 paths and83 schemas. getMe requires shops_r; getShop inherits app-key access; listings and receipts declare their selected additional scopes. These counts are that observation only, not a reproducible pinned-generation artifact. No schema copy, runtime tool or generated type is delivered by this planning amendment.
+
+Decisions: callback receives consent completion without polling Etsy. Owner chose manual local status reads instead of polling/SSE/WebSocket; Sync is the explicit provider read. A Lovora invitation separates sharing lifetime from fresh five-minute OAuth state. Fragment-based secret handoff with explicit same-origin start is a proposed implementation design, with exact origin/hosting and TTL still requiring resolution before Layer3. Opening/previewing a link must not start or consume OAuth. A minimal recipient confirmation page is needed even though general seller self-service remains deferred.
+
+Use upstream OpenAPI as transport-type input, distinct from the one Lovora API contract. Generated types do not provide runtime validation or OAuth entitlements. Only approved operations execute; later scopes require re-consent. [Webhooks](https://developers.etsy.com/documentation/essentials/webhooks/) provide event notifications, not consent completion; they remain deferred with order/listing/inventory workflows. No webhook setup or arbitrary proxy is selected.
+
+The sections below retain original protocol research; their dated app-readiness/operator-only/005-hosted assumptions do not override the current plan. Original schema digest is historical and is not relabeled as the latest fetched document.
 
 ## Primary sources and observed contracts
 
