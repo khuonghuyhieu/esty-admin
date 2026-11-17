@@ -6,6 +6,7 @@ declare global {
     __sessionCspViolations?: string[];
     __sessionLifecycleStarts?: number;
     __navigationEvidence?: { header: Element | null; sidebar: Element | null; checking: number };
+    __pageCacheEvidence?: { hides: { persisted: boolean; privateVisible: boolean }[]; shows: boolean[] };
   }
 }
 
@@ -26,6 +27,7 @@ test.beforeEach(async ({ page }, info) => {
     Object.defineProperty(window, "__sessionCspViolations", { value: violations });
     document.addEventListener("securitypolicyviolation", event => violations.push(event.effectiveDirective));
   });
+  if (info.tags.includes("@display-freshness")) await page.clock.install();
   if (info.tags.includes("@signed-out")) await page.goto("/login");
   else await signIn(page);
   await page.evaluate(() => document.fonts.ready);
@@ -964,8 +966,11 @@ test("transient refresh503 preserves actual cookies without cleanup or retry", {
   }));
   try {
     await fixtureControl("fault", { target: "auth", active: true });
-    // Revalidate the mounted client: a fresh server render correctly denies the Auth outage before this synthetic me fault.
-    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    // A paired page-cache boundary discards display freshness before the synthetic expired-me response.
+    await page.evaluate(() => {
+      window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true }));
+      window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true }));
+    });
     await expect(page.getByRole("main").getByRole("alert")).toContainText("temporarily unavailable", { timeout: 15000 });
     await page.evaluate(() => navigator.locks.request("lovora-app-session", () => undefined));
     expect(refreshes).toBe(1);
@@ -1055,7 +1060,7 @@ test("public connectivity entry creates a protected document and public exit rem
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Privacy overview");
 });
 
-test("persistent protected navigation keeps chrome and controller through delayed content and history", async ({ page }, info) => {
+test("persistent protected navigation keeps chrome and controller through delayed content and stale history", { tag: "@display-freshness" }, async ({ page }, info) => {
   const starts = await page.evaluate(() => {
     window.__navigationEvidence = { header: document.querySelector("header"), sidebar: document.querySelector("aside"), checking: 0 };
     new MutationObserver(() => {
@@ -1100,6 +1105,8 @@ test("persistent protected navigation keeps chrome and controller through delaye
     await page.screenshot({ path: info.outputPath(`navigation-${name.toLowerCase()}.png`), fullPage: true });
   }
   for (const direction of ["back", "forward"] as const) {
+    // Synthetic elapsed display time; Auth/BFF/Nest responses remain real.
+    await page.clock.fastForward(60000);
     const contextReached = Promise.withResolvers<void>(), releaseContext = Promise.withResolvers<void>();
     await page.route("**/api/auth/context", async route => {
       const response = await fetchInterceptedRoute(route);
@@ -1135,10 +1142,11 @@ test("persistent protected navigation keeps chrome and controller through delaye
   await assertBrowserCredentialIsolation(page);
 });
 
-test("persistent route admission propagates real current membership denial and API outage before held context", { tag: "@security-desktop" }, async ({ page, context }, testInfo) => {
+test("persistent route admission propagates real current membership denial and API outage before held context", { tag: ["@security-desktop", "@display-freshness"] }, async ({ page, context }, testInfo) => {
   await clearBrowserSession(context);
   await signIn(page, "member");
   await fixtureControl("set-member", { target: "member", status: "disabled" });
+  await page.clock.fastForward(60000);
   let currentMeReads = 0;
   page.on("request", request => { if (new URL(request.url()).pathname === "/api/app/me") currentMeReads++; });
   const deniedContext = Promise.withResolvers<void>(), releaseDeniedContext = Promise.withResolvers<void>();
@@ -1165,6 +1173,7 @@ test("persistent route admission propagates real current membership denial and A
   await page.getByRole("link", { name: "Go to sign in" }).click();
   await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toBeVisible();
   await fixtureControl("fault", { target: "api", active: true });
+  await page.clock.fastForward(60000);
   const outageContext = Promise.withResolvers<void>(), releaseOutageContext = Promise.withResolvers<void>();
   await page.route("**/api/auth/context", async route => {
     const response = await fetchInterceptedRoute(route);
@@ -1214,7 +1223,7 @@ test("delayed protected route payload cannot resurrect admission after real loca
   } finally { release.resolve(); await page.unroute("**/settings?*"); }
 });
 
-test("rapid navigation checks the final destination once and never exposes stale controls", { tag: "@security-desktop" }, async ({ page }) => {
+test("rapid fresh sample navigation never refetches admission or exposes stale controls", { tag: "@security-desktop" }, async ({ page }) => {
   const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   const reads: string[] = [];
   page.on("request", request => { if (new URL(request.url()).pathname === "/api/app/me") reads.push(request.url()); });
@@ -1232,8 +1241,7 @@ test("rapid navigation checks the final destination once and never exposes stale
     await expect(page.getByRole("heading", { name: "Your team", exact: true })).toBeVisible();
     await expect(page.getByRole("textbox", { name: "Display name", exact: true })).toHaveCount(0);
     await expect(page.locator("[data-route-pending=true]")).toHaveCount(0);
-    expect(reads.length).toBeLessThanOrEqual(2);
-    expect(reads.length).toBeGreaterThanOrEqual(1);
+    expect(reads).toEqual([]);
   } finally { release.resolve(); await page.unrouteAll({ behavior: "wait" }); }
 });
 
@@ -1292,4 +1300,212 @@ test("navigation indicator waits150ms and a fast completed transition cancels it
   await expect(page.locator("[data-route-pending=true]")).toHaveCount(0);
   await page.clock.runFor(150);
   await expect(page.getByText("Loading…", { exact: true })).toHaveCount(0);
+});
+
+test("fresh sample menus and tab returns avoid reads while stale focus and menus share background verification", { tag: "@display-freshness" }, async ({ page }, info) => {
+  const identity = (await page.locator('header button[aria-haspopup="menu"]').getAttribute("aria-label"))!;
+  const requests: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/api/")) requests.push(path);
+  });
+  const starts = await page.evaluate(() => {
+    window.__navigationEvidence = { header: document.querySelector("header"), sidebar: document.querySelector("aside"), checking: 0 };
+    new MutationObserver(() => {
+      if (document.body.innerText.includes("Checking your session")) window.__navigationEvidence!.checking++;
+    }).observe(document.body, { childList: true, subtree: true, characterData: true });
+    return window.__sessionLifecycleStarts;
+  });
+  await page.getByRole("searchbox", { name: "Search boards", exact: true }).fill("maya");
+  await expect(page.getByRole("table", { name: "Whiteboard projects", exact: true }).locator("tbody th")).toHaveText(["Mobile UX — Checkout flow"]);
+  for (const [name, heading] of [["Settings", "Account"], ["Team", "Your team"], ["Dashboard", "Whiteboard projects"]] as const) {
+    await navigateFoundation(page, name);
+    await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+  }
+  // Deterministic visibility events, not a claim that headless Chromium switched OS tabs.
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "hidden" });
+    document.dispatchEvent(new Event("visibilitychange"));
+  });
+  await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveAccessibleName(identity);
+  await expect(page.getByRole("heading", { name: "Project dashboard", exact: true })).toBeVisible();
+  await page.screenshot({ path: info.outputPath("fresh-hidden-retains-display.png"), fullPage: true });
+  await page.evaluate(async () => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, value: "visible" });
+    document.dispatchEvent(new Event("visibilitychange"));
+    document.dispatchEvent(new Event("visibilitychange"));
+    await navigator.locks.request("lovora-app-session", () => undefined);
+  });
+  expect(requests).toEqual([]);
+  await expect(page.getByText("Checking your session…", { exact: true })).toHaveCount(0);
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  await page.route("**/api/app/me", async route => {
+    const response = await fetchInterceptedRoute(route);
+    reached.resolve(); await release.promise;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.clock.fastForward(60000);
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await reached.promise;
+    await expect(page.locator("[data-session-revalidating=true]")).toHaveAttribute("inert", "");
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveAccessibleName(identity);
+    await expect(page.getByRole("table", { name: "Whiteboard projects", exact: true })).toBeVisible();
+    await expect(page.getByText("Checking for session updates…", { exact: true })).toBeVisible();
+    await expect(page.getByText("Checking your session…", { exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("stale-focus-retains-display.png"), fullPage: true });
+    await page.evaluate(() => {
+      document.dispatchEvent(new Event("visibilitychange"));
+      document.dispatchEvent(new Event("visibilitychange"));
+    });
+    await navigateFoundation(page, "Settings");
+    await navigateFoundation(page, "Team");
+    await expect(page.getByRole("heading", { name: "Project dashboard", exact: true })).toBeVisible();
+    expect(requests.filter(path => path === "/api/auth/context")).toHaveLength(1);
+    expect(requests.filter(path => path === "/api/app/me")).toHaveLength(1);
+    expect(requests.filter(path => path === "/api/auth/refresh")).toHaveLength(0);
+    release.resolve();
+    await expect(page.getByRole("heading", { name: "Your team", exact: true })).toBeVisible();
+    await expect(page.locator("[data-session-revalidating=true], [data-route-pending=true]")).toHaveCount(0);
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveAccessibleName(identity);
+    const retained = await page.evaluate(() => ({
+      header: window.__navigationEvidence!.header === document.querySelector("header"),
+      sidebar: window.__navigationEvidence!.sidebar === document.querySelector("aside"),
+      checking: window.__navigationEvidence!.checking,
+      starts: window.__sessionLifecycleStarts,
+    }));
+    expect(retained).toEqual({ header: true, sidebar: true, checking: 0, starts });
+    expect(requests.filter(path => path === "/api/app/me")).toHaveLength(1);
+    await info.attach("display-freshness-counts", { body: JSON.stringify({ fresh: { context: 0, me: 0 }, stale: requests, retained, clock: "synthetic60000ms", visibility: "synthetic events", transport: "real local Auth/BFF/Nest/DB" }), contentType: "application/json" });
+  } finally {
+    release.resolve();
+    await page.unrouteAll({ behavior: "wait" });
+    await page.evaluate(() => Reflect.deleteProperty(document, "visibilityState"));
+  }
+  await fixtureControl("fault", { target: "api", active: true });
+  try {
+    await page.clock.fastForward(60000);
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("temporarily unavailable");
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Your team", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("stale-focus-unavailable.png"), fullPage: true });
+  } finally { await fixtureControl("fault", { target: "api", active: false }); }
+  const beforeRecovery = requests.length;
+  await page.getByRole("button", { name: "Check session", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Your team", exact: true })).toBeVisible();
+  expect(requests.slice(beforeRecovery).filter(path => path === "/api/app/me")).toHaveLength(1);
+  await assertBrowserCredentialIsolation(page);
+});
+
+test("stale display uses one real coordinated refresh after a labeled expired-me response", { tag: ["@security-desktop", "@display-freshness"] }, async ({ page }, info) => {
+  const identity = (await page.locator('header button[aria-haspopup="menu"]').getAttribute("aria-label"))!;
+  const requests: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/api/")) requests.push(path);
+  });
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  // Only the expired-me response is synthetic; refresh and its confirmed me use real Auth/Nest/DB.
+  await page.route("**/api/app/me", route => route.fulfill({
+    status: 401, json: { code: "unauthenticated", requestId: "33333333-3333-4333-8333-333333333333" },
+  }), { times: 1 });
+  await page.route("**/api/auth/refresh", async route => {
+    const response = await fetchInterceptedRoute(route);
+    reached.resolve(); await release.promise;
+    await route.fulfill({ response });
+  });
+  try {
+    await page.clock.fastForward(60000);
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await reached.promise;
+    await expect(page.getByText("Checking your session…", { exact: true })).toBeVisible();
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("expired-display-concealed.png") });
+    release.resolve();
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveAccessibleName(identity);
+    await expect(page.getByRole("heading", { name: "Project dashboard", exact: true })).toBeVisible();
+    await navigateFoundation(page, "Settings");
+    await expect(page.getByRole("heading", { name: "Account", exact: true })).toBeVisible();
+    expect(requests.filter(path => path === "/api/app/me")).toHaveLength(1);
+    expect(requests.filter(path => path === "/api/auth/refresh")).toHaveLength(1);
+    expect(requests.filter(path => path === "/api/auth/context")).toHaveLength(2);
+    expect(requests.filter(path => path === "/api/auth/begin")).toHaveLength(0);
+  } finally { release.resolve(); await page.unrouteAll({ behavior: "wait" }); }
+});
+
+test("page-cache restoration conceals before freezing and rejects a different real account generation", { tag: "@security-desktop" }, async ({ page, context, browser, baseURL }, info) => {
+  test.setTimeout(60000);
+  await page.evaluate(() => {
+    window.__pageCacheEvidence = { hides: [], shows: [] };
+    window.addEventListener("pagehide", event => window.__pageCacheEvidence!.hides.push({
+      persisted: event.persisted, privateVisible: !!document.querySelector('header button[aria-haspopup="menu"]')?.checkVisibility(),
+    }));
+    window.addEventListener("pageshow", event => window.__pageCacheEvidence!.shows.push(event.persisted));
+  });
+  await page.goto("/privacy");
+  await page.goBack();
+  await expect(page.locator('header button[aria-haspopup="menu"]')).toBeVisible();
+  const native = await page.evaluate(() => window.__pageCacheEvidence ?? null);
+  if (native) {
+    expect(native.hides.every(event => !event.privateVisible)).toBe(true);
+    expect(native.shows).toContain(true);
+  }
+  await info.attach("native-page-cache", { body: JSON.stringify({ restoredHeap: native !== null, events: native, limitation: native ? null : "Chromium restored a fresh document rather than BFcache; persisted-event boundary exercised separately below." }), contentType: "application/json" });
+  const independent = await browser.newContext({ baseURL, viewport: page.viewportSize(), colorScheme: "light" });
+  const memberPage = await independent.newPage();
+  try {
+    const member = await signIn(memberPage, "member");
+    // Explicit lifecycle/cookie-delivery injection; both account sessions are real, separate local logins.
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: true })));
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
+    await context.addCookies(await independent.cookies(sessionFixture().webEnv.APP_ORIGIN));
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent("pageshow", { persisted: true })));
+    await expect(page.getByRole("status")).toContainText("session changed in another tab");
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
+    await expect(page.getByRole("table", { name: "Whiteboard projects", exact: true })).toHaveCount(0);
+    await page.screenshot({ path: info.outputPath("page-cache-account-change-concealed.png"), fullPage: true });
+    await page.getByRole("button", { name: "Check session", exact: true }).click();
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toContainText(member.profile.displayName);
+    await expect(page.getByRole("table", { name: "Whiteboard projects", exact: true })).toBeVisible();
+    expect((await currentMe(page)).profile.userId).toBe(member.profile.userId);
+    await assertBrowserCredentialIsolation(page);
+  } finally {
+    await clearBrowserSession(independent);
+    await independent.close();
+  }
+});
+
+test("stale display fails closed after the real9-second deadline behind a held session lock", { tag: ["@security-desktop", "@display-freshness"] }, async ({ page }, info) => {
+  const requests: string[] = [];
+  page.on("request", request => {
+    const path = new URL(request.url()).pathname;
+    if (path.startsWith("/api/")) requests.push(path);
+  });
+  await page.evaluate(() => {
+    void navigator.locks.request("lovora-app-session", async () => {
+      document.documentElement.dataset.ownedTestLock = "held";
+      await new Promise<void>(resolve => window.addEventListener("release-test-lock", () => resolve(), { once: true }));
+      delete document.documentElement.dataset.ownedTestLock;
+    });
+  });
+  await page.waitForFunction(() => document.documentElement.dataset.ownedTestLock === "held");
+  try {
+    await page.clock.fastForward(60000);
+    await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
+    await expect(page.locator("[data-session-revalidating=true]")).toHaveAttribute("inert", "");
+    await expect(page.getByRole("table", { name: "Whiteboard projects", exact: true })).toBeVisible();
+    // The elapsed display clock is synthetic; AbortSignal's9-second deadline and Web Lock are native.
+    await expect(page.getByRole("main").getByRole("alert")).toContainText("temporarily unavailable", { timeout: 12000 });
+    await expect(page.locator('header button[aria-haspopup="menu"]')).toHaveCount(0);
+    expect(requests).toEqual([]);
+    await page.screenshot({ path: info.outputPath("stale-lock-deadline-unavailable.png"), fullPage: true });
+  } finally {
+    await page.evaluate(() => window.dispatchEvent(new Event("release-test-lock")));
+    await page.waitForFunction(() => !document.documentElement.dataset.ownedTestLock);
+  }
+  await page.getByRole("button", { name: "Check session", exact: true }).click();
+  await expect(page.getByRole("table", { name: "Whiteboard projects", exact: true })).toBeVisible();
+  expect(requests.filter(path => path === "/api/auth/context")).toHaveLength(1);
+  expect(requests.filter(path => path === "/api/app/me")).toHaveLength(1);
 });

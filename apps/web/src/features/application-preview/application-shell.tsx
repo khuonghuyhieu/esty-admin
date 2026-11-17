@@ -29,14 +29,14 @@ function Sidebar({ section, onNavigate }: { section: Section; onNavigate?: () =>
   </>;
 }
 
-function NavigationProgress({ pending }: { pending: boolean }) {
+function NavigationProgress({ pending, revalidating }: { pending: boolean; revalidating: boolean }) {
   const [visible, setVisible] = useState(false);
   useEffect(() => {
     if (!pending) return;
     const timer = window.setTimeout(() => setVisible(true), 150);
     return () => { window.clearTimeout(timer); setVisible(false); };
   }, [pending]);
-  return pending && visible ? <span className={styles.navigationProgress} role="status">Loading…</span> : null;
+  return pending && visible ? <span className={styles.navigationProgress} role="status">{revalidating ? "Checking for session updates…" : "Loading…"}</span> : null;
 }
 
 export function ApplicationShell({ children }: { children: ReactNode }) {
@@ -97,8 +97,8 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
         </div>
       </header>
       <p className={styles.sampleNotice}>{section === "dashboard" ? "Sample project content; boards and activity are not connected." : section === "team" ? "Sample team content — not the live workspace member list." : "Sample settings — changes are not saved."}</p>
-      <NavigationProgress key={navigationId} pending={navigationPending} />
-      <div className={styles.routeBody} inert={navigationPending} data-route-pending={navigationPending}>
+      <NavigationProgress key={navigationId} pending={navigationPending || !!view.revalidating} revalidating={!navigationPending && !!view.revalidating} />
+      <div className={styles.routeBody} inert={navigationPending || view.revalidating} data-route-pending={navigationPending} data-session-revalidating={!!view.revalidating}>
         <BoardSearchContext value={{ query, onQueryChange: setQuery }}>{children}</BoardSearchContext>
       </div>
     </main>

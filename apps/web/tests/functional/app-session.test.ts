@@ -412,9 +412,11 @@ test("request disconnect cancels the in-flight Auth grant before current admissi
 });
 
 function clientSessionHarness(t: TestContext, refresh: () => Promise<Response>, beforeDelivery?: (operation: SessionOperation) => Promise<void>, me = () => Promise.resolve(Response.json({ code: "unauthenticated", requestId: appRequestId }, { status: 401 }))) {
+  let monotonic = 0;
+  t.mock.method(performance, "now", () => monotonic);
   const cookies = new Map<string, string>();
   const operations: Record<string, SessionOperation> = {
-    "/api/auth/context": "context", "/api/auth/begin": "begin", "/api/auth/refresh": "refresh", "/api/auth/logout": "logout", "/api/app/me": "me",
+    "/api/auth/context": "context", "/api/auth/begin": "begin", "/api/auth/login": "login", "/api/auth/refresh": "refresh", "/api/auth/logout": "logout", "/api/app/me": "me",
   };
   const requests: SessionOperation[] = [];
   const controllers: SessionController[] = [];
@@ -468,7 +470,7 @@ function clientSessionHarness(t: TestContext, refresh: () => Promise<Response>, 
     controller.start(validate);
     return { controller, views, settled: settled.promise };
   }
-  return { mount, header, requests, replaceSession };
+  return { mount, header, requests, replaceSession, advance: (milliseconds: number) => { monotonic += milliseconds; } };
 }
 
 const deniedRefresh = () => Promise.resolve(Response.json({ error_code: "refresh_token_not_found" }, { status: 400 }));
@@ -531,7 +533,7 @@ for (const boundary of ["refresh response", "context reread"] as const) {
       if (boundary === "refresh response") { reached.resolve(); await release.promise; }
       return deniedRefresh();
     }, async operation => {
-      if (operation === "context" && ++contextReads === 2 && boundary === "context reread") {
+      if (operation === "context" && ++contextReads === 3 && boundary === "context reread") {
         reached.resolve(); await release.promise;
       }
     });
@@ -551,7 +553,7 @@ for (const boundary of ["refresh response", "context reread"] as const) {
   });
 }
 
-test("protected navigation retains admitted chrome while each new route checks current membership", async t => {
+test("stale protected navigation retains admitted chrome while current membership is checked", async t => {
   const delayed = Promise.withResolvers<void>();
   const reached = Promise.withResolvers<void>();
   let reads = 0;
@@ -563,6 +565,7 @@ test("protected navigation retains admitted chrome while each new route checks c
   const mounted = client.mount(false);
   const generation = readAuthCookies(config, client.header()).context!.generation;
   assert.equal(await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation }), true);
+  client.advance(60000);
   const before = mounted.views.length;
   const navigation = mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation });
   await reached.promise;
@@ -599,7 +602,7 @@ for (const phase of ["forbidden", "unavailable"] as const) {
   });
 }
 
-test("late route failure cannot overwrite a newer route admission", async t => {
+test("a shared stale failure denies every joined destination instead of bypassing the failed check", async t => {
   const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   t.after(() => release.resolve());
   let reads = 0;
@@ -613,14 +616,16 @@ test("late route failure cannot overwrite a newer route admission", async t => {
   const mounted = client.mount(false);
   const generation = readAuthCookies(config, client.header()).context!.generation;
   await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  client.advance(60000);
   const old = mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation });
   await reached.promise;
   const newer = mounted.controller.admitRoute({ path: "/settings/team", phase: "ready", restore: true, generation });
   release.resolve();
   assert.equal(await old, false);
-  assert.equal(await newer, true);
-  assert.equal(mounted.views.some(view => view.phase === "unavailable"), false);
-  assert.equal(mounted.views.at(-1)?.phase, "ready");
+  assert.equal(await newer, false);
+  assert.equal(reads, 2, "Both destinations share the same current read");
+  assert.equal(mounted.views.at(-1)?.phase, "unavailable");
+  assert.equal(mounted.views.at(-1)?.me, null);
 });
 
 test("logout intent fences delayed route success and prevents private identity resurrection", async t => {
@@ -634,6 +639,7 @@ test("logout intent fences delayed route success and prevents private identity r
   const mounted = client.mount(false);
   const generation = readAuthCookies(config, client.header()).context!.generation;
   await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  client.advance(60000);
   const route = mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation });
   await reached.promise;
   const logout = mounted.controller.signOut();
@@ -657,6 +663,9 @@ test("an old route generation cannot admit a newer login or clear its cookies", 
   client.replaceSession();
   const newer = client.header();
   await mounted.controller.revalidate();
+  assert.equal(mounted.views.at(-1)?.phase, "changed");
+  assert.equal(mounted.views.at(-1)?.me, null);
+  await mounted.controller.revalidate(true, true);
   const admitted = mounted.views.at(-1);
   assert.equal(admitted?.phase, "ready");
   assert.notEqual(admitted?.generation, generation);
@@ -669,7 +678,7 @@ test("an old route generation cannot admit a newer login or clear its cookies", 
   assert.equal(client.requests.includes("begin"), false);
 });
 
-test("navigation intent overlaps reads and consumes one current check without a completed-result cache", async t => {
+test("stale intent overlaps reads and matching receipt reuse does not start a second check", async t => {
   const contextHeld = Promise.withResolvers<void>(), meReached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
   t.after(() => release.resolve());
   let contexts = 0, reads = 0;
@@ -682,6 +691,7 @@ test("navigation intent overlaps reads and consumes one current check without a 
   const mounted = client.mount(false);
   const generation = readAuthCookies(config, client.header()).context!.generation;
   await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  client.advance(60000);
   const pending = mounted.controller.prepareRoute("/settings");
   await Promise.all([contextHeld.promise, meReached.promise]);
   const same = mounted.controller.prepareRoute("/settings");
@@ -692,7 +702,7 @@ test("navigation intent overlaps reads and consumes one current check without a 
   assert.equal(await mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation }), true);
   assert.equal(reads, 2, "Route receipt consumes its own transition, not another backend lookup");
   await mounted.controller.prepareRoute("/settings");
-  assert.equal(reads, 3, "A completed route admission is never reused for a new navigation");
+  assert.equal(reads, 2, "Fresh sample display reuse does not refetch or renew its deadline");
 });
 
 for (const status of [401, 403, 503]) {
@@ -710,6 +720,7 @@ for (const status of [401, 403, 503]) {
     const mounted = client.mount(false);
     const generation = readAuthCookies(config, client.header()).context!.generation;
     await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+    client.advance(60000);
     const pending = mounted.controller.prepareRoute("/settings");
     await Promise.all([contextHeld.promise, denied.promise]);
     // Drain response parsing microtasks without releasing the held context.
@@ -739,4 +750,185 @@ test("a completed intent cannot be consumed after logout or a newer auth generat
   assert.notEqual(newer, generation);
   assert.equal(await mounted.controller.admitRoute({ path: "/settings", phase: "ready", restore: true, generation }), false);
   assert.equal(mounted.views.at(-1)?.phase, "changed");
+});
+
+test("display freshness is controller-bound, strictly60 seconds and never slides on menu or focus use", async t => {
+  const client = clientSessionHarness(t, deniedRefresh, undefined, async () => Response.json(appMe));
+  const mounted = client.mount(false);
+  const generation = readAuthCookies(config, client.header()).context!.generation;
+  await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  client.advance(59999);
+  for (const path of ["/settings", "/settings/team", "/application"] as const) {
+    assert.equal(await mounted.controller.prepareRoute(path), true);
+    assert.equal(await mounted.controller.admitRoute({ path, phase: "ready", restore: true, generation }), true);
+    assert.equal(await mounted.controller.resume(), true);
+  }
+  assert.equal(client.requests.filter(operation => operation === "me").length, 1);
+  assert.equal(client.requests.filter(operation => operation === "context").length, 1);
+  client.advance(1);
+  assert.equal(await mounted.controller.resume(), true);
+  assert.equal(client.requests.filter(operation => operation === "me").length, 2, "Use at59999ms did not extend the verification deadline");
+  assert.equal(client.requests.filter(operation => operation === "context").length, 2);
+  const recreated = client.mount();
+  assert.equal((await recreated.settled).phase, "ready");
+  await drainSessionLock();
+  assert.equal(client.requests.filter(operation => operation === "me").length, 3, "A new controller cannot inherit another controller's snapshot");
+});
+
+test("stale focus, manual checking and competing menus share one read while only the latest destination commits", async t => {
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  t.after(() => release.resolve());
+  let reads = 0;
+  const member = { ...appMe, membership: { ...appMe.membership, role: "member" }, capabilities: ["profile.read.self"] };
+  const client = clientSessionHarness(t, deniedRefresh, undefined, async () => {
+    if (++reads === 2) { reached.resolve(); await release.promise; return Response.json(member); }
+    return Response.json(appMe);
+  });
+  const mounted = client.mount(false);
+  const generation = readAuthCookies(config, client.header()).context!.generation;
+  await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  client.advance(60000);
+  const focus = mounted.controller.resume();
+  await reached.promise;
+  assert.equal(mounted.controller.resume(), focus);
+  assert.equal(mounted.controller.revalidate(undefined, true), focus);
+  const older = mounted.controller.prepareRoute("/settings");
+  const latest = mounted.controller.prepareRoute("/settings/team");
+  assert.equal(mounted.views.at(-1)?.phase, "ready");
+  assert.equal(mounted.views.at(-1)?.revalidating, true);
+  assert.deepEqual(mounted.views.at(-1)?.me, appMe);
+  release.resolve();
+  assert.equal(await focus, true);
+  assert.equal(await older, false);
+  assert.equal(await latest, true);
+  assert.equal(await mounted.controller.admitRoute({ path: "/settings/team", phase: "ready", restore: true, generation }), true);
+  assert.equal(mounted.views.at(-1)?.routePath, "/settings/team");
+  assert.deepEqual(mounted.views.at(-1)?.me, member);
+  assert.equal(mounted.views.at(-1)?.revalidating, undefined);
+  assert.equal(client.requests.filter(operation => operation === "me").length, 2);
+  assert.equal(client.requests.filter(operation => operation === "context").length, 2);
+});
+
+test("page-cache suspension discards freshness and refuses a different account generation before revealing cached content", async t => {
+  const client = clientSessionHarness(t, deniedRefresh, undefined, async () => Response.json(appMe));
+  const mounted = client.mount(false);
+  const generation = readAuthCookies(config, client.header()).context!.generation;
+  await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
+  mounted.controller.suspend();
+  assert.equal(mounted.views.at(-1)?.phase, "checking");
+  assert.equal(mounted.views.at(-1)?.me, null);
+  assert.equal(await mounted.controller.resume(), true);
+  assert.equal(client.requests.filter(operation => operation === "me").length, 2);
+  mounted.controller.suspend();
+  client.replaceSession();
+  assert.equal(await mounted.controller.resume(), false);
+  assert.equal(mounted.views.at(-1)?.phase, "changed");
+  assert.equal(mounted.views.at(-1)?.me, null);
+  const requests = client.requests.length;
+  assert.equal(await mounted.controller.resume(), false);
+  assert.equal(client.requests.length, requests);
+  assert.equal(await mounted.controller.revalidate(true, true), true);
+  assert.equal(await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation }), false);
+  assert.equal(mounted.views.at(-1)?.me, null);
+});
+
+test("a same-generation identity swap invalidates display instead of mixing a different user into the cached tree", async t => {
+  let reads = 0;
+  const userId = "44444444-4444-4444-8444-444444444444";
+  const other = { ...appMe, profile: { ...appMe.profile, userId }, membership: { ...appMe.membership, userId } };
+  const client = clientSessionHarness(t, deniedRefresh, undefined, async () => Response.json(++reads === 1 ? appMe : other));
+  const mounted = client.mount();
+  assert.equal(await mounted.controller.revalidate(), true);
+  client.advance(60000);
+  assert.equal(await mounted.controller.resume(), false);
+  assert.equal(mounted.views.at(-1)?.phase, "changed");
+  assert.equal(mounted.views.at(-1)?.me, null);
+  assert.equal(await mounted.controller.prepareRoute("/settings"), false);
+  assert.equal(reads, 2);
+});
+
+test("late me failure after a failed context cannot overwrite a newer explicit verification", async t => {
+  const reached = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  t.after(() => release.resolve());
+  let contexts = 0, reads = 0;
+  const client = clientSessionHarness(t, deniedRefresh, async operation => {
+    if (operation === "context" && ++contexts === 2) throw new Error("Synthetic context transport failure");
+  }, async () => {
+    if (++reads === 2) {
+      reached.resolve(); await release.promise;
+      return Response.json({ code: "forbidden", requestId: appRequestId }, { status: 403 });
+    }
+    return Response.json(appMe);
+  });
+  const mounted = client.mount();
+  assert.equal(await mounted.controller.revalidate(), true);
+  client.advance(60000);
+  const failed = mounted.controller.resume();
+  await reached.promise;
+  assert.equal(await failed, false);
+  assert.equal(mounted.views.at(-1)?.phase, "unavailable");
+  assert.equal(mounted.views.at(-1)?.me, null);
+  assert.equal(await mounted.controller.revalidate(undefined, true), true);
+  release.resolve();
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(mounted.views.at(-1)?.phase, "ready");
+  assert.deepEqual(mounted.views.at(-1)?.me, appMe);
+});
+
+test("fresh display never supplies stale mutation context to begin, login or logout", async t => {
+  let revoke = false;
+  const client = clientSessionHarness(t, async () => revoke ? new Response(null, { status: 204 }) : Response.json(tokenResult), undefined, async () => Response.json(appMe));
+  const mounted = client.mount();
+  assert.equal(await mounted.controller.revalidate(), true);
+  const changed = client.replaceSession();
+  await mounted.controller.signIn("synthetic@example.test", "synthetic-password", "/application");
+  assert.equal(mounted.views.at(-1)?.phase, "ready");
+  assert.notEqual(mounted.views.at(-1)?.generation, changed.generation);
+  assert.equal(mounted.views.at(-1)?.generation, readAuthCookies(config, client.header()).context!.generation);
+  client.replaceSession();
+  revoke = true;
+  await mounted.controller.signOut();
+  assert.equal(mounted.views.at(-1)?.phase, "signed-out");
+  assert.equal(mounted.views.at(-1)?.providerOutcome, "confirmed");
+  assert.equal(readAuthCookies(config, client.header()).session, null);
+});
+
+test("actual401 during a current check conceals fresh display and renews it only from one confirmed refresh", async t => {
+  let reads = 0, refreshes = 0;
+  const client = clientSessionHarness(t, async () => { refreshes++; return Response.json(tokenResult); }, undefined, async () => ++reads === 2
+    ? Response.json({ code: "unauthenticated", requestId: appRequestId }, { status: 401 }) : Response.json(appMe));
+  const mounted = client.mount();
+  assert.equal(await mounted.controller.revalidate(), true);
+  const before = mounted.views.length;
+  assert.equal(await mounted.controller.revalidate(), true);
+  assert.equal(mounted.views.slice(before).some(view => view.phase === "checking" && view.me === null), true);
+  assert.deepEqual(mounted.views.at(-1)?.me, appMe);
+  assert.equal(refreshes, 1);
+  assert.equal(reads, 3, "Initial me, actual401 and refresh's confirmed me; no duplicate success read");
+  assert.equal(await mounted.controller.prepareRoute("/settings"), true);
+  assert.equal(await mounted.controller.resume(), true);
+  assert.equal(reads, 3);
+});
+
+test("a held cross-tab lock cannot retain stale-ready display beyond the current-check deadline", async t => {
+  const client = clientSessionHarness(t, deniedRefresh, undefined, async () => Response.json(appMe));
+  const mounted = client.mount();
+  assert.equal(await mounted.controller.revalidate(), true);
+  const locked = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+  t.after(() => release.resolve());
+  const held = navigator.locks.request("lovora-app-session", async () => { locked.resolve(); await release.promise; });
+  await locked.promise;
+  const deadline = new AbortController();
+  t.mock.method(AbortSignal, "timeout", () => deadline.signal);
+  client.advance(60000);
+  const pending = mounted.controller.resume();
+  assert.equal(mounted.views.at(-1)?.revalidating, true);
+  assert.deepEqual(mounted.views.at(-1)?.me, appMe);
+  deadline.abort(new DOMException("Synthetic current-check deadline", "TimeoutError"));
+  assert.equal(await pending, false);
+  assert.equal(mounted.views.at(-1)?.phase, "unavailable");
+  assert.equal(mounted.views.at(-1)?.me, null);
+  assert.equal(client.requests.filter(operation => operation === "me").length, 1, "Expired work never acquires the lock or starts a read");
+  release.resolve();
+  await held;
 });
