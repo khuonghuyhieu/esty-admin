@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { EtsyConfig } from '../config/config.js';
 import { AppError } from '../app-foundation/application/errors.js';
 import { EtsyService } from './service.js';
+import type { previewAccess } from '../platform/preview-access.js';
 
 export function callbackInput(raw: string): { state: string; code: string | null } {
   if (Buffer.byteLength(raw) > 4096 || /%(?![a-f0-9]{2})/i.test(raw)) throw new AppError('invalid_request');
@@ -36,8 +37,8 @@ async function boundedBody(request: IncomingMessage, maximum: number, signal: Ab
   finally { signal.removeEventListener('abort', abort); }
 }
 
-export function etsyIngress(config: EtsyConfig, service: EtsyService) {
-  const callbackHost = new URL(config.callbackUrl).host, invitationHost = new URL(config.invitationOrigin).host;
+export function etsyIngress(config: EtsyConfig, service: EtsyService, authorize: ReturnType<typeof previewAccess>) {
+  const callbackHost = new URL(config.callbackUrl).host;
   return (request: IncomingMessage, response: ServerResponse, next: () => void): void => {
     const raw = request.url ?? '';
     let hostCount = 0;
@@ -45,12 +46,17 @@ export function etsyIngress(config: EtsyConfig, service: EtsyService) {
     const callback = request.method === 'GET' && (raw === '/integrations/etsy/callback' || raw.startsWith('/integrations/etsy/callback?'))
       && request.headers.host === callbackHost && hostCount === 1;
     const start = request.method === 'POST' && raw === '/integrations/etsy/invite/start'
-      && request.headers.host === invitationHost && hostCount === 1;
+      && request.headers.host === callbackHost && hostCount === 1;
     if (!callback && !start) { next(); return; }
     response.setHeader('Cache-Control', 'private, no-store');
     response.setHeader('Pragma', 'no-cache');
     response.setHeader('Referrer-Policy', 'no-referrer');
     response.setHeader('X-Content-Type-Options', 'nosniff');
+    if (start) {
+      let authenticated = false;
+      authorize(request, response, () => { authenticated = true; });
+      if (!authenticated) return;
+    }
     const controller = new AbortController(), deadline = setTimeout(() => controller.abort(), 8000);
     const abort = (): void => { if (!response.writableEnded) controller.abort(); };
     response.once('close', abort);

@@ -327,6 +327,14 @@ test('owned fixture profiles reject cross-lane ports and normal-session timeboxi
     { APP_SESSION_E2E_PROFILE: 'activation001', F001_AUTH_TIMEBOX: '30' },
   ]) assert.throws(() => fixtureProfile(env));
   assert.equal(fixtureProfile({ APP_SESSION_E2E_PROFILE: 'activation001', F001_AUTH_TIMEBOX: 'true' }).timebox, true);
+  const owned011 = { APP_SESSION_E2E_PROFILE: '011', F011_RUN_NONCE: 'a'.repeat(32),
+    F005_DB_PORT: '51001', F005_AUTH_PORT: '51002', F005_MAIL_PORT: '51003', F005_API_PORT: '51004' };
+  assert.notEqual(fixtureProfile(owned011).project, fixtureProfile({ ...owned011, F011_RUN_NONCE: 'b'.repeat(32) }).project);
+  for (const changes of [{ F011_RUN_NONCE: undefined }, { F005_AUTH_PORT: '55441' },
+    { F005_AUTH_PORT: owned011.F005_DB_PORT }, { F005_API_PORT: '55644' }, { F005_DB_PORT: '65536' },
+    { F005_WEB_PORT: '3000' }, { F001_AUTH_TIMEBOX: 'true' }, { APP_SESSION_E2E_PROFILE: '006' }]) {
+    assert.throws(() => fixtureProfile({ ...owned011, ...changes }));
+  }
 });
 
 test('runtime attestation rejects changed private configuration and unprotected disclosure', () => {

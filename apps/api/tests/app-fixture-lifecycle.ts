@@ -15,6 +15,8 @@ import { fixtureProfile } from '../scripts/app-fixture-profile.mjs';
 import { boundedText } from '../src/app-foundation/adapters/auth-http.js';
 import type { components } from '../src/generated/api.js';
 import { createApplication } from './helpers.js';
+import type { EtsyConfig } from '../src/config/config.js';
+import { etsyRecipientFixture } from './etsy-fixture.js';
 
 interface ProviderUser { id: string; email: string; created_at: string; user_metadata: Record<string, unknown> }
 type AdminRequest = <T>(path: string, body?: object, method?: string) => Promise<{ status: number; body: T }>;
@@ -46,6 +48,14 @@ export class OwnedFixtureLifecycle {
       assert.equal((await lstat(fixture)).mode & 0o777, 0o700);
       assert.equal((await lstat(fixture)).uid, process.getuid!());
       root = join(dirname(fixture), 'reports');
+    }
+    if (profile.name === '011') {
+      const fixture = process.env.F005_FIXTURE_DIRECTORY;
+      assert.ok(fixture && fixture.startsWith(join(await realpath(tmpdir()), profile.prefix))
+        && await realpath(fixture) === fixture);
+      const stat = await lstat(fixture);
+      assert.equal(stat.mode & 0o777, 0o700); assert.equal(stat.uid, process.getuid!());
+      root = join(fixture, 'reports');
     }
     await mkdir(root, { recursive: true, mode: 0o700 });
     assert.equal(await realpath(root), root.replace(/\/$/, ''));
@@ -217,6 +227,7 @@ export async function createSessionSupport(directory: string, expectedNonce: str
   let lifecycle: OwnedFixtureLifecycle | undefined;
   let app: Awaited<ReturnType<typeof createApplication>> | undefined;
   let socket: ReturnType<typeof createServer> | undefined;
+  let etsy: ReturnType<typeof etsyRecipientFixture> | undefined;
   let pausedAuth: string | undefined;
   let lockedDatabase = false;
   let lockClient: PoolClient | undefined;
@@ -261,10 +272,18 @@ export async function createSessionSupport(directory: string, expectedNonce: str
     APP_AUTH_API_KEY: 'synthetic-api-key', APP_EMAIL_ENABLED: 'true', APP_AUTH_ADMIN_KEY: env.F005_AUTH_ADMIN_KEY!,
     PREVIEW_ACCESS_KEY: technicalKey, BROWSER_ORIGIN: webOrigin,
   };
+  const etsyConfig: EtsyConfig | undefined = profile.name === '011' ? {
+    clientId: 'synthetic011_app', sharedSecret: randomBytes(24).toString('hex'),
+    callbackUrl: `${apiOrigin}/integrations/etsy/callback`, returnOrigin: webOrigin, invitationOrigin: webOrigin,
+    invitationTtlSeconds: 600, retentionSeconds: 900, activeKeyId: 'fixture011',
+    keyring: new Map([['fixture011', randomBytes(32)]]),
+  } : undefined;
   async function startApi() {
     assert.ok(!app);
-    const next = await createApplication(parseConfig({ ...runtime,
-      PREVIEW_ACCESS_KEY: wrongTechnicalKey ? randomBytes(32).toString('hex') : technicalKey }));
+    const config = parseConfig({ ...runtime,
+      PREVIEW_ACCESS_KEY: wrongTechnicalKey ? randomBytes(32).toString('hex') : technicalKey });
+    if (etsyConfig) config.etsy = etsyConfig; // Test-only loopback injection; production validation stays strict.
+    const next = await createApplication(config);
     try { await next.listen(profile.apiPort, '127.0.0.1'); app = next; }
     catch (error) { await next.close(); throw error; }
   }
@@ -344,6 +363,7 @@ export async function createSessionSupport(directory: string, expectedNonce: str
   async function control(input: FixtureControl) {
     assert.equal(input.nonce, expectedNonce, 'Wrong fixture nonce.');
     assert.ok(!closed, 'Fixture is closed.');
+    if (etsy && typeof input.operation === 'string' && input.operation.startsWith('etsy-')) return etsy.control(input);
     const fields: Record<string, string[]> = {
       status: [], 'set-member': ['target', 'role', 'status'], 'register-session': ['accessToken'],
       'issue-session': ['identity'], replay: ['handle'], fault: ['target', 'active'],
@@ -393,7 +413,10 @@ export async function createSessionSupport(directory: string, expectedNonce: str
       if (lockedDatabase) await fault('database', false);
       if (app) { const current = app; app = undefined; await current.close(); }
     } finally {
-      try { if (lifecycle) await lifecycle.cleanup(workspaceId); }
+      try {
+        if (etsy) await etsy.close();
+        if (lifecycle) await lifecycle.cleanup(workspaceId);
+      }
       finally {
         await admin.end(); handles.clear();
         if (published) await unlink(configPath);
@@ -407,10 +430,15 @@ export async function createSessionSupport(directory: string, expectedNonce: str
     const migrated = await runMigrations(database);
     assert.equal(migrated.database_outcome, 'committed');
     await admin.query('REVOKE SELECT(id,user_id,not_after) ON auth.sessions FROM app_runtime');
+    if (etsyConfig) etsy = etsyRecipientFixture(etsyConfig, admin, workspaceId, authOrigin,
+      () => identities.owner?.userId, () => lifecycle!.guard());
     stage = 'canonical API bind';
     await startApi();
     stage = 'owned provider identities';
-    for (const label of ['owner', 'member', 'unadmitted', 'disabled'] as const) {
+    let guardianId: string | undefined;
+    const labels = etsyConfig ? ['owner', 'member', 'unadmitted', 'disabled', 'guardian'] as const
+      : ['owner', 'member', 'unadmitted', 'disabled'] as const;
+    for (const label of labels) {
       const email: string = lifecycle.address(label);
       const password = 'Aa1!' + randomBytes(24).toString('base64url');
       await lifecycle.intent(email);
@@ -419,7 +447,8 @@ export async function createSessionSupport(directory: string, expectedNonce: str
       }, env.F005_AUTH_ADMIN_KEY!);
       assert.equal(created.status, 200);
       await lifecycle.register(email, created.body.id);
-      identities[label] = { email, password, userId: created.body.id };
+      if (label === 'guardian') guardianId = created.body.id;
+      else identities[label] = { email, password, userId: created.body.id };
     }
     stage = 'controlled owner bootstrap';
     const bootstrap = spawnSync(process.execPath, [new URL('../scripts/bootstrap-app-owner.js', import.meta.url).pathname, 'bootstrap'], {
@@ -443,6 +472,16 @@ export async function createSessionSupport(directory: string, expectedNonce: str
       assert.equal(accepted.status, 200);
     }
     await setMember('disabled', { status: 'disabled' });
+    if (guardianId) {
+      const client = await admin.connect();
+      try {
+        await client.query('BEGIN');
+        await client.query("INSERT INTO app_private.profiles(user_id,display_name) VALUES($1,'Synthetic011 fixture guardian')", [guardianId]);
+        await client.query("INSERT INTO app_private.memberships(workspace_id,user_id,role_code,status) VALUES($1,$2,'owner','active')", [workspaceId, guardianId]);
+        await client.query('COMMIT');
+      } catch (error) { await client.query('ROLLBACK'); throw error; }
+      finally { client.release(); }
+    }
     assert.equal((await api<SessionMe>('/me', owner)).status, 200);
     if (publish) {
       stage = 'private control and config handoff';
@@ -478,7 +517,8 @@ export async function createSessionSupport(directory: string, expectedNonce: str
         version: 1, nonce: expectedNonce, purpose: profile.purpose, profile: profile.name, jwtExpirySeconds: 300,
         webEnv: { APP_ORIGIN: webOrigin, APP_API_ORIGIN: apiOrigin, APP_AUTH_URL: authOrigin, APP_SESSION_MODE: 'local',
           APP_API_TECHNICAL_KEY: technicalKey, APP_AUTH_API_KEY: 'synthetic-api-key',
-          APP_SESSION_COOKIE_KEY: randomBytes(32).toString('base64url') },
+          APP_SESSION_COOKIE_KEY: randomBytes(32).toString('base64url'),
+          ...(etsyConfig ? { ETSY_CLIENT_ID: etsyConfig.clientId } : {}) },
         identities, control: { socketPath, nonce: expectedNonce },
       };
       const file = await open(configPath, 'wx', 0o600);

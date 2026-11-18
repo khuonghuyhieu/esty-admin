@@ -47,7 +47,8 @@ async function ownership(directory) {
   if (state.project !== project || (state.profile ?? '006') !== profile.name
     || (state.timebox ?? 'false') !== String(profile.timebox) || !/^[a-f0-9]{32}$/.test(state.nonce)
     || !/^f005_[a-f0-9]{32}$/.test(state.database)
-    || (profile.name === 'activation001' && state.nonce !== process.env.F001_RUN_NONCE)) throw new Error('Invalid owned fixture marker.');
+    || (profile.name === 'activation001' && state.nonce !== process.env.F001_RUN_NONCE)
+    || (profile.name === '011' && state.nonce !== process.env.F011_RUN_NONCE)) throw new Error('Invalid owned fixture marker.');
   const containers = docker(directory, ['ps', '-aq', '--filter', `label=com.docker.compose.project=${project}`]).split('\n').filter(Boolean);
   for (const id of containers) {
     if (docker(directory, ['inspect', '--format', '{{index .Config.Labels "esty005.run"}}', id]) !== state.nonce) {
@@ -98,7 +99,8 @@ async function start() {
   } else directory = await mkdtemp(prefix);
   await mkdir(join(directory, 'docker'), { mode: 0o700 });
   await writeFile(join(directory, 'docker/config.json'), '{}\n', { mode: 0o600, flag: 'wx' });
-  const nonce = profile.name === 'activation001' ? process.env.F001_RUN_NONCE : randomBytes(16).toString('hex');
+  const nonce = profile.name === 'activation001' ? process.env.F001_RUN_NONCE
+    : profile.name === '011' ? process.env.F011_RUN_NONCE : randomBytes(16).toString('hex');
   const database = `f005_${randomBytes(16).toString('hex')}`;
   const secret = randomBytes(32).toString('hex');
   const pair = await generateKeyPair('ES256', { extractable: true });
@@ -116,6 +118,9 @@ async function start() {
     F005_FIXTURE_DIRECTORY: directory, F005_RUN_NONCE: nonce,
     F005_DATABASE_URL: `postgresql://f005_fixture_admin:synthetic_f005_admin_only@127.0.0.1:${profile.databasePort}/${database}`,
     APP_SESSION_E2E_PROFILE: profile.name, F001_AUTH_TIMEBOX: String(profile.timebox), F005_AUTH_ADMIN_KEY: serviceToken,
+    ...(profile.name === '011' ? { F011_RUN_NONCE: nonce, F005_DB_PORT: String(profile.databasePort),
+      F005_AUTH_PORT: String(profile.authPort), F005_MAIL_PORT: String(profile.mailPort),
+      F005_API_PORT: String(profile.apiPort), F005_WEB_PORT: String(profile.webPort) } : {}),
   }), { mode: 0o600, flag: 'wx' });
   let began = false;
   let stage = 'public Compose executable verification';
@@ -136,7 +141,7 @@ async function start() {
     console.info(JSON.stringify({ stage: 'compose_preflight', executable, target, sha256: digest.digest('hex'), version, configuration: 'valid' }));
     stage = 'project inspection';
     assertNoProject(directory);
-    if (profile.name === 'activation001') {
+    if (profile.name === 'activation001' || profile.name === '011') {
       stage = 'cached immutable image inspection';
       const images = composeCommand(directory, ['config', '--images']).split('\n').filter(Boolean);
       if (images.length !== 3 || images.some(image => !/@sha256:[a-f0-9]{64}$/.test(image))) throw new Error('Pinned fixture images required.');

@@ -1,21 +1,165 @@
 import { request as httpRequest } from 'node:http';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer, request as httpsRequest } from 'node:https';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Readable } from 'node:stream';
 import type { TestContext } from 'node:test';
-import { Client } from 'pg';
+import { Client, type Pool } from 'pg';
 import { parseConfig } from '../src/config/config.js';
 import type { EtsyConfig } from '../src/config/config.js';
 import { migrate } from '../scripts/migrations.js';
 import { expectedMigrations } from '../src/generated/migrations.js';
 import { createApplication } from './helpers.js';
 import { syntheticAuthPeer } from './app-auth-fixture.js';
+import { setTimeout as delay } from 'node:timers/promises';
+
+// Test-only011 extension of the owned006 Auth lifecycle. Etsy is simulated;
+// Auth, application HTTP, current membership and persistence remain real.
+export function etsyRecipientFixture(config: EtsyConfig, admin: Pool, workspace: string, authOrigin: string,
+  ownerId: () => string | undefined, guard: () => Promise<void>) {
+  const originalFetch = globalThis.fetch;
+  const apiOrigin = new URL(config.callbackUrl).origin;
+  const codes = new Map<string, string>();
+  const provider = { lookup: 0, token: 0, refresh: 0, getMe: 0, getShop: 0, callback: 0, activeLookup: 0 };
+  let mode: 'exact' | 'ambiguous' | 'incomplete' | 'delay' | '429' = 'exact', delayMs = 2500;
+  const json = (value: unknown, status = 200, headers: Record<string, string> = {}) =>
+    new Response(JSON.stringify(value), { status, headers: { 'Content-Type': 'application/json', ...headers } });
+  globalThis.fetch = async (input, init) => {
+    const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input : input.url);
+    if (url.origin !== 'https://api.etsy.com') {
+      assert.ok([apiOrigin, authOrigin].includes(url.origin), 'Unintended fixture outbound HTTP refused.');
+      assert.equal(new Headers(init?.headers).has('host'), false, 'Actual011 traffic must use native Host.');
+      return originalFetch(input, init);
+    }
+    const headers = new Headers(init?.headers);
+    assert.equal(headers.get('x-api-key'), `${config.clientId}:${config.sharedSecret}`);
+    if (url.pathname === '/v3/application/shops') {
+      provider.lookup++;
+      const scenario = mode;
+      assert.equal(headers.has('authorization'), false);
+      if (scenario === '429') return json({}, 429, { 'Retry-After': '2' });
+      if (scenario === 'delay') {
+        provider.activeLookup++;
+        try { await delay(delayMs, undefined, { signal: init?.signal ?? undefined }); }
+        finally { provider.activeLookup--; }
+      }
+      const rows = [{ shop_id: 8, shop_name: 'SyntheticShop' }];
+      if (scenario === 'ambiguous') rows.push({ shop_id: 9, shop_name: 'syntheticshop' });
+      return json({ count: scenario === 'incomplete' ? 25 : rows.length,
+        results: url.searchParams.get('offset') === '0' ? rows : [] });
+    }
+    if (url.pathname === '/v3/public/oauth/token') {
+      provider.token++;
+      const body = new URLSearchParams(String(init?.body));
+      assert.equal(body.get('client_id'), config.clientId);
+      if (body.get('grant_type') === 'refresh_token') {
+        provider.refresh++;
+        assert.equal(body.get('refresh_token'), 'synthetic011-refresh');
+      } else {
+        assert.equal(body.get('grant_type'), 'authorization_code');
+        assert.equal(body.get('redirect_uri'), config.callbackUrl);
+        const challenge = codes.get(body.get('code') ?? '');
+        assert.ok(challenge);
+        codes.delete(body.get('code')!);
+        assert.equal(createHash('sha256').update(body.get('code_verifier') ?? '').digest('base64url'), challenge);
+      }
+      return json({ access_token: '7.synthetic011', refresh_token: 'synthetic011-refresh',
+        token_type: 'Bearer', expires_in: 3600, scope: 'shops_r' });
+    }
+    assert.equal(headers.get('authorization'), 'Bearer 7.synthetic011');
+    if (url.pathname === '/v3/application/users/me') { provider.getMe++; return json({ user_id: 7, shop_id: 8 }); }
+    if (url.pathname === '/v3/application/shops/8') {
+      provider.getShop++;
+      return json({ user_id: 7, shop_id: 8, shop_name: 'SyntheticShop', currency_code: 'USD' });
+    }
+    throw new Error('Unapproved synthetic Etsy endpoint.');
+  };
+  async function membership(allowed: boolean) {
+    const id = ownerId();
+    assert.ok(id);
+    const result = await admin.query(`UPDATE app_private.memberships SET role_code=$3,status='active',
+      disabled_at=NULL,revision=revision+1 WHERE workspace_id=$1 AND user_id=$2 RETURNING role_code AS role,status,revision`,
+    [workspace, id, allowed ? 'owner' : 'member']);
+    assert.equal(result.rowCount, 1);
+    return result.rows[0] as { role: string; status: string; revision: number };
+  }
+  async function reset() {
+    await guard();
+    assert.equal(provider.activeLookup, 0, 'Finish the active lookup before reset.');
+    const client = await admin.connect();
+    try {
+      await client.query("BEGIN; SET LOCAL lock_timeout='500ms'; SET LOCAL statement_timeout='1000ms'");
+      for (const table of ['etsy_operation_receipts', 'etsy_refresh_attempts', 'etsy_credentials',
+        'etsy_authorization_attempts', 'etsy_connection_invitations', 'etsy_connections']) {
+        await client.query(`DELETE FROM app_private.${table} WHERE workspace_id=$1`, [workspace]);
+      }
+      await client.query("DELETE FROM app_private.audit_events WHERE workspace_id=$1 AND action LIKE 'etsy.%'", [workspace]);
+      await client.query('DELETE FROM app_private.etsy_cooldowns WHERE app_ref=$1', [config.clientId]);
+      await client.query('COMMIT');
+    } catch (error) { await client.query('ROLLBACK'); throw error; }
+    finally { client.release(); }
+    if (ownerId()) await membership(true);
+    for (const key of Object.keys(provider) as Array<keyof typeof provider>) provider[key] = 0;
+    mode = 'exact'; delayMs = 2500; codes.clear();
+    return { reset: true };
+  }
+  async function counts() {
+    const sql: Record<string, number> = {};
+    for (const [field, table] of [['connections', 'etsy_connections'], ['invitations', 'etsy_connection_invitations'],
+      ['attempts', 'etsy_authorization_attempts'], ['credentials', 'etsy_credentials'], ['receipts', 'etsy_operation_receipts']]) {
+      sql[field!] = Number((await admin.query(`SELECT count(*) FROM app_private.${table} WHERE workspace_id=$1`, [workspace])).rows[0].count);
+    }
+    sql.cooldowns = Number((await admin.query('SELECT count(*) FROM app_private.etsy_cooldowns WHERE app_ref=$1', [config.clientId])).rows[0].count);
+    sql.activeCredentials = Number((await admin.query("SELECT count(*) FROM app_private.etsy_credentials WHERE workspace_id=$1 AND state='active'", [workspace])).rows[0].count);
+    sql.plaintextCredentials = Number((await admin.query(`SELECT count(*) FROM app_private.etsy_credentials
+      WHERE workspace_id=$1 AND (envelope::text LIKE '%7.synthetic011%' OR envelope::text LIKE '%synthetic011-refresh%')`, [workspace])).rows[0].count);
+    sql.authUsers = Number((await admin.query('SELECT count(*) FROM auth.users')).rows[0].count);
+    sql.authSessions = Number((await admin.query('SELECT count(*) FROM auth.sessions')).rows[0].count);
+    const owner = (await admin.query('SELECT role_code AS role,status,revision FROM app_private.memberships WHERE workspace_id=$1 AND user_id=$2',
+      [workspace, ownerId()])).rows[0] as { role: string; status: string; revision: number };
+    const connection = (await admin.query('SELECT state FROM app_private.etsy_connections WHERE workspace_id=$1', [workspace])).rows[0] as { state: string } | undefined;
+    return { provider: { ...provider }, sql, owner, connectionState: connection?.state ?? null };
+  }
+  async function control(input: Record<string, unknown>) {
+    await guard();
+    const fields: Record<string, string[]> = { 'etsy-reset': [], 'etsy-counts': [], 'etsy-membership': ['allowed'],
+      'etsy-lookup': ['mode', 'delayMs'], 'etsy-complete': ['state', 'codeChallenge'] };
+    assert.ok(typeof input.operation === 'string' && Object.hasOwn(fields, input.operation));
+    assert.ok(Object.keys(input).every(key => ['nonce', 'operation', ...fields[input.operation as string]!].includes(key)));
+    if (input.operation === 'etsy-reset') return reset();
+    if (input.operation === 'etsy-counts') return counts();
+    if (input.operation === 'etsy-membership') {
+      assert.equal(typeof input.allowed, 'boolean');
+      return membership(input.allowed as boolean);
+    }
+    if (input.operation === 'etsy-lookup') {
+      assert.ok(typeof input.mode === 'string' && ['exact', 'ambiguous', 'incomplete', 'delay', '429'].includes(input.mode));
+      assert.ok(input.delayMs === undefined || (input.mode === 'delay' && Number.isInteger(input.delayMs)
+        && Number(input.delayMs) >= 1 && Number(input.delayMs) <= 5000));
+      mode = input.mode as typeof mode; delayMs = input.delayMs === undefined ? 2500 : Number(input.delayMs);
+      return { mode, delayMs: mode === 'delay' ? delayMs : null };
+    }
+    assert.equal(typeof input.state, 'string'); assert.equal(typeof input.codeChallenge, 'string');
+    assert.match(input.state as string, /^[A-Za-z0-9_-]{43}$/);
+    assert.match(input.codeChallenge as string, /^[A-Za-z0-9_-]{43}$/);
+    const code = randomBytes(24).toString('base64url');
+    codes.set(code, input.codeChallenge as string);
+    provider.callback++;
+    try {
+      const response = await fetch(`${config.callbackUrl}?${new URLSearchParams({ state: input.state as string, code })}`, {
+        redirect: 'manual', signal: AbortSignal.timeout(10000), headers: { Connection: 'close' } });
+      await response.body?.cancel();
+      return { status: response.status, location: response.headers.get('location') };
+    } finally { codes.delete(code); }
+  }
+  return { control, reset, async close() { try { await reset(); } finally { globalThis.fetch = originalFetch; } } };
+}
 
 export async function etsyFixture(t: TestContext, etsyConfig: EtsyConfig) {
   const directory = process.env.ETSY_TEST_FIXTURE_DIRECTORY ?? '';
@@ -89,7 +233,8 @@ export async function etsyFixture(t: TestContext, etsyConfig: EtsyConfig) {
       if (request.url === '/v3/public/oauth/token') {
         state.tokenCalls++;
         if (body.get('grant_type') === 'refresh_token') state.refreshCalls++;
-      } else assert.match(request.headers.authorization ?? '', /^Bearer 7\./);
+      } else if (request.url?.startsWith('/v3/application/shops?')) assert.equal(request.headers.authorization, undefined);
+      else assert.match(request.headers.authorization ?? '', /^Bearer 7\./);
       if (state.handler && await state.handler(request, response, body)) return;
       if (request.url === '/v3/public/oauth/token') response.end(JSON.stringify({ access_token: '7.synthetic', refresh_token: 'synthetic-refresh', token_type: 'Bearer', expires_in: 3600, scope: 'shops_r' }));
       else if (request.url === '/v3/application/users/me') response.end('{"user_id":7,"shop_id":8}');
@@ -110,10 +255,7 @@ export async function etsyFixture(t: TestContext, etsyConfig: EtsyConfig) {
         const headers = Object.fromEntries(new Headers(init?.headers));
         const request = httpsRequest({ hostname: '127.0.0.1', port: address.port, servername: 'etsy.test', ca, rejectUnauthorized: true,
           path: url.pathname + url.search, method: init?.method ?? 'GET', headers, signal: init?.signal ?? undefined }, response => {
-          const chunks: Buffer[] = [];
-          response.on('data', chunk => chunks.push(Buffer.from(chunk)));
-          response.on('error', reject);
-          response.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: response.statusCode!, headers: response.headers as Record<string, string> })));
+          resolve(new Response(Readable.toWeb(response), { status: response.statusCode!, headers: response.headers as Record<string, string> }));
         });
         request.on('error', reject);
         request.end(init?.body as string | undefined);
@@ -158,13 +300,14 @@ export async function etsyFixture(t: TestContext, etsyConfig: EtsyConfig) {
       ...(body ? { body: JSON.stringify(body) } : {}) });
     const bodyValue: unknown = await response.json();
     assert.ok(bodyValue && typeof bodyValue === 'object' && !Array.isArray(bodyValue));
-    return { status: response.status, body: bodyValue as Record<string, unknown> };
+    return { status: response.status, body: bodyValue as Record<string, unknown>, headers: response.headers };
   }
   return { admin, app, origin, secondOrigin, api, owner, member, foreign, workspace, sessions, tokens, technical, state, calls, database,
     identity: { userId: owner, sessionId: sessions.owner, email: 'owner@example.invalid' },
     async start(secret: string) {
       return fetch(origin + '/integrations/etsy/invite/start', { method: 'POST', redirect: 'manual', headers: {
-        Host: new URL(etsyConfig.invitationOrigin).host, Origin: etsyConfig.invitationOrigin, 'Content-Type': 'application/json' }, body: JSON.stringify({ secret }) });
+        Host: new URL(etsyConfig.callbackUrl).host, Authorization: `Bearer ${technical}`,
+        Origin: etsyConfig.invitationOrigin, 'Content-Type': 'application/json' }, body: JSON.stringify({ secret }) });
     },
     async callback(stateValue: string, code = 'synthetic-code') {
       return fetch(`${origin}/integrations/etsy/callback?state=${stateValue}&code=${code}`, { redirect: 'manual', headers: { Host: 'api.lovora.us' } });

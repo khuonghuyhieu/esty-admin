@@ -186,8 +186,9 @@ export class EtsyOwnerClient {
         || url.username || url.password || !/^#[A-Za-z0-9_-]{43}$/.test(url.hash)) refuse();
       privateDirectory(dirname(resolve(output)), false);
       this.#uncertain = true;
-      const result = await this.#request(`${this.#settings.invitationOrigin}/integrations/etsy/invite/start`, {
-        method: 'POST', headers: { Origin: this.#settings.invitationOrigin, 'Content-Type': 'application/json' },
+      const result = await this.#request('https://api.lovora.us/integrations/etsy/invite/start', {
+        method: 'POST', headers: { Authorization: `Bearer ${this.#settings.technicalKey}`,
+          Origin: this.#settings.invitationOrigin, 'Content-Type': 'application/json' },
         body: JSON.stringify({ secret: url.hash.slice(1) }),
       });
       if (result.response.status !== 303) throw new EtsyOwnerError('denied');

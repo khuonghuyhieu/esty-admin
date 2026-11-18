@@ -12,7 +12,7 @@ import { AppError } from '../src/app-foundation/application/errors.js';
 import { callbackInput } from '../src/etsy/ingress.js';
 import { EtsyOwnerClient, loadEtsyOwnerApproval, ownerSettings } from '../scripts/etsy-owner.js';
 import type { EtsyOwnerSettings } from '../scripts/etsy-owner.js';
-import { createServer } from 'node:http';
+import { createServer, request as httpRequest } from 'node:http';
 import { once } from 'node:events';
 import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -183,6 +183,23 @@ test('owned PostgreSQL and actual Nest HTTP enforce Etsy invitation, callback an
   }
 
   await t.test('Owner/Member/foreign scope, exact ingress and preview safety', async () => {
+    for (const authorization of [undefined, `Bearer ${'0'.repeat(64)}`,
+      [`Bearer ${fixture.technical}`, `Bearer ${fixture.technical}`]]) {
+      const status = await new Promise<number>((resolve, reject) => {
+        const request = httpRequest(fixture.origin + '/integrations/etsy/invite/start', {
+          method: 'POST', timeout: 2500, headers: { Host: 'api.lovora.us', Origin: config.invitationOrigin,
+            'Content-Type': 'application/json', 'Content-Length': '8192',
+            ...(authorization ? { Authorization: authorization } : {}) },
+        }, response => {
+          response.resume();
+          response.once('end', () => { request.destroy(); resolve(response.statusCode!); });
+        });
+        request.once('timeout', () => request.destroy(new Error('Bearer refusal waited for the withheld body.')));
+        request.once('error', reject);
+        request.flushHeaders(); // Deliberately never send the declared body.
+      });
+      assert.equal(status, 401, 'Missing, wrong or duplicate bearer must reject before body consumption.');
+    }
     assert.equal((await api('', 'member')).status, 403);
     assert.equal((await api('', 'foreign')).status, 403);
     assert.equal((await api('/invitations', 'member', { expectedShopId: '8', expectedRevision: 0, idempotencyKey: randomUUID() })).status, 403);
@@ -196,9 +213,25 @@ test('owned PostgreSQL and actual Nest HTTP enforce Etsy invitation, callback an
     }
     const offer = await invite();
     const badOrigin = await fetch(fixture.origin + '/integrations/etsy/invite/start', { method: 'POST', headers: {
-      Host: 'invite.example', Origin: 'https://other.example', 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: offer.secret }) });
+      Host: 'api.lovora.us', Authorization: `Bearer ${fixture.technical}`,
+      Origin: 'https://other.example', 'Content-Type': 'application/json' }, body: JSON.stringify({ secret: offer.secret }) });
     assert.equal(badOrigin.status, 400);
     assert.equal((await badOrigin.text()).includes(offer.secret), false);
+    for (const body of ['[]', '{"secret":1}', JSON.stringify({ secret: offer.secret, extra: true }), '{',
+      JSON.stringify({ secret: 'invalid' })]) {
+      const response = await fetch(fixture.origin + '/integrations/etsy/invite/start', {
+        method: 'POST', headers: { Host: 'api.lovora.us', Authorization: `Bearer ${fixture.technical}`,
+          Origin: config.invitationOrigin, 'Content-Type': 'application/json' }, body });
+      assert.equal(response.status, 400);
+      assert.equal(await response.text(), 'Connection request unavailable.');
+    }
+    for (const host of ['invite.example', 'wrong.example']) {
+      const response = await fetch(fixture.origin + '/integrations/etsy/invite/start', {
+        method: 'POST', headers: { Host: host, 'X-Forwarded-Host': 'api.lovora.us',
+          Authorization: `Bearer ${fixture.technical}`, Origin: config.invitationOrigin,
+          'Content-Type': 'application/json' }, body: JSON.stringify({ secret: offer.secret }) });
+      assert.equal(response.status, 404, 'Forwarded Host must not authorize a start on the wrong actual Host.');
+    }
     const emptyCallback = await fetch(fixture.origin + '/integrations/etsy/callback', { headers: { Host: 'api.lovora.us' } });
     assert.equal(emptyCallback.status, 400);
     const oversized = await fixture.start('x'.repeat(9000));
@@ -666,17 +699,17 @@ test('Etsy setup Owner client completes explicit authenticated HTTP lifecycle an
     if (url.origin === 'https://abcdefghijklmnopqrst.supabase.co') {
       return nativeFetch(`http://127.0.0.1:${address.port}${url.pathname}${url.search}`, init);
     }
-    if (url.origin === 'https://api.lovora.us') {
-      const response = await fetch(fixture.origin + url.pathname + url.search, init);
-      if (lostWrite && init?.method === 'POST') { lostWrite = false; await response.body?.cancel(); throw new Error('synthetic lost acknowledgement'); }
-      return response;
+    assert.equal(url.origin, 'https://api.lovora.us');
+    if (url.pathname === '/integrations/etsy/invite/start') {
+      assert.deepEqual(Object.fromEntries(new Headers(init?.headers)), {
+        authorization: `Bearer ${fixture.technical}`, 'content-type': 'application/json', origin: config.invitationOrigin });
+      const body: unknown = JSON.parse(String(init?.body));
+      assert.ok(body && typeof body === 'object' && 'secret' in body && typeof body.secret === 'string');
+      return fixture.start(body.secret);
     }
-    assert.equal(url.origin, config.invitationOrigin);
-    assert.equal(url.pathname, '/integrations/etsy/invite/start');
-    assert.deepEqual(Object.fromEntries(new Headers(init?.headers)), { 'content-type': 'application/json', origin: config.invitationOrigin });
-    const body: unknown = JSON.parse(String(init?.body));
-    assert.ok(body && typeof body === 'object' && 'secret' in body && typeof body.secret === 'string');
-    return fixture.start(body.secret);
+    const response = await fetch(fixture.origin + url.pathname + url.search, init);
+    if (lostWrite && init?.method === 'POST') { lostWrite = false; await response.body?.cancel(); throw new Error('synthetic lost acknowledgement'); }
+    return response;
   };
   for (const actor of ['member', 'foreign']) {
     const denied = new EtsyOwnerClient(settings, approval, transport);
@@ -786,4 +819,314 @@ test('Etsy setup exact three-to-four migration switches actual old and target st
   const after = await migrationStatus(database);
   assert.deepEqual(after.applied, migrationManifest.map(entry => entry.name)); assert.deepEqual(after.pending, []);
   });
+});
+
+test('Etsy lookup projects lossless candidates and never infers absence or exactness from a partial window', async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  let payload = '{"count":2,"results":[{"shop_id":9007199254740993,"shop_name":"MyShop","url":"https://evil.invalid","private":"discard"},{"shop_id":9223372036854775807,"shop_name":"OtherShop"}]}';
+  const provider = new EtsyProvider(config, async (url, init) => { requests.push({ url, init }); return new Response(payload); });
+  const { observedAt, ...first } = await provider.lookup('myshop', 0, signal());
+  assert.equal(new Date(observedAt).toISOString(), observedAt);
+  assert.deepEqual(first, { query: 'myshop', outcome: 'exact', ownershipVerified: false,
+    items: [{ shopId: '9007199254740993', shopName: 'MyShop', shopUrl: 'https://www.etsy.com/shop/MyShop', match: 'exact' },
+      { shopId: '9223372036854775807', shopName: 'OtherShop', shopUrl: 'https://www.etsy.com/shop/OtherShop', match: 'candidate' }],
+    page: { offset: 0, limit: 20, providerCount: '2', complete: true, hasMore: false, nextOffset: null, truncated: false } });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]!.url, 'https://api.etsy.com/v3/application/shops?shop_name=myshop&limit=20&offset=0');
+  assert.equal(requests[0]!.init.method, 'GET');
+  assert.equal(requests[0]!.init.redirect, 'error');
+  assert.equal(new Headers(requests[0]!.init.headers).get('authorization'), null);
+  assert.equal(new Headers(requests[0]!.init.headers).get('x-api-key'), `${config.clientId}:${config.sharedSecret}`);
+  const row = { shop_id: 8, shop_name: 'MyShop' };
+  for (const sample of [
+    { count: 0, results: [], offset: 0, outcome: 'not_found', complete: true, more: false, next: null, truncated: false },
+    { count: 0, results: [], offset: 20, outcome: 'incomplete', complete: false, more: false, next: null, truncated: false },
+    { count: 40, results: [], offset: 20, outcome: 'incomplete', complete: false, more: true, next: 40, truncated: false },
+    { count: 2, results: [row], offset: 0, outcome: 'choose', complete: false, more: true, next: 20, truncated: false },
+    { count: 1, results: [{ ...row, shop_name: 'Other' }], offset: 0, outcome: 'choose', complete: true, more: false, next: null, truncated: false },
+    { count: 2, results: [row, { ...row, shop_id: 9, shop_name: 'myshop' }], offset: 0, outcome: 'choose', complete: true, more: false, next: null, truncated: false },
+    { count: 22, results: [row, row], offset: 20, outcome: 'choose', complete: false, more: false, next: null, truncated: false },
+    { count: '9223372036854775807', results: [row], offset: 80, outcome: 'choose', complete: false, more: true, next: null, truncated: true },
+  ]) {
+    payload = JSON.stringify({ count: sample.count, results: sample.results });
+    const result = await provider.lookup('myshop', sample.offset, signal());
+    assert.equal(result.outcome, sample.outcome);
+    assert.deepEqual(result.page, { offset: sample.offset, limit: 20, providerCount: String(sample.count), complete: sample.complete,
+      hasMore: sample.more, nextOffset: sample.next, truncated: sample.truncated });
+    assert.equal(result.ownershipVerified, false);
+  }
+  payload = '{"count":9007199254740993,"results":[]}';
+  assert.equal((await provider.lookup('myshop', 0, signal())).page.providerCount, '9007199254740993');
+  payload = JSON.stringify({ count: 2, results: [row, row] });
+  const deduplicated = await provider.lookup('myshop', 0, signal());
+  assert.equal(deduplicated.outcome, 'exact');
+  assert.deepEqual(deduplicated.items, [{ shopId: '8', shopName: 'MyShop', shopUrl: 'https://www.etsy.com/shop/MyShop', match: 'exact' }]);
+});
+
+test('Etsy lookup rejects malformed upstream windows, conflicting identities and precision loss', async () => {
+  const row = { shop_id: 8, shop_name: 'MyShop' };
+  const malformed: unknown[] = [null, [], {}, { count: 0, results: {} }, { count: 0, results: [row] },
+    { count: 21, results: Array.from({ length: 21 }, (_, i) => ({ ...row, shop_id: i + 1 })) },
+    { count: 2, results: [row, { ...row, shop_name: 'Different' }] }];
+  for (const count of [-1, 1.5, '01', '1e3', '9223372036854775808', null, true]) malformed.push({ count, results: [] });
+  for (const shop_id of [0, -1, 1.5, '01', '9223372036854775808', null]) malformed.push({ count: 1, results: [{ ...row, shop_id }] });
+  for (const shop_name of ['', 'Has Space', 'https://etsy.com/shop/MyShop', 'é', 'a'.repeat(65), null]) malformed.push({ count: 1, results: [{ ...row, shop_name }] });
+  for (const raw of [...malformed.map(value => JSON.stringify(value)),
+    '{"count":9007199254740993.0,"results":[]}',
+    '{"count":1,"results":[{"shop_id":9007199254740993.0,"shop_name":"MyShop"}]}', '{"count":']) {
+    let calls = 0;
+    const provider = new EtsyProvider(config, async () => { calls++; return new Response(raw); });
+    await assert.rejects(provider.lookup('myshop', 0, signal()), { code: 'upstream_unavailable' });
+    assert.equal(calls, 1);
+  }
+});
+
+test('Etsy lookup classifies app-only failures and cancels bounded bodies without retries', async () => {
+  for (const status of [400, 401, 403, 302, 500]) {
+    let calls = 0;
+    const provider = new EtsyProvider(config, async () => { calls++; return new Response('secret-provider-error', { status, headers: { Location: 'https://evil.invalid' } }); });
+    await assert.rejects(provider.lookup('myshop', 0, signal()), { code: status === 401 || status === 403 ? 'configuration_unavailable' : 'upstream_unavailable' });
+    assert.equal(calls, 1);
+  }
+  for (const [raw, retryAfterSeconds] of [['0', 1], ['9999999999', 86400], ['bad', 60], ['2', 2]] as const) {
+    let calls = 0;
+    const provider = new EtsyProvider(config, async () => { calls++; return new Response(null, { status: 429, headers: { 'Retry-After': raw } }); });
+    await assert.rejects(provider.lookup('myshop', 0, signal()), { code: 'upstream_rate_limited', retryAfterSeconds });
+    assert.equal(calls, 1);
+  }
+  let calls = 0;
+  for (const invalid of [{ ...config, clientId: '' }, { ...config, sharedSecret: 'bad:secret' }]) {
+    const provider = new EtsyProvider(invalid, async () => { calls++; throw new Error('must not request'); });
+    await assert.rejects(provider.lookup('myshop', 0, signal()), { code: 'configuration_unavailable' });
+  }
+  assert.equal(calls, 0);
+  for (const kind of ['oversize', 'parent', 'deadline']) {
+    let cancelled = false;
+    const entered = Promise.withResolvers<void>(), controller = new AbortController();
+    const provider = new EtsyProvider(config, async () => new Response(new ReadableStream<Uint8Array>({
+      start(stream) { if (kind === 'oversize') stream.enqueue(new Uint8Array(65537)); entered.resolve(); },
+      cancel() { cancelled = true; },
+    })));
+    const started = Date.now(), pending = provider.lookup('myshop', 0, controller.signal);
+    const rejected = assert.rejects(pending, { code: 'upstream_unavailable' });
+    await entered.promise;
+    if (kind === 'parent') controller.abort();
+    // Keep the loop alive while the production AbortSignal deadline (unref'ed) expires.
+    const keepAlive = setTimeout(() => {}, 4000);
+    try { await rejected; } finally { clearTimeout(keepAlive); }
+    assert.equal(cancelled, true);
+    if (kind === 'deadline') assert.ok(Date.now() - started >= 1200 && Date.now() - started < 3500);
+  }
+});
+
+test('Etsy lookup owned HTTP journey enforces current Owner, strict input, cooldown and unchanged selected-ID consent',
+  { skip: !process.env.ETSY_TEST_FIXTURE_DIRECTORY, timeout: 120000 }, async t => {
+  const fixture = await etsyFixture(t, config), { api, admin, state, calls } = fixture;
+  const path = '/shops/lookup?shopName=MyShop', shopId = '9007199254740993';
+  const lookupBody = `{"count":1,"results":[{"shop_id":${shopId},"shop_name":"MyShop","url":"https://evil.invalid","email":"private@example.invalid"}]}`;
+  const lookupHandler = state.handler = (request, response) => {
+    if (!request.url?.startsWith('/v3/application/shops?')) return false;
+    assert.equal(request.method, 'GET'); assert.equal(request.headers.authorization, undefined);
+    response.end(lookupBody); return true;
+  };
+  const lifecycleTables = ['etsy_connections', 'etsy_connection_invitations', 'etsy_authorization_attempts', 'etsy_credentials',
+    'etsy_refresh_attempts', 'etsy_operation_receipts', 'audit_events'];
+  async function snapshot() {
+    const rows = [];
+    for (const table of lifecycleTables) rows.push((await admin.query(`SELECT to_jsonb(t) AS row FROM app_private.${table} t ORDER BY to_jsonb(t)::text`)).rows);
+    return rows;
+  }
+  const before = await snapshot();
+  let selectedId: unknown;
+  await t.test('one app-key page, normalized input and a safe unverified projection', async () => {
+    const result = await api('/shops/lookup?shopName=%09+MyShop%0D%0A');
+    assert.equal(result.status, 200); assert.equal(result.headers.get('cache-control'), 'private, no-store');
+    assert.deepEqual(result.body.items, [{ shopId, shopName: 'MyShop', shopUrl: 'https://www.etsy.com/shop/MyShop', match: 'exact' }]);
+    assert.equal(result.body.outcome, 'exact'); assert.equal(result.body.query, 'myshop'); assert.equal(result.body.ownershipVerified, false);
+    assert.deepEqual(calls, ['/v3/application/shops?shop_name=myshop&limit=20&offset=0']);
+    const items = result.body.items;
+    assert.ok(Array.isArray(items));
+    const item: unknown = items[0];
+    assert.ok(item && typeof item === 'object' && 'shopId' in item);
+    selectedId = item.shopId;
+    assert.deepEqual(await snapshot(), before);
+  });
+  await t.test('invalid query, URL, duplicate, array, offset and path aliases never reach Etsy', async () => {
+    const count = calls.length;
+    for (const query of ['', 'shopName=', 'shopName=MyShop&shopName=Other', 'shopName=MyShop&%73hopName=Other',
+      'shopName[]=MyShop', 'shopName=MyShop&extra=x', 'shopId=8', 'shopName=https%3A%2F%2Fwww.etsy.com%2Fshop%2FMyShop',
+      'shopName=My%2520Shop', 'shopName=%ZZ', 'shopName=%C2%A0MyShop', `shopName=${'a'.repeat(65)}`,
+      `shopName=${'%20'.repeat(340)}MyShop`, ...['00', '-1', '1', '100', '20.0', '020', '20&offset=20'].map(offset => `shopName=MyShop&offset=${offset}`)]) {
+      const result = await api('/shops/lookup?' + query);
+      assert.equal(result.status, 400, query); assert.equal(result.body.code, 'invalid_request');
+    }
+    for (const route of ['/shops/lookup/?shopName=MyShop', '/shops/LOOKUP?shopName=MyShop']) assert.equal((await api(route)).status, 400);
+    const bodyResult = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const request = httpRequest(fixture.origin + '/v1/app/integrations/etsy' + path, { method: 'GET',
+        headers: { Authorization: `Bearer ${fixture.technical}`, 'X-App-Access-Token': fixture.tokens.owner,
+          'Content-Type': 'application/json', 'Content-Length': '2' } }, response => {
+        let body = ''; response.setEncoding('utf8'); response.on('data', chunk => { body += chunk; });
+        response.on('end', () => resolve({ status: response.statusCode!, body }));
+      });
+      request.on('error', reject); request.end('{}');
+    });
+    assert.equal(bodyResult.status, 400); assert.equal(JSON.parse(bodyResult.body).code, 'invalid_request');
+    assert.equal(calls.length, count);
+  });
+  await t.test('technical/user authentication and current capability deny before provider work', async () => {
+    const count = calls.length;
+    for (const actor of ['member', 'foreign'] as const) {
+      const result = await api(path, actor); assert.equal(result.status, 403); assert.equal(result.body.code, 'forbidden');
+    }
+    for (const headers of [{}, { Authorization: `Bearer ${fixture.technical}` }]) {
+      const response = await fetch(fixture.origin + '/v1/app/integrations/etsy' + path, { headers });
+      assert.equal(response.status, 401); await response.arrayBuffer();
+    }
+    await admin.query("UPDATE app_private.memberships SET role_code='owner',revision=revision+1 WHERE user_id=$1", [fixture.member]);
+    await admin.query("UPDATE app_private.memberships SET status='disabled',disabled_at=clock_timestamp(),revision=revision+1 WHERE user_id=$1", [fixture.owner]);
+    try { assert.equal((await api(path)).status, 403); }
+    finally { await admin.query("UPDATE app_private.memberships SET status='active',disabled_at=NULL,revision=revision+1 WHERE user_id=$1", [fixture.owner]); }
+    assert.equal(calls.length, count);
+  });
+  await t.test('database admission failure is internal503 without a provider request', async () => {
+    const count = calls.length;
+    await admin.query('BEGIN');
+    await admin.query('SELECT id FROM app_private.workspaces WHERE id=$1 FOR UPDATE', [fixture.workspace]);
+    try {
+      const result = await api(path); assert.equal(result.status, 503); assert.equal(result.body.code, 'dependency_unavailable');
+    } finally { await admin.query('ROLLBACK'); }
+    assert.equal(calls.length, count);
+  });
+  await t.test('demotion and session revocation during provider I/O discard data without holding DB locks', async () => {
+    for (const change of ['demotion', 'session']) {
+      const entered = Promise.withResolvers<void>(), release = Promise.withResolvers<void>();
+      state.handler = async (_request, response) => { entered.resolve(); await release.promise; response.end(lookupBody); return true; };
+      const pending = api(path);
+      await entered.promise;
+      try {
+        await admin.query("SET lock_timeout='300ms'");
+        if (change === 'demotion') await admin.query("UPDATE app_private.memberships SET role_code='member',revision=revision+1 WHERE user_id=$1", [fixture.owner]);
+        else await admin.query('DELETE FROM auth.sessions WHERE id=$1', [fixture.sessions.owner]);
+        release.resolve();
+        const result = await pending;
+        assert.equal(result.status, change === 'demotion' ? 403 : 401);
+        assert.equal(result.body.code, change === 'demotion' ? 'forbidden' : 'unauthenticated');
+        assert.equal('items' in result.body, false);
+      } finally {
+        release.resolve(); await pending;
+        if (change === 'demotion') await admin.query("UPDATE app_private.memberships SET role_code='owner',revision=revision+1 WHERE user_id=$1", [fixture.owner]);
+        else await admin.query('INSERT INTO auth.sessions(id,user_id) VALUES($1,$2)', [fixture.sessions.owner, fixture.owner]);
+        await admin.query("SET lock_timeout='0'");
+        state.handler = lookupHandler;
+      }
+    }
+  });
+  await t.test('HTTP app-key failure is sanitized and429 persists only the existing shared cooldown', async () => {
+    for (const status of [401, 429]) {
+      const count = calls.length;
+      state.handler = (_request, response) => { response.statusCode = status; response.setHeader('Retry-After', 'bad'); response.end('private-provider-error'); return true; };
+      const result = await api(path);
+      assert.equal(result.status, status === 401 ? 503 : 429);
+      assert.equal(result.body.code, status === 401 ? 'configuration_unavailable' : 'upstream_rate_limited');
+      assert.equal(JSON.stringify(result.body).includes('private-provider-error'), false);
+      assert.equal(calls.length, count + 1);
+      if (status === 429) {
+        assert.equal(result.headers.get('retry-after'), '60'); assert.equal(result.body.retryAfterSeconds, 60);
+        const held = await api(path, 'owner', undefined, fixture.secondOrigin);
+        assert.equal(held.status, 429); assert.equal(held.body.code, 'upstream_rate_limited');
+        assert.ok(Number(held.headers.get('retry-after')) >= 1 && Number(held.headers.get('retry-after')) <= 60);
+        assert.equal(calls.length, count + 1);
+        await admin.query('DELETE FROM app_private.etsy_cooldowns WHERE app_ref=$1', [config.clientId]);
+      }
+    }
+    state.handler = lookupHandler;
+    assert.deepEqual(await snapshot(), before);
+  });
+  await t.test('actual TLS stalled bodies and client cancellation close provider work', async () => {
+    for (const mode of ['deadline', 'client']) {
+      const entered = Promise.withResolvers<void>(), closed = Promise.withResolvers<void>();
+      state.handler = (_request, response) => {
+        response.once('close', () => closed.resolve()); response.write('{"count":1,"results":['); entered.resolve(); return true;
+      };
+      const controller = new AbortController(), started = Date.now();
+      const pending = fetch(fixture.origin + '/v1/app/integrations/etsy' + path, {
+        headers: { Authorization: `Bearer ${fixture.technical}`, 'X-App-Access-Token': fixture.tokens.owner }, signal: controller.signal });
+      await entered.promise;
+      if (mode === 'client') { controller.abort(); await assert.rejects(pending, { name: 'AbortError' }); }
+      else {
+        const response = await pending; assert.equal(response.status, 503);
+        const failure: unknown = await response.json();
+        assert.ok(failure && typeof failure === 'object' && 'code' in failure);
+        assert.equal(failure.code, 'upstream_unavailable');
+        assert.ok(Date.now() - started >= 1200 && Date.now() - started < 3500);
+      }
+      await closed.promise;
+    }
+    state.handler = lookupHandler;
+    assert.equal((await api(path)).status, 200);
+  });
+  await t.test('selected lossless ID retains revision/idempotency and callback ownership enforcement', async () => {
+    assert.equal(selectedId, shopId);
+    assert.equal(state.tokenCalls, 0); assert.equal(state.refreshCalls, 0);
+    assert.deepEqual(await snapshot(), before);
+    const intent = { expectedShopId: selectedId, expectedRevision: 0, idempotencyKey: randomUUID() };
+    const created = await api('/invitations', 'owner', intent);
+    assert.equal(created.status, 200);
+    const replay = await api('/invitations', 'owner', intent);
+    assert.equal(replay.status, 200); assert.equal(replay.body.invitationId, created.body.invitationId); assert.equal('shareUrl' in replay.body, false);
+    assert.equal((await api('/invitations', 'owner', { ...intent, expectedShopId: '8' })).status, 409);
+    assert.equal((await api('/invitations', 'owner', { ...intent, idempotencyKey: randomUUID() })).status, 409);
+    assert.ok(typeof created.body.shareUrl === 'string');
+    const started = await fixture.start(new URL(created.body.shareUrl).hash.slice(1));
+    assert.equal(started.status, 303);
+    const consent = new URL(started.headers.get('location')!);
+    await started.arrayBuffer();
+    state.handler = (request, response) => {
+      if (request.url === '/v3/application/users/me') { response.end(`{"user_id":7,"shop_id":${shopId}}`); return true; }
+      if (request.url === `/v3/application/shops/${shopId}`) { response.end(`{"user_id":7,"shop_id":${shopId},"shop_name":"MyShop","currency_code":"USD"}`); return true; }
+      return lookupHandler(request, response);
+    };
+    const callback = await fixture.callback(consent.searchParams.get('state')!);
+    assert.equal(callback.status, 303); await callback.arrayBuffer();
+    const connection = await api('');
+    assert.equal(connection.body.state, 'active'); assert.equal(connection.body.shopId, shopId);
+    const connected = await snapshot();
+    const observed = await api(path);
+    assert.equal(observed.status, 200); assert.equal(observed.body.ownershipVerified, false);
+    assert.deepEqual(await snapshot(), connected);
+    assert.equal(state.tokenCalls, 1); assert.equal(state.refreshCalls, 0);
+  });
+});
+
+test('Etsy lookup canonical int64 string bounds reject overflow without numeric coercion', async () => {
+  interface LookupContract {
+    components: { schemas: Record<string, { properties: Record<string, { type: string; pattern: string }> }> };
+  }
+  const contract: LookupContract = JSON.parse(await readFile(new URL('../../../../specs/001-connectivity-foundation/contracts/openapi.json', import.meta.url), 'utf8'));
+  const maximum = 9223372036854775807n;
+  const decimals = new Set(['0', '1', '9007199254740993', '8999999999999999999', '9223372036854775806',
+    '9223372036854775807', '9223372036854775808', '9999999999999999999', '10000000000000000000']);
+  // Exercise each decimal-prefix boundary independently of the schema's regexp.
+  for (let place = 1n; place <= 10n ** 19n; place *= 10n) {
+    const floor = maximum / place * place;
+    for (const boundary of [place, floor, floor + place]) {
+      for (const delta of [-1n, 0n, 1n]) decimals.add(String(boundary + delta));
+    }
+  }
+  for (const [component, property, minimum] of [
+    ['EtsyShopLookupItem', 'shopId', 1n], ['EtsyShopLookupPage', 'providerCount', 0n],
+  ] as const) {
+    const schema = contract.components.schemas[component]!.properties[property]!;
+    const pattern = new RegExp(schema.pattern);
+    const accepts = (value: unknown) => schema.type === 'string' && typeof value === 'string' && pattern.test(value);
+    for (const value of decimals) {
+      const integer = BigInt(value);
+      assert.equal(accepts(value), integer >= minimum && integer <= maximum, `${property}: ${value}`);
+    }
+    for (const value of ['', '00', '01', '09223372036854775807', '-1', '-0', '+1', '1.0', '1e3',
+      '9.223372036854776e18', ' 1', '1 ', '1\n', '9223372036854775807\n', '1\r\n', '1\u2028', '١',
+      0, 1, Number.MAX_SAFE_INTEGER + 1, null, false, {}, []]) {
+      assert.equal(accepts(value), false, `${property}: ${JSON.stringify(value)}`);
+    }
+  }
 });
