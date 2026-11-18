@@ -1,0 +1,27 @@
+{
+  "status": "READY_FOR_FIX_ONLY_INSPECTION",
+  "finding": "P2 desktop screenshot evidence mismatch",
+  "originalManifestSha256": "ed877809e30bae73cdbca1740d25eb7204a8c4c70f103c2fb245acf19d443626",
+  "sourceFilesUnchanged": 15,
+  "changes": [
+    {
+      "path": "specs/011-etsy-connection-ui/plan.md",
+      "sha256": "c425f7fef719d896da9bd9f5b293bcc9c98f7526969ed03ab4a5446564868a17"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/local-1440-corrected.png",
+      "sha256": "384bf2605024cd11b414d6401b7f50a01f25c007038a7e02d0267c98d2ba010a"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/local-1440-viewport-corrected.png",
+      "sha256": "e20c3d0ffb6e77e3b4b53804123e17a4e1bf0301544e16d3311ad3b33215c894"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/desktop-correction.json",
+      "sha256": "1a9943f0ac1bfc8aca94b7e566db8df6087b513543c2bbc90ec0b3921899c9f5"
+    }
+  ],
+  "originalEvidencePreserved": true,
+  "sourceTestsBuildRerun": false,
+  "correctionCheck": "Dedicated Playwright1440x1000/DPR1; sidebar280/mainLeft280/mainWidth1160/document1440; only synthetic context/me requests"
+}

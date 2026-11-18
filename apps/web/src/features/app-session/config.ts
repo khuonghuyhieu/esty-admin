@@ -77,7 +77,7 @@ export function readSessionConfig(env: Readonly<Record<string, string | undefine
   };
 }
 
-export const returnPaths = ["/application", "/settings", "/settings/team"] as const;
+export const returnPaths = ["/application", "/settings", "/settings/team", "/connections/etsy"] as const;
 export type ReturnPath = typeof returnPaths[number];
 export function safeReturnPath(value: unknown): ReturnPath {
   return returnPaths.includes(value as ReturnPath) ? value as ReturnPath : "/application";

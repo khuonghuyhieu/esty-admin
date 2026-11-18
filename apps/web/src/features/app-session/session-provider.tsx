@@ -39,7 +39,7 @@ export function SessionMessage() {
   else if (view.phase === "changed") message = "Your session changed in another tab. Check your session to continue.";
   else if (view.phase === "signout-unconfirmed") message = "Sign-out was not confirmed. Private content is hidden. Try signing out again.";
   else if (view.error === "invalid_credentials") message = "Email or password is incorrect.";
-  else if (view.error === "rate_limited") message = "Too many attempts. Wait before trying again.";
+  else if (view.error === "rate_limited" || view.error === "upstream_rate_limited") message = "Too many attempts. Wait before trying again.";
   else if (view.error === "invalid_request") message = "Browser session data is invalid. Clear this site's cookies and sign in again.";
   else if (view.error === "csrf_denied" || view.error === "session_changed") message = "Session verification failed. Reload this page before trying again.";
   else if (view.phase === "unavailable") message = "The session service is temporarily unavailable. Your access has not been confirmed. Try again.";
@@ -67,7 +67,7 @@ function SessionGate({ returnTo }: { returnTo: ReturnPath }) {
 export function SessionProvider({ children, initial, mode = "protected", returnTo = "/application" }: { children: ReactNode; initial: InitialSession; mode?: "protected" | "login"; returnTo?: ReturnPath }) {
   const router = useRouter();
   const pathname = usePathname();
-  const destination = mode === "protected" ? (pathname === "/settings" || pathname === "/settings/team" ? pathname : "/application") : returnTo;
+  const destination = mode === "protected" ? (pathname === "/settings" || pathname === "/settings/team" || pathname === "/connections/etsy" ? pathname : "/application") : returnTo;
   const [view, setView] = useState<SessionView>(checking);
   const controller = useRef<SessionController | null>(null);
   const [navigationPending, startNavigation] = useTransition();
@@ -105,7 +105,7 @@ export function SessionProvider({ children, initial, mode = "protected", returnT
       const path = window.location.pathname;
       if (currentPath.current === path) return;
       currentPath.current = path;
-      if (mode === "protected" && (path === "/application" || path === "/settings" || path === "/settings/team")) {
+      if (mode === "protected" && (path === "/application" || path === "/settings" || path === "/settings/team" || path === "/connections/etsy")) {
         setNavigationId(id => id + 1);
         const admission = current.prepareRoute(path);
         setRoutePreparation({ path, result: admission });

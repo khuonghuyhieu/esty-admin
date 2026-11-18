@@ -49,6 +49,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/app/integrations/etsy/shops/lookup": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** @description Current active Owner only; rechecks current session/membership before returning. Exactly one explicit app-key-only findShops page, no OAuth, redirects, retries, automatic pagination or lifecycle writes. Raw query is at most1024 bytes, decoded once; duplicate/unknown keys, query arrays, body and noncanonical path/method are rejected. Caller supplies a shop name, never a URL or shop ID. Provider deadline1500ms includes the at-most64KiB body; whole application operation8s includes Auth/DB with parent cancellation and existing shorter DB budgets. Private, no-store. A lookup never proves ownership or creates a connection. */
+        get: operations["lookupEtsyShops"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/app/integrations/etsy/invitations": {
         parameters: {
             query?: never;
@@ -123,7 +140,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** @description Exact configured Host and same Origin only. Scoped invitation proof; no app membership. Maximum8KiB JSON. Recipient confirmation page is separately FE-owned. */
+        /** @description Exact configured API/callback Host and invitation Origin only. Technical bearer is checked before the bounded body or invitation proof; no app membership required. Maximum8KiB JSON. Recipient confirmation and same-origin BFF are separately FE-owned. */
         post: operations["startEtsyConsent"];
         delete?: never;
         options?: never;
@@ -317,6 +334,48 @@ export interface components {
             status: "degraded";
             /** @enum {string} */
             reason: "database_unavailable" | "database_timeout" | "migrations_pending";
+        };
+        EtsyShopLookupResponse: {
+            query: string;
+            /** @enum {string} */
+            outcome: "exact" | "choose" | "not_found" | "incomplete";
+            items: components["schemas"]["EtsyShopLookupItem"][];
+            page: components["schemas"]["EtsyShopLookupPage"];
+            /** @constant */
+            ownershipVerified: false;
+            /** Format: date-time */
+            observedAt: string;
+        };
+        EtsyShopLookupItem: {
+            /** @description Lossless positive decimal int64, at most9223372036854775807; never a JavaScript number. */
+            shopId: string;
+            shopName: string;
+            /**
+             * Format: uri
+             * @description Locally derived from validated shopName; never an upstream URL.
+             */
+            shopUrl: string;
+            /** @enum {string} */
+            match: "exact" | "candidate";
+        };
+        EtsyShopLookupPage: {
+            /** @enum {integer} */
+            offset: 0 | 20 | 40 | 60 | 80;
+            /** @constant */
+            limit: 20;
+            /** @description Lossless nonnegative decimal int64, at most9223372036854775807. */
+            providerCount: string;
+            /** @description True only when offset0 covers the entire declared result set after strict validation; identical duplicates may collapse, conflicting same-ID names fail. */
+            complete: boolean;
+            /** @description Compare providerCount against offset plus original result-window length before deduplication. */
+            hasMore: boolean;
+            /**
+             * @description offset+20 only when hasMore and below100, otherwise null.
+             * @enum {integer|null}
+             */
+            nextOffset: 20 | 40 | 60 | 80 | null;
+            /** @description More provider results exist but another fixed page would reach/exceed the100-candidate cap. */
+            truncated: boolean;
         };
         EtsyConnection: {
             /** Format: uuid */
@@ -675,6 +734,54 @@ export interface operations {
             default: components["responses"]["AppBadRequest"];
         };
     };
+    lookupEtsyShops: {
+        parameters: {
+            query: {
+                /** @description Trim surrounding ASCII whitespace, then require1–64 ASCII alphanumeric characters and normalize lowercase. Raw Etsy URLs are invalid; FE owns any local URL-to-name parsing. */
+                shopName: string;
+                /** @description Canonical decimal only; one caller-selected page, never automatic pagination. */
+                offset?: 0 | 20 | 40 | 60 | 80;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Bounded unverified candidate page; exact is safe only for a complete first page with one distinct exact-name candidate. Partial/later pages never establish absence or automatic selection. */
+            200: {
+                headers: {
+                    "Cache-Control"?: "private, no-store";
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EtsyShopLookupResponse"];
+                };
+            };
+            400: components["responses"]["AppBadRequest"];
+            401: components["responses"]["AppUnauthorized"];
+            403: components["responses"]["AppForbidden"];
+            /** @description upstream_rate_limited; existing per-app cooldown only. Bounded Retry-After and retryAfterSeconds1–86400, default60 for unusable upstream values; no retry. */
+            429: {
+                headers: {
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppError"];
+                };
+            };
+            /** @description configuration_unavailable for missing/invalid app configuration or definitive app-key rejection; dependency_unavailable for internal Auth/DB; upstream_unavailable for provider transport/timeout/redirect/size/schema failures. No upstream bodies, headers or credentials are exposed. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AppError"];
+                };
+            };
+        };
+    };
     getEtsyInvitations: {
         parameters: {
             query?: {
@@ -836,6 +943,15 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content?: never;
+            };
+            /** @description Existing technical bearer refusal */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Unauthorized"];
+                };
             };
             /** @description Generic dependency failure */
             503: {

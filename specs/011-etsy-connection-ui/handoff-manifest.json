@@ -1,0 +1,130 @@
+{
+  "status": "SCOPED_REVIEW_ACCEPTED_SOURCE_RETURNED_TO_T12P_STOP_WRITES",
+  "base": "08e68fb91e0cfb74776494eb84709e8eb9b2244b",
+  "branch": "feat/etsy-connection-ui",
+  "sourceFilesUnchangedSinceReview": 15,
+  "review": {
+    "reviewer": "t18d",
+    "model": "company Codex gpt-6-luna medium, assigned by root and verified launch argv",
+    "originalFindings": "One P2 desktop screenshot evidence mismatch; no actionable source correctness/security/session regression reported",
+    "fix": "Evidence-only recapture; same reviewer fix-only inspection accepted",
+    "unresolvedConfirmedFindings": 0,
+    "noSourceTestBuildRerunForEvidenceFix": true
+  },
+  "files": [
+    {
+      "path": "apps/web/playwright.config.ts",
+      "sha256": "d6a4d88629d32a1c1491e918fd7de08238f97b422e3c29917e045248171880e3"
+    },
+    {
+      "path": "apps/web/src/app/(protected)/connections/etsy/page.tsx",
+      "sha256": "17a1f5c8a1475aab7c5492e16fb35ca61bcef501e3ed531791ab5ddaf3e696e6"
+    },
+    {
+      "path": "apps/web/src/features/app-session/config.ts",
+      "sha256": "ad617715dd4bac7d7348b2cccbd00ed9e9fb7184d4f056a79f0a9bfec0c11814"
+    },
+    {
+      "path": "apps/web/src/features/app-session/server.ts",
+      "sha256": "d12b942727d29d4c0357c7d7bf2a3452849a0c7b3b15925b8b214bf4e3993f2a"
+    },
+    {
+      "path": "apps/web/src/features/app-session/session-provider.tsx",
+      "sha256": "57c30e1f9f0a88965c9a9b9a8cfdc8a46487b6c85e73956eb8f56525b970e2dd"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/application-shell.tsx",
+      "sha256": "f37606c4130531ba533abe523b8d11a30a39230c95765000c4925ae89c83b575"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/etsy-connection-screen.tsx",
+      "sha256": "7a292eb7e5904401ffa17b6eed49e98e93325baf6268460014a2e44cbfbc2186"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/etsy-connection.module.css",
+      "sha256": "8f7d36748314d68647c547876318113250de76c8ec4a6d110749cc1cea1572e6"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/preview-state.ts",
+      "sha256": "76c6c89df40fab547c2bc055a3bfd34b7bd85af3b675bd858807f891c08b8c16"
+    },
+    {
+      "path": "apps/web/src/proxy.ts",
+      "sha256": "3a494eb87e4298978f0c9a41f6f55eff1c027717744b034f2d6b22c550e762ff"
+    },
+    {
+      "path": "apps/web/tests/e2e/application.spec.ts",
+      "sha256": "b09700a3865ff7b2f7c4a758439506735dfd0586c9761ec75fcbeaccc838fe4e"
+    },
+    {
+      "path": "apps/web/tests/e2e/etsy-preview-fixture.ts",
+      "sha256": "1d3614556aa0553180622fe2230170db18ce40aa0f5876fa5751a07acce4f49e"
+    },
+    {
+      "path": "apps/web/tests/e2e/etsy-preview.spec.ts",
+      "sha256": "e4a511e0e40714f7e41588f66d132233dbdfb1cf3475d195da8908079ea73ec7"
+    },
+    {
+      "path": "apps/web/tests/functional/app-session.test.ts",
+      "sha256": "5c9547603d8e1e01043c02191212126c1c5b7d298ce1a1ce27ced2818e8b7f4c"
+    },
+    {
+      "path": "apps/web/tests/functional/etsy-preview.test.ts",
+      "sha256": "cf658dd474d20c281d6ab92936934eac318fbc09127e923a9488bbbc920da557"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/plan.md",
+      "sha256": "75bdb039bb0eee1b47920be4375404d06d0977d2f8a419fa56650ecd4ebf66cc"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/review-manifest-p2-fix.json",
+      "sha256": "89893a4f21fee654af92559a2a275a8de1de9d40a44b12cd89752a98dacefb91"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/review-manifest.json",
+      "sha256": "ed877809e30bae73cdbca1740d25eb7204a8c4c70f103c2fb245acf19d443626"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/spec.md",
+      "sha256": "bd44bf3e35593c366ed7ee27a00a2b884604b13b19365685c7b959492f739d04"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/tasks.md",
+      "sha256": "c73b8325222f774cfe74bbfff6512548e65650b95b5099f23320bc509cd00ece"
+    }
+  ],
+  "acceptedDesktopEvidence": [
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/local-1440-corrected.png",
+      "sha256": "384bf2605024cd11b414d6401b7f50a01f25c007038a7e02d0267c98d2ba010a"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/local-1440-viewport-corrected.png",
+      "sha256": "e20c3d0ffb6e77e3b4b53804123e17a4e1bf0301544e16d3311ad3b33215c894"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/desktop-correction.json",
+      "sha256": "1a9943f0ac1bfc8aca94b7e566db8df6087b513543c2bbc90ec0b3921899c9f5"
+    }
+  ],
+  "checks": {
+    "functional": "48/48 pass",
+    "lint": "exit0",
+    "productionBuild": "exit0",
+    "typecheck": "exit0",
+    "playwright": "15/15 pass",
+    "provenance": "97 public inputs match; protected inputs unchanged; no symlinks"
+  },
+  "localPreview": {
+    "url": "http://127.0.0.1:55644/connections/etsy",
+    "serverRunning": false,
+    "commandLocation": "specs/011-etsy-connection-ui/plan.md#reproduce--inspect-locally",
+    "admission": "test-only synthetic transport; no shipped Auth bypass"
+  },
+  "protectedInputsUnchanged": true,
+  "limitations": [
+    "Owner visual acceptance separate",
+    "BE/Etsy recipient consent, fragments, callback and exact BFF integration later",
+    "No Git publication/deploy/live account/provider/DB action"
+  ]
+}

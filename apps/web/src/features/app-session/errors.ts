@@ -7,12 +7,14 @@ export class SessionFailure extends Error {
   readonly status: number;
   readonly code: SessionErrorCode;
   readonly requestId?: string;
-  constructor(status: number, code: SessionErrorCode, requestId?: string) {
+  readonly retryAfterSeconds?: number;
+  constructor(status: number, code: SessionErrorCode, requestId?: string, retryAfterSeconds?: number) {
     super(code);
     this.name = "SessionFailure";
     this.status = status;
     this.code = code;
     this.requestId = requestId;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 

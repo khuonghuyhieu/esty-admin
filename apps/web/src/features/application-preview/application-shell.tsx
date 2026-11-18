@@ -8,7 +8,7 @@ import { useAppSession } from "../app-session/session-provider";
 import { Icon } from "./icon";
 import styles from "./application-preview.module.css";
 
-type Section = "dashboard" | "team" | "settings";
+type Section = "dashboard" | "team" | "settings" | "etsy";
 const BoardSearchContext = createContext<{ query: string; onQueryChange: (query: string) => void } | null>(null);
 
 export function useBoardSearch() {
@@ -23,6 +23,7 @@ function Sidebar({ section, onNavigate }: { section: Section; onNavigate?: () =>
     <a className={styles.brand} href="#main-content" onClick={onNavigate}><span className={styles.brandMark}><Icon name="pen" /></span>SketchPad</a>
     <nav className={styles.navigation} aria-label="Application">
       <Link className={section === "dashboard" ? styles.selected : undefined} href={section === "dashboard" ? "#main-content" : "/application"} prefetch={false} aria-current={section === "dashboard" ? "page" : undefined} onNavigate={section === "dashboard" ? undefined : event => { event.preventDefault(); navigate("/application"); }} onClick={onNavigate}><Icon name="dashboard" />Dashboard</Link>
+      <Link className={section === "etsy" ? styles.selected : undefined} href="/connections/etsy" prefetch={false} aria-current={section === "etsy" ? "page" : undefined} onNavigate={section === "etsy" ? undefined : event => { event.preventDefault(); navigate("/connections/etsy"); }} onClick={onNavigate}><Icon name="layers" />Etsy connections</Link>
       <Link className={section === "team" ? styles.selected : undefined} href="/settings/team" prefetch={false} aria-current={section === "team" ? "page" : undefined} onNavigate={section === "team" ? undefined : event => { event.preventDefault(); navigate("/settings/team"); }} onClick={onNavigate}><Icon name="team" />Team <span className={styles.badge}>3</span></Link>
       <Link className={section === "settings" ? styles.selected : undefined} href="/settings" prefetch={false} aria-current={section === "settings" ? "page" : undefined} onNavigate={section === "settings" ? undefined : event => { event.preventDefault(); navigate("/settings"); }} onClick={onNavigate}><Icon name="settings" />Settings</Link>
     </nav>
@@ -41,7 +42,7 @@ function NavigationProgress({ pending, revalidating }: { pending: boolean; reval
 
 export function ApplicationShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
-  const section: Section = pathname === "/settings/team" ? "team" : pathname === "/settings" ? "settings" : "dashboard";
+  const section: Section = pathname === "/connections/etsy" ? "etsy" : pathname === "/settings/team" ? "team" : pathname === "/settings" ? "settings" : "dashboard";
   const { view, navigationPending, navigationId } = useAppSession();
   const [query, setQuery] = useState("");
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -87,7 +88,7 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
       <header className={styles.header}>
         <div className={styles.heading}>
           <button ref={trigger} className={styles.drawerTrigger} aria-label="Open sidebar" aria-haspopup="dialog" aria-expanded={drawerOpen} onClick={() => { drawer.current?.showModal(); setDrawerOpen(true); }}><Icon name="menu" /></button>
-          {view.phase === "ready" && <h1>{section === "dashboard" ? "Project dashboard" : section === "team" ? "Team" : "Settings"}</h1>}
+          {view.phase === "ready" && <h1>{section === "dashboard" ? "Project dashboard" : section === "team" ? "Team" : section === "etsy" ? "Etsy connections" : "Settings"}</h1>}
         </div>
         <div className={styles.headerControls}>
           <button className={styles.workspace} type="button" onClick={event => event.preventDefault()}><Icon name="pen" size={16} /><span>{view.me?.workspace.displayName}</span><Icon name="chevron" size={14} /></button>
@@ -96,7 +97,7 @@ export function ApplicationShell({ children }: { children: ReactNode }) {
           <ProfileMenu />
         </div>
       </header>
-      <p className={styles.sampleNotice}>{section === "dashboard" ? "Sample project content; boards and activity are not connected." : section === "team" ? "Sample team content — not the live workspace member list." : "Sample settings — changes are not saved."}</p>
+      <p className={styles.sampleNotice}>{section === "dashboard" ? "Sample project content; boards and activity are not connected." : section === "team" ? "Sample team content — not the live workspace member list." : section === "etsy" ? "Etsy access is checked for every operation. Saved status does not prove current shop access." : "Sample settings — changes are not saved."}</p>
       <NavigationProgress key={navigationId} pending={navigationPending || !!view.revalidating} revalidating={!navigationPending && !!view.revalidating} />
       <div className={styles.routeBody} inert={navigationPending || view.revalidating} data-route-pending={navigationPending} data-session-revalidating={!!view.revalidating}>
         <BoardSearchContext value={{ query, onQueryChange: setQuery }}>{children}</BoardSearchContext>

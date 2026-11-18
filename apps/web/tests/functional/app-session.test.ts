@@ -7,6 +7,7 @@ import { requireCsrf, requireGeneration } from "../../src/features/app-session/c
 import { SessionFailure } from "../../src/features/app-session/errors.ts";
 import { handleSessionRequest, type SessionOperation } from "../../src/features/app-session/handlers.ts";
 import { currentAppMe } from "../../src/features/app-session/app-client.ts";
+import { isAppError, isAppMe } from "../../src/features/app-session/model.ts";
 import { boundedJson, type Fetcher } from "../../src/features/app-session/transport.ts";
 import type { AuthContext } from "../../src/features/app-session/cookies.ts";
 import { SessionController, type SessionView } from "../../src/features/app-session/session-controller.ts";
@@ -176,8 +177,8 @@ test("Origin, Host, Fetch Metadata and constant-time CSRF checks all precede mut
 });
 
 test("return destinations cannot select external, encoded, query or fragment targets", () => {
-  for (const path of ["/application", "/settings", "/settings/team"]) assert.equal(safeReturnPath(path), path);
-  for (const unsafe of ["//evil.example.test", "https://evil.example.test", "/settings?next=evil", "/settings#x", "/%73ettings", "/settings/../login", null]) {
+  for (const path of ["/application", "/settings", "/settings/team", "/connections/etsy"]) assert.equal(safeReturnPath(path), path);
+  for (const unsafe of ["//evil.example.test", "https://evil.example.test", "/settings?next=evil", "/settings#x", "/%73ettings", "/settings/../login", "/connections/etsy?token=sample", "/connections/etsy/callback", "/connections/etsy#sample", null]) {
     assert.equal(safeReturnPath(unsafe), "/application");
   }
 });
@@ -758,7 +759,7 @@ test("display freshness is controller-bound, strictly60 seconds and never slides
   const generation = readAuthCookies(config, client.header()).context!.generation;
   await mounted.controller.admitRoute({ path: "/application", phase: "ready", restore: true, generation });
   client.advance(59999);
-  for (const path of ["/settings", "/settings/team", "/application"] as const) {
+  for (const path of ["/settings", "/settings/team", "/connections/etsy", "/application"] as const) {
     assert.equal(await mounted.controller.prepareRoute(path), true);
     assert.equal(await mounted.controller.admitRoute({ path, phase: "ready", restore: true, generation }), true);
     assert.equal(await mounted.controller.resume(), true);
@@ -931,4 +932,28 @@ test("a held cross-tab lock cannot retain stale-ready display beyond the current
   assert.equal(client.requests.filter(operation => operation === "me").length, 1, "Expired work never acquires the lock or starts a read");
   release.resolve();
   await held;
+});
+
+test("canonical Etsy capabilities admit current Owners without accepting unknown or duplicate grants", async () => {
+  const owner = { ...appMe, membership: { ...appMe.membership, role: "owner" }, capabilities: [...appMe.capabilities, "etsy.connection.read", "etsy.connection.manage"] };
+  assert.equal(isAppMe(owner), true);
+  assert.deepEqual(await currentAppMe(config, "synthetic-access", new AbortController().signal, async () => Response.json(owner)), owner);
+  assert.equal(isAppMe({ ...owner, capabilities: [...owner.capabilities, "etsy.connection.manage"] }), false);
+  assert.equal(isAppMe({ ...owner, capabilities: [...owner.capabilities, "etsy.admin"] }), false);
+  assert.equal(isAppMe({ ...owner, membership: { ...owner.membership, status: "disabled" } }), false);
+});
+
+test("canonical Etsy errors retain bounded retry advice through429 BFF without forwarding provider fields", async () => {
+  for (const code of ["configuration_unavailable", "upstream_unavailable", "upstream_rate_limited", "reconnect_required", "outcome_unknown", "connection_changed", "connection_busy"]) assert.equal(isAppError({ code, requestId: appRequestId }), true);
+  for (const retryAfterSeconds of [1, 86400]) assert.equal(isAppError({ code: "upstream_rate_limited", requestId: appRequestId, retryAfterSeconds }), true);
+  for (const retryAfterSeconds of [0, -1, 86401, 1.5, "2", null, undefined]) assert.equal(isAppError({ code: "upstream_rate_limited", requestId: appRequestId, retryAfterSeconds }), false);
+  assert.equal(isAppError({ code: "provider_secret", requestId: appRequestId }), false);
+  assert.equal(isAppError({ code: "upstream_rate_limited", requestId: appRequestId, token: "must-not-forward" }), false);
+  const context = newContext();
+  const response = await handleSessionRequest("me", authRequest("me", context, { cookie: `${config.names.context}=${sealCookie(config, "context", context)}; ${sealedSession(context)}` }), environment,
+    async () => Response.json({ code: "upstream_rate_limited", requestId: appRequestId, retryAfterSeconds: 30 }, { status: 429 }));
+  assert.equal(response.status, 429);
+  assert.equal(response.headers.get("retry-after"), "30");
+  assert.deepEqual(await response.json(), { code: "upstream_rate_limited", requestId: appRequestId, retryAfterSeconds: 30 });
+  assert.deepEqual(response.headers.getSetCookie(), []);
 });

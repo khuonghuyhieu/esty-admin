@@ -199,7 +199,7 @@ export class SessionController {
     });
     const value: unknown = await response.json();
     if (!response.ok) {
-      if (isAppError(value)) throw new SessionFailure(response.status, value.code, value.requestId);
+      if (isAppError(value, response.status)) throw new SessionFailure(response.status, value.code, value.requestId, value.retryAfterSeconds);
       if (value && typeof value === "object" && "code" in value && boundaryCodes.includes(value.code as SessionErrorCode)) throw new SessionFailure(response.status, value.code as SessionErrorCode);
       throw new SessionFailure(503, "upstream_unavailable");
     }

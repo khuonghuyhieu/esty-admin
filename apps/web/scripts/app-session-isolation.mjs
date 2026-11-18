@@ -72,7 +72,7 @@ export async function stageSessionProject(nonce, restage = false) {
     if (previous.version !== 1 || previous.purpose !== target.purpose || previous.profile !== target.profile || previous.nonce !== nonce || previous.sourceRoot !== root) throw new Error("Mismatched restaging ownership");
     const active = await lstat(join(run, "active-command.json")).catch(error => { if (error.code === "ENOENT") return null; throw error; });
     if (active) throw new Error("An owned command is still active");
-    await requireStoppedWeb(target.webPort);
+    await requireStoppedWeb(process.env.ETSY_INTEGRATION_E2E === "1" ? 55644 : target.webPort);
     const archive = join(run, "attempts", String(Date.now()));
     await mkdir(archive, { recursive: true, mode: 0o700 });
     await rename(project, join(archive, "project"));

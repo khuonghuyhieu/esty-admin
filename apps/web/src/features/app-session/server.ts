@@ -25,7 +25,7 @@ export async function guardApplication(returnTo: ReturnPath): Promise<RouteAdmis
     generation = context?.generation ?? null;
     restore = !!session;
     if (!session) unauthenticated = true;
-    // These three route trees contain only public sample components. This envelope
+    // The registered route trees contain only public sample components. This envelope
     // check is a restoration hint, never current membership or private-data authority.
     // Actual private server reads/actions must authorize at their own data boundary.
     else phase = "ready";
