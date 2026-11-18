@@ -52,10 +52,10 @@ export function createApplicationModule(config: ApiConfig, requiredMigrations = 
 }
 
 export function configureApplication(app: INestApplication, config: ApiConfig): void {
-  if (config.etsy && config.appFoundation) app.use(etsyIngress(config.etsy, app.get(EtsyService)));
-  if (config.runtime === 'vercel' || config.appFoundation || config.schemaMode === 'activation-bridge') {
-    app.use(previewAccess(config.previewAccessKey!, config.browserOrigin));
-  }
+  const access = config.runtime === 'vercel' || config.appFoundation || config.schemaMode === 'activation-bridge'
+    ? previewAccess(config.previewAccessKey!, config.browserOrigin) : undefined;
+  if (config.etsy && config.appFoundation) app.use(etsyIngress(config.etsy, app.get(EtsyService), access!));
+  if (access) app.use(access);
   if (config.etsy && config.appFoundation) app.use(etsyBodyLimit);
   if (config.activationConfigDigest) {
     app.use((request: IncomingMessage, response: ServerResponse, next: () => void) => {

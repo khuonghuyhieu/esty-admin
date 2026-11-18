@@ -1,16 +1,89 @@
 # Proposed Etsy Integration Contracts
 
-**BE source/local contract implemented; FE and hosted gates remain open.** The sole canonical schema is [feature001 OpenAPI](../../001-connectivity-foundation/contracts/openapi.json), with regenerated BE types. Provider operations and schemas are evidenced in [research](../research.md); persistence and CAS rules are in [data-model](../data-model.md). The historical proposal wording below is constrained by the current backend-only delivery boundary.
+## Accepted recipient bridge contract — separate scoped review
+
+**FROZEN BE_RECIPIENT_BRIDGE_SOURCE_LOCAL_REVIEW_ACCEPTED; STOP WRITES.** t151 accepted existing t175's actual final: **no confirmed actionable findings in this frozen bridge scope**. The reviewer ran no checks and did not reassess earlier features. No canonical/runtime/type bytes changed during this five-document closeout; earlier contract/freeze paragraphs below retain their historical capture-time status.
+
+Canonical SHA-256 remains `b5c540638099cd3dda5f9136d9e7294812775cef7675bb21d92a1a3f9d1b6257`; BE generated SHA-256 remains `5293b3c4088a76bfbe350b6ae29bc6ee6eaae1eb58fc5a16d3271d7a905c6ce8`. t151 reports the reviewed canonical handshake delivered to FE/root, not completion of FE generation/review. FE17/18 plus affected1/1 and earlier actual0066/8/role-change503 remain unchanged limitations. Root owns serial integration/release and hosted/provider gates; ownership returns to t151.
+
+**FROZEN READY_FOR_BE_RECIPIENT_BRIDGE_REVIEW; new scoped review and hosted gates remain open.** The sole canonical schema is [feature001 OpenAPI](../../001-connectivity-foundation/contracts/openapi.json), with regenerated BE types. Only the existing start operation's description/security/technical401 changed in this increment; all lookup and other contract objects remain unchanged. Provider/schema evidence is in [research](../research.md), persistence/CAS in [data-model](../data-model.md). Historical proposal wording below is constrained by the current delivery boundary.
+
+## Owner-approved shop-name discovery — source-local contract
+
+**SOURCE/LOCAL AND INDEPENDENT LOOKUP REVIEW ACCEPTED.** Coordinator t151 accepted t175's actual FIX-ONLY final: original lookup P3 resolved, no further confirmed findings in FIX-ONLY. The original lookup review remains one confirmed P3 with no other confirmed actionable findings, distinct from historical Auth/prune/packaging reviews; FIX-ONLY ran no checks or broader review. Canonical shopId/providerCount patterns machine-enforce the exact decimal int64 ceiling9223372036854775807; only providerCount admits zero. Runtime validation and BE generated types stay unchanged. [Accepted closeout](../quickstart.md#accepted-lookup-review--documentation-only-closeout) records current identities; the focused fix and earlier functional evidence remain preserved. Existing one-shop/workspace, create/consent/target verification, scopes, migrations, configuration and reviewed release tooling remain unchanged. Root owns serial integration. Recipient bridge is PROPOSAL ONLY with no source grant; FE compatibility and exact-artifact/secure-binding/hosted/provider gates remain separate.
+
+### Input and authority
+
+Implemented `GET /v1/app/integrations/etsy/shops/lookup`, operationId `lookupEtsyShops`. Require existing technical bearer, current005/006 JWT/session/active Owner admission and `etsy.connection.manage`; no Member/public lookup or new capability. Recheck current Owner authority before returning provider data. The integration remains behind its existing explicit enabled/validated configuration boundary; owner-confirmed local app ping is not hosted configuration acceptance.
+
+Strict query: required `shopName`, optional `offset` default0; reject body, duplicates and all extra parameters. Decode once, trim surrounding ASCII whitespace, require1–64 ASCII letters/digits and lowercase for canonical comparison/query binding. These are application bounds, not claims about provider naming limits. Maximum raw query1024 bytes. `offset` is only0/20/40/60/80; `limit` is fixed20, not caller-controlled. No caller shop/user/workspace/app IDs, URL, provider host, scope or token. A raw URL sent as shopName is invalid400.
+
+FE may locally parse only HTTPS `etsy.com` or `www.etsy.com`, without credentials/custom port, exact `/shop/{one-name-segment}` with optional trailing slash; ignore ordinary query/fragment for name extraction, decode the segment once then apply the same name bounds. Reject encoded path separators, lookalike hosts, other paths and malformed encoding. Bare names use the same normalization. BE receives only the normalized name; neither side fetches a pasted URL, follows a shop redirect or scrapes HTML. Local parsing authorizes no connection.
+
+### Fixed upstream call and response
+
+One explicit lookup/page performs at most one server-side `GET https://api.etsy.com/v3/application/shops?shop_name={encodedName}&limit=20&offset={offset}` (`findShops`). Use only existing app credentials in the composite x-api-key header, no user OAuth token or additional scope. Fixed provider host/path, no redirects,1500ms body-inclusive provider timeout,64KiB body cap and8-second whole operation including existing shorter Auth/DB budgets. No hidden retry, background lookup/polling, cached-success fallback or automatic scan of every page. Reuse existing per-app bounded cooldown/error policy; no new persistence/table or quota value is selected.
+
+Canonical response components are `EtsyShopLookupResponse`, `EtsyShopLookupItem` and `EtsyShopLookupPage`, all strict objects in the existing001 schema, not a second011 schema. BE types are regenerated. Lookup performs no lifecycle/credential/activation writes; an upstream429 may upsert only the existing app cooldown under the existing bounded policy. Provider401/403 maps to configuration_unavailable; generic provider400 remains upstream_unavailable.
+
+```json
+{
+  "query": "examplestudio",
+  "outcome": "exact",
+  "items": [
+    {
+      "shopId": "123456789",
+      "shopName": "ExampleStudio",
+      "shopUrl": "https://www.etsy.com/shop/ExampleStudio",
+      "match": "exact"
+    }
+  ],
+  "page": {
+    "offset": 0,
+    "limit": 20,
+    "providerCount": "1",
+    "complete": true,
+    "hasMore": false,
+    "nextOffset": null,
+    "truncated": false
+  },
+  "ownershipVerified": false,
+  "observedAt": "2026-01-01T00:00:00.000Z"
+}
+```
+
+The JSON is illustrative synthetic data, not a real shop or observation. `shopId` is a lossless positive decimal int64 string; providerCount is a lossless nonnegative int64 string. Validate provider `count/results` and selected identity/name fields; missing/malformed/rounded identifiers or inconsistent same-ID/name rows produce upstream_unavailable, never fabricated defaults. Return at most20 distinct items; identical duplicate records may be collapsed. Validate returned names with the same bounded name grammar and construct shopUrl locally from that name; never forward provider-controlled arbitrary URLs. No owner ID, account/profile/buyer data, raw payload, tokens, app secret or authorization URL is returned.
+
+`match` is exact only for ASCII case-insensitive whole-name equality, otherwise candidate. `ownershipVerified` is always literal false. `observedAt` is the current successful provider observation, not a consent or cached-data timestamp.
+
+### Completeness, ambiguity and selection rules
+
+- `outcome=exact` only when offset0 contains the entire declared result set (`complete=true`) and exactly one distinct candidate has exact-name equality. FE may auto-fill only that ID, visibly showing the resolved name/URL. No consent status changes.
+- `outcome=choose` when items are present but automatic exact selection is not justified (partial search, multiple exact-name IDs or only candidate matches). Owner explicitly selects a displayed candidate or refines the name. Never take the first/fuzzy item silently.
+- `outcome=not_found` only for offset0/count0/empty items/complete=true. An empty later page, partial result or malformed/upstream failure is not evidence that the shop does not exist.
+- `outcome=incomplete` for a valid but empty/inconsistent paging window that cannot establish absence; explicit restart/refinement is required. No phantom choice or connection may be manufactured.
+- `complete` means the single initial response covered the full declared search result set: offset0 and all declared results were validated. Later pages never claim global completeness from their own window alone. Count/results are an observation, not a snapshot token across requests.
+- `hasMore` describes providerCount versus this response's original result window. `nextOffset` is the next20-step offset only if more provider results exist and it remains below100; otherwise null. `truncated=true` when more provider results exist at the100-record window cap. An explicit choice from a displayed partial page is permitted, but it is still unverified; no global exact-match/absence claim. UI must show partial/truncated state and permit a narrower name instead of unbounded pagination. Pagination is only on explicit user action; no polling.
+
+A selected ID flows into the UNCHANGED invitation creation input `expectedShopId`, together with current `expectedRevision` and an explicit idempotencyKey. Lookup returns no signed ownership claim or connection authority. Creation still validates Owner/workspace/current revision; callback/getMe/getShop still require the exact expected shop and actual consenting owner. Reconnect remains bound to the existing same account/shop; lookup cannot transfer, add a second connection or silently replace that binding.
+
+### Error contract, tests and dependencies
+
+Reuse current `AppError` `{code,requestId}` and optional bounded retryAfterSeconds; no new error enum is needed.400 invalid_request for query/page/URL input; existing technical401 envelope and session401 remain distinct;403 forbidden for non-Owner;503 configuration_unavailable for missing/invalid app configuration or definitive app-key rejection;503 dependency_unavailable for internal Auth/DB dependency failure;503 upstream_unavailable for provider/timeout/body/schema failure;429 upstream_rate_limited plus bounded retryAfterSeconds/Retry-After (1–86400, existing default60). Suppress raw upstream bodies/errors and credentials. Successful no-match/ambiguity/partial cases are200 with the explicit outcome, not fake404 or success implying consent. All responses private/no-store.
+
+Focused local checks cover normalization/URL rejection; zero provider calls for denied/malformed input; exact versus ambiguous/partial/empty later pages; count/ID precision, conflicting duplicate IDs, schema/body/deadline bounds;20/100 paging limits;429/app-key rejection; current-Owner demotion/session revocation during lookup; fixed-origin/no secret projection; and selected ID through unchanged invitation/consent enforcement. Actual Nest/Auth/PostgreSQL/synthetic TLS and a separate direct capped-page selection smoke passed. This is source/local evidence only; see the validation guide for exact commands and initial failures.
+
+Before real FE integration: FE011 regenerates its consumer under its lease and updates its AppMe parser for Etsy read/manage plus error parser for existing Etsy enums/optional retryAfterSeconds. Its local approved-URL-to-name parser and table/sample/selection UI remain separately owned; no FE or browser pass is claimed by BE. Lookup review, exact-source publication/native artifact approval and actual hosted/provider acceptance remain separate gates. No secure-input read, cloud/config/migration/deploy or new worker is authorized by this contract.
 
 ## Current backend delivery and FE consumer delta
 
 The six authenticated operations below are mounted only with enabled Etsy configuration, behind the existing technical bearer and current user/session/Owner checks. Capabilities are `etsy.connection.read` and `etsy.connection.manage`; Member receives neither. Strict mutation bodies, revision/idempotency receipts, bounded cursor history and error codes are canonical. Provider429 adds optional bounded `retryAfterSeconds` and `Retry-After`; technical401 retains its existing Unauthorized envelope.
 
-Only exact POST `/integrations/etsy/invite/start` at the configured invitation Host with identical Origin, and exact GET `/integrations/etsy/callback` at the configured callback Host, are backend transaction-authenticated exceptions. No GET confirmation page or inspection exception is delivered by BE; GET `/integrations/etsy/invite` remains protected and side-effect-free. FE must separately own the confirmation page, transient fragment handling and same-origin transport/routing; BE does not add JavaScript, CORS bypasses or a generic proxy.
+The newly authorized recipient bridge changes exact POST `/integrations/etsy/invite/start` to the configured API/callback Host, identical invitation Origin and existing technical bearer checked before the8KiB JSON body or invitation service. Only `{secret}` is accepted; the invitation proof still grants no app membership. The exact GET `/integrations/etsy/callback` at the configured callback Host remains bearer-free and transaction-authenticated. No GET confirmation page or inspection exception is delivered by BE; GET `/integrations/etsy/invite` remains protected and side-effect-free. FE separately owns the explicit confirmation page, transient fragment handling and same-origin BFF; it sends no cookies/caller token/Host override and validates manual303 against the fixed client/callback, scope, S256 and exact seven consent keys before200 `{consentUrl}`. BE adds no JavaScript, CORS bypass or generic proxy.
 
 Create returns `invitationId/revision/expiresAt` and a fragment `shareUrl` once. Idempotency replay or recovered lost acknowledgement returns the receipt without the secret; cancel/reissue is explicit. Local connection status includes `attemptPhase`, timestamps and allowlisted outcome; deadline classification does not write or call Etsy. Explicit read returns only the four business fields plus connectionId/revision/observedAt, including a bounded candidate-verification retry when applicable. There is no polling, SSE/WebSocket, background sync or public result endpoint.
 
-FE must regenerate its consumer under its own lease and implement006 BFF method/origin/CSRF/session-generation rules before enabling the UI. No apps/web file or006 browser fixture changed in this increment. Enabled hosted ingress, logging privacy, secure runtime policy inputs and real provider acceptance remain unverified.
+The separately owned FE actual Auth/BFF/Nest/DB journey with synthetic Etsy is recorded in the validation guide. Its new canonical consumer generation remains held until t151 supplies the reviewed frozen receipt. BE did not edit apps/web; existing BE006 fixture/profile/lifecycle extensions activate only in explicit011 mode. Enabled hosted ingress, logging privacy, secure runtime policy inputs and real provider acceptance remain unverified.
 
 ## 1. Owner invitation management and recipient ingress
 

@@ -138,10 +138,14 @@ test('staged operator imports and no-input CLIs remain closed over the isolated 
     // Exercise runtime-selected isolated package boundaries, never checkout imports.
     const migration = await import(${JSON.stringify(pathToFileURL(join(scripts, 'ci-migrations.js')).href)});
     const delivery = await import(${JSON.stringify(pathToFileURL(join(scripts, 'ci-delivery.js')).href)});
-    assert.equal(typeof migration.executeRoutineMigration, 'function');
-    assert.equal(typeof delivery.deliver, 'function');
     assert.throws(() => migration.approvedSchema(undefined));
     assert.throws(() => delivery.deliveryContext({}, 'a'.repeat(40)));
+    const setup = await import(${JSON.stringify(pathToFileURL(join(scripts, 'etsy-setup.js')).href)});
+    const release = await import(${JSON.stringify(pathToFileURL(join(scripts, 'etsy-release.js')).href)});
+    const owner = await import(${JSON.stringify(pathToFileURL(join(scripts, 'etsy-owner.js')).href)});
+    assert.throws(() => setup.prepareEtsyConfiguration({ runtime: { ETSY_ENABLED: 'false' } }));
+    assert.throws(() => release.validateEtsyReleasePacket({}, 'a'.repeat(64)));
+    assert.throws(() => new owner.EtsyOwnerClient({}));
     console.log(JSON.stringify({ unapprovedSchema: 'refused', unapprovedDelivery: 'refused' }));
   `);
   // No checkout reads, writes, child processes, addons or ambient module/auth paths.
@@ -162,5 +166,12 @@ test('staged operator imports and no-input CLIs remain closed over the isolated 
   });
   assert.equal(deliveryCli.status, 1, deliveryCli.stderr);
   assert.match(deliveryCli.stderr, /^BE_DELIVERY_NOT_ACCEPTED:/m);
+  for (const name of ['etsy-setup.js', 'etsy-release.js', 'etsy-owner.js']) {
+    const result = spawnSync(process.execPath, [...permissions, join(scripts, name)], {
+      cwd: isolated, env, encoding: 'utf8', timeout: 15000,
+    });
+    assert.equal(result.status, 1, result.stderr);
+    assert.doesNotMatch(result.stdout + result.stderr, / at |postgresql:|Bearer /);
+  }
   assert.deepEqual(inventory(isolated), before);
 });

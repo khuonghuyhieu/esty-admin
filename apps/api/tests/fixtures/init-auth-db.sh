@@ -3,7 +3,7 @@ set -euo pipefail
 [[ "$POSTGRES_USER" == f005_fixture_admin ]]
 [[ "$POSTGRES_DB" =~ ^f005_[a-f0-9]{32}$ ]]
 [[ "$F005_RUN_NONCE" =~ ^[a-f0-9]{32}$ ]]
-[[ "${F005_PROFILE:-006}" == 006 || "${F005_PROFILE:-006}" == activation001 ]]
+[[ "${F005_PROFILE:-006}" == 006 || "${F005_PROFILE:-006}" == activation001 || "${F005_PROFILE:-006}" == 011 ]]
 legacy_roles=true
 [[ "${F005_PROFILE:-006}" != activation001 ]] || legacy_roles=false
 psql --set=ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --set=nonce="$F005_RUN_NONCE" --set=legacy_roles="$legacy_roles" <<'SQL'

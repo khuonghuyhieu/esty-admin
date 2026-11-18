@@ -3,11 +3,11 @@ import test, { before, after } from 'node:test';
 import type { TestContext } from 'node:test';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
-import { spawnSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
 import { artifactFixture, fileTree } from './artifact-fixture.js';
-import { artifactTarget } from '../scripts/artifact.js';
+import { artifactTarget, canonical, sha256 } from '../scripts/artifact.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -15,6 +15,14 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createReleaseJournal, describeRetainedRun, readReleaseJournal, writeReleaseEvidence } from '../scripts/release-journal.js';
 import type { ReleaseBinding, SupersessionApproval } from '../scripts/release-journal.js';
 import { bounded } from '../scripts/bounded.js';
+import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validateEtsyReleasePacket } from '../scripts/etsy-release.js';
+import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase } from '../scripts/etsy-release.js';
+import { activationRuntimeKeys } from '../src/config/activation-config.js';
+import { currentAppMetadata } from '../scripts/activation-configuration.js';
+import { manifestDigest } from '../scripts/migrations.js';
+import type { MigrationReport } from '../scripts/migrations.js';
+import { migrationManifest } from '../src/generated/migrations.js';
+import { readEvidence } from '../scripts/release-journal.js';
 // Protocol-only cases isolate storage; durability is exercised with real journals below.
 const checkpoints = { beforeCreate() {}, acknowledged(_id: string) {} };
 let artifact: VerifiedArtifact;
@@ -550,4 +558,258 @@ process.exit(74);
       fixture.unchanged();
     });
   }
+});
+
+function etsyPacket(root: string): EtsyReleasePacket {
+  return { version: 1, runId: randomUUID(), ledgerRoot: root, revision: 'a'.repeat(40), tree: 'b'.repeat(40),
+    sourceDigest: 'c'.repeat(64), artifactDigest: 'd'.repeat(64), runtimeDigest: 'e'.repeat(64), configBundleDigest: 'f'.repeat(64),
+    migrationInputDigest: '1'.repeat(64), previousDigest: manifestDigest(migrationManifest.slice(0, 3)), targetDigest: manifestDigest(migrationManifest),
+    target: 'local', driverDigest: '2'.repeat(64), nodeDigest: '3'.repeat(64), cliDigest: '4'.repeat(64), cliOwnFilesDigest: '5'.repeat(64),
+    browserOrigin: 'https://app.lovora.us', runtimeKeys: [...activationRuntimeKeys, 'APP_ACTIVATION_CONFIG_DIGEST'].sort(), metadataDigest: '6'.repeat(64),
+    predecessor: { id: 'dpl_old', revision: '7'.repeat(40), tree: '8'.repeat(40), sourceDigest: '9'.repeat(64), artifactDigest: 'a'.repeat(64), configDigest: 'b'.repeat(64) },
+    window: { start: Date.now() - 1000, end: Date.now() + 600000 },
+    grants: { exclusiveOwnerLease: 'synthetic-exclusive-lease', automatedDelivery: 'disabled', maintenance: 'approved-readiness-interruption',
+      recovery: 'approved-roll-forward-only', phases: [...etsyReleasePhases] } };
+}
+function etsyReleaseFixture(t: TestContext) {
+  const root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-setup-release-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const packet = etsyPacket(root), packetDigest = sha256(canonical(packet)), calls: string[] = [];
+  let names = migrationManifest.slice(0, 3).map(entry => entry.name), alias = packet.predecessor.id;
+  const operations: EtsyReleaseOperations = {
+    verify() {},
+    async currentMain() { calls.push('main'); return { revision: packet.revision, tree: packet.tree }; },
+    async history() { return [...names]; },
+    async predecessor(pending) {
+      calls.push(`old:${pending}`);
+      assert.equal(alias, packet.predecessor.id);
+      assert.equal(names.length, pending ? 4 : 3);
+    },
+    async create() {
+      assert.ok(fs.existsSync(join(root, packet.runId, 'held-create.intent.json')));
+      calls.push('CREATE'); return { code: 0, aborted: false, stdout: '{"deployment":{"id":"dpl_new"}}' };
+    },
+    async candidate(id, pending, final) {
+      assert.equal(id, 'dpl_new'); assert.equal(names.length, pending ? 3 : 4);
+      const ack = readEvidence(join(root, packet.runId, 'create-ack.json')).value;
+      assert.deepEqual(ack, { packetDigest, deploymentId: id });
+      calls.push(`candidate:${pending}:${final}`);
+    },
+    async migrate() {
+      calls.push('SQL');
+      const before = [...names]; names = migrationManifest.map(entry => entry.name);
+      return { run_id: randomUUID(), source_revision: packet.revision, target: packet.target, manifest_digest: packet.targetDigest,
+        started_at: new Date().toISOString(), ended_at: new Date().toISOString(), duration_ms: 1, result: 'success', stage: 'verification',
+        failed_version: null, database_outcome: 'committed', before, after: [...names],
+        attempted: [{ ...migrationManifest[3]!, outcome: 'applied_committed' }], reporting: 'not_requested' };
+    },
+    async promote(id) { assert.equal(id, 'dpl_new'); calls.push('PROMOTE'); alias = id; return { code: 0, aborted: false, stdout: '' }; },
+    async alias(id) { assert.equal(id, alias); calls.push(`alias:${id}`); },
+  };
+  const run = (phase: EtsyReleasePhase, controllerSignal = signal()) => runEtsyReleasePhase({ packet, packetDigest, phase, operations, signal: controllerSignal });
+  return { root, packet, packetDigest, calls, operations, run };
+}
+test('Etsy setup release persists same-ID one-create ordered phase receipts through final ACK', async t => {
+  const fixture = etsyReleaseFixture(t);
+  for (const phase of etsyReleasePhases) await fixture.run(phase);
+  assert.deepEqual(fixture.calls.filter(call => ['CREATE', 'SQL', 'PROMOTE'].includes(call)), ['CREATE', 'SQL', 'PROMOTE']);
+  assert.ok(fixture.calls.includes('old:true'));
+  assert.ok(fixture.calls.includes('candidate:true:false'));
+  assert.ok(fixture.calls.includes('candidate:false:true'));
+  const final = readEvidence(join(fixture.root, fixture.packet.runId, 'final-domain-ack.receipt.json')).value;
+  assert.ok(final && typeof final === 'object' && 'deploymentId' in final && final.deploymentId === 'dpl_new');
+  assert.equal(fs.existsSync(join(fixture.root, 'active.lock')), false);
+  assert.ok(fs.existsSync(join(fixture.root, 'operator.lock')));
+});
+test('Etsy setup release refuses stale packets grants history configuration and phase evidence before later mutation', async t => {
+  for (const fault of ['main', 'tree', 'unknown-history', 'extra-migration', 'missing-receipt', 'missing-intent', 'missing-ack',
+    'changed-main-before-sql', 'changed-report', 'alias-drift', 'candidate-failure', 'expired-window', 'missing-grant', 'changed-packet', 'sql-unknown', 'promote-unknown', 'missing-final-ack']) {
+    await t.test(fault, async t => {
+      const f = etsyReleaseFixture(t);
+      if (fault === 'expired-window' || fault === 'missing-grant' || fault === 'changed-packet') {
+        const value = structuredClone(f.packet);
+        if (fault === 'expired-window') value.window.end = Date.now() - 1;
+        if (fault === 'missing-grant') value.grants.phases = [];
+        if (fault === 'changed-packet') value.runtimeDigest = '0'.repeat(64);
+        assert.throws(() => validateEtsyReleasePacket(value, fault === 'changed-packet' ? f.packetDigest : sha256(canonical(value))));
+        assert.equal(f.calls.length, 0); return;
+      }
+      if (fault === 'main' || fault === 'tree') {
+        f.operations.currentMain = async () => ({ revision: fault === 'main' ? '0'.repeat(40) : f.packet.revision,
+          tree: fault === 'tree' ? '0'.repeat(40) : f.packet.tree });
+        await assert.rejects(f.run('history')); assert.equal(f.calls.includes('CREATE'), false); return;
+      }
+      if (fault === 'unknown-history') {
+        f.operations.history = async () => ['unknown'];
+        await assert.rejects(f.run('history')); assert.equal(f.calls.includes('CREATE'), false); return;
+      }
+      await f.run('history'); await f.run('held-create');
+      const runRoot = join(f.root, f.packet.runId);
+      if (fault === 'missing-receipt' || fault === 'missing-intent' || fault === 'missing-ack') {
+        fs.unlinkSync(join(runRoot, fault === 'missing-receipt' ? 'held-create.receipt.json'
+          : fault === 'missing-intent' ? 'held-create.intent.json' : 'create-ack.json'));
+      }
+      if (fault === 'alias-drift') f.operations.alias = async () => { throw new Error('synthetic drift'); };
+      if (fault === 'candidate-failure') f.operations.candidate = async () => { throw new Error('synthetic configuration/health refusal'); };
+      if (['missing-receipt', 'missing-intent', 'missing-ack', 'alias-drift', 'candidate-failure'].includes(fault)) {
+        await assert.rejects(f.run('pre-sql-check')); assert.equal(f.calls.includes('SQL'), false);
+      } else {
+        await f.run('pre-sql-check');
+        const migrate = f.operations.migrate;
+        if (fault === 'extra-migration') f.operations.history = async () => [...migrationManifest.map(entry => entry.name), 'extra'];
+        if (fault === 'sql-unknown') f.operations.migrate = async () => { await migrate(); throw new Error('lost SQL acknowledgement'); };
+        if (fault === 'changed-main-before-sql') f.operations.currentMain = async () => ({ revision: '0'.repeat(40), tree: f.packet.tree });
+        if (['extra-migration', 'sql-unknown', 'changed-main-before-sql'].includes(fault)) {
+          await assert.rejects(f.run('sql-apply')); assert.equal(f.calls.includes('PROMOTE'), false);
+        } else {
+          await f.run('sql-apply');
+          if (fault === 'changed-report') {
+            const reportPath = join(runRoot, 'migration-report.json');
+            const report = readEvidence(reportPath).value as MigrationReport;
+            fs.writeFileSync(reportPath, JSON.stringify({ ...report, run_id: randomUUID() }));
+            await assert.rejects(f.run('post-sql-check')); assert.equal(f.calls.includes('PROMOTE'), false);
+          } else {
+            await f.run('post-sql-check');
+            if (fault === 'promote-unknown') {
+              f.operations.promote = async () => { f.calls.push('PROMOTE'); return { code: 1, aborted: true, stdout: '' }; };
+              await assert.rejects(f.run('promote-only'));
+              await assert.rejects(f.run('promote-only'));
+              assert.equal(f.calls.filter(call => call === 'PROMOTE').length, 1);
+            } else {
+              await f.run('promote-only');
+              assert.equal(fs.existsSync(join(runRoot, 'final-domain-ack.receipt.json')), false);
+              f.operations.candidate = async () => { throw new Error('final acceptance unavailable'); };
+              await assert.rejects(f.run('final-domain-ack'));
+              assert.equal(fs.existsSync(join(runRoot, 'final-domain-ack.receipt.json')), false);
+            }
+          }
+        }
+      }
+      assert.ok(fs.existsSync(join(f.root, 'active.lock')));
+      await assert.rejects(f.run('held-create'));
+      assert.equal(f.calls.filter(call => call === 'CREATE').length, 1);
+    });
+  }
+});
+test('Etsy setup release concurrent and aborted CREATE retain acknowledged ID before any follow-up', async t => {
+  for (const fault of ['concurrent', 'aborted-id', 'missing-id']) await t.test(fault, async t => {
+    const f = etsyReleaseFixture(t); await f.run('history');
+    const arrived = Promise.withResolvers<void>(), continueCreate = Promise.withResolvers<void>();
+    const controller = new AbortController();
+    f.operations.create = async () => {
+      f.calls.push('CREATE'); arrived.resolve(); await continueCreate.promise;
+      return { code: fault === 'concurrent' ? 0 : 1, aborted: fault !== 'concurrent',
+        stdout: fault === 'missing-id' ? '{}' : '{"deployment":{"id":"dpl_new"}}' };
+    };
+    const pending = f.run('held-create', controller.signal);
+    await arrived.promise;
+    if (fault === 'concurrent') await assert.rejects(f.run('held-create'));
+    else controller.abort();
+    continueCreate.resolve();
+    if (fault === 'concurrent') await pending; else await assert.rejects(pending);
+    const path = join(f.root, f.packet.runId, 'create-ack.json');
+    assert.equal(fs.existsSync(path), fault !== 'missing-id');
+    if (fault !== 'missing-id') assert.deepEqual(readEvidence(path).value, { packetDigest: f.packetDigest, deploymentId: 'dpl_new' });
+    assert.equal(f.calls.filter(call => call === 'CREATE').length, 1);
+    assert.equal(f.calls.some(call => call.startsWith('candidate:')), false);
+  });
+});
+test('Etsy setup release new processes cannot repeat CREATE or promote with consumed intent', async t => {
+  for (const phase of ['held-create', 'promote-only'] as const) await t.test(phase, async t => {
+    const f = etsyReleaseFixture(t);
+    for (const next of etsyReleasePhases) { await f.run(next); if (next === phase) break; }
+    const program = `import {runEtsyReleasePhase} from ${JSON.stringify(new URL('../scripts/etsy-release.js', import.meta.url).href)};
+const unexpected=async()=>{console.log('MUTATION_CALLED');throw Error()};
+try{await runEtsyReleasePhase({packet:${JSON.stringify(f.packet)},packetDigest:${JSON.stringify(f.packetDigest)},phase:${JSON.stringify(phase)},
+signal:AbortSignal.timeout(3000),operations:{verify(){},currentMain:unexpected,history:unexpected,predecessor:unexpected,create:unexpected,candidate:unexpected,migrate:unexpected,promote:unexpected,alias:unexpected}});process.exitCode=2}catch{process.exitCode=1}`;
+    const result = spawnSync(process.execPath, ['--input-type=module', '-e', program], { env: {}, encoding: 'utf8', timeout: 5000 });
+    assert.equal(result.status, 1); assert.doesNotMatch(result.stdout + result.stderr, /MUTATION_CALLED| at /);
+  });
+});
+test('Etsy setup provider checks exact pending503 reason config archive and alias rather than accepting arbitrary unready', async t => {
+  const root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-setup-provider-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const packet = etsyPacket(root);
+  packet.revision = artifact.manifest.source.revision; packet.tree = artifact.manifest.source.tree;
+  packet.sourceDigest = artifact.manifest.source.digest; packet.artifactDigest = artifact.digest;
+  const archivePath = join(root, 'project.tgz');
+  execFileSync('/usr/bin/tar', ['--format=ustar', '-czf', archivePath, '-C', artifact.root, '.vercel/output'],
+    { env: { PATH: '/usr/bin:/bin', COPYFILE_DISABLE: '1' }, timeout: 10000 });
+  const archive = fs.readFileSync(archivePath), uid = createHash('sha1').update(archive).digest('hex');
+  const envs = packet.runtimeKeys.map(key => ({ id: `env_${key}`, key, type: 'sensitive', target: ['production'] }));
+  packet.metadataDigest = currentAppMetadata({ envs }, Object.fromEntries(packet.runtimeKeys.map(key => [key, '']))).metadataDigest;
+  const packetDigest = sha256(canonical(packet));
+  let fault = '', sqlDone = false;
+  const transport: typeof fetch = async (input, init) => {
+    const url = new URL(String(input)), headers = new Headers(init?.headers);
+    if (url.origin === 'https://api.github.com') return Response.json({ sha: packet.predecessor.revision, commit: { tree: { sha: packet.predecessor.tree } } });
+    if (url.origin === 'https://api.vercel.com') {
+      if (url.pathname.endsWith('/domains/api.lovora.us')) return Response.json(domain);
+      if (url.pathname === '/v4/aliases/api.lovora.us') return Response.json({ ...alias, deploymentId: fault === 'alias' ? 'dpl_other' : 'dpl_old', deployment: { id: fault === 'alias' ? 'dpl_other' : 'dpl_old' } });
+      if (url.pathname === `/v9/projects/${artifactTarget.project}`) return Response.json({ ...project, link: { ...project.link, org: 'khuonghuyhieu', repo: 'esty-admin' } });
+      if (url.pathname.includes('/env')) return Response.json({ envs: fault === 'metadata' ? envs.slice(1) : envs });
+      if (url.pathname === '/v13/deployments/dpl_old') return Response.json({ ...deployment, id: 'dpl_old', regions: ['icn1'],
+        meta: { sourceCommit: packet.predecessor.revision, artifactSha256: packet.predecessor.artifactDigest, sourceDigest: packet.predecessor.sourceDigest } });
+      if (url.pathname === '/v13/deployments/dpl_new') return Response.json({ ...deployment, id: 'dpl_new', regions: ['icn1'], url: 'synthetic.vercel.app',
+        meta: { sourceCommit: packet.revision, artifactSha256: packet.artifactDigest, sourceDigest: packet.sourceDigest,
+          etsySetupRun: packet.runId, etsySetupPacket: packetDigest, etsyRuntimeDigest: packet.runtimeDigest } });
+      if (url.pathname === '/v6/deployments/dpl_new/files') return Response.json([
+        { name: 'src', type: 'directory', mode: 0o40555, children: [{ name: 'project.tgz', type: 'file', uid }] },
+        { name: 'out', type: 'directory', mode: 0o40555, children: [{ name: 'index', type: 'lambda', mode: 0o140666 }] },
+      ]);
+      if (url.pathname.startsWith('/v8/')) return Response.json({ data: (fault === 'archive' ? Buffer.from('changed') : archive).toString('base64') });
+      throw new Error('Unapproved synthetic provider route');
+    }
+    assert.ok(['https://synthetic.vercel.app', 'https://api.lovora.us'].includes(url.origin));
+    const old = url.origin === 'https://api.lovora.us', digest = old ? packet.predecessor.configDigest : packet.runtimeDigest;
+    if (init?.method === 'OPTIONS') return headers.get('origin') === packet.browserOrigin
+      ? new Response(null, { status: 204, headers: { 'access-control-allow-origin': packet.browserOrigin } }) : new Response(null, { status: 401 });
+    if (headers.get('authorization') !== `Bearer ${'c'.repeat(64)}`) return Response.json({ status: 'unauthorized' }, { status: 401 });
+    if (url.pathname === '/__release_unknown_route') return new Response(null, { status: 404 });
+    const responseHeaders = { 'x-activation-config-digest': fault === 'config' ? '0'.repeat(64) : digest };
+    if (url.pathname === '/health/live') return Response.json({ status: 'ok' }, { headers: responseHeaders });
+    const pending = old ? sqlDone : !sqlDone;
+    return pending && fault !== 'unexpected-ready'
+      ? Response.json({ status: 'degraded', reason: fault === 'reason' ? 'database_timeout' : 'migrations_pending' }, { status: 503, headers: responseHeaders })
+      : Response.json({ status: 'ready', database: 'up', migrations: 'current' }, { headers: responseHeaders });
+  };
+  const operations = etsyProviderOperations(packet, packetDigest, artifact,
+    { token: 'synthetic-provider-token', bearer: 'c'.repeat(64), predecessorBearer: 'c'.repeat(64), bypass: 'synthetic-bypass-key' }, signal(), transport);
+  await operations.predecessor(false); await operations.candidate('dpl_new', true, false);
+  for (fault of ['unexpected-ready', 'reason', 'config', 'archive']) await assert.rejects(operations.candidate('dpl_new', true, false), Error, fault);
+  for (fault of ['alias', 'metadata']) await assert.rejects(operations.predecessor(false), Error, fault);
+  fault = ''; sqlDone = true;
+  await operations.predecessor(true); await operations.candidate('dpl_new', false, false);
+});
+
+test('Etsy setup release fsync failures retain a terminal lock even when receipt bytes exist', async t => {
+  for (const boundary of ['intent', 'ack', 'receipt']) await t.test(boundary, async t => {
+    const f = etsyReleaseFixture(t); await f.run('history');
+    let failNextSync = false, failed = false;
+    const write = fs.writeFileSync, sync = fs.fsyncSync;
+    t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
+      const data = args[1];
+      if (typeof data === 'string' && data.startsWith('{')) {
+        const value: unknown = JSON.parse(data);
+        if (value && typeof value === 'object' && !failed) {
+          failNextSync = boundary === 'ack'
+            ? 'deploymentId' in value && !('phase' in value)
+            : 'phase' in value && value.phase === 'held-create' && 'previous' in value
+              && (boundary === 'receipt' ? 'completed' in value : !('completed' in value));
+        }
+      }
+      return write(...args);
+    });
+    t.mock.method(fs, 'fsyncSync', (fd: number) => {
+      if (failNextSync && !failed) { failed = true; failNextSync = false; throw new Error('synthetic fsync failure'); }
+      return sync(fd);
+    });
+    await assert.rejects(f.run('held-create'));
+    assert.equal(failed, true);
+    assert.equal(f.calls.filter(call => call === 'CREATE').length, boundary === 'intent' ? 0 : 1);
+    await assert.rejects(f.run('pre-sql-check'));
+    assert.equal(f.calls.includes('SQL'), false);
+    assert.equal(f.calls.some(call => call.startsWith('candidate:')), false);
+    assert.ok(fs.existsSync(join(f.root, 'active.lock')));
+  });
 });

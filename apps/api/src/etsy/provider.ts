@@ -15,6 +15,14 @@ export interface EtsyMetadata {
   shopName: string;
   currencyCode: string;
 }
+export interface EtsyShopLookup {
+  query: string;
+  outcome: 'exact' | 'choose' | 'not_found' | 'incomplete';
+  items: Array<{ shopId: string; shopName: string; shopUrl: string; match: 'exact' | 'candidate' }>;
+  page: { offset: number; limit: 20; providerCount: string; complete: boolean; hasMore: boolean; nextOffset: number | null; truncated: boolean };
+  ownershipVerified: false;
+  observedAt: string;
+}
 export type EtsyFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 export function etsyId(value: unknown): string {
@@ -27,6 +35,43 @@ export function etsyId(value: unknown): string {
 
 export class EtsyProvider {
   constructor(private readonly config: EtsyConfig, private readonly transport: EtsyFetch = fetch) {}
+
+  async lookup(query: string, offset: number, signal: AbortSignal): Promise<EtsyShopLookup> {
+    if (!/^[a-z0-9]{1,64}$/.test(query) || ![0, 20, 40, 60, 80].includes(offset)) throw new EtsyFailure('invalid_request');
+    if (!/^[A-Za-z0-9_-]{1,256}$/.test(this.config.clientId) || !/^[A-Za-z0-9_-]{1,256}$/.test(this.config.sharedSecret)) {
+      throw new EtsyFailure('configuration_unavailable');
+    }
+    const params = new URLSearchParams({ shop_name: query, limit: '20', offset: String(offset) });
+    const response = await this.request(`/v3/application/shops?${params}`, { method: 'GET' }, 1500, signal, true);
+    try {
+      const count = typeof response.count === 'number' && Number.isSafeInteger(response.count) ? String(response.count) : response.count;
+      if (typeof count !== 'string' || !/^(0|[1-9]\d{0,18})$/.test(count) || BigInt(count) > 9223372036854775807n
+        || !Array.isArray(response.results) || response.results.length > 20 || BigInt(response.results.length) > BigInt(count)) throw new Error();
+      const byId = new Map<string, EtsyShopLookup['items'][number]>();
+      let exactMatches = 0;
+      for (const row of response.results as unknown[]) {
+        if (!row || typeof row !== 'object' || Array.isArray(row) || !('shop_id' in row) || !('shop_name' in row)
+          || typeof row.shop_name !== 'string' || !/^[A-Za-z0-9]{1,64}$/.test(row.shop_name)) throw new Error();
+        const shopId = etsyId(row.shop_id), shopName = row.shop_name, prior = byId.get(shopId);
+        if (prior && prior.shopName !== shopName) throw new Error();
+        if (!prior) {
+          const match = shopName.toLowerCase() === query ? 'exact' : 'candidate';
+          if (match === 'exact') exactMatches++;
+          byId.set(shopId, { shopId, shopName, shopUrl: `https://www.etsy.com/shop/${shopName}`, match });
+        }
+      }
+      const items = [...byId.values()];
+      // Counts describe the original window, not its deduplicated projection.
+      const complete = offset === 0 && BigInt(response.results.length) === BigInt(count);
+      const hasMore = BigInt(offset + response.results.length) < BigInt(count), next = offset + 20;
+      const outcome = complete && exactMatches === 1 ? 'exact'
+        : items.length ? 'choose' : complete ? 'not_found' : 'incomplete';
+      return { query, outcome, items,
+        page: { offset, limit: 20, providerCount: count, complete, hasMore, nextOffset: hasMore && next < 100 ? next : null,
+          truncated: hasMore && next >= 100 },
+        ownershipVerified: false, observedAt: new Date().toISOString() };
+    } catch { throw new EtsyFailure('upstream_unavailable'); }
+  }
 
   authorization(): { state: string; verifier: string; url: string } {
     const state = randomBytes(32).toString('base64url');
@@ -84,7 +129,7 @@ export class EtsyProvider {
     }
   }
 
-  private async request(path: string, init: RequestInit, timeout: number, parent: AbortSignal): Promise<Record<string, unknown>> {
+  private async request(path: string, init: RequestInit, timeout: number, parent: AbortSignal, appKeyOnly = false): Promise<Record<string, unknown>> {
     const signal = AbortSignal.any([parent, AbortSignal.timeout(timeout)]);
     try {
       signal.throwIfAborted();
@@ -99,7 +144,9 @@ export class EtsyProvider {
           const retry = /^\d{1,10}$/.test(raw) ? Math.max(1, Math.min(86400, Number(raw))) : 60;
           throw new EtsyFailure('upstream_rate_limited', retry);
         }
-        if (response.status === 400 || response.status === 401 || response.status === 403) throw new EtsyFailure('reconnect_required');
+        if (appKeyOnly) {
+          if (response.status === 401 || response.status === 403) throw new EtsyFailure('configuration_unavailable');
+        } else if (response.status === 400 || response.status === 401 || response.status === 403) throw new EtsyFailure('reconnect_required');
         throw new EtsyFailure('upstream_unavailable');
       }
       if (!response.body) throw new Error();

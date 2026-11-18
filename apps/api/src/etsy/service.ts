@@ -113,6 +113,31 @@ export class EtsyService {
     });
   }
 
+  async lookup(identity: VerifiedIdentity, query: string, offset: number, signal: AbortSignal) {
+    await this.database.transaction(signal, async client => {
+      await this.owner(client, identity.userId, identity);
+      await this.cooldown(client);
+    });
+    // No transaction, workspace lock or connection lifecycle spans provider I/O.
+    let result;
+    try {
+      result = await this.provider.lookup(query, offset, signal);
+    } catch (error) {
+      await this.database.transaction(signal, async client => {
+        await this.owner(client, identity.userId, identity);
+        if (error instanceof EtsyFailure && error.code === 'upstream_rate_limited' && error.retryAfterSeconds !== undefined) {
+          await client.query(`INSERT INTO app_private.etsy_cooldowns(app_ref,retry_not_before) VALUES($1,clock_timestamp()+make_interval(secs=>$2))
+            ON CONFLICT(app_ref) DO UPDATE SET retry_not_before=greatest(etsy_cooldowns.retry_not_before,excluded.retry_not_before)`, [this.config.clientId, error.retryAfterSeconds]);
+        }
+      });
+      throw error;
+    }
+    return this.database.transaction(signal, async client => {
+      await this.owner(client, identity.userId, identity);
+      return result;
+    });
+  }
+
   invitations(identity: VerifiedIdentity, query: unknown, signal: AbortSignal) {
     const input = record(query, ['limit', 'cursor'], []), limit = pageLimit(input.limit ?? '25');
     const cursor = input.cursor === undefined ? null : uuid(input.cursor);

@@ -1,6 +1,26 @@
 # Tasks: Existing Etsy Connectivity
 
-**Status:** READY_FOR_OWNER_NEXT_LAYER — coordinator accepted the original P2 resolution after independent fix-only recheck; T023 complete for this BE increment. T019 operational prune and FE/browser/hosted/real-provider gates remain open. Source/docs ownership returned to t151; STOP WRITES.
+## Accepted scoped recipient bridge review
+
+**FROZEN BE_RECIPIENT_BRIDGE_SOURCE_LOCAL_REVIEW_ACCEPTED; STOP WRITES.** Coordinator t151 accepted t175's actual final: **no confirmed actionable findings in this frozen bridge scope**; no reviewer checks or prior-feature reassessment. T040–T043 retain their source/local execution and cleanup evidence, now with this separate scoped acceptance. All earlier task identities/checkmarks and review/failure snapshots remain unchanged.
+
+This fresh five-document closeout changes no source or execution evidence. Preserve FE17/18 plus affected1/1 and earlier actual0066/8/role-change503, cause unconfirmed. Source135/canonical/types remain frozen. t151 reports the reviewed canonical handshake delivered to FE/root; downstream generation/review is not inferred. Root owns serial integration/release. Ownership returns to t151; STOP WRITES.
+
+## Accepted scoped lookup review
+
+**FROZEN BE_LOOKUP_SOURCE_LOCAL_REVIEW_ACCEPTED; STOP WRITES.** t151 accepted t175's actual FIX-ONLY final: **original lookup P3 resolved; no further confirmed findings in FIX-ONLY**. Original lookup review remains one confirmed P3, separate from Auth/prune/packaging history. The reviewer ran no checks or broader review. T037–T039 source/local implementation and independent scoped review are accepted; no overall feature, hosted or release completion is inferred.
+
+This closeout updates only five existing010 documents and preserves source426d2567/canonicalbe9a6e76/generated75429df8 identities; no checks/build/runtime/Git action reran. Root owns serial integration. Recipient bridge stays **PROPOSAL ONLY/no source grant**; FE compatibility, exact artifact/secure bindings and hosted/provider/deployment gates remain separate. Ownership returns to t151.
+
+All prior task IDs/checkmarks, freeze statements, failures and review blocks below remain historical snapshots; earlier pending-review statuses do not override this accepted receipt.
+
+## Current lookup schema review correction
+
+**FROZEN READY_FOR_BE_LOOKUP_SCHEMA_FIX_REVIEW; STOP WRITES.** The coordinator recovered the original lookup review as one confirmed P3 canonical int64-pattern gap, with no other confirmed actionable findings. Two canonical string constraints and one existing-file schema boundary test are corrected locally; BE regeneration is byte-identical. Generation/check, compile and focused schema test1/1 passed. No runtime/fixture behavior changed or DB/provider/full-suite/native/staging checks reran. t151 alone requests one FIX-ONLY review. Exact before/after scope and hashes are recorded in quickstart.md and the fix manifest; hosted/FE/artifact/deployment gates remain open.
+
+All task IDs/checkmarks and prior freeze/review/failure statements below are retained as historical evidence, not a claim that this fix has already passed review or is deployable.
+
+**Current status:** READY_FOR_BE_SETUP_PUBLICATION. t151 accepted existing t175's actual FIX-ONLY result: original setup Auth P2 resolved, no further confirmed findings in that recheck. Original setup one-P2, historical prune and packaging reviews remain distinct. Docs-only closeout retains all nine source/test hashes and135-file digest4f762865; no test/build/runtime rerun. Ownership returns to t151 for existing-branch publication; writer STOP WRITES. OWNER_INPUT_PENDING / HOSTED_NOT_RUN.
 **Inputs:** [spec](spec.md), [plan](plan.md), [contracts](contracts/proposed-api.md), [data model](data-model.md), [validation](quickstart.md).
 
 T001–T026 retain their original identities/checkmarks but their proposed contents/order are amended for the current layered direction. Original U1 resolution/hashes remain historical in the handoff, not a hash claim for this amendment. No task is completed by documentation.
@@ -74,3 +94,47 @@ T001–T026 retain their original identities/checkmarks but their proposed conte
 The original scoped review's one prune-authority P2 is resolved by accepted fail-closed correction; operational prune remains deferred under T019. T023 is complete for this BE increment after independent fix-only recheck, not for future FE/hosted work. Source/docs ownership returns to t151. T020–T022 require FE ownership/browser proof; T024–T026 retain publication/hosted/provider/overall closeout gates. No new worker or reviewer starts from this receipt.
 
 No parallel writers or workers were started. Existing developer-app access and supplied foundation acceptance are not reopened. Explicit synthetic policy/origin/shop inputs enabled local checks without choosing live owner values. No accepted foundation role/migration/bootstrap/D1/D2 was rerun against shared or hosted resources.
+
+## Accepted BE setup increment
+
+- [x] T027 Extend the existing runtime digest with exactly ten Etsy keys; preserve absent-key legacy digest and verify actual enabled configuration without enabling runtime.
+- [x] T028 Implement offline hidden-TTY/fresh-private-file configuration and key preparation; no original discovery/overwrite, secret output or actual injection. Actual PTY synthetic preparation passed; key writer used fixed synthetic bytes only, no owner key generation.
+- [x] T029 Implement the memory-only authenticated Owner client through fixed Auth/Nest endpoints; explicit revision/idempotency, private URL output, no automatic refresh/retry or prune. Actual owned HTTP/SQL/current-session journey passed.
+- [x] T030 Implement the exact owner-run held CREATE → pending503 → separately approved3→4 SQL → same-ID ready200 → explicit same-ID promote → domain/ACK contract with durable intents/receipts and terminal unknown STOP. Actual isolated SQL/readiness and synthetic provider/fault/process-restart cases passed; no hosted operation.
+- [x] T031 Integrate explicit operator closure; focused config/release/package checkpoint35/35, final release/package32/32, owned E2E3/3 and isolated Linux launcher boundary smoke passed. These counts overlap. Baseline native build deliberately skipped; synthetic launcher package is not native/published release evidence. Final new-source Linux artifact requires separately authorized review/publication/main binding.
+- [x] T032 Record exact source/docs/evidence identities and cleanup, freeze READY_FOR_BE_SETUP_REVIEW and return ownership to t151. Only the coordinator starts existing t175 review; OWNER_INPUT_PENDING and HOSTED_NOT_RUN remain. Later08e68 FE-only main FYI is supplied, not independently verified; no rebase/build restart.
+
+## Confirmed setup Auth P2 correction
+
+- [x] T033 Bind Owner Auth URL and exact public-key hash to the independently approved setup/config/source/artifact boundary before settings/credentials/transport. Generate a separately digest-pinned guarded Owner launcher and exact nonsecret receipt; reject unbound login, forged approval and changed/expired bindings. No arbitrary expected-project field or decoded-JWT authority.
+- [x] T034 Run focused zero-password/zero-transport refusal coverage, approved signed current-Auth/Nest/SQL Owner journey, isolated operator imports and actual Linux guarded-launcher/PTY checks. Preserve all five earlier failures plus the new fixture readonly-array compile failure; no native/live/full unrelated rerun.
+- [x] T035 Freeze exact delta against setup scopea5e427 and retain all unaffected hashes, original one-P2 history, evidence/cleanup and new scope/packet identities. READY_FOR_BE_SETUP_AUTH_FIX_REVIEW; STOP WRITES and return ownership to t151. Existing t175 FIX-ONLY acceptance is pending and coordinator-owned.
+
+## Accepted source-local review closeout
+
+- [x] T036 Record coordinator acceptance of existing t175 Auth FIX-ONLY resolution and freeze READY_FOR_BE_SETUP_PUBLICATION with the final13-path manifest. Verify document integrity and unchanged source hashes only; return ownership to t151. Publication is coordinator-owned and not performed by this writer.
+
+**Checked scope:** T001–T018 retain their original local/BE evidence (T011 remains BE-only); T023 retains the original scoped review; T027–T035 retain setup implementation/fix/check/freeze evidence; T036 records accepted setup review and this docs-only closeout. T035's pending recheck describes its prior freeze, superseded by T036.
+
+**Still open:** T019 operational prune; T020–T022 FE/browser journey and acceptance; T024 new-source publication/integration, native artifact/approval and hosted schema/config/release authority; T025 actual Etsy/provider acceptance; T026 overall/shared closeout. Existing PR6 publication is historical and does not publish this new increment. Baseline native build remains skipped/NOT_RUN; no usable real launcher, secure setup or hosted pass follows from checked source-local tasks.
+
+## Owner shop-name lookup — source/local execution
+
+The explicit owner START authorized T037→T038→T039 in existing t15j. Four coordinator planning changes were captured as the pre-source baseline, not misreported as new writer-only edits. Reviewed lifecycle/setup behavior stays frozen except direct lookup dependencies; all earlier IDs/checkmarks/review snapshots remain intact.
+
+- [x] T037 Add GET /v1/app/integrations/etsy/shops/lookup (lookupEtsyShops) and strict EtsyShopLookupResponse/Item/Page components to the sole canonical schema; regenerate BE and hand off the consumer delta under FE ownership. Current Owner/manage only; strict name/offset normalization, exact/choose/not_found/incomplete and explicit completeness semantics per contracts/proposed-api.md. FR-002, FR-022, SC-008.
+- [x] T038 Implement fixed findShops app-key-only adapter and bounded projection: one request per explicit page,20-item page/100-record window, lossless ID/count validation, derived URL,1500ms/64KiB/8-second budgets, current-Owner recheck and existing cooldown/error contract. No new scope, provider URL switch, connection/database-schema/runtime-config write or OAuth side effect. FR-006, FR-013–014, FR-022, SC-008.
+- [x] T039 Extend focused functional/HTTP synthetic checks for denial-before-provider, malformed inputs, ambiguous/partial/empty pages, count/ID precision, rate/timeout/key failures and unchanged selected-ID invitation/consent enforcement. Hand off the exact contract through t151 to FE011 for its separately owned local URL parsing/table/sample flow and AppMe/error parser compatibility; no live-provider or overall integration pass inferred. Actual checks/failures/resource receipts are in quickstart.md. FR-016–017, FR-022, SC-008.
+
+T037→T038→T039 completed source-locally. **FROZEN READY_FOR_BE_LOOKUP_REVIEW; STOP WRITES.** Only t151 starts the existing t175 scoped review; no review result is claimed yet. FE consumer regeneration/parser/browser integration, publication, clean exact-source Linux artifact/approval and real hosted/provider acceptance remain separate. No new worker, Git, CI or deployment follows from this local freeze.
+
+## Recipient bridge and actual GoTrue fixture — bounded source/local execution
+
+The new grant supersedes the earlier bridge proposal-only stop, not accepted lookup history or external gates.
+
+- [x] T040 Require exact native API Host, invitation Origin and existing technical bearer before start body/service; preserve the callback exception and all other guards. Move Owner start to the fixed API origin, align only the existing canonical start contract, and retain strict303 consent validation.
+- [x] T041 Adapt existing006 lifecycle/GoTrue compose and BE fixture for a fresh011 nonce/project, ephemeral loopback services, private descriptor/control and synthetic Etsy. Preserve default006/shared resources; provide reset, Owner deny/reinstate, lookup scenarios, callback completion and independent counters.
+- [x] T042 Run affected generation/compiler/functional/security and actual Auth/Nest/DB fixture checks; coordinate FE login→management→recipient→consent→callback→status acceptance with intercepted Etsy navigation. Record failures, commands, results and synthetic/hosted limits.
+- [x] T043 After FE acceptance, clean up owned resources and freeze exact source/contract/evidence at READY_FOR_BE_RECIPIENT_BRIDGE_REVIEW. Return ownership and STOP WRITES; existing t175 review is coordinator-owned, and canonical consumer handoff requires the reviewed frozen receipt.
+
+T040–T043 are checked for completed source/local execution and honest evidence, not an all-checks-green or review/hosted claim. FE matrix17/18 plus affected1/1 is split-run acceptance; the earlier actual006 role-change503 remains disclosed. Owned cleanup is confirmed. **READY_FOR_BE_RECIPIENT_BRIDGE_REVIEW; source ownership returned to t151; STOP WRITES.** No new reviewer, consumer active-copy, publication or deployment was performed.

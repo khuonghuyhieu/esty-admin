@@ -1,7 +1,23 @@
 # Feature Specification: Existing Etsy Account and Shop Connectivity
 
-**Feature**: `010-etsy-connectivity` · **Status**: BE_SOURCE_LOCAL_VERIFIED — layers1–4 backend increment awaiting coordinator review; FE/browser, hosted adoption and actual Etsy acceptance remain open.
-**Working context**: Dedicated worktree, verified `feat/etsy-connectivity` at base `a9b3d70ceff042b893fa06877eca197d3d31c06c`. Current owner direction and supplied accepted-foundation facts are recorded in [plan.md](plan.md#current-owner-decisions-and-evidence-boundary).
+## Accepted recipient bridge review — documentation-only closeout
+
+**FROZEN BE_RECIPIENT_BRIDGE_SOURCE_LOCAL_REVIEW_ACCEPTED; STOP WRITES.** Coordinator t151 accepted existing t175's actual final: **no confirmed actionable findings in this frozen bridge scope**. The reviewer ran no checks and did not reassess earlier features. This is a separate bridge review, not a rewrite of lookup/Auth/prune/packaging history or an all-checks-green claim.
+
+FE acceptance remains17/18 plus affected1/1, not a single clean18-case run; the earlier actual006 group remains6/8 with role-change503 of unconfirmed cause. Source135 records, canonical and BE types remain frozen at the identities in the validation guide. This closeout changes only the five existing010 documents; no execution or resources were restarted.
+
+t151 reports the reviewed canonical handshake delivered to FE/root; this does not claim FE generation or review completed. Root owns serial integration/release and remaining hosted/provider gates. Ownership returns to t151. All following capture-time statuses, failures and review distinctions are retained as historical snapshots.
+
+## Current recipient bridge increment
+
+**FROZEN READY_FOR_BE_RECIPIENT_BRIDGE_REVIEW; STOP WRITES.** T040–T043 source/local execution, separately owned FE acceptance and owned cleanup are complete; the new scoped review is pending. Upstream start requires the native API/callback Host, exact invitation Origin and existing technical bearer before body/service; callback remains bearer-free. FE owns explicit confirmation and strict manual303 validation. Production configuration, CORS, other guards and accepted lookup behavior are not broadened.
+
+The011-only fixture reused006 lifecycle and pinned actual GoTrue/PostgreSQL with fresh owned loopback resources and explicitly synthetic Etsy. BE proof includes real login/refresh/logout/current session, Owner demotion, invitation/start/replay, PKCE callback and persisted status. FE reported17/18 plus affected1/1 across1440/360/390, not one clean18-case run; independent counters were verified. All owned resources and identities were removed after handback. The earlier unrelated role-change503 remains disclosed with unconfirmed cause. Ownership returns to t151 for existing t175 review; root owns serial integration/deployment. Earlier lookup paragraphs remain historical; no new review, hosted or real Etsy acceptance is claimed.
+
+## Accepted lookup baseline — historical
+
+**Feature**: `010-etsy-connectivity` · **Status**: BE_LOOKUP_SOURCE_LOCAL_REVIEW_ACCEPTED — coordinator t151 accepted existing t175's actual FIX-ONLY final: original lookup P3 resolved, no further confirmed findings in FIX-ONLY. The original lookup review remains one confirmed P3; the reviewer ran no checks or broader review. Runtime/lifecycle behavior and historical Auth/prune/packaging reviews remain unchanged. This is scoped lookup source/local acceptance, not hosted/release completion. Root owns serial integration; recipient bridge remains PROPOSAL ONLY with no source grant. FE/browser, exact-artifact/secure-binding and hosted/provider gates remain open.
+**Working context**: Dedicated `feat/etsy-connectivity` worktree; lookup-start HEAD `3c2f6f42aa08b7f64a7bb249c0ec529e7051d68c` is coordinator-reported, not re-probed by the writer. Original base `a9b3d70ceff042b893fa06877eca197d3d31c06c` is historical. Current owner direction and supplied accepted-foundation facts are recorded in [plan.md](plan.md#current-owner-decisions-and-evidence-boundary).
 
 ## Purpose and authority
 
@@ -9,6 +25,10 @@ Let the owner explicitly authorize the existing Etsy app to access one approved 
 
 Reuse [005's authorization boundary](../005-app-foundation/contracts/proposed-api.md), fixed Owner/Member policy and [006's browser session](../006-login-session/contracts/session-bff.md). Owner creates a scoped invitation from Lovora, shares it with the shop operator, and manages rows using explicit Check status/Sync shop info actions. The recipient needs Etsy consent authority, not Lovora Owner membership. This supersedes original operator-only initiation; FE implementation remains a separately owned later layer. Developer-app environment/configuration is the first future increment, before shop-connect behavior. Existing app registration/access and sufficient resources are owner-confirmed; do not repeat setup or request secrets.
 Existing [Notion C2-01](https://app.notion.com/p/3d256f555918818884afd5131dd1908c) remains the milestone tracker. Its historical own-shop/other-seller and Personal-to-Commercial intent does not establish current app type, approval, entitlements or this increment's dataset. No duplicate tracker or external update is created.
+
+## Current owner amendment — source/local shop-name discovery
+
+Owner approved table-first entry of a shop name or approved Etsy shop URL, resolved to the provider-assigned Shop ID before invitation creation. The subsequent explicit T037→T038→T039 source/local grant implemented the [lookup contract](contracts/proposed-api.md#owner-approved-shop-name-discovery--source-local-contract), sole canonical operation and BE generated types. FE URL parsing and integration remain separately owned. Discovery is public unverified metadata, not OAuth consent or shop ownership proof. It adds no connection, scope, role or extra shop. Owner-reported app ping succeeded for application1527398778065; agents did not read credentials or repeat the call. That report is app-access evidence only. Current local checks and initial failures are recorded in [quickstart.md](quickstart.md#current-shop-name-lookup-source-local-freeze); source review and hosted proof are separate gates.
 
 ## User Scenarios & Testing
 
@@ -52,7 +72,7 @@ Duplicate/malformed query parameters; missing browser technical bearer on the ca
 - **FR-002**: Bind each management/read/sync action to current Owner membership and existing session/capability/CSRF policy; a retained operator adapter requires explicit operational approval. The recipient invitation permits only the bound consent transaction, not app membership or management access. Members cannot initiate, read, refresh, reconnect or disconnect this integration. Recheck authority before committing an activation or returning data.
 - **FR-003**: Complete initiation, consent, registered secure callback, protected code exchange, protected credential storage and actual granting-user/shop verification before reporting an active connection.
 - **FR-004**: Each attempt is single-use, expires after five minutes, and is server-bound to actor, workspace, intended shop, app identity, purpose, fixed return destination and connection generation. Reject replay, mismatched proof and cross-workspace/relink substitution.
-- **FR-005**: Exact invitation inspection/start and OAuth callback have narrowly defined invitation/transaction-authenticated exceptions, because recipients cannot provide the API technical bearer. Inspection GET does not claim an invitation; start requires explicit same-origin POST and valid scoped invitation proof. Every other route retains its existing technical and applicable user/session boundaries. No wildcard or deployment-wide bypass is permitted.
+- **FR-005**: Recipient confirmation is FE-owned and explicit; a browser never receives the API technical bearer. Its same-origin BFF sends exact POST start to the fixed API origin with technical bearer and exact invitation Origin. BE requires the single native API/callback Host and checks bearer before the bounded body/scoped invitation proof. Only exact OAuth callback remains bearer-free and transaction-authenticated. No BE inspection GET exception, Host override, forwarded-host trust, CORS expansion or deployment-wide bypass is permitted; every other route retains its existing technical and applicable user/session boundaries.
 - **FR-006**: Use the official provider protocol and required headers, exact redirect matching, scoped consent, verified secure transport, bounded requests and no credential-bearing request URLs for token exchange/refresh. Never copy contradictory tutorial shortcuts.
 - **FR-007**: Protect credentials and proof verifiers at rest with versioned authenticated encryption and explicit key references. Fail closed on missing/wrong keys or tampering; never expose provider credentials in frontend state, successful redirect queries, logs, Git or evidence reports.
 - **FR-008**: Identify the actual granting user and authorized shop through the authenticated provider identity operation. Cross-check the intended shop and shop owner; never infer identity from an app registrant, submitted shop ID, token prefix alone or public metadata alone.
@@ -71,6 +91,8 @@ Duplicate/malformed query parameters; missing browser technical bearer on the ca
 - **FR-020**: Persist and list invitation history with safe expiry/status and current-Owner create/cancel authority. Link secrets are hashed; no secret in table/status/logs. Replays, previews, cancellation and demotion cannot create unauthorized attempts or connections. Invitation lifetime is separate from five-minute OAuth lifetime. Runtime invitation/retention durations require explicit validated inputs; no24-hour default is accepted and live owner policy remains pending.
 - **FR-021**: Check status reads local persisted state with zero Etsy calls or refresh. Sync shop info is an explicit provider verification/read. Callback completion is independent of either button. No automatic polling, focus polling, SSE/WebSocket or background sync.
 
+- **FR-022**: An authenticated current Owner may explicitly look up a normalized shop name through fixed findShops and obtain only bounded public ID/name/derived URL choices with completeness and unverified status. Auto-fill requires one complete exact match; ambiguity/partial search requires explicit choice/refinement. URL parsing is local only, and no arbitrary provider URL fetch is allowed. Selection feeds existing expectedShopId; consent/identity/one-shop constraints remain unchanged.
+
 ### Key entities
 
 Existing workspace and current Owner membership; scoped connection invitation; purpose-bound operator approval where used; expiring authorization attempt; workspace-scoped connection; encrypted credential version and refresh attempt; redacted audit event. See [data-model.md](data-model.md). No Etsy password, browser password store, order model or new role taxonomy is introduced.
@@ -85,6 +107,8 @@ Existing workspace and current Owner membership; scoped connection invitation; p
 
 - **SC-006**: Configuration-only acceptance proves disabled/partial/malformed settings and secret-safe errors without contacting Etsy. Upstream schema preparation is reproducible and does not create executable unapproved features.
 - **SC-007**: Owner creates a persisted invitation row, recipient completes consent independently, and explicit Check status observes the committed result without calling Etsy. Sync performs only the selected metadata operation; an idle table produces no periodic requests.
+
+- **SC-008**: Exact complete search resolves the intended ID, ambiguous/partial/empty later pages cannot silently select or claim absence, and Member/foreign/stale-Owner calls cause zero unauthorized results. Lookup never marks connected; wrong-shop consent is still rejected by the existing flow.
 
 ## Assumptions and dependencies
 

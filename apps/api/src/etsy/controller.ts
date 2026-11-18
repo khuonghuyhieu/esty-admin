@@ -16,6 +16,23 @@ export class EtsyController {
     return this.service.status(identity, signal);
   }
 
+  @Get('shops/lookup')
+  lookup(@Req() request: AppRequest) {
+    const { identity, signal } = requestContext(request);
+    const raw = request.url ?? '', separator = raw.indexOf('?');
+    const path = separator < 0 ? raw : raw.slice(0, separator), query = separator < 0 ? '' : raw.slice(separator + 1);
+    if (request.method !== 'GET' || path !== '/v1/app/integrations/etsy/shops/lookup'
+      || request.headers['transfer-encoding'] !== undefined
+      || (request.headers['content-length'] !== undefined && request.headers['content-length'] !== '0')
+      || Buffer.byteLength(query) > 1024 || /%(?![a-f0-9]{2})/i.test(query)) throw new AppError('invalid_request');
+    const params = new URLSearchParams(query), keys = [...params.keys()];
+    const name = params.get('shopName')?.replace(/^[\x09-\x0d\x20]+|[\x09-\x0d\x20]+$/g, '');
+    const offset = params.get('offset') ?? '0';
+    if (new Set(keys).size !== keys.length || keys.some(key => !['shopName', 'offset'].includes(key))
+      || name === undefined || !/^[A-Za-z0-9]{1,64}$/.test(name) || !/^(0|20|40|60|80)$/.test(offset)) throw new AppError('invalid_request');
+    return this.service.lookup(identity, name.toLowerCase(), Number(offset), signal);
+  }
+
   @Get('invitations')
   invitations(@Req() request: AppRequest, @Query() query: unknown) {
     const { identity, signal } = requestContext(request);

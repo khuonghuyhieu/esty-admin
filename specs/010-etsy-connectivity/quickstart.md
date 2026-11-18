@@ -1,5 +1,288 @@
 # Validation Guide: Etsy Connectivity
 
+## Accepted recipient bridge review — documentation-only closeout
+
+**FROZEN BE_RECIPIENT_BRIDGE_SOURCE_LOCAL_REVIEW_ACCEPTED; STOP WRITES.** Coordinator t151 accepted existing t175's actual final: **no confirmed actionable findings in this frozen bridge scope**. The reviewer ran no checks and did not reassess earlier features. This is a new, separate bridge acceptance, not a replacement for historical lookup/Auth/prune/packaging reviews or execution evidence.
+
+The pre-closeout manifest `recipient-bridge-review-freeze.json` retains SHA-256 `a853534c5832c8cf7c862f029b994fcf6b4878f541f7ce58cefacab0141a6c98` and17-path scope digest `f073c4a97bf250b1c41c667aa4a3db4ed3fc418c3ab1568ebc212370afe551bd`. All135 source records and all17 scope records matched before this five-document-only edit.
+
+| Unchanged source identity | SHA-256 |
+|---|---|
+| Public135-file source inventory | `12e1950cb2287016b990bb35d492f813dfcb7c5e5e32b9d9e775ca6f7443513f` |
+| Canonical OpenAPI | `b5c540638099cd3dda5f9136d9e7294812775cef7675bb21d92a1a3f9d1b6257` |
+| BE generated API types | `5293b3c4088a76bfbe350b6ae29bc6ee6eaae1eb58fc5a16d3271d7a905c6ce8` |
+
+Final five-document hashes, exact before/after17-path scope and unchanged135-record source inventory are retained in `esty-be-bridge-closeout-4hvn7zt5/bridge-review-closeout.json`. Verification is document preservation and file identity only: no source/test/build/generation/resource/Git/private/provider/FE action or new reviewer.
+
+FE remains17/18 plus affected1/1, not a single clean18-case run. The earlier actual006 group remains6/8 with role-change503 of unconfirmed cause; selector/locator and direct-mapping failures remain disclosed below. No runtime evidence was rerun or upgraded by review. t151 reports the reviewed canonical handshake delivered to FE/root; FE generation/review is not claimed. Root owns serial integration/release and remaining artifact/hosted/provider gates. Ownership returns to t151; STOP WRITES. All following sections retain their capture-time status as historical snapshots.
+
+## Recipient bridge and actual Auth fixture — current evidence
+
+**FROZEN READY_FOR_BE_RECIPIENT_BRIDGE_REVIEW; STOP WRITES.** T040–T043 source/local execution, FE acceptance and owned cleanup are complete. Source ownership returns to t151 for existing t175 review; no new review result is claimed. All135 accepted source records matched baseline `426d2567920f2df820e8b772c0e155172b4852523e3dabf23e76418230249a92` before editing. Prior evidence remains historical, unchanged.
+
+### Exercised BE checks
+
+Commands used the existing Node24 executable `/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node`, task-owned empty HOME/npm/Docker configuration and the explicit local Docker Unix socket. No install or owner credential/auth-store read occurred.
+
+| Check | Actual result |
+|---|---|
+| Baseline compiled ingress, natural API Host and correct bearer |404, zero start calls; reproduced missing bridge |
+| `node apps/api/scripts/codegen.mjs` and `--check` | Both exit0; existing start contract only |
+| `node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json` | Exit0 |
+| `node --test --test-name-pattern='owned fixture profiles' apps/api/build/tests/config.test.js` |1/1 passed; nonce/port/profile/timebox boundaries |
+| Natural-Host ingress smoke after change |303, one start call |
+| `node apps/api/scripts/etsy-local-check.mjs`, externally narrowed to lifecycle/Owner client/owned lookup groups |25/25 passed; no unchanged full suite |
+| Fresh pinned GoTrue compose startup | Exit0; cached immutable images |
+| Direct host-mapped GoTrue health | Failed `ECONNREFUSED`, retained |
+| Existing run-bound forwarder, then actual GoTrue health |200, GoTrue v2.197.0 |
+| Existing actual006 current-session group under isolated011 profile |6/8 counted tests passed; parent and Owner→Member role-change case failed with503 from existing setMember |
+| Separate actual011 bridge smoke | Six stages passed: private descriptor/origins; real login/refresh/logout/current session; native bearer-before-body; lookup modes; current Owner demotion; invitation/start/replay/PKCE callback/status |
+
+The25-test run included missing/wrong/duplicate bearer refusal while8192 declared body bytes were deliberately withheld, strict body/Host/Origin handling, callback/lifecycle fences and selected-ID consent. Its temporary selector matched `owned PostgreSQL and actual Nest HTTP|Etsy setup Owner client completes|Etsy lookup owned HTTP journey`; no repository runner was widened.
+
+The earlier role-change503 has **unconfirmed cause** and is not a passing006 suite. Other logout/current-session/disable and three dependency-fault cases passed. Its cleanup receipt confirmed all five owned identities removed. Bounded DB error classification found only the initial missing migration relation and deliberate lock timeout; that does not prove an HTTP/forwarder cause. No production deadline, retry or guard was changed to suppress the failure. Later direct Owner demotion and actual session checks passed in the separate011 smoke without erasing it.
+
+### Owned fixture and FE boundary
+
+Nonce `57fca668e50b910dc2e819b2978457a9`, project `esty011-57fca668e50b910dc2e819b2978457a9`: DB53096, actual Auth53097, mail53098, Nest API53099; FE alone owns55644. All are IPv4 loopback. Compose uses tmpfs, not shared volumes. Since host mapping was unavailable, the existing nonce/identity-checked forwarder supplies these exact loopbacks.
+
+Descriptor `/private/tmp/esty011-PGoqzf/fe-session.json` has0700 parent/0600 file; `s006.sock` is0600. Purpose/profile are exactly011, JWT expiry300 seconds, and webEnv has exactly the seven006 fields plus server-only synthetic ETSY_CLIENT_ID. Existing four disposable identities retain006 roles; a fifth private actual GoTrue guardian preserves the last-Owner invariant and exports no password.
+
+Private controls: `etsy-reset`, `etsy-counts`, `etsy-membership {allowed}`, `etsy-lookup {mode,delayMs?}`, `etsy-complete {state,codeChallenge}`, all nonce-bound. Reset preserves Auth and restores Owner. Lookup modes exact/ambiguous/incomplete/delay/429 use shop8 / SyntheticShop / user7 / USD; ambiguity adds9 / syntheticshop; incomplete declares25 with one initial row. Delay defaults2500ms, optional1–5000ms;429 uses Retry-After2. No production control route, provider switch or setting was added.
+
+Etsy011 transport is explicitly **in-process synthetic**, not real Etsy or a TLS-provider claim. The consent URL is never fetched: browser interception passes parsed state/challenge to private control, which checks synthetic PKCE and invokes the actual native-Host callback without bearer. Only test config injects loopback origins; production validation stays strict. SQL and synthetic counters are independent of FE assertions; `provider.callback` counts local completion HTTP attempts, not outbound Etsy.
+
+Successful callback produced one exchange/getMe/getShop and one SQL connection/invitation/attempt/encrypted active credential/receipt, with zero detected plaintext synthetic tokens. Secret and callback replay caused no second exchange. Reset returned Etsy rows/counters to zero while preserving five actual Auth users and six sessions.
+
+Evidence directory `esty-be-bridge-xe1cigh1` retains the exact baseline/freeze inventories, command logs, actual-bridge-smoke.json, FE counter evidence, identity receipts and cleanup.json. Both the25-test fixture on32781 and the actual011 fixture/private directory were removed. Application and forwarder exited0; all five actual identities/six sessions and app/Etsy rows were confirmed absent before compose teardown. All three nonce-owned containers/network are absent and ports53096–53099 closed. No volume mounts existed; shared resources remain untouched. Throwaway harness/selector and empty task configs were removed. No canonical active-copy, hosted/provider, Git, native-build or deployment action occurred.
+
+### FE acceptance and exact review freeze
+
+FE t18c reported the production matrix **17 passed/1 failed, exit1**, then the affected desktop cross-tab case **1 passed, exit0** after removing an invented automatic-redirect assertion and retaining private-link/table concealment checks. This covers18 cases across1440×1000,360×800,390×844, not one clean18-case run. Earlier no-tests selector and replay-alert-locator failures remain in FE evidence. Browser races synchronize dispatch/abort and current denial, not a forced post-provider barrier. The unrelated BE006 role-change503 above remains unconfirmed, not silently resolved.
+
+Exact environment, cwd, commands and report paths are in the separately owned011 plan's “Exact actual browser invocations and retained results” section. Matrix command ends `node ../../../../../node_modules/playwright/cli.js test`; the affected command adds `--project=desktop-chromium --grep "cross-tab sign-out"`. Both use the owned nonce/descriptor, explicit Etsy mode and isolated production stage. Matrix report is under `apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/attempts/1794989191711/project/playwright-report/session-run/index.html`; affected report is under the same run's current `project/playwright-report/session-run/index.html`.
+
+BE verified all three project-identified independent counter observations from FE `integration-counter-evidence.json`, SHA-256 `ef13412abb84b3d7b92c8e04cb2d1a52ab6fbd93ce760e9c081cff3a6e708306`: create has no token/credential; consent exchanges once and activates one encrypted credential; explicit sync increments getMe/getShop to2 without another token/refresh; disconnect removes credentials without provider calls. Returned live readback independently confirmed all Etsy counters0, Owner active/revision72, Auth5 users/6 sessions before cleanup.
+
+Final public135-file source digest: `12e1950cb2287016b990bb35d492f813dfcb7c5e5e32b9d9e775ca6f7443513f`;123 source records unchanged. Canonical SHA-256: `b5c540638099cd3dda5f9136d9e7294812775cef7675bb21d92a1a3f9d1b6257`; BE generated SHA-256: `5293b3c4088a76bfbe350b6ae29bc6ee6eaae1eb58fc5a16d3271d7a905c6ce8`. Exact17-path before/after scope, checks, failures and cleanup are frozen in `recipient-bridge-review-freeze.json`. These are **review inputs, not a consumer/release approval**; only t151 may send the reviewed canonical to FE after existing t175 review.
+
+
+## Accepted lookup review — documentation-only closeout
+
+**FROZEN BE_LOOKUP_SOURCE_LOCAL_REVIEW_ACCEPTED; STOP WRITES.** Coordinator t151 accepted existing t175's actual FIX-ONLY final: **original lookup P3 resolved; no further confirmed findings in FIX-ONLY**. The original lookup review remains **one confirmed P3**, not a no-findings review, and remains distinct from historical Auth/prune/packaging reviews. FIX-ONLY ran **no checks and no broader review**. The local execution results and failures below retain their original scope and chronology.
+
+The coordinator verified all twelve records/modes/sizes against pre-closeout scope digest `dac3dd3ce39a1ac0b214740fc62ff5d8c2c15ae72ad606ff1b8222468a20b252`. This fresh grant changes only spec.md, plan.md, tasks.md, contracts/proposed-api.md and this guide. Read-only document/history and file-identity checks are the only closeout verification; no application tests, generation, build, runtime or review were repeated.
+
+| Unchanged accepted source identity | SHA-256 |
+|---|---|
+| Canonical OpenAPI | `be9a6e76e9a4020adcc3ea3052703bf38c548e055557fb184113f3d128645b96` |
+| BE generated API types | `75429df85b8e7b33e689faab3c80e0bb23929c6b4c066e5a3f8211e87c161afa` |
+| Complete135-file source inventory | `426d2567920f2df820e8b772c0e155172b4852523e3dabf23e76418230249a92` |
+
+Final five-document hashes, before/after12-path scope records and unchanged source inventory are retained in task evidence directory `esty-be-lookup-closeout-o2j7r8m6`, file `lookup-docs-closeout.json`. Earlier lookup/fix manifests, failures and historical receipts remain unchanged. No scratch runtime, service or container was created for closeout.
+
+**Accepted only:** scoped lookup source/local implementation and independent review. **HOSTED_NOT_RUN; not release complete.** Root owns serial integration. Recipient bridge remains **PROPOSAL ONLY**, with no source grant; this receipt neither specifies nor implements it. FE compatibility, exact-source artifact/secure bindings and actual hosted/migration/provider/deployment gates remain separate. The conditional owner deployment direction does not authorize actions under this documentation-only grant.
+
+No source/tests/build/Git/services/private/provider/FE/CI action or new review occurred. Ownership returns to t151 and writer stops. All previous freeze/review/failure sections below are preserved verbatim; their earlier pending labels are historical, superseded only by the accepted review state above.
+
+## Current lookup schema P3 correction
+
+**FROZEN READY_FOR_BE_LOOKUP_SCHEMA_FIX_REVIEW.** Coordinator t151 recovered existing t175's actual original lookup final: **one confirmed P3, no other confirmed actionable findings**. The canonical positive/nonnegative19-digit patterns admitted values above9223372036854775807 even though runtime already rejected them. This result remains distinct from the historical Auth/prune/packaging reviews. It is not rewritten as no-findings. The correction is local and awaits the coordinator's one FIX-ONLY review; writer returns ownership and **STOP WRITES**.
+
+### Narrow correction and identities
+
+Only `EtsyShopLookupItem.shopId.pattern` and `EtsyShopLookupPage.providerCount.pattern` changed in the canonical JSON. Decimal-prefix alternatives encode the exact ceiling using ordinary ECMA regexp syntax; `(?![\s\S])` requires the absolute string end, including rejection of final line terminators that `$` can admit. No Number conversion, number schema, unenforced custom format or dependency was introduced. Existing runtime validation/controller/service/provider/fixture behavior stays byte-identical.
+
+The new focused test reads the actual canonical type/pattern constraints. It checks exact max/max±1;19-digit values below max, including values above JavaScript safe-integer range; every decimal-prefix boundary against a BigInt oracle; zero accepted only for providerCount; and rejection of leading zeros, negative/signed values, decimals, exponents,20-digit/overflow values, whitespace/line terminators, non-ASCII digits and non-string inputs. It does not inspect descriptions or pin regexp source text.
+
+Before editing, all12 records exactly matched original lookup scope digest `a5339e172ca3231849a63a658e86ddb15c1028341b9e140238f9889f6508f20e`, and all135 public source records matched digest `3d2c101bf5823a32c7e06a563c1ffc83bba23060bc1a5d690bfd3e811528ac22`. Original freeze receipt SHA-256 `1ec1a4d3f119fa214dbd77d66c80774762d37d380aa22180d3f10063526ca100` remains unchanged. Corrected135-file source digest: `426d2567920f2df820e8b772c0e155172b4852523e3dabf23e76418230249a92`; only canonical JSON and the existing Etsy test file differ, with133 other source records unchanged.
+
+| Corrected artifact | SHA-256 |
+|---|---|
+| `specs/001-connectivity-foundation/contracts/openapi.json` | `be9a6e76e9a4020adcc3ea3052703bf38c548e055557fb184113f3d128645b96` |
+| `apps/api/tests/etsy.test.ts` | `b34d33535bb673cb7c2cd81da1d93caab84f2d3e6a5651fad1912c1856b73cae` |
+| `apps/api/src/generated/api.ts` — regenerated, byte-identical | `75429df85b8e7b33e689faab3c80e0bb23929c6b4c066e5a3f8211e87c161afa` |
+
+### Actual focused checks
+
+Exact existing Node24.22.1, isolated empty task HOME/user+global npm configuration, existing dependencies only:
+
+```sh
+node apps/api/scripts/codegen.mjs
+node apps/api/scripts/codegen.mjs --check
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+node --test --test-name-pattern="Etsy lookup canonical int64 string bounds" apps/api/build/tests/etsy.test.js
+```
+
+All four commands exited0. The focused schema test passed1/1, exercising the canonical regexp with the actual JavaScript engine; existing OpenAPI3.1 generation/check also accepted the corrected contract. Generated BE string types did not change because the refinement is a machine-schema pattern, not a new TypeScript type or description. No new check failure occurred. No full suite, DB/Auth/Etsy provider fixture, native/staging/build-output packaging or external runtime was run for this fix.
+
+Complete before/after12-path records and all135 source hashes, review distinction and command output are retained in task evidence directory `esty-be-lookup-schema-fix-8bt5_v27` (`before.json`, `checks.json`, `schema-fix-review-freeze.json`). Empty task environment files/directories were removed; no services/containers were created. Original lookup logs/failures/freeze and all older review/setup receipts remain unchanged. The five existing010 documents carry only this fix's status/evidence updates.
+
+**Source/schema fix ready; FIX-ONLY review pending; HOSTED_NOT_RUN.** The conditional owner deploy request does not authorize deployment from this local fix. Exact-source artifact/secure bindings/FE compatibility, migrations and hosted/provider/deployment gates remain separate. No Git/private/FE/CI/provider/cloud action or reviewer start occurred.
+
+The original lookup freeze and all earlier evidence below remain verbatim historical snapshots; their then-current identities/statuses are not the corrected schema freeze.
+
+## Current shop-name lookup source-local freeze
+
+**FROZEN READY_FOR_BE_LOOKUP_REVIEW.** T037→T038→T039 ran under the explicit owner START in existing t15j at coordinator-reported `feat/etsy-connectivity` HEAD `3c2f6f42aa08b7f64a7bb249c0ec529e7051d68c`. No Git probe/mutation was performed. The four pre-existing coordinator planning changes in spec/plan/tasks/contracts were captured before source edits and remain distinct from this writer's delta. Only t151 may start existing t175's scoped lookup review. Source ownership returns with this receipt: **STOP WRITES**. No lookup review or FE/hosted pass is claimed.
+
+### Exact source and consumer handoff
+
+`GET /v1/app/integrations/etsy/shops/lookup`, `lookupEtsyShops`, is implemented in the existing controller/service/provider. The sole001 canonical contract defines `EtsyShopLookupResponse`, `EtsyShopLookupItem` and `EtsyShopLookupPage`; only the BE consumer was regenerated. FE011 owns its generated consumer, approved Etsy URL-to-name parser, table/selection UX, AppMe capability compatibility and existing error/retry parser. BE rejects URLs, accepts only explicit bounded name/offset queries and never verifies ownership through lookup.
+
+Public build-source inventory remains135 files. Baseline digest `4f76286597a498eccf69eab91157264dbc0e34af7c0f6c495f49484cd4bf8cc4`; lookup digest `3d2c101bf5823a32c7e06a563c1ffc83bba23060bc1a5d690bfd3e811528ac22`. Exactly seven source/contract/test records changed; the other128 records, including configuration, migrations, upstream generation, setup/release tooling and root package/lock, stayed byte-identical.
+
+| Current changed path | SHA-256 |
+|---|---|
+| `apps/api/src/etsy/controller.ts` | `73a93f1e5dabff21d5778b7b6d3fa01f4988f0ce2537d22a9637afeeb6aca3be` |
+| `apps/api/src/etsy/provider.ts` | `ff0e8416e3e2f3f8bd216537fa516096d3382c63528505f5966829f1898833f9` |
+| `apps/api/src/etsy/service.ts` | `0519c5dae5be5c77ac58c116c63862a5277395e66ec7a892c4b9173c8b3e8924` |
+| `apps/api/src/generated/api.ts` | `75429df85b8e7b33e689faab3c80e0bb23929c6b4c066e5a3f8211e87c161afa` |
+| `apps/api/tests/etsy-fixture.ts` | `4e1080b8b8e5dd00d586c3919f1bfcac03b6b628e38baf3e4a1123d9258135bf` |
+| `apps/api/tests/etsy.test.ts` | `c58d58885e61b042068a1080ff0f6eb19190079cdc562985c558801026fe30ee` |
+| `specs/001-connectivity-foundation/contracts/openapi.json` | `cd34ed7bb6530cfeb66c8787386750a080d2ee3a1e93b95c5b1d85e1acded86d` |
+
+Five existing010 documents carry this execution receipt: spec, plan, tasks, proposed-api contract and this validation guide. Original coordinator-doc bytes/hashes, complete baseline/current source inventories and exact final12-path scope are retained in task evidence directory `esty-be-lookup-p81wds8j`. Historical review-manifest.json, release-preparation.json and setup-preparation.json remain unchanged; none attests this new lookup source.
+
+### Actual checks and runtime evidence
+
+Exact existing Node24.22.1 ran in an explicit minimal environment with fresh empty task HOME, user/global npm config and Docker config, using the existing local Unix Docker socket. No install/download, wrapper/operator staging or native artifact build occurred. Commands below are execution records, not authority to repeat provider/deployment work:
+
+```sh
+node apps/api/scripts/codegen.mjs
+node apps/api/scripts/codegen.mjs --check
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --noEmit
+node --test --test-name-pattern="Etsy lookup (projects|rejects|classifies)|selected protocol|malformed tokens|rate limits and body cancellation" apps/api/build/tests/etsy.test.js
+node --import "$TASK_SCRATCH/fixture-selection.mjs" apps/api/scripts/etsy-local-check.mjs
+node --import "$TASK_SCRATCH/smoke-selection.mjs" apps/api/scripts/etsy-local-check.mjs
+```
+
+- **Generation/check, compile and final no-emit check: exit0.** Final canonical component name matches the accepted `EtsyShopLookupResponse`; that type-only naming correction was regenerated/checked without repeating unchanged runtime behavior.
+- **Focused provider boundaries:6/6 passed.** Three lookup cases plus three direct provider regressions cover fixed app-key-only endpoint, safe ID/name/derived-URL projection, full int64 ID/count precision, exact/ambiguous/partial/empty later pages, deduplication versus original-window paging, conflicting same-ID names, malformed/oversized bodies,1500ms body cancellation, parent cancellation, bounded429 and no retries. App401/403 is configuration_unavailable; generic provider400 is upstream_unavailable, not a guessed definitive key rejection.
+- **Existing lifecycle regression:14 subtests plus parent passed** on the first owned run after the fixture's HTTPS response became a real streaming body. Existing invitation/CAS/refresh/identity/demotion/current-session/timeout paths stayed intact. That run failed only in the newly added disabled-Owner fixture setup, described below; it is not reported as an all-green run. The passing old journey was not repeated after the fixture-data correction.
+- **Final owned lookup HTTP journey:8 subtests plus parent,9/9 passed.** Actual Nest, signed JWT/current SQL Auth session, app_runtime PostgreSQL and verified synthetic HTTPS exercised valid lookup; duplicate/array/extra/oversized/query/URL/body/path rejection; technical/user/Member/foreign/disabled-Owner denial with zero provider calls; bounded SQL lock failure; demotion and session revocation while provider work was parked; app-key503;429 shared across independent workers; stalled body/client cancellation; and selected lossless ID through unchanged idempotency/revision/consent/getMe/getShop activation. Lifecycle/credential/audit row snapshots stayed identical across lookup success/errors; only the existing cooldown changed on429.
+- **Separate direct runtime smoke: exit0.** An explicit offset80 page with count101 and20 results returned200/choose, complete=false, hasMore=true, nextOffset=null, truncated=true and ownershipVerified=false. Explicit choice of displayed ID81 created the unchanged invitation200 and left connection verification_pending with verified shopId=null. Exactly one provider call, zero OAuth/refresh calls. No automatic exact selection or connection was inferred from the partial page.
+
+Initial failures are retained, not erased: first no-emit compile exited2 for an unknown JSON result access and a two-argument test handler invoked with three arguments; test narrowing/signature were corrected. The first owned run's disabled-Owner fixture omitted required disabled_at and hit memberships_check; the fixture now supplies/removes that timestamp without weakening runtime/schema guards. The first throwaway smoke incorrectly expected unconnected after explicit invitation creation; actual unchanged semantics are verification_pending, and the corrected smoke passed with verified shopId still null. No application test failure was suppressed.
+
+### Cleanup and remaining gates
+
+Fresh owned tmpfs fixtures were `esty-etsy-e9bf326256ed659f`/32777, `esty-etsy-d7e97191bc00898e`/32778, `esty-etsy-05b02693b0db6780`/32779 and `esty-etsy-6c419daaf61bad39`/32780, exclusively IPv4 loopback. Each runner verified its ownership label before removal, removed synthetic credential scratch, and printed cleanup completion. Exact-name Docker absence checks returned exit0/empty for all four. Auth/Nest/TLS peers closed in fixture teardown. Temporary selectors/smoke script and empty task environment were removed after retaining hashes and sanitized logs; no shared service/volume or FE55440–55444/preview55644 was used or stopped. Existing dependency caches and ignored compile output remain.
+
+This is **source/local READY, HOSTED_NOT_RUN**, not a clean published Linux release. Prior setup/operator/artifact receipts are stale for this new source. The source review, FE consumer/parser/browser integration, publication, exact-artifact build/approval, secure inputs and actual provider/Supabase/domain/consent acceptance remain separate. Owner-reported application1527398778065 ping was not replayed and no real private/Auth/provider inputs were read. No new worker/reviewer, cloud SQL, CI, paid upgrade, deployment or Git action occurred.
+
+All following sections preserve earlier setup/review evidence verbatim. Their then-current hashes, review results and publication stops are historical, not lookup acceptance or current release authority.
+
+## Current Auth trust-boundary correction
+
+**READY_FOR_BE_SETUP_PUBLICATION.** t151 recovered existing t175's actual FIX-ONLY final and accepted the scoped Auth correction: **original setup Auth P2 RESOLVED; no further confirmed findings in FIX-ONLY**. The original setup review remains one confirmed P2, distinct from historical prune and packaging reviews. Reviewer tests/build/runtime were NOT_RUN. This closeout changed only four010 evidence files; source hashes/document integrity were verified without rerunning any application check.
+
+### Corrected owner entrypoint
+
+Do not invoke the former unbound interactive Owner entrypoint or copy an example target. Only a newly generated, independently approved guarded `owner.sh` carries authority: the existing setup generator first verifies its approved packet, full new configuration digest and immutable source/artifact/operator, derives `owner-binding.json` with exact Auth URL/public-key hash, and embeds that file's digest in the launcher. Owner input cannot select the expected digest or target. Receipt loading verifies exact schema, packet expiry, project and artifact provenance; actual execution checks Node/operator identity before any hidden prompt. Settings and constructor require the opaque verified approval and exact URL/key match; login rechecks receipt/artifact/expiry before transport. Lovora API origin and current-session/Owner checks remain unchanged.
+
+The Owner receipt/launcher contains no raw public key or runtime/database credentials. The Owner client reads only this nonsecret binding, not the new runtime bundle. Manual use of a self-computed receipt digest is not an approval path. Actual trusted packet/config/native artifact and owner authorization remain unavailable; no real launcher or credential request is issued here.
+
+### Actual narrow checks
+
+Using the existing exact Node24.22.1 and isolated empty task HOME/user+global npm/Docker configuration, without installation:
+
+```sh
+npm run stage:operator --workspace @esty-admin/api
+node --test --test-name-pattern="Etsy setup Owner approval|staged operator imports" apps/api/build/tests/etsy.test.js apps/api/build/tests/artifact.test.js
+node --test --test-name-pattern="Etsy setup Owner approval" apps/api/build/tests/etsy.test.js
+```
+
+- Compile/stage passed, manifest current,157 dependency packages. Boundary+isolated-package checkpoint **2/2 passed**; after strengthening assertions to observable refusal/redaction rather than wording, final boundary test **1/1 passed**. These overlap, not three distinct tests. The unchanged package regression verified actual isolated imports/no-input behavior with the new transitive Owner dependency.
+- Permanent boundary coverage: another valid Supabase project+matching public key, same-project wrong key and forged approval fail with **zero transport and zero password acquisition**. Changed source/tree/artifact/runtime/config binding under the pinned digest fails; independently pinned malformed/expired/source-incompatible receipts also fail. An already loaded approval expiring before login fails. Errors do not disclose password canary, Auth URL or public key.
+- Owned runner with temporary preload selecting only `Etsy setup Owner client`: **1/1 passed**. Actual signed JWT/current SQL Auth session/current Owner/Nest/SQL lifecycle, with synthetic password HTTP/Etsy HTTPS and independently pinned synthetic approval. Fresh fixture `esty-etsy-412d6be11e8bfa2b`, loopback32776, tmpfs; teardown completed and exact container absence was checked. Unrelated strict-cutover/full suites were not rerun.
+- Pinned Linux/x64 Node24.22.1 image, network none, read-only root, dropped capabilities and only new synthetic fixture mounts: actual generator derived exact Auth URL/key hash, embedded the external binding digest, excluded raw key/runtime secrets, rejected changed configuration and emitted valid shell syntax.
+- Actual PTY execution of generated `owner.sh`: attacker project and same-project wrong key stopped before email/password prompts. Tampered binding and unbound direct CLI stopped before settings. Approved settings reached the email prompt; the smoke cancelled there without entering email/password. No Auth/provider call was made. Unit transport counters separately prove zero credential submissions on rejected input.
+- This Linux package has deliberately fake source revision/tree and a throwing synthetic CLI: **not native/published release evidence**. Final synthetic package digest `cad8cf933276877495ace34976d137d359057e861bb7cedda3cfb7c83ba3d6cb` is test identity only.
+
+One new failure remains recorded: initial compile exited2 because the new test fixture passed a readonly migration tuple to a mutable artifact-builder parameter. The fixture now supplies a mutable copy; production guards were not weakened. All five prior setup failures and the original one-P2 review remain preserved.
+
+### Frozen delta and cleanup
+
+Only three source paths differ from the prior setup freeze: `apps/api/scripts/etsy-owner.ts`, `apps/api/scripts/etsy-release.ts` (Owner binding/guarded-launcher interface only), `apps/api/tests/etsy.test.ts`. The other132 build-source records are unchanged. Four existing010 evidence files record this increment; six paths from the original13-path review scope are byte-identical.
+
+Current source135 digest: `4f76286597a498eccf69eab91157264dbc0e34af7c0f6c495f49484cd4bf8cc4`. Operator6329-file/683-directory digest: `bd8d8eeb5f934505b0e0beab953d68a86f42b2ba8951dc3a499b91d539824ee4`. Original setup packet SHA-256 `e2c6172c8aca454c76029c01005c09658a9e1819885e9a4b19d7ecc57344e399` and review-scope digest `a5e4270f195aeb88b3e5b9f11ae89530bcb9769594f546d1cfa71588ee9127ab` remain historical, not the corrected source.
+
+Exact hashes/checks and the preserved setup snapshot are in setup-preparation.json; public logs/inventories and a byte-identical original packet remain in task scratch `esty-be-setup-auth-fix-1vnoj0mo`. Synthetic receipt/config/launcher/package/harness files and empty task environment were removed after evidence capture. Ignored build output remains. Shared services/volumes/FE ports and all root/dependency/FE/CI/runtime/SQL/provider phase source stayed untouched.
+
+**Accepted source-local review is not publication or hosted acceptance.** The nine source/test paths and135-file digest above remain frozen. t151 will handle existing-branch publication after this docs freeze; the writer performed no Git/main change. New committed/current-main binding, clean exact-source Linux native build and separate immutable artifact approval remain open. Optional24f5 native baseline stays skipped/NOT_RUN. Actual configuration/target/key/packet/maintenance/recovery/activation decisions remain OWNER_INPUT_PENDING; real cloud SQL/provider/deploy/domain/ACK/Etsy acceptance remains HOSTED_NOT_RUN. General FE and prune gates stay open. No ready real shell launcher is claimed. No tests/build/runtime/resources/private/provider/CI/FE action or new reviewer was started during closeout. **STOP WRITES; ownership returns to t151.**
+
+All following sections preserve the earlier setup freeze verbatim. Their old unbound Owner interface and pre-review status are historical and superseded by this correction, not current usage guidance.
+
+## Current BE setup completion — source-local first, deploy later
+
+**READY_FOR_BE_SETUP_REVIEW.** t151 accepted the bounded plan and implementation authority; t15j completed the nine source/test paths and four010 evidence files, then froze them for the coordinator. Existing t175 has not reviewed this new increment yet. CI remains deferred and disabled; no enablement or routine guard change was made.
+
+### Scope and identities
+
+PR6's existing BE baseline is published on planning-observed main `24f5dc3fddfc25680ba11ff8214ce374e214f46a`, tree `87a13cda426503232ae66b01fea9aacb77b7eaaf`. The132-file baseline digest was `ba9c78358a6864e88b78018cf4816af4ed58fa7a49c682b47029408f7695dbba`. The worktree remains assigned branch `feat/etsy-connectivity` at supplied HEAD77e5/tree0a39; no Git mutation/publication occurred. Main was not needlessly re-probed during implementation.
+
+Subsequent t151/root FYI reports clean main/origin `08e68fb91e0cfb74776494eb84709e8eb9b2244b` after FE53ac9ac, with API/010/canonical bytes preserved and only FE generated types regenerated. This is supplied evidence, not an independent BE blob verification.24f5 is historical. Future exact controller/artifact work must rebind then-current public main and verify BE blobs; no rebase/pull or native/build restart was performed for this FE-only metadata update.
+
+| Current development evidence | Value |
+|---|---|
+| Full135-file public build-source digest | `310907b72b72062e8cef3a236a9229ffb41977e340a9f156b5bb1c9bf46557de` |
+| Staged operator inventory,6329 files/683 directories | `222261d17eae8f4b6deb227a07819cc0ed46414434ce11885df2236b0ef43e2f` |
+| Historical review-manifest.json, retained | `a925080d6d587187c67c0581c9283655ead6711dbabb918cd4dfa0d3f9a3645a` |
+| Historical release-preparation.json, retained | `53ba2808f958e0201b2a647cf20195570955ea1ed092595dd71f861d6f2b7664` |
+
+The source digest uses canonical artifact file records; operator digest uses canonical complete `{files,directories}` inventory. Exact records, changed-path hashes, tools, logs and prior planning receipt are in [setup-preparation.json](setup-preparation.json). This overlay is not published24f5, a clean native build, or an approved release. The original24-file review digest is historical, not an unchanged claim for the newly extended tests.
+
+### Implemented operator contract
+
+- `activation-config.ts` now includes all ten Etsy keys in the existing digest. Absent Etsy keys preserve the legacy digest; every present Etsy value binds the new one. Old D1 remains historical and does not attest this configuration.
+- `etsy-setup.ts` validates a fresh exact `{runtime,backupPolicy}` envelope through existing startup validation, including the complete enabled envelope even when output stays disabled. `prepare` takes one fresh output path and hidden-TTY JSON; `validate` takes an explicitly selected new0600 **raw input snapshot**, not the prepared output bundle. `key` takes one fresh output path and requires hidden key-ID/policy/confirmation. Existing0700 parent, exclusive0600 output, no overwrite/symlink/original discovery/injection. No real key was generated.
+- `etsy-owner.ts` accepts no command arguments: hidden settings contain exactly `authUrl`, `authApiKey`, `technicalKey`, `invitationOrigin`, `clientId`, then hidden Owner email/password. Fixed existing password sign-in plus Nest `/v1/app/me` verifies current session/Owner. Explicit status/list/create/reconnect/cancel/start/read/disconnect/logout only; no refresh, background call, automatic retry, actor UUID or prune. Revision/idempotency is explicit. Share/consent/results go only to fresh private files. Reconnect warns before removing/fencing old local credentials. Unknown writes/logout remain unknown, not replay or revocation success.
+- `etsy-release.ts` implements seven separately approved phases: `history` → `held-create` → `pre-sql-check` → `sql-apply` → `post-sql-check` → `promote-only` → `final-domain-ack`. One held skip-domain CREATE; exact pending503 before SQL (unexpected ready200 refuses); exact3→4 SQL; same-ID ready200; explicit same-ID promotion; final alias/health/config/inventory/ACK.
+- Durable exclusive intent precedes network. A returned CREATE ID is fsynced before follow-up even on nonzero/abort. Missing/late/unknown ACK, changed main/packet/config/history, wrong503, alias drift, missing receipts or fsync failure retains a terminal lock; no retry/new CREATE. Separate processes cannot repeat consumed CREATE/promote. Old strict3 pending503 is accepted only in the bound post-SQL maintenance phase, never healthy rollback.
+- Live launchers require actual Linux/x64 Node24.22.1, exact immutable source/artifact/CLI/operator/config/packet and current approvals. Their embedded built-in-only inventory verifier runs before importing operator code. The ledger is fixed to the actual OS user's retained home `.local/state/lovora-etsy-setup`, not an alternate packet directory or HOME override; one authoritative host/user and exclusive owner lease remain required. SQL/history phases receive only migration input and publicly bind GitHub main; no Vercel/Auth credentials. Provider/probe and Owner inputs remain separate.
+
+These are implemented interfaces, **not issued owner execution commands**. No usable real packet/native artifact/secure input/maintenance approval exists in this receipt. A private directory or synthetic hash is not approval. No old675/f162 launcher, receipt, pinned probe or D1 input was reused.
+
+### Actual affected checks
+
+Exact existing Node24.22.1 ran with explicit minimal environment, empty HOME and separate empty user/global npm configs; no install:
+
+```sh
+npm run stage:operator --workspace @esty-admin/api
+node --test --test-name-pattern="Etsy setup|runtime attestation|staged operator imports" apps/api/build/tests/config.test.js apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js
+node --test --test-name-pattern="Etsy setup|staged operator imports" apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js
+```
+
+- Build/stage exited0: manifest current, TypeScript compile passed,157 production dependency packages, three explicit helper entries added without copy-all.
+- First successful focused config/release/package checkpoint: **35/35 passed**. After final fixed-ledger/CLI/metadata/approval guard changes, final release/package run: **32/32 passed**, zero failed/cancelled/skipped. Counts overlap; they are not67 distinct cases.
+- The package regression stages the real operator, copies it outside checkout fallback, imports new/existing helpers and exercises no-input/refusal boundaries with filesystem/process/network restrictions. Final pinned Linux checks also imported the actual staged code.
+- Actual owned E2E: `node --import <task-scratch>/fixture-selection.mjs apps/api/scripts/etsy-local-check.mjs` exited0, **3/3 passed**. The temporary preload only narrowed the runner's existing child test arguments to `--test --test-name-pattern=Etsy setup apps/api/build/tests/etsy.test.js`; fixture setup/validation/teardown remained unchanged. No unrelated original21-case rerun. Exact preload hash/text is retained in the evidence packet.
+- Fixture `esty-etsy-30801192c8d47e4d`, loopback32775, tmpfs: real Nest/PostgreSQL, signed JWT and current SQL Auth session/Owner checks; synthetic password HTTP and Etsy HTTPS. The new client completed create/start/callback/status/four-field read/reconnect/cancel/disconnect/logout; Member/foreign/demoted/revoked authority and lost-write response refused. No status provider call. Separate fresh DB proved old strict3 ready200→pending503 and target strict4 pending503→ready200 around actual exact3→4 migration. Provider CREATE/promote transport stayed synthetic, once each.
+- Actual PTY invocation of `etsy-setup.js prepare` accepted only synthetic hidden JSON, exited0, saved0600 disabled output and did not echo secret canary/DB URL/keyring. Key generation and real private inputs were NOT_RUN.
+- Pinned Linux image `docker.io/library/node@sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea`, Node24.22.1/linux/x64, binary `e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb`: network none/read-only root/dropped capabilities, only new task-fixture mount. A clearly marked **synthetic sealed fixture with fake source revision/tree and a throwing synthetic CLI**, not a native/published artifact, generated all seven shell scripts. Shell syntax, actual pre-import inventory/no-TTY refusal, alternate-ledger refusal, changed-CLI refusal and changed-operator-before-import refusal passed. No credential/SQL/provider call or actual CREATE.
+
+Unrelated suites and historical artifact-pinned activation-recovery fixtures were not run or retargeted. Existing CI/routine/private-input allowlists and strict schema behavior remain intentionally unchanged; no full-suite or historical-artifact acceptance is claimed.
+
+### Failed attempts retained
+
+1. Initial typecheck exited2: two test `assert.rejects` calls supplied `undefined` where the type requires an error predicate. Corrected the test callbacks; later compile passed.
+2. Initial build exited1 because isolated npm user/global configuration used the same path. Separated the two empty files; no dependency change/install.
+3. First focused run:28 passed/2 failed because the synthetic setup fixture omitted explicit `APP_RETENTION_POLICY_ID`. Completed the fixture; runtime validation was not weakened.
+4. First owned runner attempt could not find default `/var/run/docker.sock`; no fixture started. Selected the existing local OrbStack socket explicitly with empty task Docker config, without reading actual auth/config stores; subsequent owned run passed.
+5. First Linux launcher fixture failed packet validation because synthetic `dpl_synthetic_old` violated the existing deployment-ID grammar. Corrected that fixture ID; no source guard was weakened. Later Linux positive/fault smoke passed.
+
+### Cleanup, review and remaining gates
+
+The owned DB/HTTPS/Auth fixture runner completed guarded teardown; Linux containers used `--rm`. Task-only synthetic packets/config/results, generated shell scripts, synthetic sealed package and temporary preload/assembly/smoke scripts were removed after hashes were recorded. Sanitized failure/success logs and public source/operator inventories remain in `esty-be-setup-checks-2be2x1xj`; ordinary ignored build output is retained for review. Shared services/volumes, FE55440–55444, dependencies, root package/lock, CI/routine/schema guards and FE/shared docs were untouched.
+
+**Source-local:** READY_FOR_BE_SETUP_REVIEW, frozen; only t151 starts existing t175. **Owner decisions/secure input/maintenance/recovery/activation:** OWNER_INPUT_PENDING. **Hosted/provider:** HOSTED_NOT_RUN. General FE/recipient journey and operational prune stay deferred; this is not complete hosted Etsy acceptance.
+
+Baseline24f5 native build was deliberately skipped per the accepted priority. Final new-source native artifact still requires scoped review, separate publication/main integration, freshly bound clean source, unchanged pinned official builders, exact native evidence and explicit artifact approval. No Docker runtime/synthetic package pass substitutes for this gate. No install, Git publication/merge, real private/Auth/cache read, cloud SQL/provider/Etsy call, deployment, DNS or billing action occurred.
+
+The remaining sections preserve earlier packaging/pre-merge evidence byte-for-byte. Their old digest coverage and publication/overlay claims are historical, superseded only by the current section; original one-P2/resolved and separate accepted packaging review history are not rewritten.
+
 ## Current BE release preparation — packaging fix review
 
 **READY_FOR_SCOPED_PUBLICATION_MAIN_INTEGRATION_DECISION.** Coordinator t151 accepted t175's separate packaging-delta review with no confirmed actionable findings in the exact five-path scope; actual gpt-6-luna medium was coordinator-verified. The reviewer ran no tests/build/runtime. The original Etsy full review remains one P2, resolved through its earlier fix-only recheck; this is a separate review. The supplied published baseline remains `00fc8c5505c20a801ac63fcc02ee9aa24324a080` on `feat/etsy-connectivity`, tree `0fb95fdd16f7b58d925ee586a0ce1df48503b4e4`. Initial local HEAD/tracking ref agreed; no fresh remote probe occurred. The reviewed packaging repair remains an **uncommitted development overlay**, not exact00fc source, merged main or an admitted production artifact.
