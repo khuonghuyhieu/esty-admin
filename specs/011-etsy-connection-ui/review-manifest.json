@@ -1,0 +1,181 @@
+{
+  "status": "READY_FOR_FE_ETSY_UI_REVIEW",
+  "base": "08e68fb91e0cfb74776494eb84709e8eb9b2244b",
+  "branch": "feat/etsy-connection-ui",
+  "writer": "t18c",
+  "reviewer": "t18d",
+  "sourceFiles": [
+    {
+      "path": "apps/web/playwright.config.ts",
+      "sha256": "d6a4d88629d32a1c1491e918fd7de08238f97b422e3c29917e045248171880e3"
+    },
+    {
+      "path": "apps/web/src/app/(protected)/connections/etsy/page.tsx",
+      "sha256": "17a1f5c8a1475aab7c5492e16fb35ca61bcef501e3ed531791ab5ddaf3e696e6"
+    },
+    {
+      "path": "apps/web/src/features/app-session/config.ts",
+      "sha256": "ad617715dd4bac7d7348b2cccbd00ed9e9fb7184d4f056a79f0a9bfec0c11814"
+    },
+    {
+      "path": "apps/web/src/features/app-session/server.ts",
+      "sha256": "d12b942727d29d4c0357c7d7bf2a3452849a0c7b3b15925b8b214bf4e3993f2a"
+    },
+    {
+      "path": "apps/web/src/features/app-session/session-provider.tsx",
+      "sha256": "57c30e1f9f0a88965c9a9b9a8cfdc8a46487b6c85e73956eb8f56525b970e2dd"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/application-shell.tsx",
+      "sha256": "f37606c4130531ba533abe523b8d11a30a39230c95765000c4925ae89c83b575"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/etsy-connection-screen.tsx",
+      "sha256": "7a292eb7e5904401ffa17b6eed49e98e93325baf6268460014a2e44cbfbc2186"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/etsy-connection.module.css",
+      "sha256": "8f7d36748314d68647c547876318113250de76c8ec4a6d110749cc1cea1572e6"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/preview-state.ts",
+      "sha256": "76c6c89df40fab547c2bc055a3bfd34b7bd85af3b675bd858807f891c08b8c16"
+    },
+    {
+      "path": "apps/web/src/proxy.ts",
+      "sha256": "3a494eb87e4298978f0c9a41f6f55eff1c027717744b034f2d6b22c550e762ff"
+    },
+    {
+      "path": "apps/web/tests/e2e/application.spec.ts",
+      "sha256": "b09700a3865ff7b2f7c4a758439506735dfd0586c9761ec75fcbeaccc838fe4e"
+    },
+    {
+      "path": "apps/web/tests/e2e/etsy-preview-fixture.ts",
+      "sha256": "1d3614556aa0553180622fe2230170db18ce40aa0f5876fa5751a07acce4f49e"
+    },
+    {
+      "path": "apps/web/tests/e2e/etsy-preview.spec.ts",
+      "sha256": "e4a511e0e40714f7e41588f66d132233dbdfb1cf3475d195da8908079ea73ec7"
+    },
+    {
+      "path": "apps/web/tests/functional/app-session.test.ts",
+      "sha256": "5c9547603d8e1e01043c02191212126c1c5b7d298ce1a1ce27ced2818e8b7f4c"
+    },
+    {
+      "path": "apps/web/tests/functional/etsy-preview.test.ts",
+      "sha256": "cf658dd474d20c281d6ab92936934eac318fbc09127e923a9488bbbc920da557"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/plan.md",
+      "sha256": "b280a01aea2e74aadec27419d9508ab0e1dc163bb5b75af97210221e02bd750d"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/spec.md",
+      "sha256": "4f252c332118f21db16110b7c0537d68a0110a82598102d257f8d57d388d6f1e"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/tasks.md",
+      "sha256": "4a2201234cd38afe78393eab138f70b957810c71bf96a367f6f878a840ba08cd"
+    }
+  ],
+  "protectedFiles": {
+    "package.json": "5e514d5e822305dda595914446be8f453f90f224a01821bccf1441b3bb04f4bf",
+    "package-lock.json": "ee7576a6a4958da1d23cd5fa197bd9e5bddf981339f506840531442486a58b14",
+    "AGENTS.md": "09c777b12f1c635ee2f2d304b2d50cee3b0ddb25b2fb43a655ce913c01ffed2f",
+    "README.md": "a420c86a84732962d5cf2239ca477c8c3a3b22414683616a047cee5981793d05",
+    "PROJECT_STATE.md": "c906a6344659fa1be95dfbc1f8741e50a8ebff4192319695e2b42e27938f5adb",
+    "specs/architecture.md": "f0521d4fc5802e1a2c63bd6cc7ec408053223afdfd9f0a1afc64f225d6bbb48a",
+    "apps/web/src/lib/api/generated.ts": "399d9d95d31c7a9f146ad926700b0a04480df937bf00fe2a6f0e894c1347ccf9",
+    "specs/001-connectivity-foundation/contracts/openapi.json": "42fc238be8449dc9d0434c8f0a90cd0543e0b35d8b29c0d83da4660040aa0595",
+    "apps/web/next-env.d.ts": "1862ac4bbbc5192d4bf562161df66ea547ed3e67173100656ab606ae9797db2b",
+    "apps/web/tsconfig.json": "ed2814685b8fb92918d460d61cb19b6d86814f5fdca514c54037251b2c55c173"
+  },
+  "stagedRun": "1c185de641f74b21a1e27f723634db2b",
+  "checks": {
+    "functional": "48/48 pass",
+    "lint": "exit0",
+    "productionBuild": "exit0",
+    "typecheck": "exit0",
+    "playwright": "15/15 pass",
+    "provenance": "97 public inputs match; protected inputs unchanged; no symlinks"
+  },
+  "limitations": [
+    "Synthetic admission transport, not real Auth/Etsy integration",
+    "Owner visual acceptance and independent review pending",
+    "No live provider/API/DB/deployment or Git mutation"
+  ],
+  "screenshots": [
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/local-1440.png",
+      "sha256": "fd0266b6a507c92f1f47f1e3683e9948491296e191ceb42b9f3e8e085d714b3d"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/local-360.png",
+      "sha256": "061b987691588cb3e097cd6955d720c6ff2f820613d6e0886c93de95240da233"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/local-390.png",
+      "sha256": "83675ccbc96f4e5afac651fa1017765191bf6ccc5a82f7199a456698d669e181"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/reference-1440.png",
+      "sha256": "e3a8c0c197820d4e9f405f481f33560cf93da87ae1e5c1cf6de63bd500007249"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/reference-360.png",
+      "sha256": "75c17c84c0e53f1ecaaf2c87f68c34404fc43e40a3b41d4e4171c31a1d0f5f12"
+    },
+    {
+      "path": "apps/web/test-results/etsy-ui-evidence/reference-390.png",
+      "sha256": "5972fa042de6338c22d6cef2c1242e48639fc66727e97ae2b4c93e0fa3d97ca7"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-Owner-preview-b6664-els-and-disconnects-samples-desktop-chromium/etsy-connected.png",
+      "sha256": "0b292619359e711db0c038e07c2b821d5123a24e86ee818c691f4d84f8972f76"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-Owner-preview-b6664-els-and-disconnects-samples-desktop-chromium/etsy-create-dialog.png",
+      "sha256": "c3b8da38d6a5e319711eee166bdb2cf5dde06f56abf084531b530db4082318b9"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-Owner-preview-b6664-els-and-disconnects-samples-desktop-chromium/etsy-empty.png",
+      "sha256": "91f7669174502fa47ea2d00855f11968bc371861f778ca0aec1711775d945f7d"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-Owner-preview-b6664-els-and-disconnects-samples-mobile-390-chromium/etsy-connected.png",
+      "sha256": "ffb7fee818629900e60cf7dbcaca44e5327aa091e56d1dd4cae00539317dd8fc"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-Owner-preview-b6664-els-and-disconnects-samples-mobile-390-chromium/etsy-create-dialog.png",
+      "sha256": "254d2902ba4d72557b4c40de3d663561b5bfd3c07dca18462e9dcfefe9c204c0"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-Owner-preview-b6664-els-and-disconnects-samples-mobile-390-chromium/etsy-empty.png",
+      "sha256": "3a74778eb5cf888924b1274cb0fbe17f29298403379aee2c8debb26a5e094cf2"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-Owner-preview-b6664-els-and-disconnects-samples-mobile-chromium/etsy-connected.png",
+      "sha256": "7b3df48210ec7ceffead63f2f8a45012df74d01c7810ac9a64bc09a1120551f6"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-Owner-preview-b6664-els-and-disconnects-samples-mobile-chromium/etsy-create-dialog.png",
+      "sha256": "441774dd7e4460ad68e610578d6272d01175ccb376abd1e6ea6f90184780f29d"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-Owner-preview-b6664-els-and-disconnects-samples-mobile-chromium/etsy-empty.png",
+      "sha256": "6825d911cf6dde3addfef58eb17216026343e70a6c41da306be6908cfe21cd79"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-preview-state-5b597-refusal-and-mobile-overflow-desktop-chromium/etsy-failure.png",
+      "sha256": "13045520c84d3b91f3a7bd81ab713d6d2e9c5a754cc963484911af234188cef8"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-preview-state-5b597-refusal-and-mobile-overflow-mobile-390-chromium/etsy-failure.png",
+      "sha256": "1e27039df1105233432955785e97df3b69372cc0bb0e8cfc79ec2783baf68a97"
+    },
+    {
+      "path": "apps/web/.openai/app-session-1c185de641f74b21a1e27f723634db2b/project/test-results/session-run/etsy-preview-preview-state-5b597-refusal-and-mobile-overflow-mobile-chromium/etsy-failure.png",
+      "sha256": "f8327befd6a115f1184d727a5efefcf10ab0c15a8dffbbd3f8ea69852eb64aad"
+    }
+  ]
+}

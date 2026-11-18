@@ -24,10 +24,11 @@ export function proxy(request: NextRequest) {
   response.headers.set("content-security-policy", policy);
   response.headers.set("cache-control", "private, no-store");
   response.headers.set("pragma", "no-cache");
+  if (request.nextUrl.pathname === "/integrations/etsy/invite") response.headers.set("referrer-policy", "no-referrer");
   return response;
 }
 
 export const config = {
   // Static 404 documents under these prefixes cannot carry a request nonce.
-  matcher: ["/login", "/application", "/settings", "/settings/team"],
+  matcher: ["/login", "/application", "/settings", "/settings/team", "/connections/etsy", "/integrations/etsy/invite"],
 };

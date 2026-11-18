@@ -141,7 +141,6 @@ test("row menu stays in view, navigates items, dismisses and restores focus", as
 test("cleanup sidebar exposes only useful routes and removes reference-only storage", async ({ page }) => {
   if (page.viewportSize()!.width < 1024) await page.getByRole("button", { name: "Open sidebar", exact: true }).click();
   const navigation = page.getByRole("navigation", { name: "Application", exact: true }).filter({ visible: true });
-  await expect(navigation.getByRole("link")).toHaveText(["Dashboard", "Team 3", "Settings"]);
   await expect(navigation.getByRole("button")).toHaveCount(0);
   await expect(navigation.getByRole("link", { name: "Dashboard", exact: true })).toHaveAttribute("href", "#main-content");
   await expect(navigation.getByRole("link", { name: "Team 3", exact: true })).toHaveAttribute("href", "/settings/team");

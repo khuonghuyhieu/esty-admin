@@ -1,0 +1,149 @@
+{
+  "status": "SCOPED_TABLE_REVIEW_ACCEPTED_SOURCE_RETURNED_TO_T12P_STOP_WRITES",
+  "base": "08e68fb91e0cfb74776494eb84709e8eb9b2244b",
+  "branch": "feat/etsy-connection-ui",
+  "completedTasks": [
+    "T011",
+    "T012",
+    "T013",
+    "T014",
+    "T015"
+  ],
+  "sourceFilesUnchangedSinceReview": 17,
+  "review": {
+    "reviewer": "t18d",
+    "model": "company Codex gpt-6-luna medium; runtime launch argv verified",
+    "verdict": "No confirmed actionable correctness, security, regression or meaningful test-gap findings",
+    "hashesVerifiedByReviewer": 49,
+    "sourceFixRequired": false,
+    "reReviewRequired": false,
+    "reviewerDidNotRerunTestsOrBuilds": true,
+    "historicalOriginalP2": "Preserved: previous increment had one desktop screenshot evidence P2, separately fixed/accepted; not this review"
+  },
+  "files": [
+    {
+      "path": "apps/web/src/features/etsy-connection/preview-state.ts",
+      "sha256": "145919058696e1be01c2327252eccfbb0a17c4594a90ba37ee513d8360a90bb9"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/etsy-connection-screen.tsx",
+      "sha256": "3c3d66063ffc2f5b6efb97e99292763db7f1b8371e8858f7c4983aa3b67541a5"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/etsy-connection.module.css",
+      "sha256": "6ff8e4bc8865986d1f94cc993a8d8424e6493a7d0d9c69e73f58fd44b3807cc1"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/shop-discovery.ts",
+      "sha256": "6ee7064b15ed78703384fd7bcd20bc97ef2ad5e5249f8e477d1c46bb39b0946b"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/create-invitation-form.tsx",
+      "sha256": "ea90ba6761b047f3e243cb0cb9fe0d467f6a4b59579a81601a811c93fa29cc1f"
+    },
+    {
+      "path": "apps/web/tests/functional/etsy-preview.test.ts",
+      "sha256": "480f481491e2e8fcd01c7d549a4b12ebf7cafd3e6db19b5c76d01e1fc59a9a49"
+    },
+    {
+      "path": "apps/web/tests/e2e/etsy-preview.spec.ts",
+      "sha256": "37b9fd7810100e7b36dad4cab4b9ac6baa0a84a2cd8e9563e9516115444c3f9d"
+    },
+    {
+      "path": "apps/web/playwright.config.ts",
+      "sha256": "d6a4d88629d32a1c1491e918fd7de08238f97b422e3c29917e045248171880e3"
+    },
+    {
+      "path": "apps/web/src/app/(protected)/connections/etsy/page.tsx",
+      "sha256": "17a1f5c8a1475aab7c5492e16fb35ca61bcef501e3ed531791ab5ddaf3e696e6"
+    },
+    {
+      "path": "apps/web/src/features/app-session/config.ts",
+      "sha256": "ad617715dd4bac7d7348b2cccbd00ed9e9fb7184d4f056a79f0a9bfec0c11814"
+    },
+    {
+      "path": "apps/web/src/features/app-session/server.ts",
+      "sha256": "d12b942727d29d4c0357c7d7bf2a3452849a0c7b3b15925b8b214bf4e3993f2a"
+    },
+    {
+      "path": "apps/web/src/features/app-session/session-provider.tsx",
+      "sha256": "57c30e1f9f0a88965c9a9b9a8cfdc8a46487b6c85e73956eb8f56525b970e2dd"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/application-shell.tsx",
+      "sha256": "f37606c4130531ba533abe523b8d11a30a39230c95765000c4925ae89c83b575"
+    },
+    {
+      "path": "apps/web/src/proxy.ts",
+      "sha256": "3a494eb87e4298978f0c9a41f6f55eff1c027717744b034f2d6b22c550e762ff"
+    },
+    {
+      "path": "apps/web/tests/e2e/application.spec.ts",
+      "sha256": "b09700a3865ff7b2f7c4a758439506735dfd0586c9761ec75fcbeaccc838fe4e"
+    },
+    {
+      "path": "apps/web/tests/e2e/etsy-preview-fixture.ts",
+      "sha256": "1d3614556aa0553180622fe2230170db18ce40aa0f5876fa5751a07acce4f49e"
+    },
+    {
+      "path": "apps/web/tests/functional/app-session.test.ts",
+      "sha256": "5c9547603d8e1e01043c02191212126c1c5b7d298ce1a1ce27ced2818e8b7f4c"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/spec.md",
+      "sha256": "0afee32706955517b43c91a98efc1b6c003e33474eb6c1ef90dc463b86510c95"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/plan.md",
+      "sha256": "0fe1a151aca354badade1aa2cf963d1219a6c1221221fb20ce02546d49568cca"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/tasks.md",
+      "sha256": "98e6db71d001525c310d2497614ec87d798b19b84677f99ab954c3b91879b44e"
+    }
+  ],
+  "frozenReviewReceipt": {
+    "path": "specs/011-etsy-connection-ui/table-review-manifest.json",
+    "sha256": "20bdaf1f183ea35ba9cf6073d6483925aa1425ce89347bf25829a81e851609df"
+  },
+  "historicalReceipts": [
+    {
+      "path": "specs/011-etsy-connection-ui/review-manifest.json",
+      "sha256": "ed877809e30bae73cdbca1740d25eb7204a8c4c70f103c2fb245acf19d443626"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/review-manifest-p2-fix.json",
+      "sha256": "89893a4f21fee654af92559a2a275a8de1de9d40a44b12cd89752a98dacefb91"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/handoff-manifest.json",
+      "sha256": "9a266de919a9c7fb584b8a993c43e2a193563ca67304f48429b665ea9dd27c47"
+    }
+  ],
+  "checks": {
+    "node": "24.22.3",
+    "next": "16.4.3",
+    "functional": "9/9 pass",
+    "lint": "Affected paths exit0; corrected E2E selectors exit0",
+    "productionBuild": "exit0; initial and fresh archive/restage build",
+    "typecheck": "Final staged tsc --noEmit exit0",
+    "browserInitial": "12 passed / 9 failed: ambiguous text and nested-label test locators",
+    "browserCorrected": "9/9 affected cases pass after locator-only fixes; unchanged 12 passing cases retained, not a single clean21 run",
+    "browserCoverage": "7 scenarios × 3 projects:1440×1000,360×800,390×844",
+    "provenance": "99 public inputs match; protected inputs unchanged; no output symlinks",
+    "visualSmoke": "Dedicated independent fixed contexts; all3 viewports exit0, context1/me1/no forbidden requests, no history copy, pending is unverified",
+    "managedSmoke": "Create/history/details visibly exercised; helper press signature corrected; hidden-sidebar text read excluded as evidence"
+  },
+  "visualEvidence": "apps/web/test-results/etsy-table-evidence/",
+  "run": {
+    "nonce": "5def709be08f44628500cfc5025273fd",
+    "currentProject": "apps/web/.openai/app-session-5def709be08f44628500cfc5025273fd/project",
+    "initialArchivedProject": "apps/web/.openai/app-session-5def709be08f44628500cfc5025273fd/attempts/1794977932027/project",
+    "previewUrl": "http://127.0.0.1:55644/connections/etsy",
+    "serverRunning": false
+  },
+  "ownerNextGate": "Visual feedback on revised table/discovery UI; no live integration implied",
+  "deferred": "T016: canonical lookup/generated output, actual Etsy capability/error compatibility, BFF, recipient/OAuth/provider/hosted acceptance",
+  "ownership": "t18c returns source to t12p and stops writes; no new writer, reviewer, Git mutation, install or deployment",
+  "postReviewChanges": "011 spec/plan/tasks closeout status plus this manifest only; no source/build/test rerun"
+}

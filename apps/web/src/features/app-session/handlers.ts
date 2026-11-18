@@ -77,6 +77,7 @@ export async function handleSessionRequest(operation: SessionOperation, request:
     const failure = error instanceof SessionFailure ? error : new SessionFailure(503, "upstream_unavailable");
     const safeId = failure.requestId ?? requestId;
     headers.set("x-request-id", safeId);
-    return json({ code: failure.code, requestId: safeId }, headers, failure.status);
+    if (failure.retryAfterSeconds !== undefined) headers.set("retry-after", String(failure.retryAfterSeconds));
+    return json({ code: failure.code, requestId: safeId, ...(failure.retryAfterSeconds === undefined ? {} : { retryAfterSeconds: failure.retryAfterSeconds }) }, headers, failure.status);
   }
 }

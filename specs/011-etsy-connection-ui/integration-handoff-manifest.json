@@ -1,0 +1,391 @@
+{
+  "status": "SCOPED_REVIEW_ACCEPTED_SOURCE_RETURNED_TO_T12P_STOP_WRITES",
+  "base": "08e68fb91e0cfb74776494eb84709e8eb9b2244b",
+  "branch": "feat/etsy-connection-ui",
+  "ownership": {
+    "returnedFrom": "t18c",
+    "returnedTo": "ROOT t12p",
+    "scope": "All apps/web and feature011 source/documentation for this task; writer stops writes",
+    "rootNext": "Serial3c/lookup/bridge/FE main integration/publication and separately authorized artifact/configuration/maintenance/hosted gates"
+  },
+  "review": {
+    "reviewer": "t18d",
+    "model": "GPT-6-Luna medium",
+    "passes": 1,
+    "disposition": "No confirmed actionable FE correctness, security, regression or test-gap findings",
+    "testsBuildsWritesRunByReviewer": false,
+    "confirmedFixesRequired": 0,
+    "newReviewStarted": false,
+    "priorPreviewP2AndLookupP3HistoriesPreserved": true
+  },
+  "immutableReviewReceipt": {
+    "path": "specs/011-etsy-connection-ui/integration-review-manifest.json",
+    "sha256": "437d2df7a4ab4b6e253851ccfd7a1b0097305b2b7bd4cc7066bc39f1ddc6e016",
+    "sourceEntries": 117,
+    "sourceDigest": "0bfaf83e2e0e2bb5c96cf921880787862e81dc946fab02a899556a0d081d65aa",
+    "all117SourceHashesPreserved": true,
+    "reviewTimeFeatureEvidence": "Historical snapshot; only spec.md, plan.md and tasks.md changed for authorized accepted closeout, plus this new final receipt"
+  },
+  "canonical": {
+    "path": "/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin-worktrees/etsy-connectivity/specs/001-connectivity-foundation/contracts/openapi.json",
+    "sha256": "b5c540638099cd3dda5f9136d9e7294812775cef7675bb21d92a1a3f9d1b6257",
+    "feGeneratedSha256": "622dd52776ebbc9dea827b9aacbb96a8d33a940332d004b706631f8fcf209c27",
+    "beSourceDigestReceived": "12e1950cb2287016b990bb35d492f813dfcb7c5e5e32b9d9e775ca6f7443513f"
+  },
+  "publication": {
+    "inventoryProvenance": "Exact existing-path union of preserved initial/table/integration receipts and final feature directory; no Git/index query or mutation. New/modified classifications are task intent relative to selected base, not a fresh status claim.",
+    "existingPathsCount": 55,
+    "sourcePathsCount": 44,
+    "newSourcePathsCount": 26,
+    "modifiedSourcePathsCount": 18,
+    "featureDocumentationPathsCountIncludingSelf": 11,
+    "newTrackedIntendedPaths": [
+      "apps/web/src/app/(protected)/connections/etsy/page.tsx",
+      "apps/web/src/app/api/app/integrations/etsy/disconnect/route.ts",
+      "apps/web/src/app/api/app/integrations/etsy/invitations/[invitationId]/cancel/route.ts",
+      "apps/web/src/app/api/app/integrations/etsy/invitations/route.ts",
+      "apps/web/src/app/api/app/integrations/etsy/read/route.ts",
+      "apps/web/src/app/api/app/integrations/etsy/route.ts",
+      "apps/web/src/app/api/app/integrations/etsy/shops/lookup/route.ts",
+      "apps/web/src/app/api/integrations/etsy/invite/start/route.ts",
+      "apps/web/src/app/integrations/etsy/invite/page.tsx",
+      "apps/web/src/features/etsy-connection/client.ts",
+      "apps/web/src/features/etsy-connection/create-invitation-form.tsx",
+      "apps/web/src/features/etsy-connection/etsy-connection-screen.tsx",
+      "apps/web/src/features/etsy-connection/etsy-connection.module.css",
+      "apps/web/src/features/etsy-connection/handlers.ts",
+      "apps/web/src/features/etsy-connection/model.ts",
+      "apps/web/src/features/etsy-connection/recipient-handler.ts",
+      "apps/web/src/features/etsy-connection/recipient-model.ts",
+      "apps/web/src/features/etsy-connection/recipient-screen.tsx",
+      "apps/web/src/features/etsy-connection/recipient-secret.ts",
+      "apps/web/src/features/etsy-connection/shop-discovery.ts",
+      "apps/web/src/features/etsy-connection/use-etsy-connection.ts",
+      "apps/web/tests/e2e/etsy-connection.spec.ts",
+      "apps/web/tests/functional/etsy-client.test.ts",
+      "apps/web/tests/functional/etsy-connection.test.ts",
+      "apps/web/tests/functional/etsy-discovery.test.ts",
+      "apps/web/tests/functional/etsy-recipient.test.ts",
+      "specs/011-etsy-connection-ui/handoff-manifest.json",
+      "specs/011-etsy-connection-ui/integration-counter-evidence.json",
+      "specs/011-etsy-connection-ui/integration-handoff-manifest.json",
+      "specs/011-etsy-connection-ui/integration-review-manifest.json",
+      "specs/011-etsy-connection-ui/plan.md",
+      "specs/011-etsy-connection-ui/review-manifest-p2-fix.json",
+      "specs/011-etsy-connection-ui/review-manifest.json",
+      "specs/011-etsy-connection-ui/spec.md",
+      "specs/011-etsy-connection-ui/table-handoff-manifest.json",
+      "specs/011-etsy-connection-ui/table-review-manifest.json",
+      "specs/011-etsy-connection-ui/tasks.md"
+    ],
+    "modifiedExistingPaths": [
+      "apps/web/.env.example",
+      "apps/web/playwright.config.ts",
+      "apps/web/scripts/app-session-isolation.mjs",
+      "apps/web/scripts/codegen.mjs",
+      "apps/web/src/features/app-session/app-client.ts",
+      "apps/web/src/features/app-session/config.ts",
+      "apps/web/src/features/app-session/errors.ts",
+      "apps/web/src/features/app-session/handlers.ts",
+      "apps/web/src/features/app-session/model.ts",
+      "apps/web/src/features/app-session/server.ts",
+      "apps/web/src/features/app-session/session-controller.ts",
+      "apps/web/src/features/app-session/session-provider.tsx",
+      "apps/web/src/features/application-preview/application-shell.tsx",
+      "apps/web/src/lib/api/generated.ts",
+      "apps/web/src/proxy.ts",
+      "apps/web/tests/e2e/app-session-fixture.ts",
+      "apps/web/tests/e2e/application.spec.ts",
+      "apps/web/tests/functional/app-session.test.ts"
+    ],
+    "sourceFiles": [
+      {
+        "path": "apps/web/.env.example",
+        "sha256": "6a5fc2f5b69f32297eeeef0fde0129b500cf4cae445c043ae45f0fb6d1287bc3"
+      },
+      {
+        "path": "apps/web/playwright.config.ts",
+        "sha256": "ccf6193305f067d40bb63dc4f5b744d18a2b9e2d0246abfbc5e734aa3fb11048"
+      },
+      {
+        "path": "apps/web/scripts/app-session-isolation.mjs",
+        "sha256": "dc4383262e8755858db704da51c17b8993323ecd7e13086626a9c96781203fcd"
+      },
+      {
+        "path": "apps/web/scripts/codegen.mjs",
+        "sha256": "45aae087307cdf479b4fd308806161e9ccb1a5817c526be134c83b41ff7e429a"
+      },
+      {
+        "path": "apps/web/src/app/(protected)/connections/etsy/page.tsx",
+        "sha256": "c7dbea8be567f454da2c5383e4d1cd9674dcabe59dbd8327960a53c744180241"
+      },
+      {
+        "path": "apps/web/src/app/api/app/integrations/etsy/disconnect/route.ts",
+        "sha256": "14852559d137dcf153817b775eeb61c1c7af76fa0f6e4a1e7e9169171d987de4"
+      },
+      {
+        "path": "apps/web/src/app/api/app/integrations/etsy/invitations/[invitationId]/cancel/route.ts",
+        "sha256": "b7c706cd0912f912a25169099a4468363535fb413f798b0d212fe6aef630a387"
+      },
+      {
+        "path": "apps/web/src/app/api/app/integrations/etsy/invitations/route.ts",
+        "sha256": "d225460e4679c3895ece2987e9cbcb69ed401139cbcc4dcf97eb069ec9e6b7b3"
+      },
+      {
+        "path": "apps/web/src/app/api/app/integrations/etsy/read/route.ts",
+        "sha256": "b076fa853b17b7ad14f6edabbc9a8dba72a6f6466d65e0b30ff1434257a40eab"
+      },
+      {
+        "path": "apps/web/src/app/api/app/integrations/etsy/route.ts",
+        "sha256": "cb2ea84a5b491b3830fa8ba7e9e16d917feef58daa8e2432e8c10054c8fa2618"
+      },
+      {
+        "path": "apps/web/src/app/api/app/integrations/etsy/shops/lookup/route.ts",
+        "sha256": "17e847b439d074b371421093a02edcf2fc8a4a7ad7e16642094787487202e370"
+      },
+      {
+        "path": "apps/web/src/app/api/integrations/etsy/invite/start/route.ts",
+        "sha256": "f0267f0aab5db9e1d5c9cb0a5e5a0eb43d1c900c6ccb8f5683b8c45a78a29eee"
+      },
+      {
+        "path": "apps/web/src/app/integrations/etsy/invite/page.tsx",
+        "sha256": "12a62a76d1917db3ae3e904f9255a3df1d2cf830faeb42a9260d152a1393cdc2"
+      },
+      {
+        "path": "apps/web/src/features/app-session/app-client.ts",
+        "sha256": "cfcd5bed18da278b4d9815f30cdd57aa9d141019af39c473badfa42dc81d32a1"
+      },
+      {
+        "path": "apps/web/src/features/app-session/config.ts",
+        "sha256": "ad617715dd4bac7d7348b2cccbd00ed9e9fb7184d4f056a79f0a9bfec0c11814"
+      },
+      {
+        "path": "apps/web/src/features/app-session/errors.ts",
+        "sha256": "d39f86d36f464d1792604a9e480f427ef286411d0ca22222766d64ab7d33fec7"
+      },
+      {
+        "path": "apps/web/src/features/app-session/handlers.ts",
+        "sha256": "5c6b5b5d6af4bef1c4ba4da9eb9ad208ea9d0bc6903562eb8a4c032a3fd8a68b"
+      },
+      {
+        "path": "apps/web/src/features/app-session/model.ts",
+        "sha256": "3dd9ed32047d9a19e65f9f083e36e0bb5d1150590d451cbd81ea8e5bf0f95934"
+      },
+      {
+        "path": "apps/web/src/features/app-session/server.ts",
+        "sha256": "d12b942727d29d4c0357c7d7bf2a3452849a0c7b3b15925b8b214bf4e3993f2a"
+      },
+      {
+        "path": "apps/web/src/features/app-session/session-controller.ts",
+        "sha256": "1364becd82feebd271148c5b1d3c8a80a2d9c3c18026b67ee450cde65ce6d6c5"
+      },
+      {
+        "path": "apps/web/src/features/app-session/session-provider.tsx",
+        "sha256": "81e2eec68e96ca33a7f447bef63c7335e26b765ff061ac47268a7133de282e09"
+      },
+      {
+        "path": "apps/web/src/features/application-preview/application-shell.tsx",
+        "sha256": "704788cd92693a4a93531282def3fb2794cd360f82562bd3ce048e2aa5bdc1f0"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/client.ts",
+        "sha256": "dcd88c444a4d1eaa56abe3aa6729b63b808e83ec87031cfe0ea3b46be625962c"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/create-invitation-form.tsx",
+        "sha256": "b9eca42a25602712595f7fae1e206a23381d939d15b355eb52312b4fe4fb19d2"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/etsy-connection-screen.tsx",
+        "sha256": "f6b5e6d49bda62e573259e84aec0a5acd3d956761a1bae007a265ff20736b884"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/etsy-connection.module.css",
+        "sha256": "c5c6643d631fbfba5e3e6213ff5ce894d507f5ddb0abc907fd47947a0b778ad9"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/handlers.ts",
+        "sha256": "b8987e01448abe21d2bc9fec151010ab3a823c69ca54a14444eb4fa8b1a5b9a7"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/model.ts",
+        "sha256": "cff8c351229d17f7eb3732729fc2efe2b8ba3f77d9a3edf5504790459443d642"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/recipient-handler.ts",
+        "sha256": "6c117500a0d590cb2425009958646ec26413c2fd412f1daf51a8ebb86568a089"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/recipient-model.ts",
+        "sha256": "ed8ad458a0a4c19ee7aa48c25bee1842c9f452e9c9ecde05194690b539216a20"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/recipient-screen.tsx",
+        "sha256": "2fe45dc787659f58c12c277fdb07b64187f6a89afc52c63580500d1b292cc2c9"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/recipient-secret.ts",
+        "sha256": "966c6b6bf350699a151c9fc6fe0b3caba7ca685f952897af77fc65907b5ca807"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/shop-discovery.ts",
+        "sha256": "774bd922797d3bf78207d8346a01639b16bd4d3308d6001ed17042c3bd48dfa1"
+      },
+      {
+        "path": "apps/web/src/features/etsy-connection/use-etsy-connection.ts",
+        "sha256": "d5a29a2a9f66e3d1c4344e3e8cc03366926eac80a8250e6c0aa671d3e1cb458f"
+      },
+      {
+        "path": "apps/web/src/lib/api/generated.ts",
+        "sha256": "622dd52776ebbc9dea827b9aacbb96a8d33a940332d004b706631f8fcf209c27"
+      },
+      {
+        "path": "apps/web/src/proxy.ts",
+        "sha256": "8bc396ffd3782e66b12249957f02e23e477026570e5b29ae329046f4c8da2136"
+      },
+      {
+        "path": "apps/web/tests/e2e/app-session-fixture.ts",
+        "sha256": "73b661549706eaadf7ce49dddc0f0e5b2da9df0e1043bedf05b45b49f9232572"
+      },
+      {
+        "path": "apps/web/tests/e2e/application.spec.ts",
+        "sha256": "b09700a3865ff7b2f7c4a758439506735dfd0586c9761ec75fcbeaccc838fe4e"
+      },
+      {
+        "path": "apps/web/tests/e2e/etsy-connection.spec.ts",
+        "sha256": "46dba5a0beabf1092c9e5ef259fed35b6ea0b0731bea3b0ff580676ee21ef030"
+      },
+      {
+        "path": "apps/web/tests/functional/app-session.test.ts",
+        "sha256": "d0932416418093f1831fc344acc58b2b0631ba6ab36fbc2cf5c4c09e8c8a584f"
+      },
+      {
+        "path": "apps/web/tests/functional/etsy-client.test.ts",
+        "sha256": "ff14100ad95dd664049df482cf45d82a3f1cabc721a0f069049998c3cad4078a"
+      },
+      {
+        "path": "apps/web/tests/functional/etsy-connection.test.ts",
+        "sha256": "a6ee263434535a01709dfd2eb54faada80764a24e4e56863c5d5255a37b23e7b"
+      },
+      {
+        "path": "apps/web/tests/functional/etsy-discovery.test.ts",
+        "sha256": "a81ce100fb35530bcea34f01235700af6c36bb690a15434767ec4fcb466295b5"
+      },
+      {
+        "path": "apps/web/tests/functional/etsy-recipient.test.ts",
+        "sha256": "a517067368b17ef7e2b97a2256f6ca7f0d38fa7016cc07bd9b80b1500dc08754"
+      }
+    ],
+    "documentationFiles": [
+      {
+        "path": "specs/011-etsy-connection-ui/handoff-manifest.json",
+        "sha256": "9a266de919a9c7fb584b8a993c43e2a193563ca67304f48429b665ea9dd27c47"
+      },
+      {
+        "path": "specs/011-etsy-connection-ui/integration-counter-evidence.json",
+        "sha256": "ef13412abb84b3d7b92c8e04cb2d1a52ab6fbd93ce760e9c081cff3a6e708306"
+      },
+      {
+        "path": "specs/011-etsy-connection-ui/integration-review-manifest.json",
+        "sha256": "437d2df7a4ab4b6e253851ccfd7a1b0097305b2b7bd4cc7066bc39f1ddc6e016"
+      },
+      {
+        "path": "specs/011-etsy-connection-ui/plan.md",
+        "sha256": "def9628250c2e70ae075ac357a8303c5fc58b3aa0633f809067d306c07613a26"
+      },
+      {
+        "path": "specs/011-etsy-connection-ui/review-manifest-p2-fix.json",
+        "sha256": "89893a4f21fee654af92559a2a275a8de1de9d40a44b12cd89752a98dacefb91"
+      },
+      {
+        "path": "specs/011-etsy-connection-ui/review-manifest.json",
+        "sha256": "ed877809e30bae73cdbca1740d25eb7204a8c4c70f103c2fb245acf19d443626"
+      },
+      {
+        "path": "specs/011-etsy-connection-ui/spec.md",
+        "sha256": "02b0fd0d7d7d9d02c038d2a9f6cb9af6f71b8a15f110b21c1f020c209194cd6b"
+      },
+      {
+        "path": "specs/011-etsy-connection-ui/table-handoff-manifest.json",
+        "sha256": "b387912741ca42302968830364967f5fea206ca44dee8355199f7bfd4d1cad1b"
+      },
+      {
+        "path": "specs/011-etsy-connection-ui/table-review-manifest.json",
+        "sha256": "20bdaf1f183ea35ba9cf6073d6483925aa1425ce89347bf25829a81e851609df"
+      },
+      {
+        "path": "specs/011-etsy-connection-ui/tasks.md",
+        "sha256": "43b79f1c54dedbd19f3b099e978c01e659b8b485e67ffeece911997a7cef1c51"
+      }
+    ],
+    "selfReceipt": {
+      "path": "specs/011-etsy-connection-ui/integration-handoff-manifest.json",
+      "sha256Delivery": "Delivered separately in root handback; self hash excluded here to avoid circular hashing"
+    },
+    "retiredPreviewPaths": [
+      {
+        "path": "apps/web/src/features/etsy-connection/preview-state.ts",
+        "absent": true,
+        "action": "Remove only if tracked in root serial index; otherwise keep absent. These may be task-created then retired rather than base-tracked deletions."
+      },
+      {
+        "path": "apps/web/tests/e2e/etsy-preview-fixture.ts",
+        "absent": true,
+        "action": "Remove only if tracked in root serial index; otherwise keep absent. These may be task-created then retired rather than base-tracked deletions."
+      },
+      {
+        "path": "apps/web/tests/e2e/etsy-preview.spec.ts",
+        "absent": true,
+        "action": "Remove only if tracked in root serial index; otherwise keep absent. These may be task-created then retired rather than base-tracked deletions."
+      },
+      {
+        "path": "apps/web/tests/functional/etsy-preview.test.ts",
+        "absent": true,
+        "action": "Remove only if tracked in root serial index; otherwise keep absent. These may be task-created then retired rather than base-tracked deletions."
+      }
+    ],
+    "excluded": [
+      "apps/web/.openai/**",
+      "apps/web/.next/**",
+      "apps/web/test-results/**",
+      "apps/web/playwright-report/**",
+      "node_modules and tool/browser downloads",
+      "actual environment/private/auth files, disposable fixture descriptors/sockets",
+      "binary scratch/screenshots and shared/root/API/canonical/dependency files"
+    ],
+    "shareableEnvironmentExampleIncluded": "apps/web/.env.example"
+  },
+  "digests": {
+    "algorithm": "SHA256 of UTF-8 JSON.stringify(the corresponding recorded path/sha256 array), in recorded order",
+    "publicationSourceFiles": "2b6fded224faedf0510b9dc9f30f752b33de2e85cfd98718c649eda28670d860",
+    "documentationFilesExcludingSelf": "d7c3ed83ce1316b5a1898cab690d75e9156b1291a167bd1525d37cecfe6646ba"
+  },
+  "verification": {
+    "sessionFunctional": "45/45",
+    "managementFunctional": "15/15",
+    "recipientFunctional": "8/8",
+    "browser": "17/18 matrix plus affected cross-tab1/1; all18 covered, not a single clean18 run",
+    "actualStack": "GoTrue, fixed FE BFF, native-host Nest, owned PostgreSQL",
+    "etsyTransport": "Explicit synthetic in-process only; no live Etsy",
+    "generationCheckExit": 0,
+    "typecheckExit": 0,
+    "affectedLintExit": 0,
+    "productionBuildExit": 0,
+    "postRuntimeChange": "Generated consent description/401 type only; runtime emission unchanged, other115 staging inputs match",
+    "finalCloseoutRuntimeOrGitCommands": false,
+    "knownRaceLimit": "Browser request dispatch/abort and current denial, not forced post-provider completion barrier",
+    "hostedNotRun": true
+  },
+  "cleanup": {
+    "feBrowserClosed": true,
+    "ownedFeServersStopped": true,
+    "fixtureMutationLeaseReturned": true,
+    "beCleanup": "Coordinator t151 reports owned fixture cleanupPASS; FE did not re-open it",
+    "preservedFinalAuthUsers": 5,
+    "preservedFinalAuthSessions": 6,
+    "allEtsyCountersZeroBeforeReturn": true,
+    "retainedEvidenceAndWorktree": true,
+    "sourcePublicationOrDeploymentByWriter": false
+  },
+  "documentationCloseout": "Existing spec/plan/tasks updated; original review/handoff/counter receipts preserved. No source/test/generated changes, no tests/builds/new review, no Git or external effects."
+}

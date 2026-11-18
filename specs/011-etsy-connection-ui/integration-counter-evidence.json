@@ -1,0 +1,366 @@
+{
+  "sourceReport": "apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/attempts/1794989191711/project/playwright-report/session-run/index.html",
+  "transport": "Actual GoTrue, fixed FE BFF, native-host Nest and owned PostgreSQL; explicitly synthetic in-process Etsy transport; no live Etsy network",
+  "observations": [
+    {
+      "project": "desktop-chromium",
+      "nonce": "57fca668e50b910dc2e819b2978457a9",
+      "afterCreate": {
+        "provider": {
+          "lookup": 1,
+          "token": 0,
+          "refresh": 0,
+          "getMe": 0,
+          "getShop": 0,
+          "callback": 0,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 0,
+          "credentials": 0,
+          "receipts": 1,
+          "cooldowns": 0,
+          "activeCredentials": 0,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 10
+        },
+        "connectionState": "verification_pending"
+      },
+      "afterConsent": {
+        "provider": {
+          "lookup": 1,
+          "token": 1,
+          "refresh": 0,
+          "getMe": 1,
+          "getShop": 1,
+          "callback": 1,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 1,
+          "credentials": 1,
+          "receipts": 1,
+          "cooldowns": 0,
+          "activeCredentials": 1,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 10
+        },
+        "connectionState": "active"
+      },
+      "afterSync": {
+        "provider": {
+          "lookup": 1,
+          "token": 1,
+          "refresh": 0,
+          "getMe": 2,
+          "getShop": 2,
+          "callback": 1,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 1,
+          "credentials": 1,
+          "receipts": 1,
+          "cooldowns": 0,
+          "activeCredentials": 1,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 10
+        },
+        "connectionState": "active"
+      },
+      "afterDisconnect": {
+        "provider": {
+          "lookup": 1,
+          "token": 1,
+          "refresh": 0,
+          "getMe": 2,
+          "getShop": 2,
+          "callback": 1,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 1,
+          "credentials": 0,
+          "receipts": 2,
+          "cooldowns": 0,
+          "activeCredentials": 0,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 10
+        },
+        "connectionState": "disconnected"
+      }
+    },
+    {
+      "project": "mobile-chromium",
+      "nonce": "57fca668e50b910dc2e819b2978457a9",
+      "afterCreate": {
+        "provider": {
+          "lookup": 1,
+          "token": 0,
+          "refresh": 0,
+          "getMe": 0,
+          "getShop": 0,
+          "callback": 0,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 0,
+          "credentials": 0,
+          "receipts": 1,
+          "cooldowns": 0,
+          "activeCredentials": 0,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 36
+        },
+        "connectionState": "verification_pending"
+      },
+      "afterConsent": {
+        "provider": {
+          "lookup": 1,
+          "token": 1,
+          "refresh": 0,
+          "getMe": 1,
+          "getShop": 1,
+          "callback": 1,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 1,
+          "credentials": 1,
+          "receipts": 1,
+          "cooldowns": 0,
+          "activeCredentials": 1,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 36
+        },
+        "connectionState": "active"
+      },
+      "afterSync": {
+        "provider": {
+          "lookup": 1,
+          "token": 1,
+          "refresh": 0,
+          "getMe": 2,
+          "getShop": 2,
+          "callback": 1,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 1,
+          "credentials": 1,
+          "receipts": 1,
+          "cooldowns": 0,
+          "activeCredentials": 1,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 36
+        },
+        "connectionState": "active"
+      },
+      "afterDisconnect": {
+        "provider": {
+          "lookup": 1,
+          "token": 1,
+          "refresh": 0,
+          "getMe": 2,
+          "getShop": 2,
+          "callback": 1,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 1,
+          "credentials": 0,
+          "receipts": 2,
+          "cooldowns": 0,
+          "activeCredentials": 0,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 36
+        },
+        "connectionState": "disconnected"
+      }
+    },
+    {
+      "project": "mobile-390-chromium",
+      "nonce": "57fca668e50b910dc2e819b2978457a9",
+      "afterCreate": {
+        "provider": {
+          "lookup": 1,
+          "token": 0,
+          "refresh": 0,
+          "getMe": 0,
+          "getShop": 0,
+          "callback": 0,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 0,
+          "credentials": 0,
+          "receipts": 1,
+          "cooldowns": 0,
+          "activeCredentials": 0,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 53
+        },
+        "connectionState": "verification_pending"
+      },
+      "afterConsent": {
+        "provider": {
+          "lookup": 1,
+          "token": 1,
+          "refresh": 0,
+          "getMe": 1,
+          "getShop": 1,
+          "callback": 1,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 1,
+          "credentials": 1,
+          "receipts": 1,
+          "cooldowns": 0,
+          "activeCredentials": 1,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 53
+        },
+        "connectionState": "active"
+      },
+      "afterSync": {
+        "provider": {
+          "lookup": 1,
+          "token": 1,
+          "refresh": 0,
+          "getMe": 2,
+          "getShop": 2,
+          "callback": 1,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 1,
+          "credentials": 1,
+          "receipts": 1,
+          "cooldowns": 0,
+          "activeCredentials": 1,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 53
+        },
+        "connectionState": "active"
+      },
+      "afterDisconnect": {
+        "provider": {
+          "lookup": 1,
+          "token": 1,
+          "refresh": 0,
+          "getMe": 2,
+          "getShop": 2,
+          "callback": 1,
+          "activeLookup": 0
+        },
+        "sql": {
+          "connections": 1,
+          "invitations": 1,
+          "attempts": 1,
+          "credentials": 0,
+          "receipts": 2,
+          "cooldowns": 0,
+          "activeCredentials": 0,
+          "plaintextCredentials": 0,
+          "authUsers": 5,
+          "authSessions": 7
+        },
+        "owner": {
+          "role": "owner",
+          "status": "active",
+          "revision": 53
+        },
+        "connectionState": "disconnected"
+      }
+    }
+  ]
+}

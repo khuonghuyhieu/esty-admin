@@ -9,7 +9,7 @@ import { sessionRunProfile } from "../../scripts/app-session-isolation.mjs";
 
 type Identity = "owner" | "member" | "unadmitted" | "disabled";
 interface Fixture {
-  version: 1; nonce: string; purpose: "006-login-session" | "001-production-activation"; profile?: "006" | "activation001"; jwtExpirySeconds: number;
+  version: 1; nonce: string; purpose: "006-login-session" | "001-production-activation" | "011"; profile?: "006" | "activation001" | "011"; jwtExpirySeconds: number;
   webEnv: Record<string, string>;
   identities: Record<Identity, { email: string; password: string; userId: string }>;
   control: { socketPath: string; nonce: string };
@@ -26,10 +26,19 @@ export function sessionFixture(): Fixture {
     || realpathSync(path) !== path) throw new Error("Unsafe synthetic session handoff");
   const value = JSON.parse(readFileSync(path, "utf8")) as Fixture;
   const target = sessionRunProfile();
-  if (value.version !== 1 || value.purpose !== target.purpose || (value.profile === undefined ? "006" : value.profile) !== target.profile || value.nonce !== nonce || value.control?.nonce !== nonce
+  const etsy = process.env.ETSY_INTEGRATION_E2E === "1";
+  if (value.version !== 1 || value.purpose !== (etsy ? "011" : target.purpose) || (value.profile === undefined ? "006" : value.profile) !== (etsy ? "011" : target.profile) || value.nonce !== nonce || value.control?.nonce !== nonce
     || value.control.socketPath !== join(dirname(path), "s006.sock") || value.jwtExpirySeconds !== 300) throw new Error("Mismatched synthetic fixture ownership");
   const config = readSessionConfig(value.webEnv);
-  if (value.webEnv.APP_SESSION_MODE !== "local" || config.origin !== target.webOrigin || config.apiOrigin !== target.apiOrigin || config.authUrl !== target.authUrl || config.secure) throw new Error("Unexpected fixture destinations");
+  if (etsy) {
+    const keys = ["APP_SESSION_MODE", "APP_ORIGIN", "APP_API_ORIGIN", "APP_AUTH_URL", "APP_API_TECHNICAL_KEY", "APP_AUTH_API_KEY", "APP_SESSION_COOKIE_KEY", "ETSY_CLIENT_ID"];
+    const api = new URL(config.apiOrigin), auth = new URL(config.authUrl);
+    if (Object.keys(value.webEnv).length !== keys.length || !keys.every(key => Object.hasOwn(value.webEnv, key))
+      || !/^[A-Za-z0-9_-]{1,256}$/.test(value.webEnv.ETSY_CLIENT_ID)
+      || value.webEnv.APP_SESSION_MODE !== "local" || config.origin !== "http://127.0.0.1:55644" || config.secure
+      || api.origin === config.origin || auth.origin === config.origin || api.origin === auth.origin
+      || [api.port, auth.port].some(port => ["54322", "55432", ""].includes(port))) throw new Error("Unexpected owned Etsy fixture destinations");
+  } else if (value.webEnv.APP_SESSION_MODE !== "local" || config.origin !== target.webOrigin || config.apiOrigin !== target.apiOrigin || config.authUrl !== target.authUrl || config.secure) throw new Error("Unexpected fixture destinations");
   for (const name of ["owner", "member", "unadmitted", "disabled"] as const) {
     const identity = value.identities?.[name];
     if (!identity || !identity.email.endsWith(".test") || !identity.password || !/^[0-9a-f-]{36}$/.test(identity.userId)) throw new Error("Incomplete run-owned browser identity");
@@ -37,7 +46,7 @@ export function sessionFixture(): Fixture {
   return value;
 }
 
-export async function fixtureControl(operation: "status" | "set-member" | "register-session" | "issue-session" | "replay" | "fault", fields: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
+export async function fixtureControl(operation: "status" | "set-member" | "register-session" | "issue-session" | "replay" | "fault" | "etsy-reset" | "etsy-membership" | "etsy-lookup" | "etsy-complete" | "etsy-counts", fields: Record<string, unknown> = {}): Promise<Record<string, unknown>> {
   const fixture = sessionFixture();
   const socket = lstatSync(fixture.control.socketPath);
   if (!socket.isSocket() || socket.isSymbolicLink() || (socket.mode & 0o777) !== 0o600 || socket.uid !== process.getuid?.()) throw new Error("Unsafe private fixture socket");

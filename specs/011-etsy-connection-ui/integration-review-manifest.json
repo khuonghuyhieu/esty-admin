@@ -1,0 +1,647 @@
+{
+  "status": "READY_FOR_FE_ETSY_INTEGRATION_REVIEW_SOURCE_FROZEN",
+  "writer": "t18c",
+  "reviewer": "t18d",
+  "reviewModel": "GPT-6-Luna medium; live assigned pane verified",
+  "base": "08e68fb91e0cfb74776494eb84709e8eb9b2244b",
+  "branch": "feat/etsy-connection-ui",
+  "scope": "T016 FE management BFF, session parser boundaries, actual connection UI, public recipient bridge, generated frozen contract and owned integration verification; no BE/root/shared writes",
+  "sourceDigest": {
+    "algorithm": "SHA256 of UTF-8 JSON.stringify(sourceFiles), in the recorded order",
+    "sha256": "0bfaf83e2e0e2bb5c96cf921880787862e81dc946fab02a899556a0d081d65aa"
+  },
+  "sourceFiles": [
+    {
+      "path": "apps/web/.env.example",
+      "sha256": "6a5fc2f5b69f32297eeeef0fde0129b500cf4cae445c043ae45f0fb6d1287bc3"
+    },
+    {
+      "path": "apps/web/eslint.config.mjs",
+      "sha256": "cdd8f11dee7ba54506235f0d199817efa20131ffed764e87237e509e813249bf"
+    },
+    {
+      "path": "apps/web/next.config.ts",
+      "sha256": "4ff330f63265911d16104b7b0d27220a3345c0ed3390235f415d3b16d59f1d0f"
+    },
+    {
+      "path": "apps/web/package.json",
+      "sha256": "82abbc456d23a1a5df7e92e3f6b722e9eb86c8304b614e29dc68245846592331"
+    },
+    {
+      "path": "apps/web/playwright.config.ts",
+      "sha256": "ccf6193305f067d40bb63dc4f5b744d18a2b9e2d0246abfbc5e734aa3fb11048"
+    },
+    {
+      "path": "apps/web/scripts/app-session-isolation.mjs",
+      "sha256": "dc4383262e8755858db704da51c17b8993323ecd7e13086626a9c96781203fcd"
+    },
+    {
+      "path": "apps/web/scripts/app-session-run.mjs",
+      "sha256": "c5a620a5d29cf8f4a35edd714cc92607a378ef123aae031a89451c0de276a608"
+    },
+    {
+      "path": "apps/web/scripts/check-release.ts",
+      "sha256": "755bf2d64ae75ae4b4b38cd97d91d620344dba3e70dc1e4e4e3c30b3c527267e"
+    },
+    {
+      "path": "apps/web/scripts/codegen.mjs",
+      "sha256": "45aae087307cdf479b4fd308806161e9ccb1a5817c526be134c83b41ff7e429a"
+    },
+    {
+      "path": "apps/web/scripts/fe-build.mjs",
+      "sha256": "0628684ad3d274b646ef598a03728ab03190be7c8cb680d2791c5b5031a6e887"
+    },
+    {
+      "path": "apps/web/scripts/fe-delivery.mjs",
+      "sha256": "a97611b4c58dcb4f247a0decae3f6094b8f57dacb9f9057068532ad81573410c"
+    },
+    {
+      "path": "apps/web/src/app/(protected)/application/page.tsx",
+      "sha256": "5c51a4b4c25c4db2f7e86aaad4c3abb84eebf12aade42898a215598a2f54d31f"
+    },
+    {
+      "path": "apps/web/src/app/(protected)/connections/etsy/page.tsx",
+      "sha256": "c7dbea8be567f454da2c5383e4d1cd9674dcabe59dbd8327960a53c744180241"
+    },
+    {
+      "path": "apps/web/src/app/(protected)/layout.tsx",
+      "sha256": "30741962ef76253d5110b8b658e17baf027ac6d48e280dfb60e4fb4df18a6b28"
+    },
+    {
+      "path": "apps/web/src/app/(protected)/settings/page.tsx",
+      "sha256": "62e5c355ec0519b888dd2ce6bb5862357dc9c646d27ad8e0aabe5f9a5578c203"
+    },
+    {
+      "path": "apps/web/src/app/(protected)/settings/team/page.tsx",
+      "sha256": "967f170f0f295975cbf0cfd6fc427a8dea4bee629f23be3732f2ad423ddedad4"
+    },
+    {
+      "path": "apps/web/src/app/api/app/integrations/etsy/disconnect/route.ts",
+      "sha256": "14852559d137dcf153817b775eeb61c1c7af76fa0f6e4a1e7e9169171d987de4"
+    },
+    {
+      "path": "apps/web/src/app/api/app/integrations/etsy/invitations/[invitationId]/cancel/route.ts",
+      "sha256": "b7c706cd0912f912a25169099a4468363535fb413f798b0d212fe6aef630a387"
+    },
+    {
+      "path": "apps/web/src/app/api/app/integrations/etsy/invitations/route.ts",
+      "sha256": "d225460e4679c3895ece2987e9cbcb69ed401139cbcc4dcf97eb069ec9e6b7b3"
+    },
+    {
+      "path": "apps/web/src/app/api/app/integrations/etsy/read/route.ts",
+      "sha256": "b076fa853b17b7ad14f6edabbc9a8dba72a6f6466d65e0b30ff1434257a40eab"
+    },
+    {
+      "path": "apps/web/src/app/api/app/integrations/etsy/route.ts",
+      "sha256": "cb2ea84a5b491b3830fa8ba7e9e16d917feef58daa8e2432e8c10054c8fa2618"
+    },
+    {
+      "path": "apps/web/src/app/api/app/integrations/etsy/shops/lookup/route.ts",
+      "sha256": "17e847b439d074b371421093a02edcf2fc8a4a7ad7e16642094787487202e370"
+    },
+    {
+      "path": "apps/web/src/app/api/app/me/route.ts",
+      "sha256": "4361690a2470c6617eaa5c1a49693697e8f33650161ec83c99f0fe8d5c2ada50"
+    },
+    {
+      "path": "apps/web/src/app/api/auth/begin/route.ts",
+      "sha256": "a51ca7818358e1698ba6bbdaa42fd29f7e833ac7a009f255f544094286e9c60f"
+    },
+    {
+      "path": "apps/web/src/app/api/auth/context/route.ts",
+      "sha256": "a548be0d58cd6a7dd94b1412140e68b031b59a1cfb49ef665ef69591001189e1"
+    },
+    {
+      "path": "apps/web/src/app/api/auth/login/route.ts",
+      "sha256": "8729032a025b7cc912a336209d2ae05c40b46883c8d5e3453ff20e103b408ab3"
+    },
+    {
+      "path": "apps/web/src/app/api/auth/logout/route.ts",
+      "sha256": "ba4f9de0c78b6f48d2e6097ea7c03df34972d0b010299e60a274d2ebe214b4f5"
+    },
+    {
+      "path": "apps/web/src/app/api/auth/refresh/route.ts",
+      "sha256": "01c00f1d48ec23ab9a76dc685c5c066b94768b46b9369486f5c8eed7eb950693"
+    },
+    {
+      "path": "apps/web/src/app/api/integrations/etsy/invite/start/route.ts",
+      "sha256": "f0267f0aab5db9e1d5c9cb0a5e5a0eb43d1c900c6ccb8f5683b8c45a78a29eee"
+    },
+    {
+      "path": "apps/web/src/app/connectivity/page.tsx",
+      "sha256": "3ec9628f49bec361358ddfa4a3e4feccb8e77fbde8d5a0c5f6befc8741eb9add"
+    },
+    {
+      "path": "apps/web/src/app/fonts/DeliusSwashCaps-OFL.txt",
+      "sha256": "d8eb8611f8c98d20cbf18a28425652d6022dc2a5cca15026b920f1f2bc92a612"
+    },
+    {
+      "path": "apps/web/src/app/fonts/DeliusSwashCaps-Regular.ttf",
+      "sha256": "04c102448007265b8a0672590900919d35dfd26c624e543c8c3bfbab9535b642"
+    },
+    {
+      "path": "apps/web/src/app/fonts/Geist-OFL.txt",
+      "sha256": "c683bfbcc7e087f5d37a54ef628f10387c451a83ddc459b151403a164ac46c90"
+    },
+    {
+      "path": "apps/web/src/app/fonts/Geist-Variable.woff2",
+      "sha256": "2ffebe993e969069a9789d15164b7715d42491b5835516c5e3b935d5f81b05f1"
+    },
+    {
+      "path": "apps/web/src/app/globals.css",
+      "sha256": "e9ee81a4c0d253ebf5e77bf023283f6ec99c5fb56101ec2db434cda4033f93b6"
+    },
+    {
+      "path": "apps/web/src/app/integrations/etsy/invite/page.tsx",
+      "sha256": "12a62a76d1917db3ae3e904f9255a3df1d2cf830faeb42a9260d152a1393cdc2"
+    },
+    {
+      "path": "apps/web/src/app/layout.tsx",
+      "sha256": "2d33eaa472c4202be9071f1cbc8a76520fd63a44ff83e814034115dcd42b68aa"
+    },
+    {
+      "path": "apps/web/src/app/login/page.tsx",
+      "sha256": "25793f6cbc3b5a1e55c3944bdca5d56c4726f9e0eab3de8f94dd07dfe2bc03ec"
+    },
+    {
+      "path": "apps/web/src/app/not-found.tsx",
+      "sha256": "b50026f880024792d7ffb8315bc402c352dca316bd27daa8e4cee51967e11a77"
+    },
+    {
+      "path": "apps/web/src/app/page.tsx",
+      "sha256": "af4bfed8e2161b4bb8c2e4eaa8b547c5295cca7a0423f2768c5f7a6f56d06de5"
+    },
+    {
+      "path": "apps/web/src/app/privacy/page.tsx",
+      "sha256": "6d46010fb2816f448a6613d1cb318bda04bba1539e9c0ad776651c3449b01450"
+    },
+    {
+      "path": "apps/web/src/components/site/footer.tsx",
+      "sha256": "e4f6c6f111ebf4dd0d649a3ae4e2dab2e2288a8057a85259b494a4351ee03c87"
+    },
+    {
+      "path": "apps/web/src/components/site/header.tsx",
+      "sha256": "fc36d4cd214c439bd7c8356fb458e7e07d170d014575d2b3f91441ccbe9b01af"
+    },
+    {
+      "path": "apps/web/src/components/site/public-shell.tsx",
+      "sha256": "d517d56397fbb2824c3d872e6e1b857ac7321032c3650cafbab55fc3e3acfcc4"
+    },
+    {
+      "path": "apps/web/src/features/app-session/app-client.ts",
+      "sha256": "cfcd5bed18da278b4d9815f30cdd57aa9d141019af39c473badfa42dc81d32a1"
+    },
+    {
+      "path": "apps/web/src/features/app-session/auth-client.ts",
+      "sha256": "5cc2eae1790f72f10f6cf8fe279783ff42d71bc31251084500a858f92f587014"
+    },
+    {
+      "path": "apps/web/src/features/app-session/config.ts",
+      "sha256": "ad617715dd4bac7d7348b2cccbd00ed9e9fb7184d4f056a79f0a9bfec0c11814"
+    },
+    {
+      "path": "apps/web/src/features/app-session/cookies.ts",
+      "sha256": "6092a0a87eb5b24bdf7c1c02b6175d1f123c7d43be6fe56e913caf00a7c203e1"
+    },
+    {
+      "path": "apps/web/src/features/app-session/csrf.ts",
+      "sha256": "81f98d6c2b88adc17e5399a4eb0f386e1271382e6964f7eeed0c500946e8d33d"
+    },
+    {
+      "path": "apps/web/src/features/app-session/errors.ts",
+      "sha256": "d39f86d36f464d1792604a9e480f427ef286411d0ca22222766d64ab7d33fec7"
+    },
+    {
+      "path": "apps/web/src/features/app-session/handlers.ts",
+      "sha256": "5c6b5b5d6af4bef1c4ba4da9eb9ad208ea9d0bc6903562eb8a4c032a3fd8a68b"
+    },
+    {
+      "path": "apps/web/src/features/app-session/history-navigation.tsx",
+      "sha256": "9fcf525d81478f6ef02b7725946e6bd5d0d978a2fb7046ab26089a55f2440ff3"
+    },
+    {
+      "path": "apps/web/src/features/app-session/model.ts",
+      "sha256": "3dd9ed32047d9a19e65f9f083e36e0bb5d1150590d451cbd81ea8e5bf0f95934"
+    },
+    {
+      "path": "apps/web/src/features/app-session/protected-route.tsx",
+      "sha256": "f31032753519240855a9018fa54c8b7004e982ea31a6319e6cd3b3d266137166"
+    },
+    {
+      "path": "apps/web/src/features/app-session/server.ts",
+      "sha256": "d12b942727d29d4c0357c7d7bf2a3452849a0c7b3b15925b8b214bf4e3993f2a"
+    },
+    {
+      "path": "apps/web/src/features/app-session/session-controller.ts",
+      "sha256": "1364becd82feebd271148c5b1d3c8a80a2d9c3c18026b67ee450cde65ce6d6c5"
+    },
+    {
+      "path": "apps/web/src/features/app-session/session-provider.tsx",
+      "sha256": "81e2eec68e96ca33a7f447bef63c7335e26b765ff061ac47268a7133de282e09"
+    },
+    {
+      "path": "apps/web/src/features/app-session/transport.ts",
+      "sha256": "d9e1b7db39d5799101ca3975500f672e3146721608912e21692c0197221a44e8"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/activity-chart.tsx",
+      "sha256": "a3a573c97a84b0103784a6cbe09805b8c9dc85ea96c7efd453ac6ead401cc3e7"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/activity-feed.tsx",
+      "sha256": "5b37c9faf5b56f05c7d264885b5e45f062ce04eac0e060bde85f444bb02168c7"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/application-preview.module.css",
+      "sha256": "faa1ae2e2d217188d46c1b7ea5010917f35e19b53e7d25501f81a9781cba08a4"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/application-preview.tsx",
+      "sha256": "ff9cc76271120c0a0b1b788f774486272e01b8fec03522e744ae4c2191bd0127"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/application-shell.tsx",
+      "sha256": "704788cd92693a4a93531282def3fb2794cd360f82562bd3ce048e2aa5bdc1f0"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/fixtures.ts",
+      "sha256": "9e1f861e86c944f327136d7b8651574c42a65093add77a820c49732caaf87615"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/icon.tsx",
+      "sha256": "1f623226f11a7ee793a6ccc18191ce64afd0eda1b8623bfd412b1d07aa6c7100"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/metric-card.tsx",
+      "sha256": "03921fb3a7e4c2b30bc6e7ac5624ac892ea92ccda31166fc32263839df97176b"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/model.ts",
+      "sha256": "bf1b3b2bacb9c9a0d688ee0f6d78fa10fdb5dfb99a1805727e3cb18bfbc658a9"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/projects-table.tsx",
+      "sha256": "aef8d83ee7e89feb627b823820e0236116ab428c417ec2e0b23751f71abbdfbc"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/row-menu.tsx",
+      "sha256": "5b67a4e3197fb72eb99bdf9a379bc6d70b7bfb224e72c1c3ac1221246486a3d5"
+    },
+    {
+      "path": "apps/web/src/features/application-preview/table-state.ts",
+      "sha256": "32e5df11a04993c4bdb9edb5ab1daf31f4d823fe107aa44f5bb8d26c09e849f3"
+    },
+    {
+      "path": "apps/web/src/features/connectivity/config.ts",
+      "sha256": "92f234114c5de2407f59fdf05a3c3d0dc8d36822d1daa1d14732a2310be6342c"
+    },
+    {
+      "path": "apps/web/src/features/connectivity/connectivity-screen.tsx",
+      "sha256": "e2e42f2f173bc8363a25c359a9a38d02dd3c5ae75cf17dc7a1ef0913dabb7639"
+    },
+    {
+      "path": "apps/web/src/features/connectivity/connectivity.module.css",
+      "sha256": "6430bc06d9e620e681749eca841a9ed763afa38a1f5af079292e734d8f52b55d"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/client.ts",
+      "sha256": "dcd88c444a4d1eaa56abe3aa6729b63b808e83ec87031cfe0ea3b46be625962c"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/create-invitation-form.tsx",
+      "sha256": "b9eca42a25602712595f7fae1e206a23381d939d15b355eb52312b4fe4fb19d2"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/etsy-connection-screen.tsx",
+      "sha256": "f6b5e6d49bda62e573259e84aec0a5acd3d956761a1bae007a265ff20736b884"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/etsy-connection.module.css",
+      "sha256": "c5c6643d631fbfba5e3e6213ff5ce894d507f5ddb0abc907fd47947a0b778ad9"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/handlers.ts",
+      "sha256": "b8987e01448abe21d2bc9fec151010ab3a823c69ca54a14444eb4fa8b1a5b9a7"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/model.ts",
+      "sha256": "cff8c351229d17f7eb3732729fc2efe2b8ba3f77d9a3edf5504790459443d642"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/recipient-handler.ts",
+      "sha256": "6c117500a0d590cb2425009958646ec26413c2fd412f1daf51a8ebb86568a089"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/recipient-model.ts",
+      "sha256": "ed8ad458a0a4c19ee7aa48c25bee1842c9f452e9c9ecde05194690b539216a20"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/recipient-screen.tsx",
+      "sha256": "2fe45dc787659f58c12c277fdb07b64187f6a89afc52c63580500d1b292cc2c9"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/recipient-secret.ts",
+      "sha256": "966c6b6bf350699a151c9fc6fe0b3caba7ca685f952897af77fc65907b5ca807"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/shop-discovery.ts",
+      "sha256": "774bd922797d3bf78207d8346a01639b16bd4d3308d6001ed17042c3bd48dfa1"
+    },
+    {
+      "path": "apps/web/src/features/etsy-connection/use-etsy-connection.ts",
+      "sha256": "d5a29a2a9f66e3d1c4344e3e8cc03366926eac80a8250e6c0aa671d3e1cb458f"
+    },
+    {
+      "path": "apps/web/src/features/landing/landing.tsx",
+      "sha256": "2d9f8a484687e5827c3dd2e45cab51ce298a086099488922198f32ff83f8b26a"
+    },
+    {
+      "path": "apps/web/src/features/privacy/privacy.tsx",
+      "sha256": "f018413025b02e21be980c1228e6112eeab00eec6d2a1ec4ed0367a8273a6dae"
+    },
+    {
+      "path": "apps/web/src/features/workspace-foundation/fixtures.ts",
+      "sha256": "6b960173e939390cd7d585811d92ef01116647bfbca22a17431b6cf823e18fd9"
+    },
+    {
+      "path": "apps/web/src/features/workspace-foundation/login-screen.tsx",
+      "sha256": "7b7dc1a27d3d38199eb803463b1ea268b3bcf8a86175ed06142f35fd62f47063"
+    },
+    {
+      "path": "apps/web/src/features/workspace-foundation/member-search.ts",
+      "sha256": "d5eca8b4ad2e7ed1f909887598e9ed81bc1e8d1439a0a2a2a5f9d42ff5aa68aa"
+    },
+    {
+      "path": "apps/web/src/features/workspace-foundation/profile-menu.tsx",
+      "sha256": "317a737831d2211910b4cbc5822cc11f5516fdfc5802262936a3eb2502160845"
+    },
+    {
+      "path": "apps/web/src/features/workspace-foundation/settings-screen.tsx",
+      "sha256": "8809974bb3605f3393aad8716962181af3475d1a7418dcac706dd09fa1aa2676"
+    },
+    {
+      "path": "apps/web/src/features/workspace-foundation/team-screen.tsx",
+      "sha256": "322818836c44ac3fdf7daf921a495bff36d576bcb85f181c75c7122e38ce2abd"
+    },
+    {
+      "path": "apps/web/src/features/workspace-foundation/workspace-foundation.module.css",
+      "sha256": "1139c178fac56a00445d69be81fc08f145421e430a23b919d2d364c9c65b6289"
+    },
+    {
+      "path": "apps/web/src/lib/api/generated.ts",
+      "sha256": "622dd52776ebbc9dea827b9aacbb96a8d33a940332d004b706631f8fcf209c27"
+    },
+    {
+      "path": "apps/web/src/lib/api/health-client.ts",
+      "sha256": "b8129bfc7ae145859916cba9795e80f47b04996fd5b121eec6c2588971b2cf16"
+    },
+    {
+      "path": "apps/web/src/lib/site-config.ts",
+      "sha256": "b5d43ad3fba1ad94579832167ea6440789c8fe11d74bd200330cf1b874f3820f"
+    },
+    {
+      "path": "apps/web/src/proxy.ts",
+      "sha256": "8bc396ffd3782e66b12249957f02e23e477026570e5b29ae329046f4c8da2136"
+    },
+    {
+      "path": "apps/web/tests/e2e/app-session-fixture.ts",
+      "sha256": "73b661549706eaadf7ce49dddc0f0e5b2da9df0e1043bedf05b45b49f9232572"
+    },
+    {
+      "path": "apps/web/tests/e2e/application.spec.ts",
+      "sha256": "b09700a3865ff7b2f7c4a758439506735dfd0586c9761ec75fcbeaccc838fe4e"
+    },
+    {
+      "path": "apps/web/tests/e2e/connectivity-fixture.ts",
+      "sha256": "2c343c55afaf9432695fa9dcc69ee03dbd58cec7e521dc2db6a1f18073d92dab"
+    },
+    {
+      "path": "apps/web/tests/e2e/connectivity.spec.ts",
+      "sha256": "74b51e76d94389bb386049f9069b6f66e9bb48cf8a6b7b06973d38cb80b4159a"
+    },
+    {
+      "path": "apps/web/tests/e2e/etsy-connection.spec.ts",
+      "sha256": "46dba5a0beabf1092c9e5ef259fed35b6ea0b0731bea3b0ff580676ee21ef030"
+    },
+    {
+      "path": "apps/web/tests/e2e/website.spec.ts",
+      "sha256": "a68e1fe72dae796e1429f68df93434805ac3334fa5a7fff7e8b5119ebe01de1f"
+    },
+    {
+      "path": "apps/web/tests/functional/app-session.test.ts",
+      "sha256": "d0932416418093f1831fc344acc58b2b0631ba6ab36fbc2cf5c4c09e8c8a584f"
+    },
+    {
+      "path": "apps/web/tests/functional/application-table.test.ts",
+      "sha256": "de65ea5c85f2c59f70b849d78d3c4321b22716803fadb816488d72a7c5073606"
+    },
+    {
+      "path": "apps/web/tests/functional/connectivity-client.test.ts",
+      "sha256": "9b319f569d7077ed332c09bc4d9fe274edd1bde5b67127560ef1eca38921d6e4"
+    },
+    {
+      "path": "apps/web/tests/functional/connectivity-config.test.ts",
+      "sha256": "8aade7ca00827b1ee3701bf5e859ad9b5e1506c2efd6c908e812df632c97fa2d"
+    },
+    {
+      "path": "apps/web/tests/functional/etsy-client.test.ts",
+      "sha256": "ff14100ad95dd664049df482cf45d82a3f1cabc721a0f069049998c3cad4078a"
+    },
+    {
+      "path": "apps/web/tests/functional/etsy-connection.test.ts",
+      "sha256": "a6ee263434535a01709dfd2eb54faada80764a24e4e56863c5d5255a37b23e7b"
+    },
+    {
+      "path": "apps/web/tests/functional/etsy-discovery.test.ts",
+      "sha256": "a81ce100fb35530bcea34f01235700af6c36bb690a15434767ec4fcb466295b5"
+    },
+    {
+      "path": "apps/web/tests/functional/etsy-recipient.test.ts",
+      "sha256": "a517067368b17ef7e2b97a2256f6ca7f0d38fa7016cc07bd9b80b1500dc08754"
+    },
+    {
+      "path": "apps/web/tests/functional/fe-delivery.test.ts",
+      "sha256": "1a084baa1e23d7921d7af1d5793a312812d2adb46fd1f82217d527c5db88410b"
+    },
+    {
+      "path": "apps/web/tests/functional/workspace-foundation.test.ts",
+      "sha256": "f8caa54aa039ee35100199f8d66bcc7dfb04d9a9991e23b8e260e8ce9c006209"
+    },
+    {
+      "path": "apps/web/tests/site-config.test.ts",
+      "sha256": "54fbcfe61185a410560125003a57687fda7fb254a4564da5d736b93783531bdf"
+    },
+    {
+      "path": "apps/web/tsconfig.json",
+      "sha256": "ed2814685b8fb92918d460d61cb19b6d86814f5fdca514c54037251b2c55c173"
+    },
+    {
+      "path": "apps/web/vercel.json",
+      "sha256": "b88ec8e0bf01029bbe5938d7cba740217a648c1186087c610a13ba861e682cf6"
+    }
+  ],
+  "reviewChangedPaths": [
+    "apps/web/playwright.config.ts",
+    "apps/web/scripts/app-session-isolation.mjs",
+    "apps/web/scripts/codegen.mjs",
+    "apps/web/src/app/(protected)/connections/etsy/page.tsx",
+    "apps/web/src/app/api/app/integrations/etsy/disconnect/route.ts",
+    "apps/web/src/app/api/app/integrations/etsy/invitations/[invitationId]/cancel/route.ts",
+    "apps/web/src/app/api/app/integrations/etsy/invitations/route.ts",
+    "apps/web/src/app/api/app/integrations/etsy/read/route.ts",
+    "apps/web/src/app/api/app/integrations/etsy/route.ts",
+    "apps/web/src/app/api/app/integrations/etsy/shops/lookup/route.ts",
+    "apps/web/src/app/api/integrations/etsy/invite/start/route.ts",
+    "apps/web/src/app/integrations/etsy/invite/page.tsx",
+    "apps/web/src/features/app-session/app-client.ts",
+    "apps/web/src/features/app-session/errors.ts",
+    "apps/web/src/features/app-session/handlers.ts",
+    "apps/web/src/features/app-session/model.ts",
+    "apps/web/src/features/app-session/session-controller.ts",
+    "apps/web/src/features/app-session/session-provider.tsx",
+    "apps/web/src/features/application-preview/application-shell.tsx",
+    "apps/web/src/features/etsy-connection/client.ts",
+    "apps/web/src/features/etsy-connection/create-invitation-form.tsx",
+    "apps/web/src/features/etsy-connection/etsy-connection-screen.tsx",
+    "apps/web/src/features/etsy-connection/etsy-connection.module.css",
+    "apps/web/src/features/etsy-connection/handlers.ts",
+    "apps/web/src/features/etsy-connection/model.ts",
+    "apps/web/src/features/etsy-connection/recipient-handler.ts",
+    "apps/web/src/features/etsy-connection/recipient-model.ts",
+    "apps/web/src/features/etsy-connection/recipient-screen.tsx",
+    "apps/web/src/features/etsy-connection/recipient-secret.ts",
+    "apps/web/src/features/etsy-connection/shop-discovery.ts",
+    "apps/web/src/features/etsy-connection/use-etsy-connection.ts",
+    "apps/web/src/lib/api/generated.ts",
+    "apps/web/src/proxy.ts",
+    "apps/web/tests/e2e/app-session-fixture.ts",
+    "apps/web/tests/e2e/etsy-connection.spec.ts",
+    "apps/web/tests/functional/app-session.test.ts",
+    "apps/web/tests/functional/etsy-client.test.ts",
+    "apps/web/tests/functional/etsy-connection.test.ts",
+    "apps/web/tests/functional/etsy-discovery.test.ts",
+    "apps/web/tests/functional/etsy-recipient.test.ts",
+    "apps/web/.env.example"
+  ],
+  "retiredPreviewPaths": [
+    "apps/web/src/features/etsy-connection/preview-state.ts",
+    "apps/web/tests/e2e/etsy-preview-fixture.ts",
+    "apps/web/tests/e2e/etsy-preview.spec.ts",
+    "apps/web/tests/functional/etsy-preview.test.ts"
+  ],
+  "featureEvidence": [
+    {
+      "path": "specs/011-etsy-connection-ui/spec.md",
+      "sha256": "e0721e4c5dcfe9064b77b7000b5c54fc6179a595123967ed7458ff58f3d5f4b2"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/plan.md",
+      "sha256": "20abfbe2904ac7de39918076f490400b473b29b2dd27bd9bd2beba00e4052055"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/tasks.md",
+      "sha256": "cdaaee1646a57d34ac3293459a074da1f321c9e499ef472660c16a4a154f5a6b"
+    },
+    {
+      "path": "specs/011-etsy-connection-ui/integration-counter-evidence.json",
+      "sha256": "ef13412abb84b3d7b92c8e04cb2d1a52ab6fbd93ce760e9c081cff3a6e708306"
+    }
+  ],
+  "runtimeEvidence": [
+    {
+      "path": "apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/attempts/1794989191711/project/playwright-report/session-run/index.html",
+      "sha256": "a7a333dfac57652675c70835fe0cfb2a635b5656684005014466d0a7ae59646d"
+    },
+    {
+      "path": "apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/project/playwright-report/session-run/index.html",
+      "sha256": "40ec00fa0b3244b4234f555d28b5023d33bb169025d69e7d7151d2dcd11210b1"
+    },
+    {
+      "path": "apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/attempts/1794989191711/project/test-results/etsy-integration-evidence/desktop-chromium-recipient.png",
+      "sha256": "8c5fcc998697fae721171575918a4d4c82648964be7d3131c5e943f40b937940"
+    },
+    {
+      "path": "apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/attempts/1794989191711/project/test-results/etsy-integration-evidence/desktop-chromium-disconnected.png",
+      "sha256": "f00ad637d028fc9726da27d669d62d2ac4991811270943694b7a964162339f9a"
+    },
+    {
+      "path": "apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/attempts/1794989191711/project/test-results/etsy-integration-evidence/mobile-chromium-recipient.png",
+      "sha256": "9a70ab0e1db6bc064c0db1a61eef63f62b4cb78848bd5781be60ffb782308ee6"
+    },
+    {
+      "path": "apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/attempts/1794989191711/project/test-results/etsy-integration-evidence/mobile-chromium-disconnected.png",
+      "sha256": "68b32e021c697ca2862e12bf354ae0fab8a2e125985f0e19e8851ce11d6fd3d5"
+    },
+    {
+      "path": "apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/attempts/1794989191711/project/test-results/etsy-integration-evidence/mobile-390-chromium-recipient.png",
+      "sha256": "9c6ac6e9c45687c29ffef8a966a4494e3e4afa0f6c59b3b73791906f3c9008b3"
+    },
+    {
+      "path": "apps/web/.openai/app-session-57fca668e50b910dc2e819b2978457a9/attempts/1794989191711/project/test-results/etsy-integration-evidence/mobile-390-chromium-disconnected.png",
+      "sha256": "482e03c360240f782286bef13a61debbf689a0c5a4e2dbc84609fd1108656c6f"
+    }
+  ],
+  "canonical": {
+    "path": "/Users/khuonghuyhieu/Documents/Project/e-commerce/esty-admin-worktrees/etsy-connectivity/specs/001-connectivity-foundation/contracts/openapi.json",
+    "sha256": "b5c540638099cd3dda5f9136d9e7294812775cef7675bb21d92a1a3f9d1b6257",
+    "rawDigestVerified": true,
+    "receiptPath": "/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-be-bridge-xe1cigh1/recipient-bridge-review-freeze.json",
+    "receiptSha256": "a853534c5832c8cf7c862f029b994fcf6b4878f541f7ce58cefacab0141a6c98",
+    "receivedBe135SourceDigest": "12e1950cb2287016b990bb35d492f813dfcb7c5e5e32b9d9e775ca6f7443513f",
+    "beReview": "t151 accepted existing t175 read-only bridge pass; no confirmed actionable findings; reviewer ran no checks; older lookup/006 histories separate"
+  },
+  "verification": {
+    "sessionFunctional": "45/45",
+    "managementFunctional": "15/15",
+    "recipientFunctional": "8/8",
+    "browserMatrix": "17/18 then affected cross-tab1/1; all18 covered, not one clean18 run",
+    "generationCheckExit": 0,
+    "typeCheckExit": 0,
+    "affectedLintExit": 0,
+    "productionBuildExit": 0,
+    "provider": "Explicit synthetic in-process Etsy; no live Etsy network",
+    "applicationStack": "Actual GoTrue/fixed FE BFF/native-host Nest/owned PostgreSQL",
+    "knownLimit": "Dispatched/aborted browser lookup races, not a forced post-provider barrier; hosted not run"
+  },
+  "stageReconciliation": {
+    "nonce": "57fca668e50b910dc2e819b2978457a9",
+    "priorVerification": {
+      "inputs": 116,
+      "sourceMatchesStage": true,
+      "protectedInputsUnchanged": true,
+      "outputSymlinks": false
+    },
+    "postRuntimeDifferences": [
+      {
+        "path": "apps/web/src/lib/api/generated.ts",
+        "sha256": "622dd52776ebbc9dea827b9aacbb96a8d33a940332d004b706631f8fcf209c27"
+      }
+    ],
+    "generatedRuntimeEmissionUnchanged": true,
+    "buildOrJourneyRerunAfterTypeOnlyRefresh": false
+  },
+  "cleanup": {
+    "fixtureMutationLeaseReturnedTo": "t15j",
+    "beCoordinatorDirectedOwnedFixtureCleanup": true,
+    "feWebStopped": true,
+    "feBrowserClosed": true,
+    "finalOwner": {
+      "role": "owner",
+      "status": "active",
+      "revision": 72
+    },
+    "allEtsyCountersZero": true,
+    "authUsersPreserved": 5,
+    "authSessionsPreserved": 6
+  },
+  "reviewConstraints": [
+    "Read-only, one scoped pass; do not rerun checks or access fixture/private credentials",
+    "Report actionable correctness/regression/security/meaningful test gaps with severity and file/line evidence; no style nits/speculative refactors",
+    "Existing t18c fixes confirmed findings only, affected verification as authorized; fix-only follow-up if needed",
+    "No new worker, Git, deployment, provider, account, cloud, dependency or root/canonical changes"
+  ],
+  "priorTableManifest": {
+    "path": "specs/011-etsy-connection-ui/table-review-manifest.json",
+    "sha256": "20bdaf1f183ea35ba9cf6073d6483925aa1425ce89347bf25829a81e851609df"
+  }
+}
