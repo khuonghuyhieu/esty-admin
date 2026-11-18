@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
-import { randomBytes, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import test from 'node:test';
+import type { TestContext } from 'node:test';
 import { parseEtsyConfig } from '../src/config/config.js';
 import { EtsyCredentials, EtsyFailure } from '../src/etsy/credentials.js';
 import { etsyId, EtsyProvider } from '../src/etsy/provider.js';
@@ -9,6 +10,23 @@ import { EtsyService } from '../src/etsy/service.js';
 import { AppDatabase } from '../src/app-foundation/adapters/postgres.js';
 import { AppError } from '../src/app-foundation/application/errors.js';
 import { callbackInput } from '../src/etsy/ingress.js';
+import { EtsyOwnerClient, loadEtsyOwnerApproval, ownerSettings } from '../scripts/etsy-owner.js';
+import type { EtsyOwnerSettings } from '../scripts/etsy-owner.js';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { createApplication } from './helpers.js';
+import { parseConfig } from '../src/config/config.js';
+import { etsyReleasePhases, runEtsyReleasePhase } from '../scripts/etsy-release.js';
+import type { EtsyReleasePacket, EtsyReleaseOperations } from '../scripts/etsy-release.js';
+import { manifestDigest, migrationStatus, migrationsDirectory, runMigrations } from '../scripts/migrations.js';
+import { migrationManifest } from '../src/generated/migrations.js';
+import { assembleArtifact, canonical, sha256 } from '../scripts/artifact.js';
+import { activationRuntimeKeys } from '../src/config/activation-config.js';
+import { artifactFixture } from './artifact-fixture.js';
+import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
 
 const config = parseEtsyConfig({ ETSY_ENABLED: 'true', APP_FOUNDATION_ENABLED: 'true', ETSY_CLIENT_ID: 'synthetic_app',
   ETSY_SHARED_SECRET: randomBytes(24).toString('hex'), ETSY_CALLBACK_URL: 'https://api.lovora.us/integrations/etsy/callback',
@@ -522,4 +540,250 @@ test('prune authority fails closed for operator and runtime despite known Owner 
   }
   assert.equal((await admin.query("SELECT EXISTS(SELECT 1 FROM app_private.audit_events WHERE action='etsy.prune') AS spoofed")).rows[0].spoofed, false);
   assert.equal(fixture.calls.length, 0);
+});
+
+async function ownerApprovalFixture(t: TestContext, settings: EtsyOwnerSettings) {
+  // Independently pinned synthetic approval, never a native/published artifact.
+  const base = await artifactFixture(); t.after(base.dispose);
+  const files = base.artifact.manifest.source.files.filter(file => !file.path.startsWith('apps/api/migrations/'));
+  for (const entry of migrationManifest) {
+    const path = `apps/api/migrations/${entry.name}.mjs`;
+    const bytes = await readFile(new URL(`../../migrations/${entry.name}.mjs`, import.meta.url));
+    await writeFile(join(base.operator, path), bytes);
+    files.push({ path, size: bytes.length, mode: 0o644, sha256: sha256(bytes), sha1: createHash('sha1').update(bytes).digest('hex') });
+  }
+  const artifact = await assembleArtifact({ raw: base.raw, operator: base.operator, destination: join(base.root, 'owner-artifact'),
+    config: base.config, source: { ...base.artifact.manifest.source, repository: 'https://github.com/khuonghuyhieu/esty-admin',
+      files, digest: sha256(canonical(files)) }, migrations: [...migrationManifest], build: base.artifact.manifest.build });
+  const packet: EtsyReleasePacket = { version: 1, runId: randomUUID(), ledgerRoot: base.root,
+    revision: artifact.manifest.source.revision, tree: artifact.manifest.source.tree, sourceDigest: artifact.manifest.source.digest,
+    artifactDigest: artifact.digest, runtimeDigest: 'e'.repeat(64), configBundleDigest: 'f'.repeat(64),
+    migrationInputDigest: '1'.repeat(64), previousDigest: manifestDigest(migrationManifest.slice(0, 3)), targetDigest: manifestDigest(migrationManifest),
+    target: 'supabase:abcdefghijklmnopqrst', driverDigest: '2'.repeat(64), nodeDigest: '3'.repeat(64), cliDigest: '4'.repeat(64), cliOwnFilesDigest: '5'.repeat(64),
+    browserOrigin: 'https://app.lovora.us', runtimeKeys: [...activationRuntimeKeys, 'APP_ACTIVATION_CONFIG_DIGEST'].sort(), metadataDigest: '6'.repeat(64),
+    predecessor: { id: 'dpl_old', revision: '7'.repeat(40), tree: '8'.repeat(40), sourceDigest: '9'.repeat(64), artifactDigest: 'a'.repeat(64), configDigest: 'b'.repeat(64) },
+    window: { start: Date.now() - 1000, end: Date.now() + 600000 },
+    grants: { exclusiveOwnerLease: 'synthetic-owner-only', automatedDelivery: 'disabled', maintenance: 'approved-readiness-interruption',
+      recovery: 'approved-roll-forward-only', phases: [...etsyReleasePhases] } };
+  const binding = { version: 1, packet, packetDigest: sha256(canonical(packet)), authUrl: settings.authUrl,
+    authApiKeySha256: sha256(settings.authApiKey) };
+  const path = join(base.root, 'owner-binding.json'); writeReleaseEvidence(path, binding);
+  const digest = readEvidence(path).identity.sha256;
+  return { artifact, path, digest, binding, approval: loadEtsyOwnerApproval(path, digest, artifact.root) };
+}
+
+test('Etsy setup Owner approval rejects credential redirection and stale provenance before password submission', async t => {
+  const settings = { authUrl: 'https://abcdefghijklmnopqrst.supabase.co/auth/v1', authApiKey: 'sb_publishable_fixture',
+    technicalKey: 'a'.repeat(64), invitationOrigin: config.invitationOrigin, clientId: config.clientId };
+  const fixture = await ownerApprovalFixture(t, settings);
+  let transports = 0, passwordReads = 0;
+  const transport: typeof fetch = async () => { transports++; throw new Error('password must never reach transport'); };
+  const credentials = { get password() { passwordReads++; return 'owner-password-canary'; } };
+  for (const malicious of [
+    { ...settings, authUrl: 'https://zyxwvutsrqponmlkjihgf.supabase.co/auth/v1', authApiKey: 'sb_publishable_attacker' },
+    { ...settings, authApiKey: 'sb_publishable_wrong_same_project' },
+  ]) {
+    assert.throws(() => ownerSettings(malicious, fixture.approval), { outcome: 'refused' });
+    await assert.rejects(async () => {
+      const client = new EtsyOwnerClient(malicious, fixture.approval, transport);
+      await client.login('owner@example.invalid', credentials.password);
+    }, error => {
+      assert.ok(error instanceof Error && 'outcome' in error);
+      assert.equal(error.outcome, 'refused');
+      assert.doesNotMatch(error.message, /owner-password-canary|supabase\.co|sb_publishable_/);
+      return true;
+    });
+  }
+  assert.throws(() => new EtsyOwnerClient(settings, { approved: true }, transport), { outcome: 'refused' });
+  assert.equal(passwordReads, 0); assert.equal(transports, 0);
+
+  const original = await readFile(fixture.path);
+  for (const change of [
+    { revision: '0'.repeat(40) }, { tree: '0'.repeat(40) }, { sourceDigest: '0'.repeat(64) },
+    { artifactDigest: '0'.repeat(64) }, { runtimeDigest: '0'.repeat(64) }, { configBundleDigest: '0'.repeat(64) },
+  ]) {
+    const packet = { ...fixture.binding.packet, ...change };
+    await writeFile(fixture.path, JSON.stringify({ ...fixture.binding, packet, packetDigest: sha256(canonical(packet)) }));
+    assert.throws(() => loadEtsyOwnerApproval(fixture.path, fixture.digest, fixture.artifact.root), { outcome: 'refused' });
+    assert.throws(() => new EtsyOwnerClient(settings, fixture.approval, transport), { outcome: 'refused' });
+  }
+  for (const value of [
+    { ...fixture.binding, unexpected: true },
+    { ...fixture.binding, authUrl: 'https://zyxwvutsrqponmlkjihgf.supabase.co/auth/v1' },
+    ...[
+      { revision: '0'.repeat(40) }, { tree: '0'.repeat(40) }, { sourceDigest: '0'.repeat(64) }, { artifactDigest: '0'.repeat(64) },
+      { window: { start: Date.now() - 2000, end: Date.now() - 1000 } },
+    ].map(change => { const packet = { ...fixture.binding.packet, ...change }; return { ...fixture.binding, packet, packetDigest: sha256(canonical(packet)) }; }),
+  ]) {
+    await writeFile(fixture.path, JSON.stringify(value));
+    // Even an independently pinned receipt must satisfy schema/expiry/artifact provenance.
+    assert.throws(() => loadEtsyOwnerApproval(fixture.path, readEvidence(fixture.path).identity.sha256, fixture.artifact.root), { outcome: 'refused' });
+  }
+  await writeFile(fixture.path, original);
+  const client = new EtsyOwnerClient(settings, fixture.approval, transport);
+  t.mock.method(Date, 'now', () => fixture.binding.packet.window.end + 1);
+  await assert.rejects(client.login('owner@example.invalid', 'owner-password-canary'), { outcome: 'refused' });
+  assert.equal(passwordReads, 0); assert.equal(transports, 0);
+});
+
+test('Etsy setup Owner client completes explicit authenticated HTTP lifecycle and refuses stale authority',
+  { skip: !process.env.ETSY_TEST_FIXTURE_DIRECTORY, timeout: 120000 }, async t => {
+  const nativeFetch = globalThis.fetch;
+  const fixture = await etsyFixture(t, config);
+  const directory = await mkdtemp(join(await realpath(tmpdir()), 'esty-owner-client-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  let signins = 0, logouts = 0;
+  const peer = createServer((request, response) => {
+    void (async () => {
+      const chunks: Buffer[] = []; for await (const chunk of request) chunks.push(Buffer.from(chunk));
+      if (request.method === 'POST' && request.url === '/auth/v1/token?grant_type=password') {
+        signins++;
+        const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { email: string; password: string };
+        assert.equal(request.headers.apikey, 'sb_publishable_fixture');
+        if (body.password !== 'synthetic-password' || !['owner@example.invalid', 'member@example.invalid', 'foreign@example.invalid'].includes(body.email)) {
+          response.writeHead(400, { 'Content-Type': 'application/json' }); response.end('{"error":"invalid_grant"}'); return;
+        }
+        const actor = body.email.split('@')[0] as 'owner' | 'member' | 'foreign';
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ access_token: fixture.tokens[actor], refresh_token: 'discarded-synthetic-refresh', token_type: 'bearer' }));
+      } else if (request.method === 'POST' && request.url === '/auth/v1/logout?scope=local') {
+        assert.equal(request.headers.authorization, `Bearer ${fixture.tokens.owner}`);
+        logouts++; await fixture.admin.query('DELETE FROM auth.sessions WHERE id=$1', [fixture.sessions.owner]);
+        response.writeHead(204); response.end();
+      } else { response.writeHead(404); response.end(); }
+    })().catch(() => response.destroy());
+  });
+  peer.listen(0, '127.0.0.1'); await once(peer, 'listening');
+  t.after(async () => { const closed = once(peer, 'close'); peer.close(); peer.closeAllConnections(); await closed; });
+  const address = peer.address(); assert.ok(address && typeof address !== 'string');
+  const settings = { authUrl: 'https://abcdefghijklmnopqrst.supabase.co/auth/v1', authApiKey: 'sb_publishable_fixture',
+    technicalKey: fixture.technical, invitationOrigin: config.invitationOrigin, clientId: config.clientId };
+  const { approval } = await ownerApprovalFixture(t, settings);
+  let lostWrite = false;
+  const transport: typeof fetch = async (input, init) => {
+    const url = new URL(String(input));
+    assert.equal(init?.redirect, 'manual');
+    if (url.origin === 'https://abcdefghijklmnopqrst.supabase.co') {
+      return nativeFetch(`http://127.0.0.1:${address.port}${url.pathname}${url.search}`, init);
+    }
+    if (url.origin === 'https://api.lovora.us') {
+      const response = await fetch(fixture.origin + url.pathname + url.search, init);
+      if (lostWrite && init?.method === 'POST') { lostWrite = false; await response.body?.cancel(); throw new Error('synthetic lost acknowledgement'); }
+      return response;
+    }
+    assert.equal(url.origin, config.invitationOrigin);
+    assert.equal(url.pathname, '/integrations/etsy/invite/start');
+    assert.deepEqual(Object.fromEntries(new Headers(init?.headers)), { 'content-type': 'application/json', origin: config.invitationOrigin });
+    const body: unknown = JSON.parse(String(init?.body));
+    assert.ok(body && typeof body === 'object' && 'secret' in body && typeof body.secret === 'string');
+    return fixture.start(body.secret);
+  };
+  for (const actor of ['member', 'foreign']) {
+    const denied = new EtsyOwnerClient(settings, approval, transport);
+    await assert.rejects(denied.login(`${actor}@example.invalid`, 'synthetic-password'));
+    await assert.rejects(denied.status());
+  }
+  const client = new EtsyOwnerClient(settings, approval, transport);
+  await client.login('owner@example.invalid', 'synthetic-password');
+  const count = fixture.calls.length;
+  const initial = await client.status();
+  await client.list(10);
+  assert.equal(fixture.calls.length, count);
+  const sharePath = join(directory, 'share.json');
+  const receipt = await client.create({ expectedShopId: '8', expectedRevision: Number(initial.revision), idempotencyKey: randomUUID() }, sharePath, 'connect');
+  assert.equal('shareUrl' in receipt, false);
+  const share = JSON.parse(await readFile(sharePath, 'utf8')) as { shareUrl: string };
+  const consentPath = join(directory, 'consent.json');
+  await client.start(share.shareUrl, consentPath);
+  const savedConsent: unknown = JSON.parse(await readFile(consentPath, 'utf8'));
+  assert.ok(savedConsent && typeof savedConsent === 'object' && 'consentUrl' in savedConsent && typeof savedConsent.consentUrl === 'string');
+  const consent = new URL(savedConsent.consentUrl);
+  assert.equal((await fixture.callback(consent.searchParams.get('state')!)).status, 303);
+  const connected = await client.status(); assert.equal(connected.state, 'active');
+  const data = await client.read(Number(connected.revision));
+  assert.equal(data.shopId, '8'); assert.equal(data.etsyUserId, '7');
+  assert.equal(data.shopName, 'Synthetic Shop'); assert.equal(data.currencyCode, 'USD');
+  const reconnect = await client.create({ expectedShopId: '8', expectedRevision: Number((await client.status()).revision),
+    idempotencyKey: randomUUID() }, join(directory, 'reconnect.json'), 'reconnect');
+  assert.equal((await fixture.admin.query('SELECT count(*)::integer AS n FROM app_private.etsy_credentials')).rows[0].n, 0);
+  await client.cancel(String(reconnect.invitationId), { expectedRevision: Number(reconnect.revision), idempotencyKey: randomUUID() });
+  await client.disconnect({ expectedRevision: Number((await client.status()).revision), idempotencyKey: randomUUID() });
+  assert.equal((await client.status()).state, 'disconnected');
+  await fixture.admin.query("UPDATE app_private.memberships SET role_code='owner' WHERE user_id=$1", [fixture.member]);
+  await fixture.admin.query("UPDATE app_private.memberships SET role_code='member' WHERE user_id=$1", [fixture.owner]);
+  await assert.rejects(client.status());
+  await fixture.admin.query("UPDATE app_private.memberships SET role_code='owner' WHERE user_id=$1", [fixture.owner]);
+  await fixture.admin.query("UPDATE app_private.memberships SET role_code='member' WHERE user_id=$1", [fixture.member]);
+  const lost = new EtsyOwnerClient(settings, approval, transport); await lost.login('owner@example.invalid', 'synthetic-password');
+  lostWrite = true;
+  await assert.rejects(lost.create({ expectedShopId: '8', expectedRevision: Number((await lost.status()).revision), idempotencyKey: randomUUID() },
+    join(directory, 'lost.json'), 'reconnect'), { outcome: 'unknown' });
+  const before = fixture.calls.length;
+  await assert.rejects(lost.status()); assert.equal(fixture.calls.length, before);
+  assert.equal(await client.logout(), 'confirmed'); assert.equal(logouts, 1);
+  const revoked = new EtsyOwnerClient(settings, approval, transport);
+  await assert.rejects(revoked.login('owner@example.invalid', 'synthetic-password'));
+  await assert.rejects(revoked.status());
+  assert.equal(signins, 5);
+});
+
+test('Etsy setup exact three-to-four migration switches actual old and target strict HTTP readiness',
+  { skip: !process.env.ETSY_TEST_FIXTURE_DIRECTORY, timeout: 120000 }, async t => {
+  const nativeFetch = globalThis.fetch;
+  const fixture = await etsyFixture(t, config);
+  await t.test('owned strict history cutover', async t => {
+  const directory = await mkdtemp(join(await realpath(tmpdir()), 'esty-setup-sql-'));
+  const databaseName = `setup_${randomBytes(12).toString('hex')}`;
+  await fixture.admin.query(`CREATE DATABASE "${databaseName}"`);
+  const database = { ...fixture.database, database: databaseName }, beforeDirectory = join(directory, 'before');
+  await mkdir(beforeDirectory);
+  for (const entry of migrationManifest.slice(0, 3)) await cp(join(migrationsDirectory, `${entry.name}.mjs`), join(beforeDirectory, `${entry.name}.mjs`));
+  const initial = await runMigrations(database, { directory: beforeDirectory });
+  assert.equal(initial.result, 'success');
+  assert.deepEqual(initial.after, migrationManifest.slice(0, 3).map(entry => entry.name));
+  const baseConfig = parseConfig({ DATABASE_URL: `postgresql://postgres:${database.password}@127.0.0.1:${database.port}/${databaseName}` });
+  const old = await createApplication(baseConfig, migrationManifest.slice(0, 3).map(entry => entry.name));
+  const target = await createApplication(baseConfig, migrationManifest.map(entry => entry.name));
+  await old.listen(0, '127.0.0.1'); await target.listen(0, '127.0.0.1');
+  const oldOrigin = await old.getUrl(), targetOrigin = await target.getUrl();
+  t.after(async () => { await old.close(); await target.close(); await fixture.admin.query(`DROP DATABASE "${databaseName}"`); await rm(directory, { recursive: true, force: true }); });
+  const packet: EtsyReleasePacket = { version: 1, runId: randomUUID(), ledgerRoot: directory,
+    revision: 'a'.repeat(40), tree: 'b'.repeat(40), sourceDigest: 'c'.repeat(64), artifactDigest: 'd'.repeat(64),
+    runtimeDigest: 'e'.repeat(64), configBundleDigest: 'f'.repeat(64), migrationInputDigest: '1'.repeat(64),
+    previousDigest: manifestDigest(migrationManifest.slice(0, 3)), targetDigest: manifestDigest(migrationManifest),
+    target: 'local', driverDigest: '2'.repeat(64), nodeDigest: '3'.repeat(64), cliDigest: '4'.repeat(64), cliOwnFilesDigest: '5'.repeat(64),
+    metadataDigest: '6'.repeat(64), browserOrigin: 'https://app.lovora.us', runtimeKeys: [...activationRuntimeKeys, 'APP_ACTIVATION_CONFIG_DIGEST'].sort(),
+    predecessor: { id: 'dpl_old', revision: '7'.repeat(40), tree: '8'.repeat(40), sourceDigest: '9'.repeat(64), artifactDigest: 'a'.repeat(64), configDigest: 'b'.repeat(64) },
+    window: { start: Date.now() - 1000, end: Date.now() + 600000 },
+    grants: { exclusiveOwnerLease: 'owned-local-fixture', automatedDelivery: 'disabled', maintenance: 'approved-readiness-interruption',
+      recovery: 'approved-roll-forward-only', phases: [...etsyReleasePhases] } };
+  const observed: Array<{ origin: string; status: number; body: unknown }> = [];
+  async function readiness(origin: string, pending: boolean) {
+    const response = await nativeFetch(origin + '/health/ready', { signal: AbortSignal.timeout(5000) });
+    const body: unknown = await response.json(); observed.push({ origin, status: response.status, body });
+    assert.equal(response.status, pending ? 503 : 200);
+    assert.deepEqual(body, pending ? { status: 'degraded', reason: 'migrations_pending' } : { status: 'ready', database: 'up', migrations: 'current' });
+  }
+  let creates = 0, promotes = 0, alias = 'dpl_old';
+  const operations: EtsyReleaseOperations = {
+    verify() { assert.equal(manifestDigest(migrationManifest), packet.targetDigest); },
+    async currentMain() { return { revision: packet.revision, tree: packet.tree }; },
+    async history() { const status = await migrationStatus(database); assert.equal(status.ordered, true); assert.deepEqual(status.unexpected, []); return status.applied; },
+    async predecessor(pending) { assert.equal(alias, 'dpl_old'); await readiness(oldOrigin, pending); },
+    async create() { creates++; return { code: 0, aborted: false, stdout: '{"deployment":{"id":"dpl_target"}}' }; },
+    async candidate(id, pending) { assert.equal(id, 'dpl_target'); await readiness(targetOrigin, pending); },
+    migrate: () => runMigrations(database, { sourceRevision: packet.revision, target: 'local', expectedBefore: migrationManifest.slice(0, 3).map(entry => entry.name) }),
+    async promote(id) { assert.equal(id, 'dpl_target'); promotes++; alias = id; return { code: 0, aborted: false, stdout: '' }; },
+    async alias(id) { assert.equal(alias, id); },
+  };
+  const packetDigest = sha256(canonical(packet));
+  for (const phase of etsyReleasePhases) await runEtsyReleasePhase({ packet, packetDigest, phase, operations, signal: AbortSignal.timeout(30000) });
+  assert.equal(creates, 1); assert.equal(promotes, 1);
+  assert.ok(observed.some(row => row.origin === oldOrigin && row.status === 200));
+  assert.ok(observed.some(row => row.origin === oldOrigin && row.status === 503));
+  assert.ok(observed.some(row => row.origin === targetOrigin && row.status === 503));
+  assert.ok(observed.some(row => row.origin === targetOrigin && row.status === 200));
+  const after = await migrationStatus(database);
+  assert.deepEqual(after.applied, migrationManifest.map(entry => entry.name)); assert.deepEqual(after.pending, []);
+  });
 });

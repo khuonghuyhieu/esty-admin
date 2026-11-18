@@ -1,5 +1,114 @@
 # Validation Guide: Etsy Connectivity
 
+## Current Auth trust-boundary correction
+
+**READY_FOR_BE_SETUP_PUBLICATION.** t151 recovered existing t175's actual FIX-ONLY final and accepted the scoped Auth correction: **original setup Auth P2 RESOLVED; no further confirmed findings in FIX-ONLY**. The original setup review remains one confirmed P2, distinct from historical prune and packaging reviews. Reviewer tests/build/runtime were NOT_RUN. This closeout changed only four010 evidence files; source hashes/document integrity were verified without rerunning any application check.
+
+### Corrected owner entrypoint
+
+Do not invoke the former unbound interactive Owner entrypoint or copy an example target. Only a newly generated, independently approved guarded `owner.sh` carries authority: the existing setup generator first verifies its approved packet, full new configuration digest and immutable source/artifact/operator, derives `owner-binding.json` with exact Auth URL/public-key hash, and embeds that file's digest in the launcher. Owner input cannot select the expected digest or target. Receipt loading verifies exact schema, packet expiry, project and artifact provenance; actual execution checks Node/operator identity before any hidden prompt. Settings and constructor require the opaque verified approval and exact URL/key match; login rechecks receipt/artifact/expiry before transport. Lovora API origin and current-session/Owner checks remain unchanged.
+
+The Owner receipt/launcher contains no raw public key or runtime/database credentials. The Owner client reads only this nonsecret binding, not the new runtime bundle. Manual use of a self-computed receipt digest is not an approval path. Actual trusted packet/config/native artifact and owner authorization remain unavailable; no real launcher or credential request is issued here.
+
+### Actual narrow checks
+
+Using the existing exact Node24.22.1 and isolated empty task HOME/user+global npm/Docker configuration, without installation:
+
+```sh
+npm run stage:operator --workspace @esty-admin/api
+node --test --test-name-pattern="Etsy setup Owner approval|staged operator imports" apps/api/build/tests/etsy.test.js apps/api/build/tests/artifact.test.js
+node --test --test-name-pattern="Etsy setup Owner approval" apps/api/build/tests/etsy.test.js
+```
+
+- Compile/stage passed, manifest current,157 dependency packages. Boundary+isolated-package checkpoint **2/2 passed**; after strengthening assertions to observable refusal/redaction rather than wording, final boundary test **1/1 passed**. These overlap, not three distinct tests. The unchanged package regression verified actual isolated imports/no-input behavior with the new transitive Owner dependency.
+- Permanent boundary coverage: another valid Supabase project+matching public key, same-project wrong key and forged approval fail with **zero transport and zero password acquisition**. Changed source/tree/artifact/runtime/config binding under the pinned digest fails; independently pinned malformed/expired/source-incompatible receipts also fail. An already loaded approval expiring before login fails. Errors do not disclose password canary, Auth URL or public key.
+- Owned runner with temporary preload selecting only `Etsy setup Owner client`: **1/1 passed**. Actual signed JWT/current SQL Auth session/current Owner/Nest/SQL lifecycle, with synthetic password HTTP/Etsy HTTPS and independently pinned synthetic approval. Fresh fixture `esty-etsy-412d6be11e8bfa2b`, loopback32776, tmpfs; teardown completed and exact container absence was checked. Unrelated strict-cutover/full suites were not rerun.
+- Pinned Linux/x64 Node24.22.1 image, network none, read-only root, dropped capabilities and only new synthetic fixture mounts: actual generator derived exact Auth URL/key hash, embedded the external binding digest, excluded raw key/runtime secrets, rejected changed configuration and emitted valid shell syntax.
+- Actual PTY execution of generated `owner.sh`: attacker project and same-project wrong key stopped before email/password prompts. Tampered binding and unbound direct CLI stopped before settings. Approved settings reached the email prompt; the smoke cancelled there without entering email/password. No Auth/provider call was made. Unit transport counters separately prove zero credential submissions on rejected input.
+- This Linux package has deliberately fake source revision/tree and a throwing synthetic CLI: **not native/published release evidence**. Final synthetic package digest `cad8cf933276877495ace34976d137d359057e861bb7cedda3cfb7c83ba3d6cb` is test identity only.
+
+One new failure remains recorded: initial compile exited2 because the new test fixture passed a readonly migration tuple to a mutable artifact-builder parameter. The fixture now supplies a mutable copy; production guards were not weakened. All five prior setup failures and the original one-P2 review remain preserved.
+
+### Frozen delta and cleanup
+
+Only three source paths differ from the prior setup freeze: `apps/api/scripts/etsy-owner.ts`, `apps/api/scripts/etsy-release.ts` (Owner binding/guarded-launcher interface only), `apps/api/tests/etsy.test.ts`. The other132 build-source records are unchanged. Four existing010 evidence files record this increment; six paths from the original13-path review scope are byte-identical.
+
+Current source135 digest: `4f76286597a498eccf69eab91157264dbc0e34af7c0f6c495f49484cd4bf8cc4`. Operator6329-file/683-directory digest: `bd8d8eeb5f934505b0e0beab953d68a86f42b2ba8951dc3a499b91d539824ee4`. Original setup packet SHA-256 `e2c6172c8aca454c76029c01005c09658a9e1819885e9a4b19d7ecc57344e399` and review-scope digest `a5e4270f195aeb88b3e5b9f11ae89530bcb9769594f546d1cfa71588ee9127ab` remain historical, not the corrected source.
+
+Exact hashes/checks and the preserved setup snapshot are in setup-preparation.json; public logs/inventories and a byte-identical original packet remain in task scratch `esty-be-setup-auth-fix-1vnoj0mo`. Synthetic receipt/config/launcher/package/harness files and empty task environment were removed after evidence capture. Ignored build output remains. Shared services/volumes/FE ports and all root/dependency/FE/CI/runtime/SQL/provider phase source stayed untouched.
+
+**Accepted source-local review is not publication or hosted acceptance.** The nine source/test paths and135-file digest above remain frozen. t151 will handle existing-branch publication after this docs freeze; the writer performed no Git/main change. New committed/current-main binding, clean exact-source Linux native build and separate immutable artifact approval remain open. Optional24f5 native baseline stays skipped/NOT_RUN. Actual configuration/target/key/packet/maintenance/recovery/activation decisions remain OWNER_INPUT_PENDING; real cloud SQL/provider/deploy/domain/ACK/Etsy acceptance remains HOSTED_NOT_RUN. General FE and prune gates stay open. No ready real shell launcher is claimed. No tests/build/runtime/resources/private/provider/CI/FE action or new reviewer was started during closeout. **STOP WRITES; ownership returns to t151.**
+
+All following sections preserve the earlier setup freeze verbatim. Their old unbound Owner interface and pre-review status are historical and superseded by this correction, not current usage guidance.
+
+## Current BE setup completion — source-local first, deploy later
+
+**READY_FOR_BE_SETUP_REVIEW.** t151 accepted the bounded plan and implementation authority; t15j completed the nine source/test paths and four010 evidence files, then froze them for the coordinator. Existing t175 has not reviewed this new increment yet. CI remains deferred and disabled; no enablement or routine guard change was made.
+
+### Scope and identities
+
+PR6's existing BE baseline is published on planning-observed main `24f5dc3fddfc25680ba11ff8214ce374e214f46a`, tree `87a13cda426503232ae66b01fea9aacb77b7eaaf`. The132-file baseline digest was `ba9c78358a6864e88b78018cf4816af4ed58fa7a49c682b47029408f7695dbba`. The worktree remains assigned branch `feat/etsy-connectivity` at supplied HEAD77e5/tree0a39; no Git mutation/publication occurred. Main was not needlessly re-probed during implementation.
+
+Subsequent t151/root FYI reports clean main/origin `08e68fb91e0cfb74776494eb84709e8eb9b2244b` after FE53ac9ac, with API/010/canonical bytes preserved and only FE generated types regenerated. This is supplied evidence, not an independent BE blob verification.24f5 is historical. Future exact controller/artifact work must rebind then-current public main and verify BE blobs; no rebase/pull or native/build restart was performed for this FE-only metadata update.
+
+| Current development evidence | Value |
+|---|---|
+| Full135-file public build-source digest | `310907b72b72062e8cef3a236a9229ffb41977e340a9f156b5bb1c9bf46557de` |
+| Staged operator inventory,6329 files/683 directories | `222261d17eae8f4b6deb227a07819cc0ed46414434ce11885df2236b0ef43e2f` |
+| Historical review-manifest.json, retained | `a925080d6d587187c67c0581c9283655ead6711dbabb918cd4dfa0d3f9a3645a` |
+| Historical release-preparation.json, retained | `53ba2808f958e0201b2a647cf20195570955ea1ed092595dd71f861d6f2b7664` |
+
+The source digest uses canonical artifact file records; operator digest uses canonical complete `{files,directories}` inventory. Exact records, changed-path hashes, tools, logs and prior planning receipt are in [setup-preparation.json](setup-preparation.json). This overlay is not published24f5, a clean native build, or an approved release. The original24-file review digest is historical, not an unchanged claim for the newly extended tests.
+
+### Implemented operator contract
+
+- `activation-config.ts` now includes all ten Etsy keys in the existing digest. Absent Etsy keys preserve the legacy digest; every present Etsy value binds the new one. Old D1 remains historical and does not attest this configuration.
+- `etsy-setup.ts` validates a fresh exact `{runtime,backupPolicy}` envelope through existing startup validation, including the complete enabled envelope even when output stays disabled. `prepare` takes one fresh output path and hidden-TTY JSON; `validate` takes an explicitly selected new0600 **raw input snapshot**, not the prepared output bundle. `key` takes one fresh output path and requires hidden key-ID/policy/confirmation. Existing0700 parent, exclusive0600 output, no overwrite/symlink/original discovery/injection. No real key was generated.
+- `etsy-owner.ts` accepts no command arguments: hidden settings contain exactly `authUrl`, `authApiKey`, `technicalKey`, `invitationOrigin`, `clientId`, then hidden Owner email/password. Fixed existing password sign-in plus Nest `/v1/app/me` verifies current session/Owner. Explicit status/list/create/reconnect/cancel/start/read/disconnect/logout only; no refresh, background call, automatic retry, actor UUID or prune. Revision/idempotency is explicit. Share/consent/results go only to fresh private files. Reconnect warns before removing/fencing old local credentials. Unknown writes/logout remain unknown, not replay or revocation success.
+- `etsy-release.ts` implements seven separately approved phases: `history` → `held-create` → `pre-sql-check` → `sql-apply` → `post-sql-check` → `promote-only` → `final-domain-ack`. One held skip-domain CREATE; exact pending503 before SQL (unexpected ready200 refuses); exact3→4 SQL; same-ID ready200; explicit same-ID promotion; final alias/health/config/inventory/ACK.
+- Durable exclusive intent precedes network. A returned CREATE ID is fsynced before follow-up even on nonzero/abort. Missing/late/unknown ACK, changed main/packet/config/history, wrong503, alias drift, missing receipts or fsync failure retains a terminal lock; no retry/new CREATE. Separate processes cannot repeat consumed CREATE/promote. Old strict3 pending503 is accepted only in the bound post-SQL maintenance phase, never healthy rollback.
+- Live launchers require actual Linux/x64 Node24.22.1, exact immutable source/artifact/CLI/operator/config/packet and current approvals. Their embedded built-in-only inventory verifier runs before importing operator code. The ledger is fixed to the actual OS user's retained home `.local/state/lovora-etsy-setup`, not an alternate packet directory or HOME override; one authoritative host/user and exclusive owner lease remain required. SQL/history phases receive only migration input and publicly bind GitHub main; no Vercel/Auth credentials. Provider/probe and Owner inputs remain separate.
+
+These are implemented interfaces, **not issued owner execution commands**. No usable real packet/native artifact/secure input/maintenance approval exists in this receipt. A private directory or synthetic hash is not approval. No old675/f162 launcher, receipt, pinned probe or D1 input was reused.
+
+### Actual affected checks
+
+Exact existing Node24.22.1 ran with explicit minimal environment, empty HOME and separate empty user/global npm configs; no install:
+
+```sh
+npm run stage:operator --workspace @esty-admin/api
+node --test --test-name-pattern="Etsy setup|runtime attestation|staged operator imports" apps/api/build/tests/config.test.js apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js
+node --test --test-name-pattern="Etsy setup|staged operator imports" apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js
+```
+
+- Build/stage exited0: manifest current, TypeScript compile passed,157 production dependency packages, three explicit helper entries added without copy-all.
+- First successful focused config/release/package checkpoint: **35/35 passed**. After final fixed-ledger/CLI/metadata/approval guard changes, final release/package run: **32/32 passed**, zero failed/cancelled/skipped. Counts overlap; they are not67 distinct cases.
+- The package regression stages the real operator, copies it outside checkout fallback, imports new/existing helpers and exercises no-input/refusal boundaries with filesystem/process/network restrictions. Final pinned Linux checks also imported the actual staged code.
+- Actual owned E2E: `node --import <task-scratch>/fixture-selection.mjs apps/api/scripts/etsy-local-check.mjs` exited0, **3/3 passed**. The temporary preload only narrowed the runner's existing child test arguments to `--test --test-name-pattern=Etsy setup apps/api/build/tests/etsy.test.js`; fixture setup/validation/teardown remained unchanged. No unrelated original21-case rerun. Exact preload hash/text is retained in the evidence packet.
+- Fixture `esty-etsy-30801192c8d47e4d`, loopback32775, tmpfs: real Nest/PostgreSQL, signed JWT and current SQL Auth session/Owner checks; synthetic password HTTP and Etsy HTTPS. The new client completed create/start/callback/status/four-field read/reconnect/cancel/disconnect/logout; Member/foreign/demoted/revoked authority and lost-write response refused. No status provider call. Separate fresh DB proved old strict3 ready200→pending503 and target strict4 pending503→ready200 around actual exact3→4 migration. Provider CREATE/promote transport stayed synthetic, once each.
+- Actual PTY invocation of `etsy-setup.js prepare` accepted only synthetic hidden JSON, exited0, saved0600 disabled output and did not echo secret canary/DB URL/keyring. Key generation and real private inputs were NOT_RUN.
+- Pinned Linux image `docker.io/library/node@sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea`, Node24.22.1/linux/x64, binary `e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb`: network none/read-only root/dropped capabilities, only new task-fixture mount. A clearly marked **synthetic sealed fixture with fake source revision/tree and a throwing synthetic CLI**, not a native/published artifact, generated all seven shell scripts. Shell syntax, actual pre-import inventory/no-TTY refusal, alternate-ledger refusal, changed-CLI refusal and changed-operator-before-import refusal passed. No credential/SQL/provider call or actual CREATE.
+
+Unrelated suites and historical artifact-pinned activation-recovery fixtures were not run or retargeted. Existing CI/routine/private-input allowlists and strict schema behavior remain intentionally unchanged; no full-suite or historical-artifact acceptance is claimed.
+
+### Failed attempts retained
+
+1. Initial typecheck exited2: two test `assert.rejects` calls supplied `undefined` where the type requires an error predicate. Corrected the test callbacks; later compile passed.
+2. Initial build exited1 because isolated npm user/global configuration used the same path. Separated the two empty files; no dependency change/install.
+3. First focused run:28 passed/2 failed because the synthetic setup fixture omitted explicit `APP_RETENTION_POLICY_ID`. Completed the fixture; runtime validation was not weakened.
+4. First owned runner attempt could not find default `/var/run/docker.sock`; no fixture started. Selected the existing local OrbStack socket explicitly with empty task Docker config, without reading actual auth/config stores; subsequent owned run passed.
+5. First Linux launcher fixture failed packet validation because synthetic `dpl_synthetic_old` violated the existing deployment-ID grammar. Corrected that fixture ID; no source guard was weakened. Later Linux positive/fault smoke passed.
+
+### Cleanup, review and remaining gates
+
+The owned DB/HTTPS/Auth fixture runner completed guarded teardown; Linux containers used `--rm`. Task-only synthetic packets/config/results, generated shell scripts, synthetic sealed package and temporary preload/assembly/smoke scripts were removed after hashes were recorded. Sanitized failure/success logs and public source/operator inventories remain in `esty-be-setup-checks-2be2x1xj`; ordinary ignored build output is retained for review. Shared services/volumes, FE55440–55444, dependencies, root package/lock, CI/routine/schema guards and FE/shared docs were untouched.
+
+**Source-local:** READY_FOR_BE_SETUP_REVIEW, frozen; only t151 starts existing t175. **Owner decisions/secure input/maintenance/recovery/activation:** OWNER_INPUT_PENDING. **Hosted/provider:** HOSTED_NOT_RUN. General FE/recipient journey and operational prune stay deferred; this is not complete hosted Etsy acceptance.
+
+Baseline24f5 native build was deliberately skipped per the accepted priority. Final new-source native artifact still requires scoped review, separate publication/main integration, freshly bound clean source, unchanged pinned official builders, exact native evidence and explicit artifact approval. No Docker runtime/synthetic package pass substitutes for this gate. No install, Git publication/merge, real private/Auth/cache read, cloud SQL/provider/Etsy call, deployment, DNS or billing action occurred.
+
+The remaining sections preserve earlier packaging/pre-merge evidence byte-for-byte. Their old digest coverage and publication/overlay claims are historical, superseded only by the current section; original one-P2/resolved and separate accepted packaging review history are not rewritten.
+
 ## Current BE release preparation — packaging fix review
 
 **READY_FOR_SCOPED_PUBLICATION_MAIN_INTEGRATION_DECISION.** Coordinator t151 accepted t175's separate packaging-delta review with no confirmed actionable findings in the exact five-path scope; actual gpt-6-luna medium was coordinator-verified. The reviewer ran no tests/build/runtime. The original Etsy full review remains one P2, resolved through its earlier fix-only recheck; this is a separate review. The supplied published baseline remains `00fc8c5505c20a801ac63fcc02ee9aa24324a080` on `feat/etsy-connectivity`, tree `0fb95fdd16f7b58d925ee586a0ce1df48503b4e4`. Initial local HEAD/tracking ref agreed; no fresh remote probe occurred. The reviewed packaging repair remains an **uncommitted development overlay**, not exact00fc source, merged main or an admitted production artifact.

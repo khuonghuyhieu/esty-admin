@@ -5,7 +5,10 @@ export const activationBaseKeys = Object.freeze(['API_RUNTIME', 'DATABASE_URL', 
   'SUPABASE_DATABASE_NAME', 'SUPABASE_DATABASE_USER', 'DATABASE_CA_PEM']);
 export const activationAppKeys = Object.freeze(['APP_WORKSPACE_ID', 'APP_AUTH_URL', 'APP_AUTH_API_KEY',
   'APP_EMAIL_ENABLED', 'APP_RETENTION_POLICY_ID']);
-export const activationRuntimeKeys = Object.freeze([...activationBaseKeys, ...activationAppKeys].sort());
+export const etsyRuntimeKeys = Object.freeze(['ETSY_ENABLED', 'ETSY_CLIENT_ID', 'ETSY_SHARED_SECRET',
+  'ETSY_CALLBACK_URL', 'ETSY_RETURN_ORIGIN', 'ETSY_INVITATION_ORIGIN', 'ETSY_INVITATION_TTL_SECONDS',
+  'ETSY_RETENTION_SECONDS', 'ETSY_TOKEN_ACTIVE_KEY_ID', 'ETSY_TOKEN_KEYRING']);
+export const activationRuntimeKeys = Object.freeze([...activationBaseKeys, ...activationAppKeys, ...etsyRuntimeKeys].sort());
 
 // The expected digest and provider-injected process metadata are deliberately excluded.
 // This is the same canonical string-map encoding used by the approved private phase packet.

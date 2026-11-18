@@ -1,6 +1,6 @@
 # Tasks: Existing Etsy Connectivity
 
-**Status:** READY_FOR_OWNER_NEXT_LAYER — coordinator accepted the original P2 resolution after independent fix-only recheck; T023 complete for this BE increment. T019 operational prune and FE/browser/hosted/real-provider gates remain open. Source/docs ownership returned to t151; STOP WRITES.
+**Current status:** READY_FOR_BE_SETUP_PUBLICATION. t151 accepted existing t175's actual FIX-ONLY result: original setup Auth P2 resolved, no further confirmed findings in that recheck. Original setup one-P2, historical prune and packaging reviews remain distinct. Docs-only closeout retains all nine source/test hashes and135-file digest4f762865; no test/build/runtime rerun. Ownership returns to t151 for existing-branch publication; writer STOP WRITES. OWNER_INPUT_PENDING / HOSTED_NOT_RUN.
 **Inputs:** [spec](spec.md), [plan](plan.md), [contracts](contracts/proposed-api.md), [data model](data-model.md), [validation](quickstart.md).
 
 T001–T026 retain their original identities/checkmarks but their proposed contents/order are amended for the current layered direction. Original U1 resolution/hashes remain historical in the handoff, not a hash claim for this amendment. No task is completed by documentation.
@@ -74,3 +74,26 @@ T001–T026 retain their original identities/checkmarks but their proposed conte
 The original scoped review's one prune-authority P2 is resolved by accepted fail-closed correction; operational prune remains deferred under T019. T023 is complete for this BE increment after independent fix-only recheck, not for future FE/hosted work. Source/docs ownership returns to t151. T020–T022 require FE ownership/browser proof; T024–T026 retain publication/hosted/provider/overall closeout gates. No new worker or reviewer starts from this receipt.
 
 No parallel writers or workers were started. Existing developer-app access and supplied foundation acceptance are not reopened. Explicit synthetic policy/origin/shop inputs enabled local checks without choosing live owner values. No accepted foundation role/migration/bootstrap/D1/D2 was rerun against shared or hosted resources.
+
+## Accepted BE setup increment
+
+- [x] T027 Extend the existing runtime digest with exactly ten Etsy keys; preserve absent-key legacy digest and verify actual enabled configuration without enabling runtime.
+- [x] T028 Implement offline hidden-TTY/fresh-private-file configuration and key preparation; no original discovery/overwrite, secret output or actual injection. Actual PTY synthetic preparation passed; key writer used fixed synthetic bytes only, no owner key generation.
+- [x] T029 Implement the memory-only authenticated Owner client through fixed Auth/Nest endpoints; explicit revision/idempotency, private URL output, no automatic refresh/retry or prune. Actual owned HTTP/SQL/current-session journey passed.
+- [x] T030 Implement the exact owner-run held CREATE → pending503 → separately approved3→4 SQL → same-ID ready200 → explicit same-ID promote → domain/ACK contract with durable intents/receipts and terminal unknown STOP. Actual isolated SQL/readiness and synthetic provider/fault/process-restart cases passed; no hosted operation.
+- [x] T031 Integrate explicit operator closure; focused config/release/package checkpoint35/35, final release/package32/32, owned E2E3/3 and isolated Linux launcher boundary smoke passed. These counts overlap. Baseline native build deliberately skipped; synthetic launcher package is not native/published release evidence. Final new-source Linux artifact requires separately authorized review/publication/main binding.
+- [x] T032 Record exact source/docs/evidence identities and cleanup, freeze READY_FOR_BE_SETUP_REVIEW and return ownership to t151. Only the coordinator starts existing t175 review; OWNER_INPUT_PENDING and HOSTED_NOT_RUN remain. Later08e68 FE-only main FYI is supplied, not independently verified; no rebase/build restart.
+
+## Confirmed setup Auth P2 correction
+
+- [x] T033 Bind Owner Auth URL and exact public-key hash to the independently approved setup/config/source/artifact boundary before settings/credentials/transport. Generate a separately digest-pinned guarded Owner launcher and exact nonsecret receipt; reject unbound login, forged approval and changed/expired bindings. No arbitrary expected-project field or decoded-JWT authority.
+- [x] T034 Run focused zero-password/zero-transport refusal coverage, approved signed current-Auth/Nest/SQL Owner journey, isolated operator imports and actual Linux guarded-launcher/PTY checks. Preserve all five earlier failures plus the new fixture readonly-array compile failure; no native/live/full unrelated rerun.
+- [x] T035 Freeze exact delta against setup scopea5e427 and retain all unaffected hashes, original one-P2 history, evidence/cleanup and new scope/packet identities. READY_FOR_BE_SETUP_AUTH_FIX_REVIEW; STOP WRITES and return ownership to t151. Existing t175 FIX-ONLY acceptance is pending and coordinator-owned.
+
+## Accepted source-local review closeout
+
+- [x] T036 Record coordinator acceptance of existing t175 Auth FIX-ONLY resolution and freeze READY_FOR_BE_SETUP_PUBLICATION with the final13-path manifest. Verify document integrity and unchanged source hashes only; return ownership to t151. Publication is coordinator-owned and not performed by this writer.
+
+**Checked scope:** T001–T018 retain their original local/BE evidence (T011 remains BE-only); T023 retains the original scoped review; T027–T035 retain setup implementation/fix/check/freeze evidence; T036 records accepted setup review and this docs-only closeout. T035's pending recheck describes its prior freeze, superseded by T036.
+
+**Still open:** T019 operational prune; T020–T022 FE/browser journey and acceptance; T024 new-source publication/integration, native artifact/approval and hosted schema/config/release authority; T025 actual Etsy/provider acceptance; T026 overall/shared closeout. Existing PR6 publication is historical and does not publish this new increment. Baseline native build remains skipped/NOT_RUN; no usable real launcher, secure setup or hosted pass follows from checked source-local tasks.

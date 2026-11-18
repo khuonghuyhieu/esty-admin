@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, mkdir, rm, writeFile, readFile, stat, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -8,7 +8,8 @@ import test from 'node:test';
 import { ConfigurationError, parseConfig, parseEtsyConfig, parseMigrationConfig } from '../src/config/config.js';
 import { migrationFiles, verifyMigrationFiles } from '../scripts/migration-files.mjs';
 import { fixtureProfile } from '../scripts/app-fixture-profile.mjs';
-import { runtimeConfigDigest } from '../src/config/activation-config.js';
+import { activationBaseKeys, activationAppKeys, etsyRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
+import { prepareEtsyConfiguration, saveEtsyConfiguration, saveEtsyKeyring } from '../scripts/etsy-setup.js';
 import { assertAppManifest, readyHistory } from '../src/config/schema-transition.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { createHash } from 'node:crypto';
@@ -346,4 +347,68 @@ test('runtime attestation rejects changed private configuration and unprotected 
   });
   assert.throws(() => parseConfig({ ...valid, APP_ACTIVATION_CONFIG_DIGEST: runtimeConfigDigest(valid) }),
     ConfigurationError);
+});
+
+const setupRuntime = () => ({
+  ...hosted, VERCEL: undefined, PORT: undefined, APP_SCHEMA_MODE: 'strict', APP_FOUNDATION_ENABLED: 'true',
+  SUPABASE_DATABASE_USER: `app_runtime.${hosted.SUPABASE_PROJECT_REF}`,
+  DATABASE_URL: hosted.DATABASE_URL.replace('postgres.eotmpaliqcxxcotrcols:', 'app_runtime.eotmpaliqcxxcotrcols:'),
+  APP_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+  APP_AUTH_URL: `https://${hosted.SUPABASE_PROJECT_REF}.supabase.co/auth/v1`,
+  APP_AUTH_API_KEY: 'sb_publishable_synthetic', APP_EMAIL_ENABLED: 'false',
+  APP_RETENTION_POLICY_ID: 'synthetic-explicit-retention',
+  ETSY_ENABLED: 'false', ETSY_CLIENT_ID: 'fixture_app', ETSY_SHARED_SECRET: 'secret_canary',
+  ETSY_CALLBACK_URL: 'https://api.lovora.us/integrations/etsy/callback',
+  ETSY_RETURN_ORIGIN: 'https://return.example', ETSY_INVITATION_ORIGIN: 'https://invite.example',
+  ETSY_INVITATION_TTL_SECONDS: '600', ETSY_RETENTION_SECONDS: '900',
+  ETSY_TOKEN_ACTIVE_KEY_ID: 'fixture', ETSY_TOKEN_KEYRING: JSON.stringify({ fixture: Buffer.alloc(32, 9).toString('base64url') }),
+});
+function setupInput() {
+  return { backupPolicy: 'synthetic-backup-policy', runtime: Object.fromEntries(
+    Object.entries(setupRuntime()).filter(([, value]) => value !== undefined)) };
+}
+test('Etsy setup binds every explicit field while preserving absent-key legacy digest', () => {
+  const legacy = Object.fromEntries([...activationBaseKeys, ...activationAppKeys].sort()
+    .flatMap(key => hosted[key as keyof typeof hosted] === undefined ? [] : [[key, hosted[key as keyof typeof hosted]]]));
+  assert.equal(runtimeConfigDigest(hosted), createHash('sha256').update(JSON.stringify(legacy)).digest('hex'));
+  const input = setupInput(), output = prepareEtsyConfiguration(input);
+  assert.equal(output.runtime.ETSY_ENABLED, 'false');
+  assert.equal(output.runtimeDigest, runtimeConfigDigest(input.runtime));
+  assert.notEqual(output.runtimeDigest, output.enabledValidationDigest);
+  for (const field of etsyRuntimeKeys) {
+    assert.notEqual(runtimeConfigDigest({ ...input.runtime, [field]: 'changed' }), output.runtimeDigest, field);
+    const missing = { ...input.runtime }; delete missing[field];
+    assert.throws(() => prepareEtsyConfiguration({ ...input, runtime: missing }), /setup input/);
+  }
+  for (const runtime of [
+    { ...input.runtime, ETSY_TOKEN_KEYRING: 'secret_canary' },
+    { ...input.runtime, APP_ACTIVATION_CONFIG_DIGEST: 'a'.repeat(64) },
+    { ...input.runtime, VERCEL_TOKEN: 'secret_canary' },
+    { ...input.runtime, APP_SCHEMA_MODE: 'activation-bridge' },
+    { ...input.runtime, ETSY_INVITATION_TTL_SECONDS: '299' },
+  ]) assert.throws(() => prepareEtsyConfiguration({ ...input, runtime }), error => {
+    assert.doesNotMatch(String(error), /secret_canary/); return true;
+  });
+});
+test('Etsy setup outputs are durable private no-clobber files and reject symlink paths', async t => {
+  const directory = await mkdtemp(join(await import('node:fs/promises').then(fs => fs.realpath(tmpdir())), 'esty-setup-test-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const output = join(directory, 'prepared.json');
+  saveEtsyConfiguration(setupInput(), output);
+  assert.equal((await stat(output)).mode & 0o777, 0o600);
+  assert.equal(JSON.parse(await readFile(output, 'utf8')).runtime.ETSY_ENABLED, 'false');
+  const before = await readFile(output);
+  assert.throws(() => saveEtsyConfiguration(setupInput(), output));
+  assert.deepEqual(await readFile(output), before);
+  const alias = join(directory, 'alias'); await symlink(directory, alias);
+  assert.throws(() => saveEtsyConfiguration(setupInput(), join(alias, 'unsafe.json')));
+  const key = Buffer.alloc(32, 7), keyOutput = join(directory, 'key.json');
+  saveEtsyKeyring(key, 'fixture', 'fixture-backup', keyOutput);
+  assert.deepEqual(key, Buffer.alloc(32));
+  assert.equal(JSON.parse(await readFile(keyOutput, 'utf8')).keyring.fixture, Buffer.alloc(32, 7).toString('base64url'));
+  assert.equal((await stat(keyOutput)).mode & 0o777, 0o600);
+  const result = spawnSync(process.execPath, [new URL('../scripts/etsy-setup.js', import.meta.url).pathname],
+    { env: {}, encoding: 'utf8', timeout: 5000 });
+  assert.equal(result.status, 1);
+  assert.doesNotMatch(result.stdout + result.stderr, /secret_canary|fixture_app|postgresql:| at /);
 });

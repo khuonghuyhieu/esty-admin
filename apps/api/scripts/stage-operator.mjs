@@ -24,6 +24,7 @@ try {
     'activation-input-helper.js', 'activation-input-transfer.js', 'activation-preflight-disposition.mjs',
     'activation-recovered-provider.js', 'activation-recovery-io.js', 'activation-recovery-origin.js',
     'activation-recovery-tool.mjs', 'activation-retained.mjs', 'activation-schema-diagnostic.js', 'hidden-input.mjs',
+    'etsy-setup.js', 'etsy-release.js', 'etsy-owner.js',
     'app-roles.js', 'bootstrap-app-owner.js']) {
     await cp(join(appRoot, 'build/scripts', name), join(targetApp, 'build/scripts', name));
   }

@@ -1,0 +1,466 @@
+import fs from 'node:fs';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve } from 'node:path';
+import { tmpdir, userInfo } from 'node:os';
+import { fileURLToPath } from 'node:url';
+import { artifactTarget, canonical, inventory, removeArtifactTree, sha256, verifyArtifact } from './artifact.js';
+import type { VerifiedArtifact } from './artifact.js';
+import { acknowledgedId, prebuiltCreateArguments, stagePrebuiltOutput } from './ci-delivery.js';
+import { deploymentId, inspectCandidate, repository, uploadedCandidatePartition, verifyCandidateArchive } from './ci-provider.js';
+import { command, isolatedEnvironment, responseBytes } from './ci-tools.js';
+import type { CommandResult } from './ci-tools.js';
+import { readEvidence, writeReleaseEvidence } from './release-journal.js';
+import { privateDirectory } from './private-files.mjs';
+import { migrationInputs } from './activation-inputs.js';
+import { parseMigrationConfig } from '../src/config/config.js';
+import { migrationManifest } from '../src/generated/migrations.js';
+import { manifestDigest, migrationStatus, runMigrations } from './migrations.js';
+import type { MigrationReport } from './migrations.js';
+import { checkHostedHttp } from './hosted-acceptance.js';
+import { readHiddenPassword } from './hidden-input.mjs';
+import { prepareEtsyConfiguration, setupObject } from './etsy-setup.js';
+import { bounded } from './bounded.js';
+import { activationRuntimeKeys, etsyRuntimeKeys } from '../src/config/activation-config.js';
+import { currentAppMetadata } from './activation-configuration.js';
+
+export const etsyReleasePhases = ['history', 'held-create', 'pre-sql-check', 'sql-apply', 'post-sql-check', 'promote-only', 'final-domain-ack'] as const;
+export type EtsyReleasePhase = typeof etsyReleasePhases[number];
+export interface EtsyReleasePacket {
+  version: 1; runId: string; ledgerRoot: string; revision: string; tree: string; sourceDigest: string;
+  artifactDigest: string; runtimeDigest: string; configBundleDigest: string; migrationInputDigest: string;
+  previousDigest: string; targetDigest: string; target: string; driverDigest: string; nodeDigest: string;
+  cliDigest: string; cliOwnFilesDigest: string; browserOrigin: string; runtimeKeys: string[]; metadataDigest: string;
+  predecessor: { id: string; revision: string; tree: string; sourceDigest: string; artifactDigest: string; configDigest: string };
+  window: { start: number; end: number };
+  grants: { exclusiveOwnerLease: string; automatedDelivery: 'disabled'; maintenance: 'approved-readiness-interruption';
+    recovery: 'approved-roll-forward-only'; phases: EtsyReleasePhase[] };
+}
+export class EtsyReleaseStop extends Error {
+  constructor() { super('ETSY_SETUP_STOP: durable intent or outcome requires owner disposition; do not retry mutations.'); }
+}
+function stop(): never { throw new EtsyReleaseStop(); }
+const hex = /^[a-f0-9]{64}$/, revision = /^[a-f0-9]{40}$/;
+const equal = (a: unknown, b: unknown) => canonical(a) === canonical(b);
+function exactObject(value: unknown, keys: string[]): Record<string, unknown> {
+  const record = setupObject(value);
+  if (!equal(Object.keys(record).sort(), [...keys].sort())) stop();
+  return record;
+}
+export function validateEtsyReleasePacket(value: unknown, digest: string, now = Date.now()): EtsyReleasePacket {
+  try {
+    const data = exactObject(value, ['version', 'runId', 'ledgerRoot', 'revision', 'tree', 'sourceDigest', 'artifactDigest',
+      'runtimeDigest', 'configBundleDigest', 'migrationInputDigest', 'previousDigest', 'targetDigest', 'target', 'driverDigest',
+      'nodeDigest', 'cliDigest', 'cliOwnFilesDigest', 'browserOrigin', 'runtimeKeys', 'metadataDigest', 'predecessor', 'window', 'grants']);
+    if (!hex.test(digest) || sha256(canonical(data)) !== digest || data.version !== 1
+      || typeof data.runId !== 'string' || !/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(data.runId)
+      || typeof data.ledgerRoot !== 'string' || resolve(data.ledgerRoot) !== data.ledgerRoot || /[\x00-\x1f\x7f]/.test(data.ledgerRoot)
+      || data.browserOrigin !== 'https://app.lovora.us' || !revision.test(String(data.revision)) || !revision.test(String(data.tree))
+      || !['sourceDigest', 'artifactDigest', 'runtimeDigest', 'configBundleDigest', 'migrationInputDigest', 'driverDigest', 'nodeDigest', 'cliDigest', 'cliOwnFilesDigest', 'metadataDigest'].every(key => typeof data[key] === 'string' && hex.test(data[key] as string))
+      || !/^(?:local|supabase:[a-z]{20})$/.test(String(data.target))
+      || migrationManifest.length !== 4 || data.previousDigest !== manifestDigest(migrationManifest.slice(0, 3))
+      || data.targetDigest !== manifestDigest(migrationManifest)) stop();
+    if (!Array.isArray(data.runtimeKeys) || !equal(data.runtimeKeys, [...new Set(data.runtimeKeys)].sort())
+      || data.runtimeKeys.some(key => typeof key !== 'string' || ![...activationRuntimeKeys, 'APP_ACTIVATION_CONFIG_DIGEST'].includes(key))
+      || ![...etsyRuntimeKeys, 'APP_ACTIVATION_CONFIG_DIGEST'].every(key => (data.runtimeKeys as unknown[]).includes(key))) stop();
+    const predecessor = exactObject(data.predecessor, ['id', 'revision', 'tree', 'sourceDigest', 'artifactDigest', 'configDigest']);
+    if (!deploymentId.test(String(predecessor.id)) || !revision.test(String(predecessor.revision)) || !revision.test(String(predecessor.tree))
+      || !['sourceDigest', 'artifactDigest', 'configDigest'].every(key => hex.test(String(predecessor[key])))) stop();
+    const window = exactObject(data.window, ['start', 'end']);
+    if (!Number.isSafeInteger(window.start) || !Number.isSafeInteger(window.end) || Number(window.start) > now
+      || Number(window.end) <= now || Number(window.end) - Number(window.start) > 86400000) stop();
+    const grants = exactObject(data.grants, ['exclusiveOwnerLease', 'automatedDelivery', 'maintenance', 'recovery', 'phases']);
+    if (typeof grants.exclusiveOwnerLease !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$/.test(grants.exclusiveOwnerLease)
+      || grants.automatedDelivery !== 'disabled' || grants.maintenance !== 'approved-readiness-interruption'
+      || grants.recovery !== 'approved-roll-forward-only' || !equal(grants.phases, etsyReleasePhases)) stop();
+    return JSON.parse(canonical(data)) as EtsyReleasePacket;
+  } catch { return stop(); }
+}
+export interface EtsyReleaseOperations {
+  verify(): void;
+  currentMain(): Promise<{ revision: string; tree: string }>;
+  history(): Promise<string[]>;
+  predecessor(pending: boolean): Promise<void>;
+  create(): Promise<CommandResult>;
+  candidate(id: string, pending: boolean, final: boolean): Promise<void>;
+  migrate(): Promise<MigrationReport>;
+  promote(id: string): Promise<CommandResult>;
+  alias(id: string): Promise<void>;
+}
+function syncDirectory(path: string): void {
+  const fd = fs.openSync(path, fs.constants.O_RDONLY | fs.constants.O_DIRECTORY | fs.constants.O_NOFOLLOW);
+  try { fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+}
+interface Receipt { packetDigest: string; phase: EtsyReleasePhase; previous: string | null;
+  deploymentId: string | null; completed: number; reportDigest: string | null }
+export async function runEtsyReleasePhase(input: {
+  packet: EtsyReleasePacket; packetDigest: string; phase: EtsyReleasePhase; operations: EtsyReleaseOperations; signal: AbortSignal;
+}): Promise<void> {
+  const { packetDigest, phase, operations: op, signal } = input;
+  const packet = validateEtsyReleasePacket(input.packet, packetDigest), index = etsyReleasePhases.indexOf(phase);
+  if (index < 0) stop();
+  const root = privateDirectory(packet.ledgerRoot, false), run = join(root, packet.runId);
+  const lock = join(root, 'active.lock');
+  // An exclusive fsynced lock survives process loss. Never automatically steal it.
+  try { writeReleaseEvidence(lock, { packetDigest, runId: packet.runId, phase }); } catch { stop(); }
+  let success = false;
+  try {
+    signal.throwIfAborted(); op.verify();
+    const ownerPath = join(root, 'operator.lock');
+    if (!fs.existsSync(ownerPath)) writeReleaseEvidence(ownerPath, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease });
+    if (!equal(readEvidence(ownerPath).value, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease })) stop();
+    if (!fs.existsSync(run)) { fs.mkdirSync(run, { mode: 0o700 }); syncDirectory(root); }
+    privateDirectory(run, false);
+    if (fs.existsSync(join(run, 'STOP.json'))) stop();
+    let previous: string | null = null, id: string | null = null, reportDigest: string | null = null;
+    // Validate every durable predecessor, not merely a caller-selected last receipt.
+    for (const earlier of etsyReleasePhases.slice(0, index)) {
+      const entry = readEvidence(join(run, `${earlier}.receipt.json`));
+      const value = exactObject(entry.value, ['packetDigest', 'phase', 'previous', 'deploymentId', 'completed', 'reportDigest']) as unknown as Receipt;
+      if (value.packetDigest !== packetDigest || value.phase !== earlier || value.previous !== previous
+        || !Number.isSafeInteger(value.completed) || value.completed < packet.window.start || value.completed > Date.now()
+        || (id !== null && value.deploymentId !== id)) stop();
+      if (!equal(readEvidence(join(run, `${earlier}.intent.json`)).value,
+        { packetDigest, phase: earlier, previous, deploymentId: id })) stop();
+      if (earlier === 'sql-apply') reportDigest = readEvidence(join(run, 'migration-report.json')).identity.sha256;
+      if (value.reportDigest !== reportDigest) stop();
+      if (earlier === 'held-create') {
+        const ack = exactObject(readEvidence(join(run, 'create-ack.json')).value, ['packetDigest', 'deploymentId']);
+        if (ack.packetDigest !== packetDigest || !deploymentId.test(String(ack.deploymentId)) || value.deploymentId !== ack.deploymentId) stop();
+        id = String(ack.deploymentId);
+      }
+      previous = entry.identity.sha256;
+    }
+    // O_EXCL intent is the cross-process one-shot barrier for every phase.
+    writeReleaseEvidence(join(run, `${phase}.intent.json`), { packetDigest, phase, previous, deploymentId: id });
+    const main = async () => {
+      signal.throwIfAborted(); validateEtsyReleasePacket(packet, packetDigest); op.verify();
+      const observed = await bounded(op.currentMain(), signal);
+      if (observed.revision !== packet.revision || observed.tree !== packet.tree) stop();
+    };
+    const before = migrationManifest.slice(0, 3).map(entry => entry.name), after = migrationManifest.map(entry => entry.name);
+    if (phase === 'history') {
+      // SQL-only read credentials; no provider token is needed for this phase.
+      await main();
+      if (!equal(await bounded(op.history(), signal), before)) stop();
+    } else if (phase === 'sql-apply') {
+      // The fresh prior provider check is bound to this packet; SQL process never receives provider credentials.
+      await main();
+      const prior = readEvidence(join(run, 'pre-sql-check.receipt.json')).value as Receipt;
+      if (Date.now() - prior.completed > 60000 || !equal(await bounded(op.history(), signal), before)) stop();
+      const report = await bounded(op.migrate(), signal);
+      writeReleaseEvidence(join(run, 'migration-report.json'), report);
+      reportDigest = readEvidence(join(run, 'migration-report.json')).identity.sha256;
+      if (report.result !== 'success' || report.database_outcome !== 'committed' || report.source_revision !== packet.revision
+        || report.target !== packet.target || report.manifest_digest !== packet.targetDigest || !equal(report.before, before)
+        || !equal(report.after, after) || !equal(report.attempted, [{ ...migrationManifest[3], outcome: 'applied_committed' }])
+        || !equal(await bounded(op.history(), signal), after)) stop();
+    } else {
+      await main();
+      if (phase === 'held-create') {
+        const history = readEvidence(join(run, 'history.receipt.json')).value as Receipt;
+        if (Date.now() - history.completed > 60000) stop();
+        await bounded(op.predecessor(false), signal);
+        const created = await op.create();
+        // Never race away an acknowledgement: command transport settles after abort/exit.
+        const acknowledged = acknowledgedId(created.stdout);
+        if (acknowledged) { writeReleaseEvidence(join(run, 'create-ack.json'), { packetDigest, deploymentId: acknowledged }); id = acknowledged; }
+        if (!id || id === packet.predecessor.id || created.code !== 0 || created.aborted) stop();
+        signal.throwIfAborted();
+      } else if (phase === 'pre-sql-check') {
+        if (!id) stop();
+        await bounded(op.predecessor(false), signal);
+        await bounded(op.candidate(id, true, false), signal);
+        await bounded(op.alias(packet.predecessor.id), signal);
+        await main();
+      } else {
+        if (!id) stop();
+        // Missing/altered SQL report cannot be laundered through a phase receipt.
+        const report = readEvidence(join(run, 'migration-report.json')).value as MigrationReport;
+        if (report.result !== 'success' || report.database_outcome !== 'committed' || !equal(report.after, after)
+          || report.manifest_digest !== packet.targetDigest || report.source_revision !== packet.revision) stop();
+        if (phase === 'post-sql-check' || phase === 'promote-only') {
+          await bounded(op.predecessor(true), signal);
+          await bounded(op.candidate(id, false, false), signal);
+          await main(); await bounded(op.alias(packet.predecessor.id), signal);
+          if (phase === 'promote-only') {
+            writeReleaseEvidence(join(run, 'promote-intent.json'), { packetDigest, deploymentId: id });
+            const promoted = await op.promote(id);
+            if (promoted.code !== 0 || promoted.aborted) stop();
+            signal.throwIfAborted(); await bounded(op.alias(id), signal);
+          }
+        } else if (phase === 'final-domain-ack') {
+          if (!equal(readEvidence(join(run, 'promote-intent.json')).value, { packetDigest, deploymentId: id })) stop();
+          await bounded(op.alias(id), signal); await bounded(op.candidate(id, false, true), signal);
+          await bounded(op.alias(id), signal); await main();
+        } else stop();
+      }
+    }
+    signal.throwIfAborted(); validateEtsyReleasePacket(packet, packetDigest); op.verify();
+    const receipt: Receipt = { packetDigest, phase, previous, deploymentId: id, completed: Date.now(), reportDigest };
+    writeReleaseEvidence(join(run, `${phase}.receipt.json`), receipt);
+    if (!equal(readEvidence(join(run, `${phase}.receipt.json`)).value, receipt)) stop();
+    success = true;
+  } catch {
+    try { writeReleaseEvidence(join(run, 'STOP.json'), { packetDigest, phase, outcome: 'unknown-or-refused' }); } catch { /* Retained lock/intent is independently terminal. */ }
+    stop();
+  } finally {
+    if (success) { fs.unlinkSync(lock); syncDirectory(root); }
+  }
+}
+
+export function verifyEtsyArtifact(packet: EtsyReleasePacket, root: string): VerifiedArtifact {
+  const artifact = verifyArtifact(root, packet.artifactDigest, { revision: packet.revision, migrationDigest: packet.targetDigest,
+    repository: `https://github.com/${repository}`, release: true });
+  if (artifact.manifest.source.tree !== packet.tree || artifact.manifest.source.digest !== packet.sourceDigest
+    || !equal(artifact.manifest.migrations, migrationManifest)) stop();
+  return artifact;
+}
+async function currentEtsyMain(signal: AbortSignal, transport: typeof fetch = fetch): Promise<{ revision: string; tree: string }> {
+  const response = await bounded(transport(`https://api.github.com/repos/${repository}/commits/main`,
+    { redirect: 'error', signal, headers: { Accept: 'application/vnd.github+json' } }), signal);
+  if (response.status !== 200) { await response.body?.cancel(); stop(); }
+  const commit = setupObject(JSON.parse((await bounded(responseBytes(response, 65536), signal)).toString('utf8')));
+  return { revision: String(commit.sha), tree: String(setupObject(setupObject(commit.commit).tree).sha) };
+}
+export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact,
+  credentials: { token: string; bearer: string; predecessorBearer: string; bypass: string }, signal: AbortSignal,
+  transport: typeof fetch = fetch) {
+  if (!/^[\x21-\x7e]{16,512}$/.test(credentials.token) || !hex.test(credentials.bearer) || !hex.test(credentials.predecessorBearer)
+    || !/^[\x21-\x7e]{16,512}$/.test(credentials.bypass)) stop();
+  const request = async (url: string, init: RequestInit = {}) => bounded(transport(url, { ...init,
+    redirect: 'manual', signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) }), signal);
+  async function json(url: string, headers: Record<string, string>, maximum = 8 * 1024 * 1024): Promise<Record<string, any>> {
+    const response = await request(url, { headers });
+    if (response.status !== 200 || response.redirected) { await response.body?.cancel(); stop(); }
+    return JSON.parse((await bounded(responseBytes(response, maximum), signal)).toString('utf8')) as Record<string, any>;
+  }
+  const provider = (path: string, maximum?: number) => {
+    const url = new URL(path, 'https://api.vercel.com');
+    if (url.origin !== 'https://api.vercel.com') stop();
+    url.searchParams.set('teamId', artifactTarget.owner); url.searchParams.set('slug', artifactTarget.scope);
+    return json(url.href, { Authorization: `Bearer ${credentials.token}` }, maximum);
+  };
+  async function alias(id: string): Promise<void> {
+    const domain = await provider(`/v9/projects/${artifactTarget.project}/domains/api.lovora.us`);
+    const binding = await provider(`/v4/aliases/api.lovora.us?projectId=${artifactTarget.project}`);
+    if (!deploymentId.test(id) || domain.name !== 'api.lovora.us' || domain.projectId !== artifactTarget.project || domain.verified !== true
+      || domain.redirect || domain.gitBranch || domain.customEnvironmentId || binding.alias !== 'api.lovora.us'
+      || binding.projectId !== artifactTarget.project || binding.deploymentId !== id || binding.deletedAt || binding.redirect || binding.microfrontends
+      || (binding.deployment != null && binding.deployment.id !== id)) stop();
+  }
+  async function health(origin: string, digest: string, key: string, pending: boolean, candidate: boolean): Promise<void> {
+    const http = async (url: string, init: RequestInit = {}) => {
+      const response = await request(url, { ...init, headers: { ...init.headers,
+        ...(candidate ? { 'x-vercel-protection-bypass': credentials.bypass } : {}) } });
+      if (init.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(new URL(url).pathname)) {
+        const authorized = new Headers(init.headers).get('authorization') === `Bearer ${key}`;
+        if (response.headers.get('x-activation-config-digest') !== (authorized ? digest : null)) { await response.body?.cancel(); stop(); }
+      }
+      return response;
+    };
+    if (!pending) { await checkHostedHttp(origin, packet.browserOrigin, key, http); return; }
+    for (const [path, status, body] of [
+      ['/health/live', 200, { status: 'ok' }],
+      ['/health/ready', 503, { status: 'degraded', reason: 'migrations_pending' }],
+    ] as const) {
+      const response = await http(origin + path, { headers: { Authorization: `Bearer ${key}` } });
+      if (response.status !== status || response.redirected) { await response.body?.cancel(); stop(); }
+      if (!equal(JSON.parse((await bounded(responseBytes(response, 4096), signal)).toString('utf8')), body)) stop();
+    }
+  }
+  return {
+    currentMain: () => currentEtsyMain(signal, transport),
+    alias,
+    async predecessor(pending: boolean) {
+      await alias(packet.predecessor.id);
+      const project = await provider(`/v9/projects/${artifactTarget.project}`);
+      if (project.id !== artifactTarget.project || project.accountId !== artifactTarget.owner || project.name !== 'esty-admin-api'
+        || project.rootDirectory !== 'apps/api' || project.framework !== 'nestjs' || project.nodeVersion !== '24.x'
+        || project.buildCommand !== null || project.installCommand !== null || project.outputDirectory !== null
+        || project.commandForIgnoringBuildStep || project.link?.type !== 'github' || project.link?.org !== 'khuonghuyhieu'
+        || project.link?.repo !== 'esty-admin' || project.link?.productionBranch !== 'main'
+        || !equal(project.link?.deployHooks, [])) stop();
+      const metadata = currentAppMetadata(await provider(`/v10/projects/${artifactTarget.project}/env?decrypt=false&target=production`),
+        Object.fromEntries(packet.runtimeKeys.map(key => [key, ''])));
+      if (metadata.metadataDigest !== packet.metadataDigest) stop();
+      const source = await json(`https://api.github.com/repos/${repository}/commits/${packet.predecessor.revision}`, { Accept: 'application/vnd.github+json' });
+      if (source.sha !== packet.predecessor.revision || source.commit?.tree?.sha !== packet.predecessor.tree) stop();
+      const old = await provider(`/v13/deployments/${packet.predecessor.id}`), meta = setupObject(old.meta);
+      if (old.id !== packet.predecessor.id || old.projectId !== artifactTarget.project || old.ownerId !== artifactTarget.owner
+        || old.target !== 'production' || old.readyState !== 'READY' || old.gitSource || !equal(old.regions, ['icn1'])
+        || meta.sourceCommit !== packet.predecessor.revision || meta.artifactSha256 !== packet.predecessor.artifactDigest
+        || meta.sourceDigest !== packet.predecessor.sourceDigest) stop();
+      await health('https://api.lovora.us', packet.predecessor.configDigest, credentials.predecessorBearer, pending, false);
+      await alias(packet.predecessor.id);
+    },
+    async candidate(id: string, pending: boolean, final: boolean) {
+      const metadata = currentAppMetadata(await provider(`/v10/projects/${artifactTarget.project}/env?decrypt=false&target=production`),
+        Object.fromEntries(packet.runtimeKeys.map(key => [key, ''])));
+      if (metadata.metadataDigest !== packet.metadataDigest) stop();
+      const deployed = await provider(`/v13/deployments/${id}`);
+      const candidate = inspectCandidate(deployed, id, artifact, { revision: packet.revision, tree: packet.tree, run: packet.runId });
+      if (!candidate.ready || deployed.meta.etsySetupRun !== packet.runId || deployed.meta.etsySetupPacket !== packetDigest
+        || deployed.meta.etsyRuntimeDigest !== packet.runtimeDigest) stop();
+      const uid = uploadedCandidatePartition(await provider(`/v6/deployments/${id}/files`));
+      verifyCandidateArchive(await provider(`/v8/deployments/${id}/files/${uid}`, 350 * 1024 * 1024), uid, artifact);
+      await health(final ? 'https://api.lovora.us' : candidate.origin, packet.runtimeDigest, credentials.bearer, pending, !final);
+    },
+  };
+}
+
+interface EtsyCli {
+  create(): Promise<CommandResult>;
+  promote(id: string): Promise<CommandResult>;
+  dispose(): Promise<void>;
+}
+function verifyEtsyCli(packet: EtsyReleasePacket, artifact: VerifiedArtifact, cli: string): void {
+  if (!cli.endsWith('/vercel/dist/vc.js') || sha256(fs.readFileSync(cli)) !== packet.cliDigest
+    || JSON.parse(fs.readFileSync(resolve(cli, '../../package.json'), 'utf8')).version !== '65.4.0'
+    || sha256(canonical(inventory(resolve(cli, '../..'), new Set(['node_modules'])).files)) !== packet.cliOwnFilesDigest
+    || artifact.manifest.build.tools.find(tool => tool.name === 'vercel')?.filesDigest !== packet.cliOwnFilesDigest) stop();
+}
+async function isolatedEtsyCli(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact, cli: string,
+  token: string, signal: AbortSignal): Promise<EtsyCli> {
+  verifyEtsyCli(packet, artifact, cli);
+  const root = await mkdtemp(join(fs.realpathSync(tmpdir()), 'esty-etsy-cli-'));
+  try {
+    const env = await isolatedEnvironment(join(root, 'environment')); env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
+    const auth = join(root, 'auth'), stage = join(root, 'stage'); await mkdir(auth, { mode: 0o700 }); await mkdir(stage, { mode: 0o700 });
+    await writeFile(join(auth, 'auth.json'), JSON.stringify({ token }), { flag: 'wx', mode: 0o600 });
+    await stagePrebuiltOutput(artifact, stage);
+    const common = ['--non-interactive', '--cwd', stage, '--global-config', auth, '--scope', artifactTarget.scope];
+    const verify = () => {
+      if (!equal(inventory(join(stage, '.vercel/output')).files.map(file => ({ ...file, path: `.vercel/output/${file.path}` })),
+        artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/')))) stop();
+    };
+    return {
+      create() { verify(); return command(process.execPath, [cli, ...prebuiltCreateArguments(artifact, common),
+        '--meta', `etsySetupRun=${packet.runId}`, '--meta', `etsySetupPacket=${packetDigest}`, '--meta', `etsyRuntimeDigest=${packet.runtimeDigest}`], stage, env, signal); },
+      promote(id: string) { if (!deploymentId.test(id)) stop(); verify(); return command(process.execPath, [cli, 'promote', id, '--timeout', '5m', ...common], stage, env, signal); },
+      dispose: () => removeArtifactTree(root),
+    };
+  } catch { await removeArtifactTree(root); return stop(); }
+}
+function verifyExecuting(packet: EtsyReleasePacket, artifact: VerifiedArtifact): void {
+  // One fixed owner/host ledger for this target, independent of source, run or artifact.
+  // The owner must provision it on retained storage; alternate roots cannot reopen CREATE.
+  if (packet.ledgerRoot !== join(fs.realpathSync(userInfo().homedir), '.local/state/lovora-etsy-setup')) stop();
+  if (process.versions.node !== artifactTarget.node || process.platform !== 'linux' || process.arch !== 'x64'
+    || sha256(fs.readFileSync(process.execPath)) !== packet.nodeDigest || packet.nodeDigest !== artifact.manifest.build.nodeSha256
+    || sha256(fs.readFileSync(fileURLToPath(import.meta.url))) !== packet.driverDigest) stop();
+  const executing = inventory(fileURLToPath(new URL('../../../../', import.meta.url)));
+  if (!equal(executing.files, artifact.manifest.files.filter(file => file.path.startsWith('operator/')).map(file => ({ ...file, path: file.path.slice(9) })))
+    || !equal(executing.directories, artifact.manifest.directories.filter(entry => entry.path.startsWith('operator/')).map(entry => ({ ...entry, path: entry.path.slice(9) })))) stop();
+}
+export function verifyEtsyOwnerExecution(packet: EtsyReleasePacket, artifactRoot: string): void {
+  verifyExecuting(packet, verifyEtsyArtifact(packet, artifactRoot));
+}
+export function generateEtsyLaunchers(input: { packet: EtsyReleasePacket; packetDigest: string; packetPath: string;
+  artifactRoot: string; configPath: string; cli: string; output: string }): void {
+  const packet = validateEtsyReleasePacket(input.packet, input.packetDigest), artifact = verifyEtsyArtifact(packet, input.artifactRoot);
+  verifyExecuting(packet, artifact);
+  verifyEtsyCli(packet, artifact, input.cli);
+  if (!equal(readEvidence(input.packetPath).value, packet)) stop();
+  const config = readEvidence(input.configPath);
+  if (config.identity.sha256 !== packet.configBundleDigest) stop();
+  const prepared = setupObject(config.value), runtime = setupObject(prepared.runtime);
+  const { APP_ACTIVATION_CONFIG_DIGEST: expected, ...values } = runtime;
+  const validated = prepareEtsyConfiguration({ runtime: values, backupPolicy: prepared.backupPolicy });
+  if (expected !== packet.runtimeDigest || validated.runtimeDigest !== packet.runtimeDigest || !equal(validated, prepared)
+    || !equal(Object.keys(runtime).sort(), packet.runtimeKeys)) stop();
+  const output = privateDirectory(input.output, false);
+  const node = fs.realpathSync(process.execPath), driver = fileURLToPath(import.meta.url);
+  for (const path of [input.packetPath, input.artifactRoot, input.cli, node, driver, output]) {
+    if (resolve(path) !== path || fs.realpathSync(path) !== path || !/^\/[A-Za-z0-9_./ -]+$/.test(path)) stop();
+  }
+  // Built-in-only verifier runs before loading any operator code. Its expected inventory
+  // is embedded in the approved fresh launcher, not imported from a mutable manifest.
+  const root = fileURLToPath(new URL('../../../../', import.meta.url));
+  const files = artifact.manifest.files.filter(file => file.path.startsWith('operator/')).map(file => ({ ...file, path: file.path.slice(9) }));
+  const directories = artifact.manifest.directories.filter(entry => entry.path.startsWith('operator/')).map(entry => ({ ...entry, path: entry.path.slice(9) }));
+  if (output === artifact.root || output.startsWith(`${artifact.root}/`) || output === root || output.startsWith(root.endsWith('/') ? root : `${root}/`)) stop();
+  const verifier = `const fs=require('node:fs'),crypto=require('node:crypto'),path=require('node:path');
+const root=${JSON.stringify(root)},files=${JSON.stringify(files)},dirs=${JSON.stringify(directories)};
+const expected=new Map([...files,...dirs].map(f=>[f.path,f]));let count=0;
+if(fs.realpathSync(root)!==root.replace(/\\/$/,''))process.exit(1);
+function walk(base){for(const name of fs.readdirSync(path.join(root,base))){const rel=base?base+'/'+name:name,s=fs.lstatSync(path.join(root,rel)),f=expected.get(rel);
+if(!f||s.isSymbolicLink()||(s.mode&511)!==f.mode)process.exit(1);count++;
+if(s.isDirectory()){if('sha256'in f)process.exit(1);walk(rel)}else if(!s.isFile()||s.nlink!==1||s.size!==f.size||crypto.createHash('sha256').update(fs.readFileSync(path.join(root,rel))).digest('hex')!==f.sha256)process.exit(1)}}
+walk('');if(count!==expected.size)process.exit(1);`;
+  const quote = (value: string) => `'${value.replaceAll("'", "'\\''")}'`;
+  for (const phase of etsyReleasePhases) {
+    const script = `#!/bin/sh\nset -eu\numask 077\nexport PATH=/usr/bin:/bin\nprintf '%s  %s\\n' ${quote(packet.nodeDigest)} ${quote(node)} | /usr/bin/sha256sum --check --status\n/usr/bin/env -i PATH=/usr/bin:/bin ${quote(node)} <<'ETSY_OPERATOR_INVENTORY'\n${verifier}\nETSY_OPERATOR_INVENTORY\nexec /usr/bin/env -i PATH=/usr/bin:/bin ${quote(node)} ${quote(driver)} ${quote(phase)} ${quote(input.packetPath)} ${quote(input.packetDigest)} ${quote(input.artifactRoot)} ${quote(input.cli)}\n`;
+    const fd = fs.openSync(join(output, `${phase}.sh`), fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW, 0o700);
+    try { fs.writeFileSync(fd, script); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+    syncDirectory(output);
+  }
+  // This projection is made only after the independently approved packet, new
+  // configuration bundle and immutable artifact above have all been verified.
+  // The Owner launcher pins its digest; settings never supply this authority.
+  const authUrl = validated.runtime.APP_AUTH_URL, authApiKey = validated.runtime.APP_AUTH_API_KEY;
+  if (!authUrl || !authApiKey || packet.target !== `supabase:${validated.runtime.SUPABASE_PROJECT_REF}`) stop();
+  const bindingPath = join(output, 'owner-binding.json');
+  writeReleaseEvidence(bindingPath, { version: 1, packet, packetDigest: input.packetDigest,
+    authUrl, authApiKeySha256: sha256(authApiKey) });
+  const bindingDigest = readEvidence(bindingPath).identity.sha256;
+  const owner = fileURLToPath(new URL('./etsy-owner.js', import.meta.url));
+  const script = `#!/bin/sh\nset -eu\numask 077\nexport PATH=/usr/bin:/bin\nprintf '%s  %s\\n' ${quote(packet.nodeDigest)} ${quote(node)} | /usr/bin/sha256sum --check --status\n/usr/bin/env -i PATH=/usr/bin:/bin ${quote(node)} <<'ETSY_OPERATOR_INVENTORY'\n${verifier}\nETSY_OPERATOR_INVENTORY\nexec /usr/bin/env -i PATH=/usr/bin:/bin ${quote(node)} ${quote(owner)} ${quote(bindingPath)} ${quote(bindingDigest)} ${quote(input.artifactRoot)}\n`;
+  const fd = fs.openSync(join(output, 'owner.sh'), fs.constants.O_CREAT | fs.constants.O_EXCL | fs.constants.O_WRONLY | fs.constants.O_NOFOLLOW, 0o700);
+  try { fs.writeFileSync(fd, script); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
+  syncDirectory(output);
+}
+async function main(): Promise<void> {
+  const args = process.argv.slice(2);
+  if (!process.stdin.isTTY || !process.stdout.isTTY) stop();
+  if (args[0] === 'launchers' && args.length === 7) {
+    const [, packetPath, digest, artifactRoot, configPath, cli, output] = args;
+    generateEtsyLaunchers({ packet: validateEtsyReleasePacket(readEvidence(packetPath!).value, digest!), packetDigest: digest!,
+      packetPath: packetPath!, artifactRoot: artifactRoot!, configPath: configPath!, cli: cli!, output: output! }); return;
+  }
+  if (args.length !== 5 || !etsyReleasePhases.includes(args[0] as EtsyReleasePhase)) stop();
+  const [phaseValue, packetPath, packetDigest, artifactRoot, cliPath] = args;
+  const phase = phaseValue as EtsyReleasePhase;
+  const packet = validateEtsyReleasePacket(readEvidence(packetPath!).value, packetDigest!);
+  if (packet.target === 'local') stop(); // Executable owner launchers cannot silently select development infrastructure.
+  const artifact = verifyEtsyArtifact(packet, artifactRoot!);
+  const verify = () => { validateEtsyReleasePacket(readEvidence(packetPath!).value, packetDigest!); verifyEtsyArtifact(packet, artifactRoot!); verifyExecuting(packet, artifact); };
+  verify();
+  let candidate = '';
+  if (etsyReleasePhases.indexOf(phase) >= 2) {
+    const ack = exactObject(readEvidence(join(packet.ledgerRoot, packet.runId, 'create-ack.json')).value, ['packetDigest', 'deploymentId']);
+    if (ack.packetDigest !== packetDigest || !deploymentId.test(String(ack.deploymentId))) stop();
+    candidate = ` ${String(ack.deploymentId)}`;
+  }
+  const approval = `APPROVE ${phase} ${packetDigest}${candidate}`;
+  if (await readHiddenPassword(process.stdin, process.stdout, `Type ${approval} (hidden; this phase only): `) !== approval) stop();
+  const abort = new AbortController(), cancel = () => abort.abort();
+  process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
+  const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(600000)]);
+  let cli: EtsyCli | undefined;
+  const unavailable = async (): Promise<never> => stop();
+  try {
+    let operations: EtsyReleaseOperations;
+    if (phase === 'history' || phase === 'sql-apply') {
+      const raw = await readHiddenPassword(process.stdin, process.stdout, 'Fresh approved migration-only input JSON (hidden): ', { maxBytes: 65536, maxCharacters: 65536 });
+      const database = parseMigrationConfig(migrationInputs(JSON.parse(raw), packet));
+      operations = { verify, currentMain: () => currentEtsyMain(signal), predecessor: unavailable, create: unavailable, candidate: unavailable,
+        promote: unavailable, alias: unavailable,
+        async history() { const status = await migrationStatus(database); if (!status.initialized || !status.ordered || status.unexpected.length) stop(); return status.applied; },
+        migrate: () => runMigrations(database, { sourceRevision: packet.revision, target: packet.target, signal,
+          expectedBefore: migrationManifest.slice(0, 3).map(entry => entry.name) }) };
+    } else {
+      const raw = await readHiddenPassword(process.stdin, process.stdout, 'Fresh provider/probe-only token/bearer/predecessorBearer/bypass JSON (hidden): ', { maxBytes: 16384 });
+      const credentials = exactObject(JSON.parse(raw), ['token', 'bearer', 'predecessorBearer', 'bypass']) as unknown as { token: string; bearer: string; predecessorBearer: string; bypass: string };
+      const provider = etsyProviderOperations(packet, packetDigest!, artifact, credentials, signal);
+      // Preparing CLI auth/staging is local-only; phase intent precedes any provider request.
+      if (phase === 'held-create' || phase === 'promote-only') cli = await isolatedEtsyCli(packet, packetDigest!, artifact, cliPath!, credentials.token, signal);
+      operations = { ...provider, verify, history: unavailable, migrate: unavailable,
+        create: () => cli ? cli.create() : unavailable(), promote: id => cli ? cli.promote(id) : unavailable() };
+    }
+    await runEtsyReleasePhase({ packet, packetDigest: packetDigest!, phase, operations, signal });
+    console.info(`ETSY_SETUP_PHASE_CONFIRMED:${phase}`);
+  } finally { await cli?.dispose(); process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
+}
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  void main().catch(() => { console.error(new EtsyReleaseStop().message); process.exitCode = 1; });
+}

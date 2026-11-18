@@ -1,0 +1,1085 @@
+{
+  "version": 4,
+  "status": "READY_FOR_BE_SETUP_PUBLICATION",
+  "writer": "t15j",
+  "coordinator": "t151",
+  "writerState": "FROZEN_STOP_WRITES_OWNERSHIP_RETURNED_TO_T151",
+  "canonicalDesign": "plan.md#current-auth-credential-trust-fix--review-accepted",
+  "reviewHistory": {
+    "setupReview": {
+      "reviewer": "existing t175",
+      "result": "ONE_CONFIRMED_P2",
+      "finding": "Owner settings accepted an attacker Supabase project/public key and login sent password there before Lovora me admission.",
+      "originalEvidence": "apps/api/scripts/etsy-owner.ts33-35,81-82 in setup freeze",
+      "source": "t151 recovered final from reviewer pane after read-only socket report failure; coordinator confirmed source",
+      "scope": "setup increment and direct helpers",
+      "reviewerTestsBuildRuntime": "NOT_RUN"
+    },
+    "authorCorrection": "IMPLEMENTED_LOCALLY_CHECKED_AND_SCOPED_ACCEPTED_BY_T151",
+    "fixOnlyRecheck": "T151_RECOVERED_ACTUAL_T175_FINAL: ORIGINAL_SETUP_AUTH_P2_RESOLVED; NO_FURTHER_CONFIRMED_FINDINGS_IN_FIX_ONLY; NO_REVIEWER_CHECKS_RERUN",
+    "oldPruneP2": "Separate original Etsy finding, historically resolved fail-closed; prune remains deferred",
+    "packagingReview": "Separate earlier no-confirmed-findings result; not substituted"
+  },
+  "authority": "Fresh t151 docs-only closeout in plan/tasks/quickstart/setup-preparation; source frozen. Coordinator handles existing-branch publication after docs freeze. Writer has no source/test/build/runtime/resource/Git/private/provider/CI/FE/new-reviewer authority.",
+  "baselineFreeze": {
+    "reviewScopeDigest": "a5e4270f195aeb88b3e5b9f11ae89530bcb9769594f546d1cfa71588ee9127ab",
+    "setupPacketSha256": "e2c6172c8aca454c76029c01005c09658a9e1819885e9a4b19d7ecc57344e399",
+    "byteIdenticalPacketCopy": "/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-be-setup-auth-fix-1vnoj0mo/setup-freeze.json",
+    "original13Files": [
+      {
+        "path": "apps/api/scripts/etsy-owner.ts",
+        "sha256": "fee07b50eafe448caf1c5fbc13137af744fbb786ef58e573a8b665221d0ecf04"
+      },
+      {
+        "path": "apps/api/scripts/etsy-release.ts",
+        "sha256": "0d2b4b6fa421bb6ebae3cc85aab77e133540ab6eb03fa2bb56b7e837311d443e"
+      },
+      {
+        "path": "apps/api/scripts/etsy-setup.ts",
+        "sha256": "1f6e79e7f00896e2b9ab0a498872fe9d13c821be038eb78b0c7be43b02e6f048"
+      },
+      {
+        "path": "apps/api/scripts/stage-operator.mjs",
+        "sha256": "863a9f73e78c2b8f151ae62e7f154687b67c0d356bdb140459dc6353780abb8e"
+      },
+      {
+        "path": "apps/api/src/config/activation-config.ts",
+        "sha256": "7bbcd5d8893a02c6634c3f21f01e125e7bdde5dc5f9772ed2e39a6ce42e95478"
+      },
+      {
+        "path": "apps/api/tests/artifact.test.ts",
+        "sha256": "221e85f470a737055a09b9773156a6cd065956f6759b23d3ef29c7efc6c7ea9e"
+      },
+      {
+        "path": "apps/api/tests/config.test.ts",
+        "sha256": "4e129c4e26de36e29c83a65a2944599e26e16eb2a6c7ec9d9c450899ed16ed68"
+      },
+      {
+        "path": "apps/api/tests/etsy.test.ts",
+        "sha256": "0e844f0681710398b32813fd84b19dad257224688b45a349d17f01b39cf77961"
+      },
+      {
+        "path": "apps/api/tests/release.test.ts",
+        "sha256": "e9d44e58420a4253e35f7928e61c84e9107263629716d47ab3dd039408c96253"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/plan.md",
+        "sha256": "a2bc06085cdcc5facb86c45c25703b568345d567c346c15c5eb9644039e2b025"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/quickstart.md",
+        "sha256": "175e60c2b4f68e6989b15bd44af2e08b62db7cbd9dffda7aeb55a0539062e78d"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/setup-preparation.json",
+        "sha256": "e2c6172c8aca454c76029c01005c09658a9e1819885e9a4b19d7ecc57344e399"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/tasks.md",
+        "sha256": "cdec02d641f2bc37ff6b29f54f27b02e51b5056385a2387d1290ea52dc68c534"
+      }
+    ]
+  },
+  "developmentSource": {
+    "classification": "uncommitted development overlay, not published/native release",
+    "sourceFileCount": 135,
+    "sourceDigest": "4f76286597a498eccf69eab91157264dbc0e34af7c0f6c495f49484cd4bf8cc4",
+    "algorithm": "artifact.ts sha256(canonical(sourceFiles(repository)))",
+    "changedRecords": [
+      {
+        "before": {
+          "path": "apps/api/scripts/etsy-owner.ts",
+          "mode": 420,
+          "size": 14169,
+          "sha256": "fee07b50eafe448caf1c5fbc13137af744fbb786ef58e573a8b665221d0ecf04",
+          "sha1": "ac0d9b0c3c262add9934fbb49d2dff887f10a3c7"
+        },
+        "after": {
+          "path": "apps/api/scripts/etsy-owner.ts",
+          "mode": 420,
+          "size": 16389,
+          "sha256": "ff05af542287c1a3233716552caba1ccb6a0a2b6cc043cad30fe2818c0f34812",
+          "sha1": "0aecfff1a82a90ef9d5292f53f211dfff4e061c5"
+        }
+      },
+      {
+        "before": {
+          "path": "apps/api/scripts/etsy-release.ts",
+          "mode": 420,
+          "size": 34777,
+          "sha256": "0d2b4b6fa421bb6ebae3cc85aab77e133540ab6eb03fa2bb56b7e837311d443e",
+          "sha1": "adfba05ca9b1c8a7161cd934277435f7ee54e859"
+        },
+        "after": {
+          "path": "apps/api/scripts/etsy-release.ts",
+          "mode": 420,
+          "size": 36452,
+          "sha256": "298cbd130c82fcd91bd18c12e42ad0bd4d64b1c3ea8560bcf4227118d5b3a6b7",
+          "sha1": "0ee63f65b38c452bee2e444abc863f1116bd3edd"
+        }
+      },
+      {
+        "before": {
+          "path": "apps/api/tests/etsy.test.ts",
+          "mode": 420,
+          "size": 46474,
+          "sha256": "0e844f0681710398b32813fd84b19dad257224688b45a349d17f01b39cf77961",
+          "sha1": "bc31bd26a6eab433108d55b6f2df24c997b30fb7"
+        },
+        "after": {
+          "path": "apps/api/tests/etsy.test.ts",
+          "mode": 420,
+          "size": 53265,
+          "sha256": "355fd1023d471bc26d1ad33078f731e7afe661450ca8bc7a4e4fd5c7d0543436",
+          "sha1": "0b2075b984d31f8a08f1409fdd520c500c5320b7"
+        }
+      }
+    ],
+    "unchangedBuildSourceRecords": 132,
+    "unchangedOriginalReviewScopePaths": [
+      {
+        "path": "apps/api/scripts/etsy-setup.ts",
+        "sha256": "1f6e79e7f00896e2b9ab0a498872fe9d13c821be038eb78b0c7be43b02e6f048"
+      },
+      {
+        "path": "apps/api/scripts/stage-operator.mjs",
+        "sha256": "863a9f73e78c2b8f151ae62e7f154687b67c0d356bdb140459dc6353780abb8e"
+      },
+      {
+        "path": "apps/api/src/config/activation-config.ts",
+        "sha256": "7bbcd5d8893a02c6634c3f21f01e125e7bdde5dc5f9772ed2e39a6ce42e95478"
+      },
+      {
+        "path": "apps/api/tests/artifact.test.ts",
+        "sha256": "221e85f470a737055a09b9773156a6cd065956f6759b23d3ef29c7efc6c7ea9e"
+      },
+      {
+        "path": "apps/api/tests/config.test.ts",
+        "sha256": "4e129c4e26de36e29c83a65a2944599e26e16eb2a6c7ec9d9c450899ed16ed68"
+      },
+      {
+        "path": "apps/api/tests/release.test.ts",
+        "sha256": "e9d44e58420a4253e35f7928e61c84e9107263629716d47ab3dd039408c96253"
+      }
+    ],
+    "releaseChangeBoundary": "Added Owner execution verification wrapper and appended verified binding/Owner launcher generation only; existing phase/provider/SQL bodies unchanged.",
+    "otherSourceBoundary": "No etsy-setup, activation-config, stage list, config/release/artifact tests or other build-source changes."
+  },
+  "operator": {
+    "classification": "development operator package",
+    "fileCount": 6329,
+    "directoryCount": 683,
+    "inventoryDigest": "bd8d8eeb5f934505b0e0beab953d68a86f42b2ba8951dc3a499b91d539824ee4",
+    "algorithm": "artifact.ts sha256(canonical({files,directories}))",
+    "stageListChanged": false,
+    "dependencyPackages": 157
+  },
+  "trustBoundary": {
+    "anchor": "Independently approved packet digest and complete new configuration/source/artifact/operator verified by existing generator; generated trusted owner.sh externally pins owner-binding.json digest.",
+    "bindingSchema": [
+      "version",
+      "packet",
+      "packetDigest",
+      "authUrl",
+      "authApiKeySha256"
+    ],
+    "projection": "Exact Auth URL and SHA256 of exact approved public key, derived only from validated new runtime; no raw key or runtime/database credential in Owner receipt.",
+    "beforePrompt": "Generated builtin-only Node/full-operator guard, then exact receipt hash/schema, approved packet expiry/target/source/artifact and executing operator; all before settings/email/password.",
+    "beforeCredentials": "Opaque verified approval handle; exact settings URL/key match in settings and constructor before login/password acquisition/transport.",
+    "beforeTransport": "Recheck receipt integrity, artifact binding and expiry before login. Fixed Lovora origin and current signed Auth/session/Owner admission preserved.",
+    "notAuthority": [
+      "settings JSON",
+      "example public target",
+      "decoded JWT claims",
+      "self-computed digest from untrusted receipt",
+      "forged plain approval handle",
+      "unbound direct interactive invocation"
+    ],
+    "libraryContract": "Trusted callers must load a receipt with an independently supplied approved digest; callers cannot derive authority from the same untrusted receipt.",
+    "actualOwnerInputs": "OWNER_INPUT_PENDING; no real project/key or approval invented/read"
+  },
+  "checks": {
+    "compileStage": {
+      "command": "npm run stage:operator --workspace @esty-admin/api",
+      "log": "stage-auth-fix-final.log",
+      "exit": 0,
+      "typescript": "PASS",
+      "manifest": "current"
+    },
+    "boundaryAndPackageCheckpoint": {
+      "command": "node --test --test-name-pattern=\"Etsy setup Owner approval|staged operator imports\" apps/api/build/tests/etsy.test.js apps/api/build/tests/artifact.test.js",
+      "log": "auth-boundary-package.log",
+      "exit": 0,
+      "passed": 2,
+      "failed": 0
+    },
+    "finalBoundary": {
+      "command": "node --test --test-name-pattern=\"Etsy setup Owner approval\" apps/api/build/tests/etsy.test.js",
+      "log": "auth-boundary-final.log",
+      "exit": 0,
+      "passed": 1,
+      "failed": 0,
+      "note": "Overlaps checkpoint; assertions use refusal outcome and redaction, not incidental wording.",
+      "cases": "Cross-project matching key, same-project wrong key, forged approval; zero transport/password reads; changed source/tree/artifact/runtime/config under pinned digest; schema/expired/incompatible provenance; loaded approval expiry."
+    },
+    "ownedJourney": {
+      "command": "/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node --import /private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-be-setup-auth-fix-1vnoj0mo/fixture-selection.mjs apps/api/scripts/etsy-local-check.mjs",
+      "log": "owner-e2e.log",
+      "exit": 0,
+      "passed": 1,
+      "failed": 0,
+      "selection": "Only Etsy setup Owner client; runner/fixture/teardown unchanged",
+      "container": "esty-etsy-412d6be11e8bfa2b",
+      "loopbackPort": 32776,
+      "storage": "tmpfs",
+      "actual": "Signed JWT/current SQL Auth session/current Owner/Nest/PostgreSQL lifecycle with independently pinned synthetic binding",
+      "synthetic": "Password HTTP and Etsy HTTPS; no live provider"
+    },
+    "linuxGenerator": {
+      "log": "linux-owner-generation-final.log",
+      "exit": 0,
+      "image": "docker.io/library/node@sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea",
+      "platform": "linux/x64",
+      "node": "24.22.1",
+      "nodeBinarySha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb",
+      "network": "none",
+      "root": "read-only",
+      "capabilities": "all dropped; no-new-privileges",
+      "mounts": "new task fixtures only; no original checkout/private/auth/Docker socket",
+      "observed": "Derived exact Auth URL/key hash; pinned binding digest; no raw key/runtime secret projection; changed config refusal; shell syntax PASS",
+      "syntheticArtifactDigest": "cad8cf933276877495ace34976d137d359057e861bb7cedda3cfb7c83ba3d6cb",
+      "nativeArtifact": false,
+      "publishedSource": false,
+      "fixture": "Fake revision/tree and throwing synthetic CLI, actual staged operator code"
+    },
+    "actualPTY": {
+      "classification": "synthetic Linux guarded Owner launcher, not native release",
+      "network": "none",
+      "cases": [
+        {
+          "case": "cross-project",
+          "exit": 1,
+          "settingsPrompt": true,
+          "emailPrompt": false,
+          "passwordPrompt": false,
+          "settingsSubmitted": true,
+          "cancelledBeforeEmail": false
+        },
+        {
+          "case": "same-project-wrong-key",
+          "exit": 1,
+          "settingsPrompt": true,
+          "emailPrompt": false,
+          "passwordPrompt": false,
+          "settingsSubmitted": true,
+          "cancelledBeforeEmail": false
+        },
+        {
+          "case": "approved-binding",
+          "exit": 1,
+          "settingsPrompt": true,
+          "emailPrompt": true,
+          "passwordPrompt": false,
+          "settingsSubmitted": true,
+          "cancelledBeforeEmail": true
+        },
+        {
+          "case": "unbound-direct-cli",
+          "exit": 1,
+          "settingsPrompt": false,
+          "emailPrompt": false,
+          "passwordPrompt": false,
+          "settingsSubmitted": false,
+          "cancelledBeforeEmail": false
+        },
+        {
+          "case": "tampered-binding",
+          "exit": 1,
+          "settingsPrompt": false,
+          "emailPrompt": false,
+          "passwordPrompt": false,
+          "settingsSubmitted": false,
+          "cancelledBeforeEmail": false
+        }
+      ]
+    },
+    "unrun": "Unrelated full/strict-cutover suites, native builder, actual owner credential input/Auth/provider/cloud/deploy. Existing t175 FIX-ONLY review was subsequently accepted in docsOnlyCloseout; no reviewer or closeout checks rerun. No native restart for main FYI."
+  },
+  "newFailures": [
+    {
+      "log": "stage-auth-fix.log",
+      "exit": 2,
+      "cause": "New synthetic test fixture passed readonly migration tuple to mutable assembleArtifact parameter (TS4104).",
+      "correction": "Mutable copy in test fixture only; guards unchanged."
+    }
+  ],
+  "priorFiveFailures": "Preserved in setupFreeze.retainedFailures and original byte-identical setup-freeze.json; not erased or reclassified.",
+  "documentation": [
+    {
+      "path": "specs/010-etsy-connectivity/plan.md",
+      "sha256": "03aeb2bed83847cd54a8db799903a4b8ef83da6f7d982988b0f8023ec29f97da"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/tasks.md",
+      "sha256": "9e52e46160552fbb6f902ac1ab3abc202cf2a4ee335959c6cc9106f233a99981"
+    },
+    {
+      "path": "specs/010-etsy-connectivity/quickstart.md",
+      "sha256": "82ef65455154f87dae522d446d9212384c4d229c68405683fa16236b8f0a9f1a"
+    }
+  ],
+  "historicalBodies": "Prior plan/quickstart full bodies preserved after current correction section; T001-T032 original text/checkmarks preserved except top current status; new T033-T035 record this increment.",
+  "historicalSnapshotsPreserved": {
+    "review-manifest.json": "a925080d6d587187c67c0581c9283655ead6711dbabb918cd4dfa0d3f9a3645a",
+    "release-preparation.json": "53ba2808f958e0201b2a647cf20195570955ea1ed092595dd71f861d6f2b7664"
+  },
+  "protectedRootSha256": {
+    "package.json": "5e514d5e822305dda595914446be8f453f90f224a01821bccf1441b3bb04f4bf",
+    "package-lock.json": "ee7576a6a4958da1d23cd5fa197bd9e5bddf981339f506840531442486a58b14"
+  },
+  "currentMainFYI": {
+    "revision": "08e68fb91e0cfb74776494eb84709e8eb9b2244b",
+    "source": "t151 relayed root t12p owner-authorized FE53ac9ac follow-up; clean main/origin reported",
+    "api010CanonicalBytesPreserved": "root-reported; not independently re-probed",
+    "onlyRegenerated": "apps/web/src/lib/api/generated.ts",
+    "baseline24f5": "historical planning observation",
+    "futureExactArtifact": "Rebind then-current public main and independently verify BE blobs after separately authorized review/publication of this increment.",
+    "rebaseResetStashPullOrBuildRestart": false
+  },
+  "externalEvidence": {
+    "absoluteLocation": "/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-be-setup-auth-fix-1vnoj0mo",
+    "logs": [
+      {
+        "path": "auth-boundary-final.log",
+        "sha256": "2c6210067d242204f46228d30bbfa53c93ea32800800d6058f2972e207bce968",
+        "bytes": 237
+      },
+      {
+        "path": "auth-boundary-package.log",
+        "sha256": "407292430e26e77631e5d98c43c07cf6d1d2ffdaa05098d430f9821f40305f20",
+        "bytes": 342
+      },
+      {
+        "path": "linux-owner-generation-final.log",
+        "sha256": "611c8e593635f412dafb7000a7b10111b99b6b277be70f6349030c675d8ab343",
+        "bytes": 223
+      },
+      {
+        "path": "linux-owner-generation.log",
+        "sha256": "611c8e593635f412dafb7000a7b10111b99b6b277be70f6349030c675d8ab343",
+        "bytes": 223
+      },
+      {
+        "path": "owner-e2e.log",
+        "sha256": "4f20a82e3c67ae2cd9282f908fafe4858c12a56088659f74670b77b25cf3fa6e",
+        "bytes": 392
+      },
+      {
+        "path": "pty-approved-binding.log",
+        "sha256": "6f744aa872e25a4efa63879581f56e8bba9934e8a5c13b5c9069b30f63e6541a",
+        "bytes": 168
+      },
+      {
+        "path": "pty-cross-project.log",
+        "sha256": "d9e7185ef8cbf949cec815f2c3e88e7059af4eae497d28707e11f3c8c9b56fb3",
+        "bytes": 144
+      },
+      {
+        "path": "pty-same-project-wrong-key.log",
+        "sha256": "d9e7185ef8cbf949cec815f2c3e88e7059af4eae497d28707e11f3c8c9b56fb3",
+        "bytes": 144
+      },
+      {
+        "path": "pty-tampered-binding.log",
+        "sha256": "a1a9d73cf80ab6e7a9e83e9eaaac78c386fad2fea52e3a9ad9ee419eef9c029d",
+        "bytes": 92
+      },
+      {
+        "path": "pty-unbound-direct-cli.log",
+        "sha256": "a1a9d73cf80ab6e7a9e83e9eaaac78c386fad2fea52e3a9ad9ee419eef9c029d",
+        "bytes": 92
+      },
+      {
+        "path": "stage-auth-fix-02.log",
+        "sha256": "89aa03fc46b749aa7f6b53800a6021a3360b3b14d2d0198368faa6c1af4ccdd1",
+        "bytes": 406
+      },
+      {
+        "path": "stage-auth-fix-final.log",
+        "sha256": "89aa03fc46b749aa7f6b53800a6021a3360b3b14d2d0198368faa6c1af4ccdd1",
+        "bytes": 406
+      },
+      {
+        "path": "stage-auth-fix.log",
+        "sha256": "dc9967bd8c5ee04e63b04c8f626f945d4620b798b2902107dd504bdbf7266cd4",
+        "bytes": 1699
+      },
+      {
+        "path": "synthetic-assembly-final.log",
+        "sha256": "f5f774f8691eea90f7624911907f3a459f610bceb51f39a1443cc0396b37d0be",
+        "bytes": 215
+      },
+      {
+        "path": "synthetic-assembly.log",
+        "sha256": "09ea209aa886e506348eabbbfb0c0f235016b9db410608d7a234e052416dd520",
+        "bytes": 215
+      }
+    ],
+    "inventoriesAndReceipts": [
+      {
+        "path": "source-inventory.json",
+        "sha256": "d24afa55d752452f0e251dd04679888bfad9771a237d0580009b662ceddcbb4c"
+      },
+      {
+        "path": "operator-inventory.json",
+        "sha256": "42f66bb800ec5b7eaae78ddd04b848072237221c2c2a7aa992c3b22791bc9eb0"
+      },
+      {
+        "path": "pty-checks.json",
+        "sha256": "c977ff02647b0aef002d9e3db6c49751e8ca8ed3be7cfe37292d3f36fbe2cdb2"
+      },
+      {
+        "path": "setup-freeze.json",
+        "sha256": "e2c6172c8aca454c76029c01005c09658a9e1819885e9a4b19d7ecc57344e399"
+      }
+    ],
+    "temporaryHarnessesAndSyntheticOwnerOutputs": [
+      {
+        "path": "fixture-selection.mjs",
+        "sha256": "0b281353bee73cda629d80a8ad47abb5084b92b4815c5b1725fcbcb3a688465d",
+        "removedAfterUse": true,
+        "text": "import childProcess from 'node:child_process';\nimport { syncBuiltinESMExports } from 'node:module';\nconst original = childProcess.spawnSync;\nchildProcess.spawnSync = function(binary, args, options) {\n  if (binary === process.execPath && Array.isArray(args) && args.length === 2\n    && args[0] === '--test' && args[1] === 'apps/api/build/tests/etsy.test.js') {\n    return original(binary, ['--test', '--test-name-pattern=Etsy setup Owner client', args[1]], options);\n  }\n  return original(binary, args, options);\n};\nsyncBuiltinESMExports();\n"
+      },
+      {
+        "path": "assemble-smoke.mjs",
+        "sha256": "f2106d1ec069aa7cb1a1933a396f6f4cdf5882e387db5b73ade8ba2a0b775a3a",
+        "removedAfterUse": true
+      },
+      {
+        "path": "linux-smoke/generate.mjs",
+        "sha256": "3565a9f13cf9c34a79069165199eef8d6d287a6c007f14bfd8c87833b3e41682",
+        "removedAfterUse": true
+      },
+      {
+        "path": "linux-smoke/private/launchers/owner.sh",
+        "sha256": "e596d5d2b5cf916d3be0d3b1a2e2a014d27f3a58e6feaf7c63be8b82aea7fdad",
+        "removedAfterUse": true
+      },
+      {
+        "path": "linux-smoke/private/launchers/owner-binding.json",
+        "sha256": "2eecd116fd271ee648f9a999da57ad199710bc466bc392e3f1b704de1b0c87ed",
+        "removedAfterUse": true
+      }
+    ]
+  },
+  "cleanup": {
+    "ownedTmpfsFixture": "Guarded teardown completed and exact container absence checked",
+    "linuxContainers": "Foreground --rm commands completed",
+    "syntheticConfigBindingLaunchersPackagesHarnessesRemoved": true,
+    "taskEmptyHomeNpmDockerConfigRemoved": true,
+    "publicLogsInventoriesAndOriginalFreezeRetained": true,
+    "ignoredBuildOutputRetained": true,
+    "sharedServicesVolumesFe55440To55444Untouched": true,
+    "workersReviewersWatchersStarted": false
+  },
+  "gates": {
+    "sourceLocal": "READY_FOR_BE_SETUP_PUBLICATION",
+    "independentFixOnlyReview": "ACCEPTED_BY_T151: SETUP_AUTH_P2_RESOLVED; NO_FURTHER_CONFIRMED_FINDINGS_IN_FIX_ONLY",
+    "ownerInputsAndAuthority": "OWNER_INPUT_PENDING",
+    "hostedExecution": "HOSTED_NOT_RUN",
+    "newPublicationNativeArtifactApproval": "COORDINATOR_PUBLICATION_NEXT; WRITER_GIT_NOT_RUN; NEW_COMMITTED_MAIN_BINDING_NATIVE_BUILD_AND_ARTIFACT_APPROVAL_OPEN",
+    "ci": "DEFERRED_DISABLED_UNTOUCHED",
+    "pruneAndGeneralFE": "DEFERRED"
+  },
+  "prohibitedEffectsExecuted": {
+    "gitPublicationMerge": false,
+    "realPrivateAuthCredentialCacheRead": false,
+    "realSecretInputGenerationInjection": false,
+    "liveAuthEtsyProviderCloudSqlDeployDnsBilling": false,
+    "installDependencyRootFeCiRuntimeSchemaPhaseChanges": false,
+    "newReviewerOrModelSwitch": false
+  },
+  "setupFreeze": {
+    "version": 2,
+    "status": "READY_FOR_BE_SETUP_REVIEW",
+    "writer": "t15j",
+    "coordinator": "t151",
+    "reviewer": "existing t175; coordinator starts only; new increment review NOT_RUN",
+    "writerState": "FROZEN_STOP_WRITES_OWNERSHIP_RETURNED_TO_T151",
+    "authority": "Coordinator accepted exactly nine source/test paths and four existing010 evidence files for source/local setup; no real private/provider/publication authority.",
+    "canonicalDesign": "plan.md#current-be-setup-completion-design--coordinator-accepted",
+    "currentMainFYI": {
+      "revision": "08e68fb91e0cfb74776494eb84709e8eb9b2244b",
+      "source": "t151 relayed root t12p owner-authorized FE53ac9ac follow-up; clean main/origin reported",
+      "api010CanonicalBytesPreserved": "root-reported; not independently re-probed",
+      "onlyRegenerated": "apps/web/src/lib/api/generated.ts",
+      "baseline24f5": "historical planning observation",
+      "futureExactArtifact": "Rebind then-current public main and independently verify BE blobs after separately authorized review/publication of this increment.",
+      "rebaseResetStashPullOrBuildRestart": false
+    },
+    "worktree": {
+      "branch": "feat/etsy-connectivity",
+      "revision": "77e5a36ad8dceb343b5eebc71275091e7431eab0",
+      "tree": "0a39fa2a48a041a4d3fff36f9f20eeef696a2717",
+      "cleanAtStart": "coordinator-supplied; not rerun",
+      "refIndexBranchMutated": false
+    },
+    "developmentSource": {
+      "committed": false,
+      "nativeRelease": false,
+      "sourceFileCount": 135,
+      "sourceDigest": "310907b72b72062e8cef3a236a9229ffb41977e340a9f156b5bb1c9bf46557de",
+      "algorithm": "artifact.ts sha256(canonical(sourceFiles(repository)))",
+      "changedRecords": [
+        {
+          "path": "apps/api/scripts/etsy-owner.ts",
+          "mode": 420,
+          "size": 14169,
+          "sha256": "fee07b50eafe448caf1c5fbc13137af744fbb786ef58e573a8b665221d0ecf04",
+          "sha1": "ac0d9b0c3c262add9934fbb49d2dff887f10a3c7"
+        },
+        {
+          "path": "apps/api/scripts/etsy-release.ts",
+          "mode": 420,
+          "size": 34777,
+          "sha256": "0d2b4b6fa421bb6ebae3cc85aab77e133540ab6eb03fa2bb56b7e837311d443e",
+          "sha1": "adfba05ca9b1c8a7161cd934277435f7ee54e859"
+        },
+        {
+          "path": "apps/api/scripts/etsy-setup.ts",
+          "mode": 420,
+          "size": 5086,
+          "sha256": "1f6e79e7f00896e2b9ab0a498872fe9d13c821be038eb78b0c7be43b02e6f048",
+          "sha1": "d9cbdd7bcedf5160f00720af9bb3fed5a511d487"
+        },
+        {
+          "path": "apps/api/scripts/stage-operator.mjs",
+          "mode": 420,
+          "size": 5118,
+          "sha256": "863a9f73e78c2b8f151ae62e7f154687b67c0d356bdb140459dc6353780abb8e",
+          "sha1": "6d9bb1fef9778009d281ab3bea4e235cc5fc9130"
+        },
+        {
+          "path": "apps/api/src/config/activation-config.ts",
+          "mode": 420,
+          "size": 1534,
+          "sha256": "7bbcd5d8893a02c6634c3f21f01e125e7bdde5dc5f9772ed2e39a6ce42e95478",
+          "sha1": "9e19154a0bff19a49040f21f9c09b71a154cb3db"
+        },
+        {
+          "path": "apps/api/tests/artifact.test.ts",
+          "mode": 420,
+          "size": 12530,
+          "sha256": "221e85f470a737055a09b9773156a6cd065956f6759b23d3ef29c7efc6c7ea9e",
+          "sha1": "69489c4fa011ffcd918ea04a95989aa3dd33b70d"
+        },
+        {
+          "path": "apps/api/tests/config.test.ts",
+          "mode": 420,
+          "size": 25921,
+          "sha256": "4e129c4e26de36e29c83a65a2944599e26e16eb2a6c7ec9d9c450899ed16ed68",
+          "sha1": "eeb0fddf351a11ab8358e0418eeee12455eba2eb"
+        },
+        {
+          "path": "apps/api/tests/etsy.test.ts",
+          "mode": 420,
+          "size": 46474,
+          "sha256": "0e844f0681710398b32813fd84b19dad257224688b45a349d17f01b39cf77961",
+          "sha1": "bc31bd26a6eab433108d55b6f2df24c997b30fb7"
+        },
+        {
+          "path": "apps/api/tests/release.test.ts",
+          "mode": 420,
+          "size": 57151,
+          "sha256": "e9d44e58420a4253e35f7928e61c84e9107263629716d47ab3dd039408c96253",
+          "sha1": "dc34c2d1b62ea7e2533fe68df197efcdfdec51e6"
+        }
+      ],
+      "unchangedBaselineRecords": 126,
+      "removedBaselineRecords": [],
+      "baseline": "planning-verified132-file ba9c7835 closure; historical release-preparation developmentOverlay records",
+      "fullInventory": "source-inventory.json"
+    },
+    "operator": {
+      "classification": "Darwin-compiled development operator; not a native Vercel release",
+      "fileCount": 6329,
+      "directoryCount": 683,
+      "inventoryDigest": "222261d17eae8f4b6deb227a07819cc0ed46414434ce11885df2236b0ef43e2f",
+      "algorithm": "artifact.ts sha256(canonical({files,directories}))",
+      "fullInventory": "operator-inventory.json",
+      "dependencyPackages": 157,
+      "newExplicitEntries": [
+        "etsy-setup.js",
+        "etsy-owner.js",
+        "etsy-release.js"
+      ],
+      "copyAll": false
+    },
+    "implementedContract": {
+      "runtimeDigest": "Existing canonical digest extended by exactly ten Etsy keys; absent keys preserve legacy; full proposed enabled envelope validated even if output disabled.",
+      "configuration": "Offline hidden-TTY/new0600 raw snapshot, existing0700 parent, exclusive outputs; no discovery/overwrite/injection. Key writer tested with fixed synthetic bytes only.",
+      "owner": "Memory-only fixed existing password Auth + real Nest current-session/Owner protocol; explicit fixed operations/revision/idempotency, private share/consent/results, no refresh/retry/prune.",
+      "phases": [
+        "history",
+        "held-create",
+        "pre-sql-check",
+        "sql-apply",
+        "post-sql-check",
+        "promote-only",
+        "final-domain-ack"
+      ],
+      "serialization": "Canonical actual OS-user retained home/.local/state/lovora-etsy-setup; exclusive owner/host lease plus durable operator/active locks; no distributed lock claim.",
+      "durability": "Intent before network; ACK ID fsynced before follow-up including abort/nonzero; immutable chained receipts; unknown/missing/fsync failure retains terminal lock; no retry/new CREATE.",
+      "transition": "Only exact bound pending503 before SQL, exactly3-to4, same-ID ready200, explicit promote-only and final alias/config/archive/ACK; old strict3 pending503 is maintenance evidence only.",
+      "credentialSeparation": "History/SQL get migration input and anonymous public main binding only; provider/probe phases separate; Owner client separate; metadata inspection never decrypts values.",
+      "launchers": "Exact source/tree/artifact/config/packet/driver/CLI/Node bound; built-in-only full operator inventory before import; explicit later approval includes persisted ID; no real owner launchers issued."
+    },
+    "checks": {
+      "buildStage": {
+        "command": "npm run stage:operator --workspace @esty-admin/api",
+        "log": "stage-04.log",
+        "exit": 0,
+        "migrationManifest": "current",
+        "typescript": "PASS"
+      },
+      "focusedCheckpoint": {
+        "command": "node --test --test-name-pattern=\"Etsy setup|runtime attestation|staged operator imports\" apps/api/build/tests/config.test.js apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js",
+        "log": "focused-02.log",
+        "exit": 0,
+        "passed": 35,
+        "failed": 0
+      },
+      "focusedFinal": {
+        "command": "node --test --test-name-pattern=\"Etsy setup|staged operator imports\" apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js",
+        "log": "focused-final.log",
+        "exit": 0,
+        "passed": 32,
+        "failed": 0,
+        "cancelled": 0,
+        "skipped": 0,
+        "meaning": "Final release guards and isolated real staging; overlaps prior checkpoint, not additional32 distinct cases."
+      },
+      "ownedE2E": {
+        "command": "/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node --import /private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-be-setup-checks-2be2x1xj/fixture-selection.mjs apps/api/scripts/etsy-local-check.mjs",
+        "log": "owned-e2e-02.log",
+        "exit": 0,
+        "passed": 3,
+        "failed": 0,
+        "container": "esty-etsy-30801192c8d47e4d",
+        "port": 32775,
+        "storage": "owned tmpfs",
+        "actual": "Nest/PostgreSQL/signed JWT/current SQL Auth session and Owner authority; Owner client lifecycle and fresh exact3-to4 old/new strict readiness",
+        "synthetic": "Password protocol HTTP; Etsy HTTPS; provider CREATE/promote transport",
+        "selector": "Only child test argv narrowed; runner/fixture/teardown source unchanged. Exact temporary preload text/hash below.",
+        "unrelatedOriginal21Rerun": false
+      },
+      "interactiveCLI": {
+        "log": "tty-smoke.log",
+        "exit": 0,
+        "actualTTY": true,
+        "input": "synthetic JSON only",
+        "outputMode": "0600",
+        "secretCanaryEcho": false,
+        "selectedRuntimeEnabled": false,
+        "actualKeyGeneration": false,
+        "network": false
+      },
+      "linuxLauncherSmoke": {
+        "log": "linux-launcher-final.log",
+        "exit": 0,
+        "image": "docker.io/library/node@sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea",
+        "node": "24.22.1",
+        "platform": "linux/x64",
+        "nodeBinarySha256": "e32e2d16081cf644f88392934288086e7662529d0d43277c34f7aad2207cfafb",
+        "network": "none",
+        "rootFilesystem": "read-only",
+        "capabilities": "all dropped; no-new-privileges",
+        "mount": "only new task synthetic fixture; no checkout/private/auth/Docker socket",
+        "phaseScripts": 7,
+        "syntax": "PASS",
+        "noTTYRefusal": "PASS",
+        "alternateLedgerRefusal": "PASS",
+        "changedCliRefusal": "PASS",
+        "changedOperatorBeforeImportRefusal": "PASS",
+        "fixture": "Explicit SYNTHETIC-NOT-NATIVE with fake revision/tree and throwing synthetic CLI; actual staged operator code",
+        "fixtureDigest": "9706b2673467cd8afc4187e0764aa8dfa1b595a71164e7ab5358f32b0c8b9825",
+        "nativeArtifact": false,
+        "publishedSource": false,
+        "providerCall": false
+      },
+      "unrun": "Full unrelated suites, historical artifact-pinned activation recovery, native Vercel builder, actual Owner/Etsy/provider/cloud acceptance; pinned fixtures not retargeted."
+    },
+    "retainedFailures": [
+      {
+        "log": "typecheck-initial.log",
+        "exit": 2,
+        "cause": "Two test assert.rejects calls supplied undefined instead of error predicate; test callbacks corrected."
+      },
+      {
+        "log": "build-01.log",
+        "exit": 1,
+        "cause": "Same isolated npm user/global config path; separated empty paths, no install."
+      },
+      {
+        "log": "focused-01.log",
+        "passed": 28,
+        "failed": 2,
+        "cause": "Synthetic configuration lacked explicit APP_RETENTION_POLICY_ID; fixture corrected, validation unchanged."
+      },
+      {
+        "log": "owned-e2e-01.log",
+        "exit": 1,
+        "cause": "Default Docker socket absent; no fixture created. Explicit existing OrbStack socket with empty task Docker config used next; no original auth/config store read."
+      },
+      {
+        "log": "linux-launcher-01.log",
+        "exit": 1,
+        "cause": "Synthetic deployment ID contained unsupported internal underscore; fixture corrected, guard unchanged."
+      }
+    ],
+    "nativeBuild": {
+      "baseline24f5": "NOT_RUN_OPTIONAL_SKIPPED_PER_ACCEPTED_PRIORITY",
+      "newSource": "NOT_RUN_PENDING_REVIEW_PUBLICATION_AND_FRESH_MAIN_BINDING",
+      "nativeToolInstallOrBootstrap": false,
+      "registryDownload": false,
+      "providerUploadDeploy": false,
+      "limitation": "Pinned Linux runtime and synthetic launcher verification do not prove native official-builder output."
+    },
+    "historicalSnapshotsPreserved": {
+      "review-manifest.json": "a925080d6d587187c67c0581c9283655ead6711dbabb918cd4dfa0d3f9a3645a",
+      "release-preparation.json": "53ba2808f958e0201b2a647cf20195570955ea1ed092595dd71f861d6f2b7664"
+    },
+    "historicalBodies": {
+      "plan.md": "Current release-preparation checkpoint onward byte-preserved",
+      "quickstart.md": "Current BE release preparation onward byte-preserved",
+      "T001-T026": "identities/checkmarks unchanged; original one-P2/resolved and separate packaging review remain historical"
+    },
+    "protectedRootSha256": {
+      "package.json": "5e514d5e822305dda595914446be8f453f90f224a01821bccf1441b3bb04f4bf",
+      "package-lock.json": "ee7576a6a4958da1d23cd5fa197bd9e5bddf981339f506840531442486a58b14"
+    },
+    "documentation": [
+      {
+        "path": "specs/010-etsy-connectivity/plan.md",
+        "sha256": "a2bc06085cdcc5facb86c45c25703b568345d567c346c15c5eb9644039e2b025"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/tasks.md",
+        "sha256": "cdec02d641f2bc37ff6b29f54f27b02e51b5056385a2387d1290ea52dc68c534"
+      },
+      {
+        "path": "specs/010-etsy-connectivity/quickstart.md",
+        "sha256": "175e60c2b4f68e6989b15bd44af2e08b62db7cbd9dffda7aeb55a0539062e78d"
+      }
+    ],
+    "externalEvidence": {
+      "absoluteLocation": "/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-be-setup-checks-2be2x1xj",
+      "logs": [
+        {
+          "path": "build-01.log",
+          "sha256": "c16fe06569a36c70052fa2809c315e1c1e9bee644fd2749427ab17ed56618e3a",
+          "bytes": 206
+        },
+        {
+          "path": "build-02.log",
+          "sha256": "da3ff03a5fa54fe74c463f4c9365a7fa0b441a8ce78ea4157bdb2a022c696b01",
+          "bytes": 235
+        },
+        {
+          "path": "build-03.log",
+          "sha256": "da3ff03a5fa54fe74c463f4c9365a7fa0b441a8ce78ea4157bdb2a022c696b01",
+          "bytes": 235
+        },
+        {
+          "path": "focused-01.log",
+          "sha256": "303739682b3d2563b4dbfdfc01f6c128b1ba6d05c21878eb5589a6ee39790de4",
+          "bytes": 4079
+        },
+        {
+          "path": "focused-02.log",
+          "sha256": "88278c1335d2814282d30b81ddad522dcfd8d180910194aea9e95dd09ad6f6ae",
+          "bytes": 2420
+        },
+        {
+          "path": "focused-final.log",
+          "sha256": "06c9164522c34ab2db2615b2b4d36f5c9b93ed72e929747cb96db9968ccc4af4",
+          "bytes": 2127
+        },
+        {
+          "path": "linux-launcher-01.log",
+          "sha256": "54e0af092725b60e7e7a1cc44d82ff6525c2dd275ee2519485b67a936e892d4f",
+          "bytes": 668
+        },
+        {
+          "path": "linux-launcher-02.log",
+          "sha256": "07e4d727ee469f4cc4104cd8b4261fe52fcdab8a506bd42095a8c417fe016a8e",
+          "bytes": 254
+        },
+        {
+          "path": "linux-launcher-final.log",
+          "sha256": "428e78d88b83c18401eacb980edcb2aca46f334354fd06f34dd157d71d301544",
+          "bytes": 357
+        },
+        {
+          "path": "linux-runtime.log",
+          "sha256": "00dbde2127062d9d81314aa146d814e4579048f898168949a2c822771cb4d5fa",
+          "bytes": 131
+        },
+        {
+          "path": "owned-e2e-01.log",
+          "sha256": "e05d4d161546c7cc71f8618b892afa7be424657c6924f74dcc087747d79e3ce6",
+          "bytes": 309
+        },
+        {
+          "path": "owned-e2e-02.log",
+          "sha256": "6325cede80dd132406daeeac94471fe7f70f194b729c5028c12026ba7728582c",
+          "bytes": 655
+        },
+        {
+          "path": "stage-04.log",
+          "sha256": "89aa03fc46b749aa7f6b53800a6021a3360b3b14d2d0198368faa6c1af4ccdd1",
+          "bytes": 406
+        },
+        {
+          "path": "synthetic-launcher-assembly.log",
+          "sha256": "edb14eb4aff67133e3d8a55cf22438e9fa8a145a38b07efa93c87d8483e54663",
+          "bytes": 212
+        },
+        {
+          "path": "tty-smoke.log",
+          "sha256": "5bd47dd9c170e8b6ed57c784db0b88c3f250d05776ddf95eb5f5454597f8a0d4",
+          "bytes": 171
+        },
+        {
+          "path": "typecheck-initial.log",
+          "sha256": "d773aa998af4048d81553acce2515bc43f59af211a2f8c0b0c7c5a4059cc0eda",
+          "bytes": 283
+        }
+      ],
+      "inventories": [
+        {
+          "path": "source-inventory.json",
+          "sha256": "97b145e266c50db2fee8138caa31c245c09540eb49c2117ae5f04fe441d032fc"
+        },
+        {
+          "path": "operator-inventory.json",
+          "sha256": "47688ca96e610ff83f8156f24a5a3ca951985f103190a45d68651d5dc5f70855"
+        }
+      ],
+      "temporaryHarnesses": [
+        {
+          "path": "fixture-selection.mjs",
+          "sha256": "e2919ecf6e31ad1bbc27ebd22544331a54540796e036ca8b4ee83e3bcd40405d",
+          "removedAfterUse": true,
+          "text": "import childProcess from 'node:child_process';\nimport { syncBuiltinESMExports } from 'node:module';\nconst original = childProcess.spawnSync;\nchildProcess.spawnSync = function(binary, args, options) {\n  if (binary === process.execPath && Array.isArray(args) && args.length === 2\n    && args[0] === '--test' && args[1] === 'apps/api/build/tests/etsy.test.js') {\n    return original(binary, ['--test', '--test-name-pattern=Etsy setup', args[1]], options);\n  }\n  return original(binary, args, options);\n};\nsyncBuiltinESMExports();\n"
+        },
+        {
+          "path": "assemble-launcher-smoke.mjs",
+          "sha256": "6e472c2f80ea39bfc26fadcf524918bc4c94fd37c464ee1824385acc08bd65be",
+          "removedAfterUse": true
+        },
+        {
+          "path": "linux-smoke/check.mjs",
+          "sha256": "27c5ba22c143cfb4df131b7ea14b32c17173d0633b55c6b799de5936529b3421",
+          "removedAfterUse": true
+        }
+      ]
+    },
+    "cleanup": {
+      "ownedFixtureRemovedByAwaitedGuardedTeardown": true,
+      "ownedFixtureAbsenceChecked": true,
+      "linuxContainers": "Foreground --rm; exited",
+      "syntheticPackagesCommandsInputsAndTemporaryHarnessesRemoved": true,
+      "emptyTaskHomeDockerNpmConfigsAndNpmScratchRemoved": true,
+      "publicLogsInventoriesRetained": true,
+      "ignoredBuildOutputRetained": true,
+      "publicPlanningIdentityCloneRetained": "No-checkout public24f5 identity evidence only",
+      "sharedVolumesServicesFePortsPreserved": true,
+      "newWorkersReviewersWatchers": false
+    },
+    "gates": {
+      "sourceLocal": "READY_FOR_BE_SETUP_REVIEW",
+      "newIncrementIndependentReview": "PENDING_COORDINATOR_T175",
+      "newIncrementPublication": "NOT_AUTHORIZED_NOT_RUN",
+      "nativeArtifactApproval": "PENDING",
+      "ownerInputsPoliciesMaintenanceRecoveryActivation": "OWNER_INPUT_PENDING",
+      "hostedExecution": "HOSTED_NOT_RUN",
+      "ci": "DEFERRED_DISABLED_NOT_A_PREREQUISITE",
+      "BE_DELIVERY_ENABLED": "false supplied; not inspected/toggled",
+      "prune": "DEFERRED_INACCESSIBLE",
+      "generalFE": "DEFERRED"
+    },
+    "effects": {
+      "productOrReleaseSourceEdited": true,
+      "rootDependencyFeSharedDocsCiRoutineSchemaGuardEdits": false,
+      "originalPrivateAuthCacheRead": false,
+      "sourceWorktreeGitMutationPublicationMerge": false,
+      "actualCloudSqlAuthEtsyProviderOrDeploymentDnsBilling": false,
+      "realSecretGenerationInjection": false
+    },
+    "planningReceipt": {
+      "status": "PLAN_READY_FOR_COORDINATOR_ACCEPTANCE",
+      "authority": "Plan-first source/local BE completion audit; no new product/release source edits or long build before t151 technical acceptance.",
+      "writer": "t15j",
+      "coordinator": "t151",
+      "futureReviewer": "existing t175, coordinator starts only after READY_FOR_BE_SETUP_REVIEW",
+      "canonicalDesign": "plan.md#current-be-setup-completion-design--awaiting-coordinator-acceptance",
+      "worktree": {
+        "branch": "feat/etsy-connectivity",
+        "revision": "77e5a36ad8dceb343b5eebc71275091e7431eab0",
+        "tree": "0a39fa2a48a041a4d3fff36f9f20eeef696a2717",
+        "cleanAtStart": "coordinator-supplied; not rerun",
+        "refIndexBranchMutated": false
+      },
+      "publishedMain": {
+        "revision": "24f5dc3fddfc25680ba11ff8214ce374e214f46a",
+        "tree": "87a13cda426503232ae66b01fea9aacb77b7eaaf",
+        "verification": "Fresh anonymous ls-remote, real shallow public no-checkout clone, all132 BE Git blob IDs and modes matched.",
+        "sourceDigest": "ba9c78358a6864e88b78018cf4816af4ed58fa7a49c682b47029408f7695dbba",
+        "sourceFileCount": 132,
+        "existingPublicationMainAlignment": "SATISFIED",
+        "pr6Merged": "coordinator verified GitHub and supplied fact",
+        "compare77e5ToMain": "FE006-only differences supplied by coordinator; no FE inspection here",
+        "localObjectLookup": "Failed bad object; resolved through disposable public clone, not source-worktree fetch.",
+        "temporaryClone": "published-main",
+        "temporaryParentBasename": "esty-be-setup-plan-x59yowb0",
+        "checkoutPerformed": false,
+        "installOrBuildPerformed": false,
+        "mustRebindBeforeBuild": true
+      },
+      "historicalSnapshotsPreserved": {
+        "review-manifest.json": "a925080d6d587187c67c0581c9283655ead6711dbabb918cd4dfa0d3f9a3645a",
+        "release-preparation.json": "53ba2808f958e0201b2a647cf20195570955ea1ed092595dd71f861d6f2b7664"
+      },
+      "suppliedProductionBaseline": {
+        "candidate": "dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7",
+        "historicalSourceLabel": "f162",
+        "artifact": "82419e360517389f1e20c23d43f0e5948518ad659f0f8a87b9f41abcb8d302d2",
+        "sourceTree": "181b2c014f9373e4d6cdf055cba01eac11ed5a5e",
+        "journal": 675,
+        "events": 32,
+        "head": "1c95b6e8ea9872440fdffe52ac24e9ea91234bed2294e7857b816e18fddf536b",
+        "next": "fe",
+        "independentlyInspected": false,
+        "oldScriptsOrReceiptsReadOrReused": false,
+        "newEtsyIdentity": false
+      },
+      "selectedProposal": {
+        "transition": "One held strict4 candidate, exactly confirmed3-to4 SQL, same-ID post-SQL target readiness, explicit promote-only, final domain/ACK. Runtime exact-history strictness unchanged.",
+        "operationalTradeoff": "Explicit maintenance/readiness interruption; roll-forward-only after SQL. Actual outage/recovery authority remains owner pending.",
+        "approvalState": "AWAITING_T151_TECHNICAL_ACCEPTANCE",
+        "existingRoutineAdditiveMechanism": "Present; its after-SQL compatiblePredecessor still requires old ready200 and is not weakened.",
+        "configuration": "Extend existing runtimeConfigDigest key set with ten Etsy fields; new offline owner-only inputs/key outputs, no original overwrite or old D1 reuse.",
+        "ownerClient": "Fixed-operation memory-only Auth/API client using current005/006 verification and Owner membership; no browser/actor UUID/operator impersonation.",
+        "launchers": "Fresh exact hash/source/artifact/config/packet-bound phase launchers after prerequisites; no runnable placeholder commands now.",
+        "serialization": "One approval-bound authoritative ledger root/exclusive durable lock plus explicit owner change lease; SQL advisory lock and expectedBefore; no distributed-lock claim or arbitrary alternate root.",
+        "unknownOutcome": "Durable STOP; no mutation retry, new CREATE, automatic rollback or generic recovery framework."
+      },
+      "proposedSourcePaths": [
+        "apps/api/src/config/activation-config.ts",
+        "apps/api/scripts/etsy-setup.ts",
+        "apps/api/scripts/etsy-release.ts",
+        "apps/api/scripts/etsy-owner.ts",
+        "apps/api/scripts/stage-operator.mjs",
+        "apps/api/tests/config.test.ts",
+        "apps/api/tests/release.test.ts",
+        "apps/api/tests/artifact.test.ts",
+        "apps/api/tests/etsy.test.ts"
+      ],
+      "nativeBuildProposal": {
+        "image": "docker.io/library/node@sha256:d862bb5d082c5ae0210ac07e8c0344cb8cf7bef6d78e9b8c50c179da923108ea",
+        "node": "24.22.1",
+        "platform": "linux/x64",
+        "source": "Real freshly verified public main, genuine clean sparse checkout; no fake refs or original worktree mutation.",
+        "network": "Task-owned internal builder network with fixed registry.npmjs.org:443 TCP relay only; no external builder route or provider API.",
+        "observedLockTransportHosts": [
+          "registry.npmjs.org"
+        ],
+        "sourceInstall": "Locked npm ci --workspace=@esty-admin/api --include-workspace-root=false in disposable public source only.",
+        "tooling": "Existing bootstrapTools in isolated temporary tools prefix, retained resolved lock, exact four pinned versions/integrities and own-package inventories.",
+        "buildAndVerify": "Existing buildArtifact release mode, full source/tree/migration/config/raw/operator/sealed/tool inventory and verifyArtifact(release:true), then network-none package/managed-entry smoke.",
+        "baselineArtifactStatus": "NOT_RUN",
+        "newSourceArtifactDependency": "Any new digest/helper source requires separately scoped publication/main integration and fresh native build; baseline24f5 cannot include it.",
+        "artifactApprovalUploadDeploy": false
+      },
+      "checks": {
+        "newSourceTests": "NOT_RUN",
+        "newNativeBuild": "NOT_RUN",
+        "oldPassingChecks": "Preserved; no rerun during planning.",
+        "plannedAffected": "Config privacy/digest; actual local3-to4 strict readiness and held-candidate phase faults; actual Nest/SQL/current-Owner harness journey; isolated package and native Linux checks.",
+        "fixtures": "Fresh nonce/loopback/tmpfs only if approved; preserve shared54322/55432/55433 and FE55440-55444.",
+        "currentTaskListeners": []
+      },
+      "gateClassification": {
+        "existingReviewedBeSource": "PUBLISHED_ON_ACTUAL_MAIN",
+        "newSourceLocalWork": "PENDING_TECHNICAL_ACCEPTANCE",
+        "ownerInputsPoliciesMaintenanceRecoveryActivation": "OWNER_INPUT_PENDING",
+        "hostedExecution": "HOSTED_NOT_RUN",
+        "ci": "EXPLICITLY_DEFERRED_NOT_A_PREREQUISITE",
+        "BE_DELIVERY_ENABLED": "false, supplied fact; not inspected or changed",
+        "operationalPrune": "DEFERRED_INACCESSIBLE_OUT_OF_SCOPE",
+        "generalFeJourney": "DEFERRED"
+      },
+      "effects": {
+        "productOrReleaseSourceEdited": false,
+        "originalPrivateAuthCacheRead": false,
+        "sourceWorktreeGitMutation": false,
+        "providerSqlAuthEnvInjectionDeploymentDnsBilling": false,
+        "ciInvestigationRepairRetryEnablement": false,
+        "newWorkersReviewersOrTracking": false
+      },
+      "documentation": [
+        {
+          "path": "specs/010-etsy-connectivity/plan.md",
+          "sha256": "1caa2bd37cddb525cc84d5df48e7d93ee5b9d27ed3a0e152db83ac611b55ad55",
+          "priorBodyPreservedByteForByte": true
+        },
+        {
+          "path": "specs/010-etsy-connectivity/quickstart.md",
+          "sha256": "ac2ee922361df8fb86f82cbc6e1781bb775b2f123792c9095f29ed67cefb9d50",
+          "priorBodyPreservedByteForByte": true
+        }
+      ],
+      "selfHash": "Supplied in coordinator planning receipt; not embedded."
+    },
+    "selfHash": "Delivered in final coordinator receipt; not embedded."
+  },
+  "docsOnlyCloseout": {
+    "acceptedBy": "t151",
+    "reviewEvidence": "Coordinator recovered actual existing t175 Auth FIX-ONLY final from pane; accepted resolution, no further confirmed findings in that scope, no reviewer checks rerun.",
+    "history": "Original setup review remains one P2; Auth fix-only acceptance is separate from historical prune P2 and packaging no-findings. All five setup failures plus one fixture compile failure remain recorded.",
+    "priorAuthFixPacketSha256": "7fa51da72349331fb6666ef7925050f1c66891df25c878c613cfe1a7bfb8b44b",
+    "priorAuthFixReviewScopeDigest": "8b81894581bcd5533b8177e75e8972c470b570dd8f7162d9c319d75ed80162a8",
+    "sourceFileCount": 135,
+    "sourceDigest": "4f76286597a498eccf69eab91157264dbc0e34af7c0f6c495f49484cd4bf8cc4",
+    "sourceVerification": "All135 public file contents/hashes/sizes/modes match the retained verified source inventory; all9 source/test scope hashes unchanged. Hash/document checks only, no application code or command executed.",
+    "checkedTasks": ["T001-T018 (T011 BE-only)", "T023 (original scoped review)", "T027-T035 (setup/fix/evidence freezes)", "T036 (accepted review/docs closeout)"],
+    "openTasks": ["T019", "T020", "T021", "T022", "T024", "T025", "T026"],
+    "publication": "READY_FOR_COORDINATOR_EXISTING_BRANCH_PUBLICATION; no writer Git/main change or publication performed.",
+    "nativeBaseline24f5": "DELIBERATELY_SKIPPED_NOT_RUN",
+    "newNativeArtifact": "OPEN: new committed/current-main identity, exact-source clean Linux build and separate immutable artifact approval required.",
+    "configurationAndAuthority": "OWNER_INPUT_PENDING: actual approved packet/target/key/policy/secure configuration and maintenance/recovery/activation authority; preserve existing resources, no original reads or automatic setup replay.",
+    "hosted": "HOSTED_NOT_RUN: real SQL/provider/deploy/promote/domain ACK/Etsy acceptance; FE and prune remain separate.",
+    "readyRealShellClaimed": false,
+    "testsBuildRuntimeResourcesGitProviderCiFePrivateOrNewReviewerActions": false,
+    "ownershipReturnedTo": "t151",
+    "writerState": "STOP_WRITES",
+    "finalReviewManifestNonSelfFiles": [
+      {"path": "apps/api/scripts/etsy-owner.ts", "sha256": "ff05af542287c1a3233716552caba1ccb6a0a2b6cc043cad30fe2818c0f34812"},
+      {"path": "apps/api/scripts/etsy-release.ts", "sha256": "298cbd130c82fcd91bd18c12e42ad0bd4d64b1c3ea8560bcf4227118d5b3a6b7"},
+      {"path": "apps/api/scripts/etsy-setup.ts", "sha256": "1f6e79e7f00896e2b9ab0a498872fe9d13c821be038eb78b0c7be43b02e6f048"},
+      {"path": "apps/api/scripts/stage-operator.mjs", "sha256": "863a9f73e78c2b8f151ae62e7f154687b67c0d356bdb140459dc6353780abb8e"},
+      {"path": "apps/api/src/config/activation-config.ts", "sha256": "7bbcd5d8893a02c6634c3f21f01e125e7bdde5dc5f9772ed2e39a6ce42e95478"},
+      {"path": "apps/api/tests/artifact.test.ts", "sha256": "221e85f470a737055a09b9773156a6cd065956f6759b23d3ef29c7efc6c7ea9e"},
+      {"path": "apps/api/tests/config.test.ts", "sha256": "4e129c4e26de36e29c83a65a2944599e26e16eb2a6c7ec9d9c450899ed16ed68"},
+      {"path": "apps/api/tests/etsy.test.ts", "sha256": "355fd1023d471bc26d1ad33078f731e7afe661450ca8bc7a4e4fd5c7d0543436"},
+      {"path": "apps/api/tests/release.test.ts", "sha256": "e9d44e58420a4253e35f7928e61c84e9107263629716d47ab3dd039408c96253"},
+      {"path": "specs/010-etsy-connectivity/plan.md", "sha256": "03aeb2bed83847cd54a8db799903a4b8ef83da6f7d982988b0f8023ec29f97da"},
+      {"path": "specs/010-etsy-connectivity/quickstart.md", "sha256": "82ef65455154f87dae522d446d9212384c4d229c68405683fa16236b8f0a9f1a"},
+      {"path": "specs/010-etsy-connectivity/tasks.md", "sha256": "9e52e46160552fbb6f902ac1ab3abc202cf2a4ee335959c6cc9106f233a99981"}
+    ],
+    "thirteenthPath": "specs/010-etsy-connectivity/setup-preparation.json",
+    "selfHashBoundary": "Final coordinator receipt supplies this file hash and complete13-path manifest/scope digest, avoiding recursive self-hashing."
+  },
+  "selfHash": "Reported with final current13-path review-scope digest in coordinator receipt, not embedded."
+}
