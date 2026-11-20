@@ -1,5 +1,54 @@
 # Implementation plan: Connectivity foundation
 
+## Routine optional-input compatibility amendment — 2026-11-20
+
+**Owner START; sole existing OMP writer, source/local only.** Root verified clean `main@3f87117eb747ff8612e71c9abd77bbe0ffe8fcdb`. T231–T235 follow actual maximum230. Root t12p coordinates the reserved t1dw Company Codex gpt-6-luna medium review after freeze; no new worker, branch, worktree or reviewer is authorized.
+
+### Problem and contract
+
+Root-reported manual run44803038548, retrieval136519805715, attempt1, mode `etsy-strict-cutover`, source3f87117, fails before download at `routine-retained.mjs:111`, `context.activation-input-absent`, with `present=true, empty=false`. Preceding event-file/JSON/Actions/controller/mode checks passed. Completion136520043000 correctly failed, production was skipped, and CREATE/SQL/promotion never started. The actual optional-input value/type was not captured: null is a hypothesis, not the proven incident cause. Do not rerun the live failure or reinterpret original44753413337 as diagnosed.
+
+The workflow declares `activation_artifact_id` as `required: false, type: string`, exclusively for activation. [GitHub's workflow dispatch contract](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#onworkflow_dispatchinputsinput_idrequired) makes supply optional; its default clause describes unspecified input defaults but does not promise this event property's raw JSON representation. [GitHub's expression string conversion](https://docs.github.com/en/actions/reference/workflows-and-actions/expressions#functions) maps null to `''`, unlike Boolean/number string conversions. These establish optional/no-value semantics, not proof that this incident contained null or a guarantee of per-input null serialization.
+
+**Decision:** at the existing routine-only raw event boundary, normalize only undefined/null to `''` using nullish coalescing, then require the exact empty string. This deliberately supports omitted, empty-string and null no-value representations without reproducing Actions' broader truthiness/loose equality. All nonempty strings (including whitespace and `"null"`), IDs, arrays, objects, numbers and Booleans remain refused before metadata transport. Both matching activation mode and routine/event mode mixing remain refused by existing mode checks. Do not normalize required producer/artifact/controller/SHA/approval/packet fields.
+
+### Minimal implementation and proof
+
+Use only existing `routine-retained.mjs` and `ci.test.ts` for code/tests. Keep the existing diagnostic `present`/`empty` meanings (undefined absence; exact empty string); add one true Boolean discriminator named `undefinedValue`, `nullValue`, `stringValue`, `arrayValue`, `objectValue`, `numberValue` or `booleanValue`, derived only from null/array/typeof checks. No raw value, input/event/env serialization or wider diagnostics-string allowlist. This permits the next published CI to distinguish null/string/other without guessing. No workflow/completion/authorization/receipt/one-shot change is needed.
+
+Before source changes, add focused failing-before regression(s) in the existing suite. Cover three accepted no-value shapes across all three routine modes, malformed values refused before transport, safe diagnostic shape/redaction, and existing auth/controller/producer/artifact fences. Run the installed Node24 compiler and affected existing retained/context tests, not DB/container/native checks. Run exactly one emitted synthetic select/controller smoke with denied real network/provider/effects; retain commands, failures and final outcomes. Local fixtures do not establish a fix for actual44803038548: only separately authorized publication/new CI can do that.
+
+Freeze with exact changed-path/source/evidence hashes, startup ETA and actual elapsed at **READY_FOR_OPTIONAL_INPUT_FIX_REVIEW / STOP WRITES / NO_INFLIGHT**. No publication, dispatch/rerun, private/auth access, configuration/secret change, provider/cloud/SQL/deploy or old675/f162 replay. The existing packet window remains time-limited; no refresh. README/PROJECT_STATE remain unchanged unless narrow handback status requires an update; preserve all prior/FE evidence.
+
+### Optional-input local evidence and frozen handback
+
+**READY_FOR_OPTIONAL_INPUT_FIX_REVIEW / STOP WRITES / NO_INFLIGHT.** T231–T235 are complete locally; root's reserved independent review remains pending. Exactly four repository paths changed: `apps/api/scripts/routine-retained.mjs`, `apps/api/tests/ci.test.ts`, this plan and `tasks.md`. Source change is limited to the optional-input predicate and Boolean kind discriminator. Workflow/completion, shared diagnostic implementation, approval/packet/receipt/effect guards, README/PROJECT_STATE and all historical/FE blocks remain unchanged. No published source, actual CI or hosted success is claimed.
+
+Evidence directory: `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-optional-input-y5x4i8jy`. `optional-input-review-manifest.json` records exact changed/source/emitted/evidence hashes, command receipts, base provenance and final elapsed time; its own SHA-256 is returned in the handback rather than embedded recursively here. Base source/test snapshots precede their changes; document base snapshots reconstruct the unchanged prior body by excluding only this increment's leading amendment.
+
+| Check | Actual result |
+| --- | --- |
+| Compiler before source fix | exit0 |
+| New regressions before source fix | exit1, 6/12 passed, 6 failed: null subcases in all three routine modes, their parent, matching activation/null's earlier refusal boundary, and missing kind diagnostic |
+| Compiler after source fix | exit0 |
+| Affected retained/context/fence tests | exit0, 42/42 passed, no skips; includes all new regressions and existing event/auth/controller/producer/artifact/extraction fences |
+| ONE emitted select smoke | exit0; strict-cutover with synthetic null; exact controller/producer/artifact binding and five synthetic GETs; `{present:true, empty:false, nullValue:true}`; real network/provider commands0, releaseAccepted=false, CREATE/SQL/promotion not-started |
+
+Exact commands are also retained as argv/cwd/exit/timing JSON alongside unmodified stdout/stderr:
+
+```sh
+NODE24=/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node
+"$NODE24" node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+"$NODE24" --test --test-reporter=tap '--test-name-pattern=^L1 optional activation input' apps/api/build/tests/ci.test.js
+"$NODE24" node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+"$NODE24" --test --test-reporter=tap '--test-name-pattern=^L1 |^L4 actual delivery and selection|^untrusted, stale-attempt|^end-to-end diagnostics name event-file' apps/api/build/tests/ci.test.js
+"$NODE24" /private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-optional-input-y5x4i8jy/smoke-select.mjs /private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-optional-input-y5x4i8jy
+```
+
+The smoke launches the emitted `routine-retained.mjs select` executable once, with an explicit synthetic environment and deny-network/provider preload. It reads no real credentials and performs no download or production release-controller execution; fixture transport is not live GitHub/provider proof. Permanent tests remove their temporary fixture trees. External smoke scripts/outputs remain evidence, and normal compiler outputs remain ignored build products; no repository scaffolds or persistent service/worker/container/schedule was created.
+
+Startup ACK recorded at2026-11-20T19:36:31.562562Z, ETA25–40 minutes; exact final timestamp/actual elapsed are in the freeze manifest/receipt. `HC_TERMINAL_SOCKET` was absent at startup, so no Herdr operation or fabricated delivery acknowledgment occurred; root can read this pane and evidence receipt. No reviewer was launched by OMP. Ownership returns to root for the reserved review; actual44803038548 remains unverified and original44753413337 remains undiagnosed. No packet refresh or prior675/f162 replay.
+
 ## T230 accepted diagnostic review and docs-only closeout
 
 **READY_FOR_BE_END_TO_END_LOGGING_ACCEPTED / STOP WRITES / NO_INFLIGHT. T223–T230 complete.** Root `t12p` accepted ONE read-only Company Codex `gpt-6-luna` medium review by `t1dw`, with no confirmed actionable findings. Root verified the actual launch, model/effort footer and reviewer response. Initial hc-sandbox confusion was tooling-only, not model unavailability; no model substitution occurred.

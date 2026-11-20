@@ -108,8 +108,10 @@ export function routineContext(env, event) {
   check('context.controller-sha-binding', env.BE_RELEASE_CONTROLLER_SHA === env.GITHUB_SHA,
     { actualRevision: env.GITHUB_SHA, expectedRevision: env.BE_RELEASE_CONTROLLER_SHA });
   check('context.mode-binding', env.BE_DELIVERY_MODE === inputs.mode, { actualMode: inputs.mode, expectedMode: env.BE_DELIVERY_MODE });
-  check('context.activation-input-absent', inputs.activation_artifact_id === undefined || inputs.activation_artifact_id === '',
-    { present: inputs.activation_artifact_id !== undefined, empty: inputs.activation_artifact_id === '' });
+  const activationInput = inputs.activation_artifact_id;
+  const activationKind = activationInput === null ? 'null' : Array.isArray(activationInput) ? 'array' : typeof activationInput;
+  check('context.activation-input-absent', (activationInput ?? '') === '',
+    { present: activationInput !== undefined, empty: activationInput === '', [`${activationKind}Value`]: true });
   return contextShape({ version: 1, controller: { revision: env.GITHUB_SHA, run: env.GITHUB_RUN_ID },
     producerRun: inputs.release_run_id, artifactId: inputs.release_artifact_id, mode: inputs.mode,
     approvalDigest: env.BE_RELEASE_APPROVAL_SHA256, configDigest: env.BE_DELIVERY_CONFIG_SHA256,

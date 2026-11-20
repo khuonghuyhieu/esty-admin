@@ -384,6 +384,72 @@ test('L1 invalid dispatch and absent approval refuse before metadata transport',
   assert.equal(reads, 0);
 });
 
+test('L1 optional activation input accepts omitted, empty and null only as routine no-value shapes', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-optional-input-')); t.after(() => rm(root, { recursive: true, force: true }));
+  for (const mode of ['current-schema-only', 'versioned-migration', 'etsy-strict-cutover']) {
+    for (const [kind, value] of [['omitted', undefined], ['empty', ''], ['null', null]] as const) {
+      await t.test(`${mode}: ${kind}`, async () => {
+        const f = routineMetadataFixture(), eventPath = join(root, 'event.json'), packetDigest = 'b'.repeat(64);
+        await writeFile(eventPath, JSON.stringify({ inputs: { ...f.event.inputs, mode, activation_artifact_id: value } }), { mode: 0o600 });
+        const context = loadRoutineContext({ ...f.env, GITHUB_EVENT_PATH: eventPath, BE_DELIVERY_MODE: mode, BE_MIGRATION_PACKET_SHA256: packetDigest });
+        const selected = await selectRoutine(context, f.read, f.now);
+        assert.deepEqual(selected.context, { ...f.context, mode, packetDigest: mode === 'current-schema-only' ? null : packetDigest });
+        assert.equal(selected.artifact.id, '456'); assert.equal(selected.producer.run, '122'); assert.equal(selected.checksJobId, '789');
+      });
+    }
+  }
+});
+
+test('L1 optional activation input refuses values and mode mixing before metadata transport', async () => {
+  const f = routineMetadataFixture();
+  for (const value of ['456', ' ', 'null', 'opaqueOptionalInputCanary321', [], ['456'], {}, { input: 'opaqueOptionalInputCanary321' }, 0, 456, false, true]) {
+    await assert.rejects(async () => {
+      const context = routineContext(f.env, { inputs: { ...f.event.inputs, activation_artifact_id: value } });
+      await selectRoutine(context, f.read, f.now);
+    }, /context.activation-input-absent/);
+    assert.equal(f.reads(), 0);
+  }
+  for (const value of [undefined, '', null]) {
+    for (const [envMode, eventMode, reason] of [
+      ['current-schema-only', 'activation', /context.mode-binding/],
+      ['activation', 'activation', /context.mode\./],
+      ['etsy-strict-cutover', 'versioned-migration', /context.mode-binding/],
+    ] as const) {
+      await assert.rejects(async () => {
+        const context = routineContext({ ...f.env, BE_DELIVERY_MODE: envMode },
+          { inputs: { ...f.event.inputs, mode: eventMode, activation_artifact_id: value } });
+        await selectRoutine(context, f.read, f.now);
+      }, reason);
+      assert.equal(f.reads(), 0);
+    }
+  }
+});
+
+test('L1 optional activation input diagnostics expose kind and empty state but never input payload', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-optional-shape-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const f = routineMetadataFixture(), logs: string[] = [], directory = join(root, 'logs');
+  t.mock.method(console, 'info', (...args: unknown[]) => logs.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args: unknown[]) => logs.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(directory, { scope: 'release' });
+  const cases: Array<[unknown, string, boolean]> = [
+    [undefined, 'undefined', true], ['', 'string', true], [null, 'null', true],
+    ['opaqueOptionalInputCanary321', 'string', false], [['opaqueOptionalInputCanary321'], 'array', false],
+    [{ input: 'opaqueOptionalInputCanary321' }, 'object', false], [0, 'number', false], [false, 'boolean', false],
+  ];
+  for (const [value, kind, accepted] of cases) {
+    const start = logs.length;
+    const validate = () => withRoutineDiagnostics(trace, () => routineContext(f.env,
+      { inputs: { ...f.event.inputs, activation_artifact_id: value } }));
+    if (accepted) assert.deepEqual(validate(), f.context);
+    else assert.throws(validate, /context.activation-input-absent/);
+    const record = logs.slice(start).map(line => JSON.parse(line)).find(row => row.check === 'context.activation-input-absent');
+    assert.ok(record); assert.equal(record.status, accepted ? 'passed' : 'failed');
+    assert.deepEqual(record.values, { present: value !== undefined, empty: value === '', [`${kind}Value`]: true });
+  }
+  const retained = (await fsPromises.readdir(directory)).map(name => readFileSync(join(directory, name), 'utf8')).join('\n');
+  assert.doesNotMatch(logs.join('\n') + retained, /opaqueOptionalInputCanary321/);
+});
+
 test('L1 authenticated retained selection binds actual consumer, producer checks and immutable artifact', async t => {
   const failures: Array<[string, (records: Record<string, any>) => void]> = [
     ['forged dispatch environment with actual push run', r => { r['/actions/runs/123'].event = 'push'; }],

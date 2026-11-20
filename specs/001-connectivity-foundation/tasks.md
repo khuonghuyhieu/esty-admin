@@ -1,5 +1,15 @@
 # Tasks: Connectivity foundation
 
+## Routine optional-input compatibility — bounded source/local tasks
+
+Owner START on root-verified clean main3f87117; [plan and contract](plan.md#routine-optional-input-compatibility-amendment--2026-11-20). Actual maximum230 checked before allocating these IDs. Actual44803038548 value/type is unknown; null remains a hypothesis. No new worker/reviewer or operational action.
+
+- [x] T231 [US9] Record the reported failure and public optional-input contract; amend the existing plan before source/test changes.
+- [x] T232 [US9] Add focused failing-before blank-input and safe-shape diagnostics regressions in existing ci.test.ts: initial6/12 passed,6 failed; malformed values refuse before transport.
+- [x] T233 [US9] Normalize only omitted/null/empty at routineContext's activation input boundary; retain all other guard/effect contracts and emit safe Boolean kind/empty metadata.
+- [x] T234 [US9] Run compiler exit0, affected retained/context/fence tests42/42 and ONE emitted synthetic select smoke exit0 with zero real network/provider effects; retain initial failures and exact commands/results/limits.
+- [x] T235 [US9] Record source/evidence hashes and ETA/elapsed in the external freeze manifest; return ownership at READY_FOR_OPTIONAL_INPUT_FIX_REVIEW / STOP WRITES / NO_INFLIGHT. Root alone starts the reserved independent review; no actual CI resolution is claimed.
+
 ## End-to-end BE diagnostics — sequential source/local tasks
 
 Owner START on clean main6309c7d; [design](plan.md#end-to-end-be-diagnostic-amendment--2026-11-20). Existing maximum222 and historical IDs/checkmarks remain unchanged. No parallel writers, reviewer launch, publication or operational effect.
