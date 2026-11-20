@@ -1,5 +1,17 @@
 # Tasks: Connectivity foundation
 
+## Required-checks integration fixture repair — 2026-11-20
+
+Current bounded root grant starts from published `44ea04c61dcfea8c0264eb542561c76777d65902`; [scope and original65-test failure evidence](plan.md#required-checks-integration-fixture-repair--2026-11-20). Earlier T213–T217 remain completed history; root alone publishes/reruns CI.
+
+**Checkpoint:** T218–T220 complete; **READY_FOR_REVIEW / STOP WRITES / NO_INFLIGHT**. Final compiler0; full integration64/65 passed,0 failures,1 unchanged skip; bridge child1/1 and historical/current neighbors3/3. Three fixture mismatches diagnosed; original65-test CI failure and intermediate failures preserved. Owned fixture closed; no native-build or actual CI-pass claim. [Actual evidence and final hash manifest](plan.md#integration-repair-actual-local-evidence). T221/T222 remain root-coordinated.
+
+- [x] T218 [US9] Preserve actual run44705292560 public diagnostics; inspect existing historical isolation and local fixture ownership; capture routine-success firstError/cause on fresh authorized PostgreSQL before changing it.
+- [x] T219 [US9] Correct only confirmed historical/current integration fixture mismatches: isolated historical schema3 bridge, approved lost-COMMIT target and exact routine packet target. Preserve current runtime guards, all assertions and diagnostic upload.
+- [x] T220 [US9] Run affected cases/neighbors, then CI-equivalent integration with current4 and historical child using fresh owned resources and an honestly labeled existing synthetic portable artifact. Preserve failures/provenance, remove only owned resources, freeze hashes at READY_FOR_REVIEW.
+- [x] T221 [US9] Root coordinates one new scoped review by existing `t1dq`; writer fixes confirmed findings and reruns affected checks only. Actual Company Codex GPT-6-Luna medium review accepted with no confirmed actionable findings; no reviewer tests or builds.
+- [x] T222 [US9] After accepted review, close existing001 evidence and return ownership; root alone commits/pushes and assesses actual required-checks/completion results. Root accepted source ownership and recorded the review below; actual CI readback remains separate. No local green claim substitutes for CI proof.
+
 ## Required-checks diagnostics repair — 2026-11-20
 
 Current bounded grant supersedes the previous source stop only for this repair. Existing maximum task ID was212; historical IDs/checkmarks remain unchanged. [Design and authority](plan.md#required-checks-failure-diagnostics-amendment--2026-11-20). Owner run44694644643 failed with an opaque marker; actual child ROOTCAUSE remains UNKNOWN. Root, not this writer, owns publication/rerun/live readback. README/PROJECT_STATE and operational work remain outside this increment.

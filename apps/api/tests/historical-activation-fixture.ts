@@ -7,7 +7,9 @@ import dgram from 'node:dgram';
 import { mock } from 'node:test';
 import { fileURLToPath } from 'node:url';
 
+const integrationCase = 'activation bridge spans exact OLD and TARGET while strict readiness rejects every non-TARGET history';
 const cases = new Set([
+  integrationCase,
   'activation preserves known IDs and refuses promotion after unknown acknowledgement or runtime attestation failure',
   'provider runtime configuration attestation cannot be replaced by deployment metadata or leaked on denial',
   'manual CLI partition attestation preserves exact runtime bytes and rejects unsupported transport evidence',
@@ -45,18 +47,50 @@ if (selected !== undefined) {
   mock.module(new URL('../src/generated/migrations.js', import.meta.url).href, options);
   let networkAttempts = 0;
   const deny = () => { networkAttempts++; throw new Error('Historical fixture has no network or listener authority'); };
-  net.Socket.prototype.connect = deny; net.Server.prototype.listen = deny; tls.connect = deny;
-  dgram.createSocket = deny; globalThis.fetch = deny;
+  if (selected === integrationCase) {
+    const loopbackOnly = {
+      apply(target: typeof net.Socket.prototype.connect | typeof net.Server.prototype.listen, receiver: unknown, args: unknown[]) {
+        const values: unknown[] = Array.isArray(args[0]) ? args[0] : args;
+        const options = values[0];
+        const host = typeof options === 'object' && options !== null && 'host' in options
+          ? options.host : values[1];
+        if (host !== '127.0.0.1') deny();
+        return Reflect.apply(target, receiver, args);
+      },
+    };
+    net.Socket.prototype.connect = new Proxy<typeof net.Socket.prototype.connect>(net.Socket.prototype.connect, loopbackOnly);
+    net.Server.prototype.listen = new Proxy<typeof net.Server.prototype.listen>(net.Server.prototype.listen, loopbackOnly);
+    const fetch = globalThis.fetch;
+    globalThis.fetch = (input, init) => {
+      const url = new URL(input instanceof Request ? input.url : String(input));
+      if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1') deny();
+      return fetch(input, { ...init, redirect: 'error' });
+    };
+  } else {
+    net.Socket.prototype.connect = deny; net.Server.prototype.listen = deny; globalThis.fetch = deny;
+  }
+  tls.connect = deny; dgram.createSocket = deny;
   process.on('exit', () => { if (networkAttempts) process.exitCode = 97; });
 }
 
 export function historicalActivationChild(name: string): boolean {
   assert.ok(cases.has(name), 'Historical child selection must be explicit');
   if (selected !== undefined) { assert.equal(selected, name); return false; }
+  const integration = name === integrationCase;
+  const env: NodeJS.ProcessEnv = { PATH: '/usr/bin:/bin', ESTY_TEST_ACTIVATION_CASE: name };
+  if (integration) {
+    const profile = process.env.TEST_FIXTURE_PROFILE;
+    assert.ok(profile === undefined || profile === 'activation001', 'Unknown historical database fixture profile');
+    const port = profile === 'activation001' ? 55532 : 55432;
+    const url = `postgresql://foundation_local:local_fixture_only@127.0.0.1:${port}/foundation_local`;
+    assert.equal(process.env.TEST_DATABASE_URL, url, 'Historical integration requires the exact synthetic database');
+    env.TEST_DATABASE_URL = url;
+    if (profile !== undefined) env.TEST_FIXTURE_PROFILE = profile;
+  }
   const child = spawnSync(process.execPath, ['--experimental-test-module-mocks', '--import', import.meta.url, '--test', '--test-reporter=tap',
     '--test-name-pattern=^' + name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$',
-    fileURLToPath(new URL('./ci.test.js', import.meta.url))], {
-    env: { PATH: '/usr/bin:/bin', ESTY_TEST_ACTIVATION_CASE: name }, encoding: 'utf8', timeout: 30000 });
+    fileURLToPath(new URL(integration ? './integration.test.js' : './ci.test.js', import.meta.url))], {
+    env, encoding: 'utf8', timeout: 30000 });
   assert.equal(child.status, 0, child.stdout + child.stderr);
   const count = child.stdout.match(/^# tests (\d+)$/m), skipped = child.stdout.match(/^# skipped (\d+)$/m);
   assert.ok(count && Number(count[1]) > 0, 'The selected historical assertions must execute');

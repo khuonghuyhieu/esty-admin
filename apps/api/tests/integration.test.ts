@@ -36,6 +36,7 @@ import type { RoutineMigrationPacket } from '../scripts/ci-migrations.js';
 import { deliver } from '../scripts/ci-delivery.js';
 import type { RoutineDeliveryApproval, RoutineProvider } from '../scripts/ci-provider.js';
 import { strictDatabaseFixture } from './etsy-fixture.js';
+import { historicalActivationChild } from './historical-activation-fixture.js';
 
 const nextMigrationVersion = String(Number(expectedMigrations.at(-1)!.slice(0, 13)) + 1);
 
@@ -1150,9 +1151,13 @@ test('current-schema-only persistence failures retain locks identity and immutab
 });
 
 test('activation bridge spans exact OLD and TARGET while strict readiness rejects every non-TARGET history', async t => {
+  if (historicalActivationChild(t.name)) return;
   const fixture = await databaseFixture(t);
   const old = await realpath(await mkdtemp(join(tmpdir(), 'esty-old-history-')));
   t.after(() => rm(old, { recursive: true, force: true }));
+  const target = await realpath(await mkdtemp(join(tmpdir(), 'esty-target-history-')));
+  t.after(() => rm(target, { recursive: true, force: true }));
+  for (const name of expectedMigrations) await cp(join(migrationsDirectory, `${name}.mjs`), join(target, `${name}.mjs`));
   await cp(join(migrationsDirectory, `${expectedMigrations[0]}.mjs`), join(old, `${expectedMigrations[0]}.mjs`));
   assert.equal(await migrate(fixture.database, old), 1);
   const key = 'a'.repeat(64), headers = { authorization: `Bearer ${key}` };
@@ -1168,13 +1173,13 @@ test('activation bridge spans exact OLD and TARGET while strict readiness reject
   assert.equal((await get(origin, '/v1/app/me', headers)).status, 404);
   assert.equal((await get(origin, '/health/ready', headers)).status, 200);
   assert.equal((await get(strictOrigin, '/health/ready')).status, 503);
-  const batch = await runMigrations(fixture.database);
+  const batch = await runMigrations(fixture.database, { directory: target });
   assert.equal(batch.database_outcome, 'committed'); assert.equal(batch.result, 'success');
   assert.deepEqual(batch.before, [expectedMigrations[0]]);
   assert.deepEqual(batch.attempted.map(item => [item.name, item.outcome]),
     expectedMigrations.slice(1).map(name => [name, 'applied_committed']));
   assert.deepEqual(batch.after, expectedMigrations);
-  assert.equal((await runMigrations(fixture.database)).attempted.length, 0);
+  assert.equal((await runMigrations(fixture.database, { directory: target })).attempted.length, 0);
   assert.equal((await get(origin, '/health/ready', headers)).status, 200);
   assert.equal((await get(strictOrigin, '/health/ready')).status, 200);
   const histories = [[], [expectedMigrations[1]], [expectedMigrations[0], expectedMigrations[2]],
@@ -1186,7 +1191,7 @@ test('activation bridge spans exact OLD and TARGET while strict readiness reject
     assert.equal((await get(origin, '/health/ready', headers)).status, 503);
     assert.equal((await get(strictOrigin, '/health/ready')).status, 503);
     if (history.length) {
-      const refused = await runMigrations(fixture.database);
+      const refused = await runMigrations(fixture.database, { directory: target });
       assert.equal(refused.result, 'failed'); assert.deepEqual(refused.attempted, []);
       assert.equal(refused.database_outcome, 'not_started');
     }
@@ -1216,7 +1221,7 @@ console.log(JSON.stringify(await runMigrations(${JSON.stringify(fixture.database
   assert.equal(result.status, 0, result.stderr);
   const report = JSON.parse(result.stdout);
   assert.equal(report.result, 'failed'); assert.equal(report.database_outcome, 'unknown');
-  assert.equal(report.attempted.length, 3);
+  assert.equal(report.attempted.length, expectedMigrations.length);
   assert.ok(report.attempted.every((item: { outcome: string }) => item.outcome === 'unknown'));
   const inspected = await migrationStatus(fixture.database);
   assert.deepEqual(inspected.applied, expectedMigrations); assert.deepEqual(inspected.pending, []);
@@ -1295,7 +1300,7 @@ catch { console.log('EXPECTED_UNKNOWN_FENCE'); }
           async create() {
             creates++;
             assert.equal(result.report.database_outcome, 'committed');
-            assert.equal((await db.client.query('SELECT count(*)::integer AS n FROM public.foundation_migrations')).rows[0].n, 4);
+            assert.equal((await db.client.query('SELECT count(*)::integer AS n FROM public.foundation_migrations')).rows[0].n, packet.migrations.length);
             return { code: scenario === 'create-failure' ? 1 : 0, stdout: '{"deployment":{"id":"dpl_candidate"}}', aborted: false };
           },
           async promote() { promotions++; alias = 'dpl_candidate'; return { code: 0, stdout: '', aborted: false }; },
