@@ -46,9 +46,11 @@ test('L4 emitted routine result preserves effects and safe terminal output', { t
     import net from 'node:net'; import tls from 'node:tls'; import dgram from 'node:dgram';
     import {verifyArtifact} from ${JSON.stringify(new URL('../scripts/artifact.js', import.meta.url).href)};
     import {routineProviderFixture} from ${JSON.stringify(new URL('./artifact-fixture.js', import.meta.url).href)};
+    import {ChecksDiagnostics} from ${JSON.stringify(new URL('../scripts/checks-diagnostics.js', import.meta.url).href)};
     const request=JSON.parse(fs.readFileSync(${JSON.stringify(requestPath)},'utf8'));
     const artifact=verifyArtifact(${JSON.stringify(f.artifact.root)},request.artifactDigest);
     const fault=process.argv[2], reports=process.argv[3], resultPath=process.argv[4];
+    const trace=new ChecksDiagnostics(resultPath+'.diagnostics',{scope:'release',runId:'44'});
     const h=routineProviderFixture(artifact,fault==='candidate-finalization'?'candidate-wrong':fault);
     const abort=new AbortController();
     const originalOpen=fs.openSync;
@@ -104,12 +106,13 @@ test('L4 emitted routine result preserves effects and safe terminal output', { t
     if(fault==='sql-authority')env.BE_MIGRATION_INPUTS='synthetic-sql-secret-canary';
     if(fault==='migration-action')env.BE_ROUTINE_ACTION='migrate';
     let accepted=false,error='';
-    try{await runRoutinePhase({artifact,request,env,cli:${JSON.stringify(cli)},reports,signal:abort.signal});accepted=true;}
+    try{await runRoutinePhase({artifact,request,env,cli:${JSON.stringify(cli)},reports,signal:abort.signal,trace});accepted=true;}
     catch(cause){error=cause.message;}
     const reportedExitCode=process.exitCode??0;process.exitCode=0;
     const receipts=fs.existsSync(reports)?fs.readdirSync(reports).sort().map(name=>JSON.parse(fs.readFileSync(reports+'/'+name,'utf8'))):[];
+    const diagnostics=fs.readFileSync(trace.directory+'/'+trace.correlation+'-events.jsonl','utf8').trim().split('\\n').map(JSON.parse);
     fs.writeFileSync(resultPath,JSON.stringify({accepted,error,runnerCalls,historyCalls,networkAttempts,counts:h.counts(),events:h.events,
-      reservation:h.reservation(),receipts,reportedExitCode}),{mode:0o600});
+      reservation:h.reservation(),receipts,reportedExitCode,diagnostics}),{mode:0o600});
   `);
   for (const [index, fault] of ['', 'candidate-missing', 'final-wrong', 'sql-authority', 'migration-action',
     'create-known-nonzero', 'create-unknown', 'promote-unknown', 'ack-persist', 'ack-remote', 'malformed', 'oversized',
@@ -118,7 +121,7 @@ test('L4 emitted routine result preserves effects and safe terminal output', { t
     const resultPath = join(f.root, `result-${index}.json`);
     const child = spawnSync(process.execPath, ['--experimental-test-module-mocks', script, fault, join(f.root, `reports-${index}`), resultPath], {
       env: { PATH: `${process.execPath.slice(0, process.execPath.lastIndexOf('/'))}:/usr/bin:/bin`, HOME: f.root },
-      encoding: 'utf8', timeout: 30000 });
+      encoding: 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
     assert.equal(child.status, 0, child.stderr);
     const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
     assert.equal(result.accepted, fault === '', result.error);
@@ -127,7 +130,7 @@ test('L4 emitted routine result preserves effects and safe terminal output', { t
       promotions: ['', 'final-wrong', 'promote-unknown', 'summary-failure'].includes(fault) ? 1 : 0 });
     assert.equal(result.receipts.some((row: Record<string, unknown>) => row.phase === 'accepted'), ['', 'summary-failure'].includes(fault));
     const terminal = child.stdout.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
-      .filter(row => row.version === 1 && typeof row.status === 'string');
+      .filter(row => row.version === 1 && row.effects && Object.hasOwn(row, 'request'));
     assert.equal(terminal.length, 1, 'Every terminal executable phase emits exactly one bounded release result');
     const outcome = validateReleaseResult(terminal[0]);
     assert.equal(outcome.status === 'accepted', fault === '');
@@ -149,6 +152,15 @@ test('L4 emitted routine result preserves effects and safe terminal output', { t
     const output = fs.readFileSync(resultPath + '.outputs', 'utf8');
     assert.equal(output.trim().split('\n').filter(line => line.startsWith('accepted=')).at(-1), `accepted=${!fault}`);
     assert.equal(result.reportedExitCode, fault === 'summary-failure' ? 1 : 0);
+    assert.equal(result.diagnostics.some((row: { status: string }) => row.status === 'failed'), Boolean(fault));
+    assert.ok(result.diagnostics.every((row: { runId: string; correlation: string }) => row.runId === '44' && row.correlation === result.diagnostics[0].correlation));
+    if (!fault) {
+      for (const check of ['artifact.inventory-and-source', 'configuration.project-identity', 'create.cli-acknowledgement',
+        'candidate.pre-promotion-readiness', 'promotion.cli-acknowledgement', 'domain.final-readiness', 'result.channels']) {
+        assert.ok(result.diagnostics.some((row: { check: string; status: string }) => row.check === check && row.status === 'passed'), check);
+      }
+    }
+    if (fault === 'summary-failure') assert.ok(result.diagnostics.some((row: { check: string; status: string }) => row.check === 'result.channels' && row.status === 'failed'));
     if (fault !== 'summary-failure') {
       const summary = fs.readFileSync(resultPath + '.summary', 'utf8');
       assert.ok(summary.includes(`stage=${outcome.stage}`) && summary.includes(`create=${outcome.effects.create}`)
@@ -163,7 +175,8 @@ test('L4 emitted routine result preserves effects and safe terminal output', { t
       const observed = JSON.parse(fs.readFileSync(path, 'utf8'));
       assert.deepEqual(observed.counts, { creates: 0, promotions: 0 });
       assert.deepEqual([observed.runnerCalls, observed.historyCalls, observed.networkAttempts], [0, 0, 0]);
-      const retained = validateReleaseResult(JSON.parse(restarted.stdout.trim()));
+      const retained = validateReleaseResult(restarted.stdout.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+        .find(row => row.version === 1 && row.effects && Object.hasOwn(row, 'request')));
       assert.deepEqual(retained.effects, outcome.effects); assert.equal(retained.deploymentId, outcome.deploymentId);
       assert.equal(retained.stage, outcome.stage); assert.equal(retained.category, outcome.category);
     }
@@ -187,9 +200,11 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
     import net from 'node:net'; import tls from 'node:tls'; import dgram from 'node:dgram'; import {randomUUID} from 'node:crypto';
     import {verifyArtifact} from ${JSON.stringify(new URL('../scripts/artifact.js', import.meta.url).href)};
     import {routineProviderFixture} from ${JSON.stringify(new URL('./artifact-fixture.js', import.meta.url).href)};
+    import {ChecksDiagnostics} from ${JSON.stringify(new URL('../scripts/checks-diagnostics.js', import.meta.url).href)};
     const input=JSON.parse(fs.readFileSync(${JSON.stringify(inputPath)},'utf8')), original=structuredClone(input.request);
     const artifact=verifyArtifact(${JSON.stringify(f.artifact.root)},input.request.artifactDigest);
     const fault=process.argv[2],reports=process.argv[3],resultPath=process.argv[4],restart=process.argv[5]==='restart';
+    const trace=new ChecksDiagnostics(resultPath+'.diagnostics',{scope:'release',runId:'44'});
     const h=routineProviderFixture(artifact,fault,undefined,{packet:input.packet});
     let runnerCalls=0,historyCalls=0,networkAttempts=0, action='';
     const deny=()=>{networkAttempts++;throw Error('Unexpected real network');};
@@ -240,7 +255,7 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
       if(fault==='sql-cross-authority'&&sql)env.GITHUB_TOKEN=h.credentials.github;
       if(fault==='sql-auth-authority'&&sql)env.APP_AUTH_ADMIN_KEY='synthetic-auth-canary';
       if(fault==='sql-role-authority'&&sql)env.APP_ROLES_PASSWORD='synthetic-role-canary';
-      return runRoutinePhase({artifact,request,env,cli:${JSON.stringify(f.cli)},reports:where,signal:AbortSignal.timeout(15000)});
+      return runRoutinePhase({artifact,request,env,cli:${JSON.stringify(f.cli)},reports:where,signal:AbortSignal.timeout(15000),trace});
     };
     let accepted=false,error='';
     try{
@@ -259,18 +274,19 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
       accepted=true;
     }catch(cause){error=cause.message;}
     const effects=h.counts(),statuses=structuredClone(h.statuses);
+    const diagnostics=fs.readFileSync(trace.directory+'/'+trace.correlation+'-events.jsonl','utf8').trim().split('\\n').map(JSON.parse);
     if(!restart){
       await assert.rejects(call('authorize',reports+'-replacement',original));
       assert.deepEqual(h.counts(),effects);assert.deepEqual(h.statuses,statuses);
       const reconcileEnv={...input.env,...providerEnv,BE_ROUTINE_ACTION:'reconcile',BE_ROUTINE_JOURNAL:'44'};
       await runRoutinePhase({artifact,request:original,env:reconcileEnv,cli:${JSON.stringify(f.cli)},
-        reports:reports+'-inspection',signal:AbortSignal.timeout(15000)});
+        reports:reports+'-inspection',signal:AbortSignal.timeout(15000),trace});
       assert.deepEqual(h.counts(),effects);assert.deepEqual(h.statuses,statuses);
     }
     const runRoot=reports+'/strict/'+input.packet.runId;
     const read=name=>fs.existsSync(runRoot+'/'+name)?JSON.parse(fs.readFileSync(runRoot+'/'+name,'utf8')):null;
     fs.writeFileSync(resultPath,JSON.stringify({accepted,error,action,runnerCalls,historyCalls,networkAttempts,effects,statuses,
-      ack:read('create-ack.json'),report:read('migration-report.json'),events:h.events}),{mode:0o600});
+      ack:read('create-ack.json'),report:read('migration-report.json'),events:h.events,diagnostics}),{mode:0o600});
   `, { mode: 0o600 });
   const scenarios: Array<[string, number, number, number]> = [
     ['', 1, 1, 1], ['unexpected-503', 1, 0, 0], ['unexpected-ready', 1, 0, 0], ['candidate-wrong', 1, 0, 0],
@@ -284,7 +300,8 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
   for (const [index, [fault, creates, migrations, promotions]] of scenarios.entries()) await t.test(fault || 'exact same-ID strict cutover', () => {
     const resultPath = join(f.root, `strict-result-${index}.json`);
     const child = spawnSync(process.execPath, ['--experimental-test-module-mocks', script, fault, join(f.root, `strict-reports-${index}`), resultPath], {
-      env: { PATH: `${process.execPath.slice(0, process.execPath.lastIndexOf('/'))}:/usr/bin:/bin`, HOME: f.root }, encoding: 'utf8', timeout: 30000 });
+      env: { PATH: `${process.execPath.slice(0, process.execPath.lastIndexOf('/'))}:/usr/bin:/bin`, HOME: f.root },
+      encoding: 'utf8', timeout: 30000, maxBuffer: 16 * 1024 * 1024 });
     assert.equal(child.status, 0, child.stderr);
     const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
     assert.equal(result.accepted, fault === '', result.error);
@@ -292,8 +309,11 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
     assert.equal(result.ack?.deploymentId ?? null, creates && fault !== 'create-unknown' ? 'dpl_candidate' : null);
     if (migrations) assert.equal(result.report.database_outcome, fault === 'sql-unknown' ? 'unknown' : fault === 'sql-rollback' ? 'rolled_back' : 'committed');
     assert.equal(result.statuses[0].state === 'success', fault === '');
+    assert.equal(result.diagnostics.some((row: { status: string }) => row.status === 'failed'), Boolean(fault));
+    if (migrations) assert.ok(result.diagnostics.some((row: { check: string; values: { committed?: boolean } }) =>
+      row.check === 'effect.migration' && row.values.committed === (result.report.database_outcome === 'committed')));
     const terminals = child.stdout.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
-      .filter(row => row.version === 1 && typeof row.status === 'string');
+      .filter(row => row.version === 1 && row.effects && Object.hasOwn(row, 'request'));
     assert.ok(terminals.length >= 2, 'Original attempt and refused replacement each expose their own bounded result');
     const terminal = validateReleaseResult(terminals[0]);
     assert.equal(terminal.status === 'accepted', fault === '');
@@ -325,7 +345,8 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
         const observed = JSON.parse(fs.readFileSync(restartedPath, 'utf8'));
         assert.deepEqual(observed.effects, { creates: 0, promotions: 0 });
         assert.deepEqual([observed.runnerCalls, observed.historyCalls, observed.networkAttempts], [0, 0, 0]);
-        const lines = restarted.stdout.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line));
+        const lines = restarted.stdout.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+          .filter(row => row.version === 1 && row.effects && Object.hasOwn(row, 'request'));
         assert.equal(lines.length, 1);
         const retained = validateReleaseResult(lines[0]);
         assert.equal(retained.deploymentId, terminal.deploymentId);

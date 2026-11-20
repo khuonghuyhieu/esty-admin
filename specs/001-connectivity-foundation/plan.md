@@ -1,5 +1,94 @@
 # Implementation plan: Connectivity foundation
 
+## T230 accepted diagnostic review and docs-only closeout
+
+**READY_FOR_BE_END_TO_END_LOGGING_ACCEPTED / STOP WRITES / NO_INFLIGHT. T223–T230 complete.** Root `t12p` accepted ONE read-only Company Codex `gpt-6-luna` medium review by `t1dw`, with no confirmed actionable findings. Root verified the actual launch, model/effort footer and reviewer response. Initial hc-sandbox confusion was tooling-only, not model unavailability; no model substitution occurred.
+
+The reviewer initially could not obtain `git diff` because of an xcrun-cache failure. Root supplied `/private/tmp/esty-e2e-logging-review-diff-owg0bxcg/review.patch`, SHA-256 `832f9a4d438f829ab8426e128cc5ab703bcd28d7ca1ea8cd5270b8d5e94d9f27`, and15 base snapshots. The SAME original pass completed the missing hunk comparison. Root reported the final conclusion: “diff gate complete”; no actionable findings and no remaining source/base comparison limitation. This was not a second full review. The reviewer performed no tests, builds, provider operations or edits; no finding-driven fix or rerun was needed.
+
+This closeout changes only existing documentation. All15 reviewed source/workflow/test paths and all36 original evidence files remain immutable. The original `end-to-end-review-manifest.json`, SHA-256 `1109914321a7d93a5c240fc3627b5a0ec4e2246b0ee2895b39939ac97167f4bc`, remains historical freeze evidence; its20-file hash set is not claimed current after these five document changes. `end-to-end-accepted-closeout-manifest.json` in the same evidence directory records the current20-path hashes, separate document hashes, preserved source/evidence checks and this accepted handback. Its own final digest is returned separately.
+
+Reuse the recorded checks without rerunning them: focus94/94; intermediate215/246 with31 failures; corrected package/completion34/34; final preflight/controller63/63; final compiler0. These overlap and do not establish a clean final full-suite execution. The failing-before evidence and limits below remain unchanged. Closeout verification is limited to documentation scope/preservation, links and hashes.
+
+Actual44753413337 inner cause remains UNKNOWN; review is not new-source actual CI or hosted proof. Delivery remains owner-reported enabled=true, with no flag/configuration change. A prior packet may be expired and cannot bind changed source after future publication. Future publication, a newly checked exact artifact, fresh source/artifact-bound approvals and any actual runner/release/SQL/provider operations require separate authorization; none is performed here. No private/auth/live read, new worker/reviewer, Git mutation, compiler/test/build or resource operation is authorized by this closeout.
+
+Source/docs ownership returns to root `t12p`. No inflight work or owned persistent resources remain. The following implementation/review-pending checkpoints are preserved dated history, not the current review status.
+
+## End-to-end BE diagnostic amendment — 2026-11-20
+
+**Owner START, sole OMP writer; source/local only.** Admission verified clean `main@6309c7dd2f5ac07e04478cd0d306bf0de11d982a` at2026-11-20T14:52:32Z. T223–T230 follow actual maximum222. Extend existing checks diagnostics and ReleaseDiagnostics, not a new logging service/pipeline/wrapper. Root t12p owns publication, actual runner execution and one runtime-verified Company Codex gpt-6-luna medium review after freeze.
+
+### Problem and evidence boundary
+
+Actual manual run44753413337/attempt1 failed in retrieval job136346813792 before download: request/unauthorized-context, CREATE/SQL/promote not-started. Completion136346951869 correctly failed; production skipped. Public `/private/tmp/esty-release-44753413337-diagnosis.json` establishes enabled=true, strict-cutover and published controller, but **inner predicate/cause UNKNOWN**. File/context guards collapse distinct conditions. Synthetic results cannot establish actual runner mode/UID/input shape or credential cause.
+
+### Design and safety invariants
+
+- Initialize before validation; name checks with passed/failed and concrete safe reasons. Emit only allowlisted expected/actual file metadata and validated public identities. Dependent steps are not-run after failure. No extra provider/SQL operations for logs.
+- Reuse bounded ChecksDiagnostics streams and ReleaseDiagnostics effect truth. A builtin-only diagnostic surface may bridge the uncompiled retained entry. Correlate run/stage/check/command, timing, first failure, safe stack locations/cause structure. Provider/SQL output is projected or explicitly omitted, never whole payloads/headers/configs/messages.
+- Register necessary masks only at existing credential consumers; no owner/private/auth-store reads. Public build/test stdout/stderr remain useful within explicit limits. Provider commands retain exit/signal/counts and safe ACK identity. Default nonlogged paths stay nonlogging.
+- Bound memory/storage/events; report overflow/truncation/omitted counts and persistence/upload failure. Logging failure never replaces original failure, known ID, committed SQL or unknown fences. No replay, guard relaxation or false completion.
+- Cover checks/install/codegen/compile/build/test/package, context/selection/download/HTTP/JSON/path/inventory, request/config/predecessor, current-only zero runner, compatible migration, strict3→4, SQL, same-ID promotion/domain/health and receipt/completion. Exact public always/best-effort uploads cover retrieval and production failures; shell failures and summaries remain meaningful without set-x/env dumps.
+- Preserve history/FE/shared pointer/dependencies/artifacts/ledgers. Owner reports delivery enabled=true; older false statements below are history. New source requires later new publication/checked artifact/bindings, never relabeled6309/995/675/f162.
+
+### Verification and stopping point
+
+Sequential T223 plan → T224 retained predicates → T225 diagnostics core → T226 canonical release/provider/SQL → T227 workflow → T228 compilation/affected tests/emitted synthetic journey and failure → T229 docs/hash freeze → T230 coordinator review. Extend existing suites for positive traces and named refusals, stdout/stderr/stack/cause, first failure plus logger failure, timeout/malformed/oversize/cancel, inventory drift, committed/unknown SQL and zero replay, selection uploads, fragmented canaries and default nonlogging. No native build/reseal/live operations; use a fresh isolated local fixture only if materially necessary.
+
+Freeze includes coverage map and explicit gaps/limits, exact hashes, commands/results/failures/security evidence and zero owned inflight resources. Stop at **READY_FOR_BE_END_TO_END_LOGGING_REVIEW**. Root alone starts review; no operational/publication effect is inferred.
+
+### End-to-end diagnostic local evidence
+
+**T223–T229 complete; READY_FOR_BE_END_TO_END_LOGGING_REVIEW / STOP WRITES / NO_INFLIGHT. T230 is pending root coordination.** No reviewer was started. Existing historical review findings remain unchanged and are not substituted for this new review.
+
+Evidence root: `/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-e2e-logging-rf_z7v1h/`. `end-to-end-review-manifest.json` freezes exact changed-path hashes, evidence hashes, admitted source, commands and resource/verification limits; its final SHA-256 is returned separately to avoid a self-referential document hash. The writer performed no Git mutation or publication.
+
+#### Implemented boundary coverage
+
+| Boundary | Actual implementation and verification |
+| --- | --- |
+| Install/codegen/compile/checks/build/test/package | Existing `ChecksDiagnostics` public subprocess streams; source `.ts` entry works before compilation. Existing check-stage failure/output/limit/cancellation tests pass. Source CLI smoke retains child exit23 plus both useful streams. `stage-operator.mjs` now explicitly packages the runtime diagnostic dependency; isolated permission-denied/no-network import and no-input CLI smoke passes after the recorded missing-module failure. No native build was run. |
+| Event file/context/request/selection | Existing `routine-retained.mjs` async context names no-follow/file-kind/owner/link/mode/size/stable-read, JSON, environment, controller/producer/jobs/artifact/approval predicates before download. L1 and emitted refusal cases pass. Actual source select with a synthetic0666 event file logs `event-file.permissions`, actual438/forbidden18, request refusal, all effects not-started and zero network attempts. This is not the actual runner cause. |
+| Transfer/archive/source/operator | Named archive digest/format/member and inventory/closure boundaries preserve existing limits and approval checks. L1 archive/sidecar/extra/symlink/operator-mode/content/receipt failures pass; candidate archive drift remains a failure. Download-action internals remain GitHub's own logs; local summaries classify failed/skipped download rather than claiming a transport that did not run. |
+| Provider/config/predecessor/HTTP | Explicit project/runtime/repository/domain/alias/current-main checks; operation boundaries, numeric HTTP status, bounded body sizes, JSON parse, abort and safe stack/cause. Synthetic ordinary/strict emitted matrices exercise malformed/oversized/timeout, configuration and identity failures. No response body/header/env/private URL is logged. |
+| Current-schema-only | Actual emitted controller/provider/CLI synthetic journey and failure/restart matrix; runner/history calls remain zero. One CREATE and same-ID promotion/final-domain checks only on acceptance. Nonzero known ACK, unknown CREATE/promote and persistence faults remain fenced. |
+| Compatible migration | Existing approval/continuation/predecessor regressions plus a standalone emitted canonical authorization → `executeRoutineMigration` → continuation smoke. Committed, unknown and logger-write-failure scenarios each invoke the synthetic SQL runner once; committed remains ACKed, unknown remains unknown/refused, every replay refuses before a second runner call. Actual sockets/fetch are denied. No real SQL or connection is claimed. |
+| Strict Etsy3→4 | Existing emitted multi-phase controller matrix with real diagnostic context, synthetic provider/CLI/SQL and denied sockets: exact pending503/ready200, durable intents/readbacks, stale/request/report/ACK failures, committed/rolled-back/unknown SQL, same held ID and fresh-process no-replay. Trace failures and SQL effect projections are asserted alongside authoritative outcomes. |
+| Health/domain/receipt/result/completion | Named live/ready/negative-auth/unknown-route/CORS/schema conditions and runtime attestation; durable local/remote receipt boundaries; output/step-summary failures preserve effect state. All32 completion Bash acceptance/refusal cases pass after deleting obsolete empty-summary/wording assertions, not changing gates. |
+| Logging loss/security/default behavior | Fragmented private subprocess canaries, nested cause/known ID, HTTP status/body/parse/timeout, quota overflow/first failure and unsafe-directory refusal tests pass. Existing default provider nonlogging test passes. Three upload-loss shell cases keep original results even when the summary path is unavailable. Four upload steps are always/best-effort with only fixed diagnostic globs; actual GitHub upload/storage policy is not tested locally. |
+
+The runtime module remains builtin-only. Release events carry run ID, per-invocation correlation, sequence/time, named check/outcome/reason, allowlisted metadata and boundary durations. Private command events include UUID, exit/signal, abort/overflow, stdout/stderr byte counts and explicit payload omission; raw stdout remains in memory only for existing ACK parsing. The original exception/cause remains in memory for orchestration. The public formatter and private allowlisted stack projection are separate. Credentials are registered only where existing GitHub/provider/migration consumers already consume them; no new private reads or operations are performed for diagnostics.
+
+Public limits remain child4MiB, file4MiB, context64MiB, line16384 characters and128 stages. Release events stop at8192 or8MiB, retaining a separate immutable first-failure record and omitted-event count. Private errors omit arbitrary messages/directories/function names and retain at most8 causes and32 explicitly approved source locations per cause. Storage/console failures are best-effort for release traces; authoritative receipts and pre-existing required-check persistence policy remain fail-closed. Init failure never writes through an unsafe directory. Known IDs, committed SQL and unknown outcomes do not become not-started or retryable.
+
+#### Actual checks and preserved failures
+
+| Evidence | Observed result / correction |
+| --- | --- |
+| `compile-01.log` | Exit2: initial callback-union inference, nullable migration-history lengths and test request-literal type. Corrected; original failure retained. |
+| `compile-02.log`, `focused-01.log` | Compiler0;46/47 passed. One new logger test used Darwin's noncanonical `/var` temp alias; using the existing realpath convention fixed the test input, not the private-directory guard. |
+| `compile-03.log`, `focused-02.log` | Compiler0;94/94 passed,0 skips, including emitted current-only/strict diagnostics. |
+| `compile-04.log` | Compiler0 after provider/migration/health diagnostic additions. |
+| `compile-05.log` | Exit2: TS7022 for the new upload-loss subprocess result. Explicit `SpawnSyncReturns<string>` corrected the test's inference. |
+| `compile-06.log`, `affected-01.log` | Compiler0;246 reported cases,215 passed,31 failed,0 skips. One real staged-package closure failure omitted `checks-diagnostics.js`;29 failed leaves and their parent expected empty failure summaries. |
+| `compile-07.log`, `affected-fix-01.log` | Compiler0;34/34 passed,0 skips, covering corrected staged operator and all32 completion cases. Added only the required package inventory entry; removed old silence/wording assertions, retaining acceptance/refusal exit assertions. The unchanged passing215 cases were not blindly rerun. This is not a single final246/246 execution. |
+| `compile-08.log` | Exit2 in the added Unicode preflight regression: the small CI fixture does not expose a root and `Response.json()` is unknown. A separately owned temporary directory and explicit fixture projection corrected those test types. |
+| `compile-09.log`, `preflight-boundary-01.log` | Final compiler0;63/63 passed,0 skips: Unicode preflight plus ordinary provider/current-only/strict emitted controllers and project/domain guards. The diagnostic preflight path retains the original65536-character limit; it does not introduce a stricter byte limit or an unnecessary runtime import. These overlap earlier checks and are not summed as new independent coverage. |
+| `workflow-shell-syntax.json`, `workflow-upload-contract.json` | Existing installed YAML parser accepted six jobs;52 Bash blocks passed `bash -n`; four diagnostic upload configurations are `always()`/best-effort and restricted to known stage/stream/event/failure/limit files. `actionlint` is unavailable; no install was attempted. |
+| `source-public-smoke.log`, `source-public-diagnostics/` | Actual uncompiled diagnostic entry exit1 for deliberate child exit23; stdout/stderr and first failure retained. `smoke-harness-correction.log` records an initial harness lookup of001 instead of the record's actual nested002; corrected by following recorded filenames without rerunning the child. |
+| `source-retained-smoke.log`, `retained-runtime/` | Actual source retained entry rejects synthetic0666 event file with named permission evidence; request unauthorized, all effects not-started, zero network attempts. Actual44753413337 inner cause remains UNKNOWN. |
+| `compatible-smoke-01.log` | Standalone emitted compatible-migration smoke exits0 for committed, unknown and logger-failure scenarios; each runner1, replay refused, network0. SQL/provider methods are explicitly synthetic. The public smoke source is retained as evidence text, not an executable leftover. |
+| `security-and-cleanup.json` | Exact diagnostic-output canary scan and owned cleanup/resource receipt; no real private inputs were opened. Evidence-source text deliberately contains synthetic canaries and is not a claimed sanitized diagnostic output. |
+
+Canonical rerunnable test commands are in [README](../../README.md#local-diagnostic-verification). They used existing Node24.22.1 at `/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node`. The manifest records the exact broad/focused selectors and source smoke argv. No dependency install, full integration rerun, PostgreSQL fixture, native build/reseal, Actions read/dispatch/retry, provider/cloud SQL, DNS/billing, auth/cache/owner-file read, flag change or Git publication occurred.
+
+#### Remaining gates and ownership
+
+Current owner-reported enablement is true; older false entries remain dated history. No new checked clean-published Linux artifact, retained ID, actual upload success, new-source release result or hosted/Etsy acceptance is established. Historical source revisions and retained artifacts are not relabeled or reused as compatible by assumption. Logs identify the observed failed predicate only after the separately authorized new-source run; local evidence cannot recover the original missing predicate.
+
+No services, containers, volumes, reviewers, worktrees, schedulers or background jobs were started. Synchronous children completed; test-owned fixtures and throwaway source/input files were removed. Public evidence and ignored compiled/operator outputs remain for review; shared services/volumes and existing artifacts remain untouched. README/PROJECT_STATE additions and existing001 additions preserve all prior historical/FE blocks. Source is frozen for root's T230 review; no permission for source continuation, publication or live work is implied.
+
+
 ## Required-checks integration fixture repair — 2026-11-20
 
 ### Accepted integration repair review and handback

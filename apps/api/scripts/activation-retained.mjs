@@ -81,24 +81,45 @@ export function loadManualContext(env = process.env) {
   if (!env.GITHUB_EVENT_PATH) refuse();
   return manualContext(env, JSON.parse(plainFile(env.GITHUB_EVENT_PATH, 1024 * 1024).toString('utf8')));
 }
-export function githubReader(token, signal, transport = fetch) {
+export function githubReader(token, signal, transport = fetch, diagnostics) {
+  diagnostics?.registerSecrets([token ?? '']);
+  diagnostics?.check('github.credential-shape', /^[\x21-\x7e]{16,512}$/.test(token ?? ''), 'credential-absent-or-invalid');
   if (!/^[\x21-\x7e]{16,512}$/.test(token ?? '')) refuse();
   return async path => {
     if (typeof path !== 'string' || !path.startsWith('/') || path.includes('..') || /[\\\u0000-\u0020#]/.test(path)) refuse();
-    const response = await transport(`https://api.github.com/repos/${pin.repository}${path}`, {
-      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' },
-      redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]),
-    });
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
+    const send = async () => {
+      try {
+        return await transport(`https://api.github.com/repos/${pin.repository}${path}`, {
+          headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' },
+          redirect: 'error', signal: requestSignal,
+        });
+      } catch (cause) {
+        diagnostics?.event('github.transport', 'failed', requestSignal.aborted ? 'timeout-or-cancel' : 'transport-error',
+          { aborted: requestSignal.aborted, callerAborted: signal.aborted }, cause); throw cause;
+      }
+    };
+    const response = diagnostics ? await diagnostics.boundary('github.request', send) : await send();
+    diagnostics?.check('github.http-status', response.status === 200 && !response.redirected && Boolean(response.body),
+      'unexpected-status-redirect-or-empty-body', { actual: response.status, expected: 200, redirected: response.redirected });
     if (response.status !== 200 || response.redirected || !response.body) { await response.body?.cancel(); refuse(); }
     const reader = response.body.getReader(), chunks = []; let total = 0;
     try {
       for (;;) {
         const { done, value } = await reader.read(); if (done) break;
-        total += value.length; if (total > 8 * 1024 * 1024) { await reader.cancel(); refuse(); }
+        total += value.length;
+        if (total > 8 * 1024 * 1024) {
+          diagnostics?.event('github.body-size', 'failed', 'response-exceeds-bound', { actual: total, maximum: 8 * 1024 * 1024 });
+          await reader.cancel(); refuse();
+        }
         chunks.push(value);
       }
+    } catch (cause) {
+      diagnostics?.event('github.body', 'failed', requestSignal.aborted ? 'timeout-or-cancel' : 'body-read-failed', { bytes: total }, cause); throw cause;
     } finally { reader.releaseLock(); }
-    return JSON.parse(Buffer.concat(chunks, total).toString('utf8'));
+    diagnostics?.event('github.body', 'passed', 'bounded-body-read-payload-omitted', { bytes: total });
+    return diagnostics ? diagnostics.sync('github.json-parse', () => JSON.parse(Buffer.concat(chunks, total).toString('utf8')))
+      : JSON.parse(Buffer.concat(chunks, total).toString('utf8'));
   };
 }
 function workflowPath(value) { return [pin.workflowPath, `${pin.workflowPath}@main`, `${pin.workflowPath}@refs/heads/main`].includes(value); }

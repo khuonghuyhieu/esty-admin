@@ -2,6 +2,7 @@ import type { Deployment, DeploymentDiagnostics, DeployState } from './release-c
 import { artifactTarget, readArtifactFile, safePath, verifyArtifact } from './artifact.js';
 import type { VerifiedArtifact } from './artifact.js';
 import { checkHostedHttp } from './hosted-acceptance.js';
+import type { ChecksDiagnostics } from './checks-diagnostics.js';
 
 const projectId = 'prj_uITHKLUGGE98VxrEcs5FoktBbcls';
 const scope = 'khuonghuyhieu0705s-projects';
@@ -64,13 +65,16 @@ export function parseDeployConfig(value: unknown): DeployConfig {
     || config.BROWSER_ORIGIN !== 'https://app.lovora.us') throw new Error('Invalid private deploy configuration.');
   return Object.freeze({ ...config, DEPLOYMENT_TARGET: 'production' });
 }
-async function json(response: Response): Promise<Record<string, unknown>> {
+async function json(response: Response, trace?: ChecksDiagnostics): Promise<Record<string, unknown>> {
   const text = await response.text();
+  trace?.check('configuration.response-size', text.length <= 65536, 'response-exceeds-existing-character-bound',
+    { actualCharacters: text.length, maximumCharacters: 65536 });
   if (text.length > 65536) throw new Error('Unexpected response size.');
-  return object(JSON.parse(text));
+  return trace ? trace.sync('configuration.response-schema', () => object(JSON.parse(text))) : object(JSON.parse(text));
 }
-export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact, transport: typeof fetch = fetch): Deployment {
-  const config = parseDeployConfig(input);
+export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact, transport: typeof fetch = fetch,
+  trace?: ChecksDiagnostics): Deployment {
+  const config = trace ? trace.sync('configuration.deploy-input', () => parseDeployConfig(input)) : parseDeployConfig(input);
   const identity = Object.freeze({ provider: 'vercel', project: projectId, owner: config.VERCEL_TEAM_ID, target: config.DEPLOYMENT_TARGET });
   const [org, repo] = config.REPOSITORY.slice('https://github.com/'.length).split('/');
   let repositoryId: string | undefined;
@@ -95,19 +99,25 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
       const response = await transport(url, { ...init, redirect: 'error', signal: requestSignal });
       requestState = 'response_received';
       httpStatus = response.status >= 100 && response.status <= 599 ? response.status : null;
+      trace?.event('configuration.http-response', 'passed', 'headers-received-body-not-yet-validated', { status: httpStatus });
       return response;
-    } catch (error) { category = failureCategory(error, requestSignal); throw error; }
+    } catch (error) {
+      category = failureCategory(error, requestSignal);
+      trace?.event('configuration.transport', 'failed', category, { aborted: requestSignal.aborted }, error); throw error;
+    }
   };
   async function provider(path: string, signal: AbortSignal, init: RequestInit = {}, expectsJson = true) {
     const url = new URL(path, 'https://api.vercel.com');
     if (url.origin !== 'https://api.vercel.com') throw new Error('Invalid provider endpoint.');
     url.searchParams.set('teamId', config.VERCEL_TEAM_ID); url.searchParams.set('slug', scope);
     const response = await request(url.href, signal, { ...init, headers: { Authorization: `Bearer ${config.VERCEL_TOKEN}`, 'Content-Type': 'application/json', ...init.headers } });
+    trace?.check('configuration.http-status', response.status === 200 && !response.redirected, 'unexpected-status-or-redirect',
+      { actual: response.status, expected: 200 });
     if (response.status !== 200 || response.redirected) {
       category = 'http'; await response.body?.cancel(); throw new Error('Provider response not confirmed.');
     }
     if (!expectsJson) { await response.body?.cancel(); return {}; }
-    return json(response);
+    return trace ? trace.boundary('configuration.response-json', () => json(response, trace)) : json(response);
   }
   function state(value: Record<string, unknown>, expectedId: string): DeployState {
     const states: Record<string, DeployState['status']> = { QUEUED: 'queued', INITIALIZING: 'building', BUILDING: 'building', READY: 'ready', ERROR: 'failed', BLOCKED: 'failed', CANCELED: 'canceled' };
@@ -167,8 +177,10 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
   }
   async function domain(signal: AbortSignal) {
     const value = await provider(`/v9/projects/${projectId}/domains/api.lovora.us`, signal);
-    if (value?.name !== 'api.lovora.us' || value.projectId !== projectId || value.verified !== true
-      || value.redirect || value.gitBranch || value.customEnvironmentId) throw new Error('Unverified project domain.');
+    const valid = value?.name === 'api.lovora.us' && value.projectId === projectId && value.verified === true
+      && !value.redirect && !value.gitBranch && !value.customEnvironmentId;
+    trace?.check('configuration.project-domain', valid, 'domain-identity-verification-or-binding-differs');
+    if (!valid) throw new Error('Unverified project domain.');
   }
   async function binding(expected: DeployState, signal: AbortSignal) {
     await domain(signal);
@@ -191,12 +203,18 @@ export function vercelDeployment(input: DeployConfig, artifact: VerifiedArtifact
       verify();
       const project = await provider(`/v9/projects/${projectId}`, signal);
       const link = object(project.link);
-      if (project?.id !== projectId || project.name !== 'esty-admin-api' || project.accountId !== identity.owner
-        || project.rootDirectory !== 'apps/api' || project.framework !== 'nestjs' || project.nodeVersion !== '24.x'
-        || project.buildCommand !== null || project.installCommand !== null || project.outputDirectory !== null
-        || project.commandForIgnoringBuildStep || link?.type !== 'github' || link.org !== org || link.repo !== repo
-        || link.productionBranch !== 'main' || typeof link.repoId !== 'number' || !Number.isSafeInteger(link.repoId) || link.repoId <= 0
-        || !Array.isArray(link.deployHooks) || link.deployHooks.length !== 0) throw new Error('Project settings differ from approval.');
+      const settings = {
+        'project-identity': project?.id === projectId && project.name === 'esty-admin-api' && project.accountId === identity.owner,
+        'framework-runtime': project.rootDirectory === 'apps/api' && project.framework === 'nestjs' && project.nodeVersion === '24.x',
+        'build-overrides': project.buildCommand === null && project.installCommand === null && project.outputDirectory === null && !project.commandForIgnoringBuildStep,
+        'repository-link': link?.type === 'github' && link.org === org && link.repo === repo && link.productionBranch === 'main',
+        'repository-id': typeof link.repoId === 'number' && Number.isSafeInteger(link.repoId) && link.repoId > 0,
+        'no-deploy-hooks': Array.isArray(link.deployHooks) && link.deployHooks.length === 0,
+      };
+      for (const [name, valid] of Object.entries(settings)) {
+        trace?.check(`configuration.${name}`, valid, 'project-setting-differs-from-approval');
+        if (!valid) throw new Error('Project settings differ from approval.');
+      }
       await domain(signal);
       repositoryId = String(link.repoId);
     },

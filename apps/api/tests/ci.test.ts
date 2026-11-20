@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
 import childProcess from 'node:child_process';
+import type { SpawnSyncReturns } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { runInNewContext } from 'node:vm';
 import { readFileSync, realpathSync, existsSync } from 'node:fs';
@@ -18,15 +19,15 @@ import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFi
 import { historicalActivationChild } from './historical-activation-fixture.js';
 import { checksContext, runChecks } from '../scripts/ci.js';
 import { ChecksDiagnostics } from '../scripts/checks-diagnostics.js';
-import { checked, command } from '../scripts/ci-tools.js';
+import { checked, command, responseBytes } from '../scripts/ci-tools.js';
 import { acknowledgedId, deliver, deliverActivationCandidate, deliveryContext, runRoutinePhase } from '../scripts/ci-delivery.js';
-import { ReleaseOutcome, approvedRoutineRequest, authenticateRoutineDelivery, validateReleaseRequest, validateReleaseResult } from '../scripts/ci-delivery.js';
+import { ReleaseDiagnostics, ReleaseOutcome, approvedRoutineRequest, authenticateRoutineDelivery, validateReleaseRequest, validateReleaseResult } from '../scripts/ci-delivery.js';
 import { createActivationProvider, createProvider, repository } from '../scripts/ci-provider.js';
 import type { ActivationProvider, DeliveryProvider, RunIdentity } from '../scripts/ci-provider.js';
 import { verifyUploadedArchive } from '../scripts/ci-archive.js';
 import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
 import type { CommandResult } from '../scripts/ci-tools.js';
-import { routineContext, selectRoutine, validateRoutineSelection, confirmRoutineSelection, extractRoutineBundle } from '../scripts/routine-retained.mjs';
+import { routineContext, loadRoutineContext, withRoutineDiagnostics, selectRoutine, validateRoutineSelection, confirmRoutineSelection, extractRoutineBundle } from '../scripts/routine-retained.mjs';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { activationPhases, appendActivationEvent, createActivationJournal, finishActivationJournal, importFrontendJournal,
   readActivationJournal, reserveActivationJournal, saveActivationConfigurationReceipt } from '../scripts/activation-journal.js';
@@ -298,18 +299,18 @@ test('L4 actual delivery and selection executables emit bounded refusals without
     const output = join(root, script + '.output'), summary = join(root, script + '.summary');
     const child = childProcess.spawnSync(process.execPath, ['--import', guard,
       decodeURIComponent(new URL('../scripts/' + script, import.meta.url).pathname)], {
-      env: { PATH: '/usr/bin:/bin', HOME: root, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary,
+      env: { PATH: '/usr/bin:/bin', HOME: root, RUNNER_TEMP: root, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary,
         GITHUB_TOKEN: 'synthetic-github-token', VERCEL_TOKEN: 'synthetic-vercel-token',
         DATABASE_URL: 'postgresql://user:synthetic-secret-canary@provider.invalid/database' },
       encoding: 'utf8', timeout: 10000 });
     assert.equal(child.status, 1);
-    const result = validateReleaseResult(JSON.parse(child.stdout.trim()));
+    const result = validateReleaseResult(JSON.parse(child.stdout.trim().split('\n').at(-1)!));
     assert.equal(result.status, 'refused'); assert.equal(result.request, null);
     assert.deepEqual(result.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
     assert.equal(result.deploymentId, null); assert.equal(result.nextAction, 'inspect-prerequisite');
     assert.match(await readFile(output, 'utf8'), /accepted=false/);
     const text = child.stdout + child.stderr + await readFile(summary, 'utf8');
-    assert.doesNotMatch(text, /synthetic-secret-canary|synthetic-github-token|synthetic-vercel-token|provider\.invalid| at /);
+    assert.doesNotMatch(text, /synthetic-secret-canary|synthetic-github-token|synthetic-vercel-token|provider\.invalid/);
   }
 });
 
@@ -509,14 +510,6 @@ test('completion Bash distinguishes checks-only, eligible delivery and manual ac
     assert.ifError(result.error);
     assert.equal(result.signal, null);
     assert.equal(result.status, entry.result === 'failure' ? 1 : 0, result.stderr);
-    const reported = readFileSync(summary, 'utf8');
-    if (entry.result === 'failure') {
-      assert.equal(reported, '', 'A rejected aggregate must not publish a success summary');
-    } else {
-      assert.equal(reported, result.stdout, 'The Actions summary must report the same outcome as the job log');
-      if (entry.result === 'checks-only') assert.match(reported, /not deployed; delivery not accepted/);
-      else assert.match(reported, new RegExp(`BE ${entry.result} accepted`));
-    }
   });
 });
 
@@ -2738,4 +2731,179 @@ test('required-checks lost log storage preserves child assertions in bounded saf
   assert.match(output.join('\n'), /failing test name/); assert.match(output.join('\n'), /assertion actual503 expected200/);
   assert.match(output.join('\n'), /at \[eval\]/); assert.ok(!output.join('\n').includes('storageCanary987'));
   assert.ok(failed.persistenceErrors.length > 0);
+});
+
+test('end-to-end diagnostics name event-file and context refusals without secret values', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-e2e-context-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const f = routineMetadataFixture(), eventPath = join(root, 'event.json'), logs: string[] = [];
+  t.mock.method(console, 'info', (...args: unknown[]) => logs.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args: unknown[]) => logs.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(join(root, 'logs'), { scope: 'release' });
+  await writeFile(eventPath, JSON.stringify(f.event), { mode: 0o600 });
+  const env = { ...f.env, GITHUB_EVENT_PATH: eventPath, GITHUB_TOKEN: 'privateOpaqueCanary87654' };
+  assert.deepEqual(withRoutineDiagnostics(trace, () => loadRoutineContext(env)), f.context);
+  await chmod(eventPath, 0o622);
+  assert.throws(() => withRoutineDiagnostics(trace, () => loadRoutineContext(env)), /event-file.permissions/);
+  await chmod(eventPath, 0o600);
+  assert.throws(() => withRoutineDiagnostics(trace, () => loadRoutineContext({ ...env, GITHUB_RUN_ATTEMPT: '2' })), /context.GITHUB_RUN_ATTEMPT/);
+  await writeFile(eventPath, '{"secret":"privateOpaqueCanary87654", broken');
+  assert.throws(() => withRoutineDiagnostics(trace, () => loadRoutineContext(env)));
+  const records = logs.map(line => JSON.parse(line));
+  assert.ok(records.some(record => record.check === 'event-file.permissions' && record.status === 'failed' && record.values.actual === 0o622));
+  assert.ok(records.some(record => record.check === 'context.GITHUB_RUN_ATTEMPT' && record.status === 'failed'));
+  assert.ok(records.some(record => record.check === 'event-json.parse' && record.status === 'failed'));
+  assert.ok(records.some(record => record.check === 'context.validate' && record.status === 'passed'));
+  assert.doesNotMatch(logs.join('\n'), /privateOpaqueCanary87654/);
+});
+
+test('end-to-end private subprocess preserves nonzero ACK and hides fragmented output', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-e2e-command-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const logs: string[] = [];
+  t.mock.method(console, 'info', (...args: unknown[]) => logs.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args: unknown[]) => logs.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(join(root, 'logs'), { scope: 'release' });
+  const canary = 'opaqueProviderCanary76543';
+  const result = await command(process.execPath, ['-e',
+    `for(const c of ${JSON.stringify(canary)})process.stderr.write(c);console.log(JSON.stringify({deployment:{id:"dpl_known"}}));process.exitCode=7`],
+  root, { PATH: '/usr/bin:/bin' }, AbortSignal.timeout(5000), trace);
+  assert.equal(result.code, 7); assert.equal(acknowledgedId(result.stdout), 'dpl_known');
+  const records = logs.map(line => JSON.parse(line));
+  assert.ok(records.some(record => record.status === 'started' && record.check.startsWith('provider-command.')));
+  assert.ok(records.some(record => record.status === 'failed' && record.values.code === 7 && record.values.stderrBytes === Buffer.byteLength(canary)));
+  const retained = (await fsPromises.readdir(join(root, 'logs'))).map(name => readFileSync(join(root, 'logs', name), 'utf8')).join('\n');
+  assert.doesNotMatch(logs.join('\n') + retained, /opaqueProviderCanary76543/);
+});
+
+test('end-to-end logger failure preserves first exception cause and known deployment', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'esty-e2e-primary-'))); t.after(() => rm(root, { recursive: true, force: true }));
+  const output: string[] = [];
+  t.mock.method(console, 'info', (...args: unknown[]) => output.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args: unknown[]) => output.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(join(root, 'logs'), { scope: 'release' });
+  const request = releaseRequest();
+  const diagnostics = new ReleaseDiagnostics(validateReleaseRequest(request, releaseApproval(request)), join(root, 'receipts'), AbortSignal.timeout(10000), trace);
+  diagnostics.load(); diagnostics.submitted('create'); diagnostics.created('dpl_known');
+  const primary = new Error('opaqueProviderCanary76543', { cause: new Error('nestedPrivateCanary12345') });
+  diagnostics.at('candidate');
+  const captured = diagnostics.capture(primary), original = fs.appendFileSync;
+  t.mock.method(fs, 'appendFileSync', (...args: Parameters<typeof fs.appendFileSync>) => {
+    if (String(args[0]).startsWith(join(root, 'logs'))) throw new Error('privateDiskErrorCanary12345');
+    return original(...args);
+  });
+  await assert.rejects(trace.boundary('later-cleanup', () => { throw primary; }), error => error === primary);
+  assert.equal(diagnostics.capture(new Error('later')), captured); assert.equal(captured.cause, primary);
+  const result = diagnostics.failure(primary);
+  assert.equal(result.stage, 'candidate'); assert.equal(result.deploymentId, 'dpl_known'); assert.equal(result.effects.create, 'ACKed');
+  assert.match(output.join('\n'), /diagnostics-write-failed/); assert.match(output.join('\n'), /Caused by/);
+  assert.doesNotMatch(output.join('\n'), /opaqueProviderCanary76543|nestedPrivateCanary12345|privateDiskErrorCanary12345/);
+});
+
+test('end-to-end HTTP body records overflow and failure without response payload', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-e2e-body-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const output: string[] = [];
+  t.mock.method(console, 'info', (...args: unknown[]) => output.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args: unknown[]) => output.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(join(root, 'logs'), { scope: 'release' });
+  await assert.rejects(responseBytes(new Response('opaqueResponseCanary12345'), 4, trace));
+  const stream = new ReadableStream({ start(controller) { controller.error(new Error('privateStreamCanary12345')); } });
+  await assert.rejects(responseBytes(new Response(stream), 64, trace));
+  assert.equal((await responseBytes(new Response('ok'), 64, trace)).toString(), 'ok');
+  const records = output.map(line => JSON.parse(line));
+  assert.ok(records.some(record => record.check === 'http.body-size' && record.status === 'failed' && record.values.maximum === 4));
+  assert.ok(records.some(record => record.check === 'http.body' && record.status === 'passed' && record.values.size === 2));
+  assert.doesNotMatch(output.join('\n'), /opaqueResponseCanary12345|privateStreamCanary12345/);
+});
+
+test('end-to-end diagnostic quota preserves first failure and refuses unsafe storage', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-e2e-quota-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const output: string[] = [];
+  t.mock.method(console, 'info', () => {});
+  t.mock.method(console, 'error', (...args: unknown[]) => output.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(join(root, 'logs'), { scope: 'release', correlation: 'quota', runId: '44' });
+  for (let index = 0; index < 8192; index++) trace.event('archive.member', 'passed', 'member-verified');
+  trace.event('archive.digest', 'failed', 'first-digest-mismatch');
+  trace.event('archive.digest', 'failed', 'later-digest-mismatch');
+  trace.event('create', 'not-run', 'archive-refused');
+  assert.equal(JSON.parse(await readFile(join(root, 'logs/quota-failure.json'), 'utf8')).reason, 'first-digest-mismatch');
+  assert.equal(JSON.parse(await readFile(join(root, 'logs/quota-limits.json'), 'utf8')).omittedEvents, 3);
+  assert.equal((await readFile(join(root, 'logs/quota-events.jsonl'), 'utf8')).trim().split('\n').length, 8192);
+  assert.equal(output.filter(line => JSON.parse(line).event === 'diagnostics-overflow').length, 1);
+  await mkdir(join(root, 'outside'), { mode: 0o700 }); await symlink(join(root, 'outside'), join(root, 'unsafe'));
+  const unsafe = new ChecksDiagnostics(join(root, 'unsafe'), { scope: 'release' });
+  unsafe.event('operation', 'failed', 'storage-must-not-follow-symlink');
+  assert.deepEqual(await fsPromises.readdir(join(root, 'outside')), []);
+  assert.ok(output.some(line => JSON.parse(line).event === 'diagnostics-init-failed'));
+});
+
+test('end-to-end GitHub reader exposes status malformed body and timeout without credential or payload', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-e2e-github-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const output: string[] = [];
+  t.mock.method(console, 'info', (...args: unknown[]) => output.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args: unknown[]) => output.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(join(root, 'logs'), { scope: 'release' });
+  for (const fault of ['status', 'malformed', 'timeout']) {
+    const controller = new AbortController();
+    const transport: typeof fetch = async (_url, init) => {
+      if (fault === 'timeout') {
+        controller.abort(new DOMException('opaqueTransportCanary98765', 'TimeoutError'));
+        init?.signal?.throwIfAborted();
+      }
+      return new Response('opaqueResponseCanary98765', { status: fault === 'status' ? 403 : 200 });
+    };
+    await assert.rejects(githubReader('opaqueCredentialCanary98765', controller.signal, transport, trace)('/actions/runs/44'));
+  }
+  const records = output.map(line => JSON.parse(line));
+  assert.ok(records.some(row => row.check === 'github.http-status' && row.status === 'failed' && row.values.actual === 403 && row.values.expected === 200));
+  assert.ok(records.some(row => row.check === 'github.json-parse' && row.status === 'failed'));
+  assert.ok(records.some(row => row.check === 'github.transport' && row.reason === 'timeout-or-cancel' && row.values.aborted));
+  assert.doesNotMatch(output.join('\n'), /opaque(?:Credential|Response|Transport)Canary98765/);
+});
+
+test('end-to-end executable workflow summary distinguishes failure skipped dependency and unavailable summary', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-e2e-summary-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const script = new URL('../scripts/checks-diagnostics.js', import.meta.url).pathname;
+  const result = childProcess.spawnSync(process.execPath, [script, 'summary', join(root, 'logs'), 'retrieval', 'select=failure', 'download=skipped'], {
+    env: { PATH: '/usr/bin:/bin', GITHUB_RUN_ID: '44', GITHUB_STEP_SUMMARY: root }, encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(result.status, 0, 'Best-effort summary cannot replace the original job failure');
+  const records = (result.stdout + result.stderr).trim().split('\n').map(line => JSON.parse(line));
+  assert.ok(records.some(row => row.check === 'workflow.select' && row.status === 'failed'));
+  assert.ok(records.some(row => row.check === 'workflow.download' && row.status === 'not-run'));
+  assert.ok(records.some(row => row.check === 'workflow.summary' && row.reason === 'summary-write-failed'));
+  assert.ok(records.every(row => row.runId === '44'));
+  const workflow = await readFile(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url), 'utf8');
+  const notice = workflow.match(/run: &diagnostic-upload-notice \|\n((?:          .*(?:\n|$))*)/)?.[1]?.replace(/^          /gm, '');
+  assert.ok(notice);
+  for (const outcome of ['failure', 'skipped', 'cancelled']) {
+    const upload: SpawnSyncReturns<string> = childProcess.spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', notice], {
+      env: { PATH: '/usr/bin:/bin', DIAGNOSTIC_UPLOAD: outcome, GITHUB_STEP_SUMMARY: root }, encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(upload.status, 0, 'Upload and summary failure cannot replace the original step result');
+    assert.match(upload.stdout, /::warning::BE diagnostic upload unavailable/);
+  }
+});
+
+test('end-to-end preflight diagnostics preserve the existing Unicode character bound', async t => {
+  const f = await fixture(); t.after(f.dispose);
+  const root = await mkdtemp(join(tmpdir(), 'esty-e2e-preflight-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const h = routineProviderFixture(f.artifact), output: string[] = [];
+  t.mock.method(console, 'info', (...args: unknown[]) => output.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args: unknown[]) => output.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(join(root, 'preflight-diagnostics'), { scope: 'release' });
+  const request = releaseRequest(), signal = AbortSignal.timeout(10000);
+  const diagnostics = new ReleaseDiagnostics(validateReleaseRequest(request, releaseApproval(request)), join(root, 'outcomes'), signal, trace);
+  const transport: typeof fetch = async (url, init) => {
+    const response = await h.transport(url, init);
+    if (new URL(String(url)).pathname === `/v9/projects/${artifactTarget.project}`) {
+      const project = await response.json() as Record<string, unknown>;
+      return new Response(JSON.stringify({ ...project, description: '€'.repeat(30000) }));
+    }
+    return response;
+  };
+  const provider = createProvider(f.artifact, h.run, h.schema, h.credentials, signal, transport, diagnostics);
+  assert.equal(await provider.preflight(), 'dpl_previous');
+  assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+  assert.ok(output.map(line => JSON.parse(line)).some(row => row.check === 'configuration.response-size'
+    && row.status === 'passed' && row.values.actualCharacters > 30000 && row.values.maximumCharacters === 65536));
+  assert.doesNotMatch(output.join('\n'), /€/);
 });

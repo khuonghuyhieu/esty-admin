@@ -106,9 +106,18 @@ export async function runEtsyReleasePhase(input: {
   packet: EtsyReleasePacket; packetDigest: string; phase: EtsyReleasePhase; operations: EtsyReleaseOperations; signal: AbortSignal;
   durability?: EtsyReleaseDurability; diagnostics?: ReleaseDiagnostics;
 }): Promise<void> {
-  const { packetDigest, phase, operations: op, signal, diagnostics } = input;
-  const packet = validateEtsyReleasePacket(input.packet, packetDigest), index = etsyReleasePhases.indexOf(phase);
-  if (index < 0) stop();
+  const { packetDigest, phase, signal, diagnostics } = input;
+  const trace = diagnostics?.trace;
+  const op = diagnostics ? { ...diagnostics.operations('strict-operation', { ...input.operations, verify: undefined }),
+    verify: input.operations.verify } : input.operations;
+  const predicate = (name: string, condition: boolean) => {
+    trace?.check(`strict.${name}`, condition, 'condition-mismatch');
+    if (!condition) stop();
+  };
+  const packet = trace ? trace.sync('strict.packet', () => validateEtsyReleasePacket(input.packet, packetDigest))
+    : validateEtsyReleasePacket(input.packet, packetDigest);
+  const index = etsyReleasePhases.indexOf(phase);
+  predicate('phase-allowed', index >= 0);
   const stage = ({ history: 'history', 'held-create': 'create', 'pre-sql-check': 'pre-sql', 'sql-apply': 'sql',
     'post-sql-check': 'candidate', 'promote-only': 'promote', 'final-domain-ack': 'domain' } as const)[phase];
   diagnostics?.at(stage, 'evidence-persistence');
@@ -123,25 +132,25 @@ export async function runEtsyReleasePhase(input: {
     signal.throwIfAborted(); op.verify();
     const ownerPath = join(root, 'operator.lock');
     if (!fs.existsSync(ownerPath)) persist(ownerPath, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease });
-    if (!equal(readEvidence(ownerPath).value, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease })) stop();
+    predicate('operator-lock-binding', equal(readEvidence(ownerPath).value, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease }));
     if (!fs.existsSync(run)) { fs.mkdirSync(run, { mode: 0o700 }); syncDirectory(root); }
     privateDirectory(run, false);
-    if (fs.existsSync(join(run, 'STOP.json'))) stop();
+    predicate('no-retained-stop', !fs.existsSync(join(run, 'STOP.json')));
     let previous: string | null = null, id: string | null = null, reportDigest: string | null = null;
     // Validate every durable predecessor, not merely a caller-selected last receipt.
     for (const earlier of etsyReleasePhases.slice(0, index)) {
       const entry = readEvidence(join(run, `${earlier}.receipt.json`));
       const value = exactObject(entry.value, ['packetDigest', 'phase', 'previous', 'deploymentId', 'completed', 'reportDigest']) as unknown as Receipt;
-      if (value.packetDigest !== packetDigest || value.phase !== earlier || value.previous !== previous
-        || !Number.isSafeInteger(value.completed) || value.completed < packet.window.start || value.completed > Date.now()
-        || (id !== null && value.deploymentId !== id)) stop();
-      if (!equal(readEvidence(join(run, `${earlier}.intent.json`)).value,
-        { packetDigest, phase: earlier, previous, deploymentId: id })) stop();
+      predicate('prior-receipt-chain', value.packetDigest === packetDigest && value.phase === earlier && value.previous === previous
+        && Number.isSafeInteger(value.completed) && value.completed >= packet.window.start && value.completed <= Date.now()
+        && (id === null || value.deploymentId === id));
+      predicate('prior-intent-binding', equal(readEvidence(join(run, `${earlier}.intent.json`)).value,
+        { packetDigest, phase: earlier, previous, deploymentId: id }));
       if (earlier === 'sql-apply') reportDigest = readEvidence(join(run, 'migration-report.json')).identity.sha256;
-      if (value.reportDigest !== reportDigest) stop();
+      predicate('prior-report-digest', value.reportDigest === reportDigest);
       if (earlier === 'held-create') {
         const ack = exactObject(readEvidence(join(run, 'create-ack.json')).value, ['packetDigest', 'deploymentId']);
-        if (ack.packetDigest !== packetDigest || !deploymentId.test(String(ack.deploymentId)) || value.deploymentId !== ack.deploymentId) stop();
+        predicate('create-ack-binding', ack.packetDigest === packetDigest && deploymentId.test(String(ack.deploymentId)) && value.deploymentId === ack.deploymentId);
         id = String(ack.deploymentId);
       }
       previous = entry.identity.sha256;
@@ -155,32 +164,34 @@ export async function runEtsyReleasePhase(input: {
     const main = async () => {
       signal.throwIfAborted(); validateEtsyReleasePacket(packet, packetDigest); op.verify();
       const observed = await bounded(op.currentMain(), signal);
-      if (observed.revision !== packet.revision || observed.tree !== packet.tree) stop();
+      predicate('current-main-binding', observed.revision === packet.revision && observed.tree === packet.tree);
     };
     const before = migrationManifest.slice(0, 3).map(entry => entry.name), after = migrationManifest.map(entry => entry.name);
     if (phase === 'history') {
       // SQL-only read credentials; no provider token is needed for this phase.
       await main();
-      if (!equal(await bounded(op.history(), signal), before)) stop();
+      predicate('initial-history', equal(await bounded(op.history(), signal), before));
     } else if (phase === 'sql-apply') {
       // The fresh prior provider check is bound to this packet; SQL process never receives provider credentials.
       await main();
       const prior = readEvidence(join(run, 'pre-sql-check.receipt.json')).value as Receipt;
-      if (Date.now() - prior.completed > 60000 || !equal(await bounded(op.history(), signal), before)) stop();
+      predicate('pre-sql-freshness', Date.now() - prior.completed <= 60000);
+      predicate('pre-sql-history', equal(await bounded(op.history(), signal), before));
       diagnostics?.at('sql', 'outcome-unknown'); diagnostics?.submitted('migration');
       const report = await bounded(op.migrate(), signal);
       diagnostics?.migrated(report); diagnostics?.at('sql');
       persist(join(run, 'migration-report.json'), report);
       reportDigest = readEvidence(join(run, 'migration-report.json')).identity.sha256;
-      if (report.result !== 'success' || report.database_outcome !== 'committed' || report.reporting === 'failed' || report.source_revision !== packet.revision
-        || report.target !== packet.target || report.manifest_digest !== packet.targetDigest || !equal(report.before, before)
-        || !equal(report.after, after) || !equal(report.attempted, [{ ...migrationManifest[3], outcome: 'applied_committed' }])
-        || !equal(await bounded(op.history(), signal), after)) stop();
+      predicate('sql-confirmed-commit', report.result === 'success' && report.database_outcome === 'committed' && report.reporting !== 'failed');
+      predicate('sql-report-binding', report.source_revision === packet.revision && report.target === packet.target && report.manifest_digest === packet.targetDigest);
+      predicate('sql-exact-transition', equal(report.before, before) && equal(report.after, after)
+        && equal(report.attempted, [{ ...migrationManifest[3], outcome: 'applied_committed' }]));
+      predicate('sql-postflight-history', equal(await bounded(op.history(), signal), after));
     } else {
       await main();
       if (phase === 'held-create') {
         const history = readEvidence(join(run, 'history.receipt.json')).value as Receipt;
-        if (Date.now() - history.completed > 60000) stop();
+        predicate('held-history-freshness', Date.now() - history.completed <= 60000);
         await bounded(op.predecessor(false), signal);
         diagnostics?.at('create', 'outcome-unknown'); diagnostics?.submitted('create');
         const created = await op.create();
@@ -191,21 +202,23 @@ export async function runEtsyReleasePhase(input: {
           persist(join(run, 'create-ack.json'), { packetDigest, deploymentId: id });
           await input.durability?.acknowledged(id);
         }
-        if (!id || id === packet.predecessor.id || created.code !== 0 || created.aborted) stop();
+        predicate('held-create-ack', Boolean(id) && id !== packet.predecessor.id && created.code === 0 && !created.aborted);
         signal.throwIfAborted();
       } else if (phase === 'pre-sql-check') {
-        if (!id) stop();
+        if (!id) { predicate('pre-sql-known-id', false); stop(); }
+        predicate('pre-sql-known-id', true);
         await bounded(op.predecessor(false), signal);
         await bounded(op.candidate(id, true, false), signal);
         await bounded(op.alias(packet.predecessor.id), signal);
         await main();
       } else {
-        if (!id) stop();
+        if (!id) { predicate('post-sql-known-id', false); stop(); }
+        predicate('post-sql-known-id', true);
         // Missing/altered SQL report cannot be laundered through a phase receipt.
         diagnostics?.at(stage, 'evidence-persistence');
         const report = readEvidence(join(run, 'migration-report.json')).value as MigrationReport;
-        if (report.result !== 'success' || report.database_outcome !== 'committed' || report.reporting === 'failed' || !equal(report.after, after)
-          || report.manifest_digest !== packet.targetDigest || report.source_revision !== packet.revision) stop();
+        predicate('retained-sql-committed', report.result === 'success' && report.database_outcome === 'committed' && report.reporting !== 'failed');
+        predicate('retained-sql-binding', equal(report.after, after) && report.manifest_digest === packet.targetDigest && report.source_revision === packet.revision);
         diagnostics?.at(stage);
         if (phase === 'post-sql-check' || phase === 'promote-only') {
           await bounded(op.predecessor(true), signal);
@@ -215,12 +228,12 @@ export async function runEtsyReleasePhase(input: {
             persist(join(run, 'promote-intent.json'), { packetDigest, deploymentId: id });
             diagnostics?.at('promote', 'outcome-unknown'); diagnostics?.submitted('promotion');
             const promoted = await op.promote(id);
-            if (promoted.code !== 0 || promoted.aborted) stop();
+            predicate('promotion-ack', promoted.code === 0 && !promoted.aborted);
             diagnostics?.promoted();
             signal.throwIfAborted(); await bounded(op.alias(id), signal);
           }
         } else if (phase === 'final-domain-ack') {
-          if (!equal(readEvidence(join(run, 'promote-intent.json')).value, { packetDigest, deploymentId: id })) stop();
+          predicate('final-same-id-intent', equal(readEvidence(join(run, 'promote-intent.json')).value, { packetDigest, deploymentId: id }));
           await bounded(op.alias(id), signal); await bounded(op.candidate(id, false, true), signal);
           await bounded(op.alias(id), signal); await main();
         } else stop();
@@ -230,9 +243,10 @@ export async function runEtsyReleasePhase(input: {
     const receipt: Receipt = { packetDigest, phase, previous, deploymentId: id, completed: Date.now(), reportDigest };
     diagnostics?.at(stage, 'evidence-persistence');
     persist(join(run, `${phase}.receipt.json`), receipt);
-    if (!equal(readEvidence(join(run, `${phase}.receipt.json`)).value, receipt)) stop();
+    predicate('receipt-readback', equal(readEvidence(join(run, `${phase}.receipt.json`)).value, receipt));
     await input.durability?.confirmed(phase, receipt);
     success = true;
+    trace?.event(`strict.${phase}`, 'passed', 'phase-receipt-confirmed');
   } catch (cause) {
     const failure = diagnostics?.capture(cause);
     try { writeReleaseEvidence(join(run, 'STOP.json'), { packetDigest, phase, outcome: 'unknown-or-refused' }); }
@@ -261,21 +275,36 @@ async function currentEtsyMain(signal: AbortSignal, transport: typeof fetch = fe
 export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact,
   credentials: { token: string; bearer: string; predecessorBearer: string; bypass: string }, signal: AbortSignal,
   transport: typeof fetch = fetch, diagnostics?: ReleaseDiagnostics) {
-  if (!/^[\x21-\x7e]{16,512}$/.test(credentials.token) || !hex.test(credentials.bearer) || !hex.test(credentials.predecessorBearer)
-    || !/^[\x21-\x7e]{16,512}$/.test(credentials.bypass)) stop();
+  diagnostics?.trace?.registerSecrets([credentials.token, credentials.bearer, credentials.predecessorBearer, credentials.bypass]);
+  const predicate = (name: string, condition: boolean) => {
+    diagnostics?.trace?.check(name, condition, 'approved-strict-contract-mismatch');
+    if (!condition) stop();
+  };
+  predicate('strict.provider-credentials', /^[\x21-\x7e]{16,512}$/.test(credentials.token) && hex.test(credentials.bearer) && hex.test(credentials.predecessorBearer)
+    && /^[\x21-\x7e]{16,512}$/.test(credentials.bypass));
   const request = async (url: string, init: RequestInit = {}) => {
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
     const work = async () => {
-      try { return await bounded(transport(url, { ...init, redirect: 'manual', signal: requestSignal }), signal); }
-      catch (cause) { if (requestSignal.aborted) diagnostics?.reject('timeout'); throw cause; }
+      try {
+        const response = await bounded(transport(url, { ...init, redirect: 'manual', signal: requestSignal }), signal);
+        diagnostics?.trace?.event('strict.http-response', 'passed', 'headers-received-body-not-yet-validated',
+          { status: response.status, redirected: response.redirected }); return response;
+      } catch (cause) {
+        diagnostics?.trace?.event('strict.http-transport', 'failed', requestSignal.aborted ? 'timeout-or-cancel' : 'transport-error',
+          { aborted: requestSignal.aborted, callerAborted: signal.aborted }, cause);
+        if (requestSignal.aborted) diagnostics?.reject('timeout'); throw cause;
+      }
     };
     return diagnostics ? diagnostics.guard('transport', work) : work();
   };
   async function json(url: string, headers: Record<string, string>, maximum = 8 * 1024 * 1024): Promise<Record<string, any>> {
     const response = await request(url, { headers });
     const parse = async () => {
+      diagnostics?.trace?.check('strict.http-status', response.status === 200 && !response.redirected, 'unexpected-status-or-redirect',
+        { actual: response.status, expected: 200, redirected: response.redirected });
       if (response.status !== 200 || response.redirected) { await response.body?.cancel(); stop(); }
-      return JSON.parse((await bounded(responseBytes(response, maximum), signal)).toString('utf8')) as Record<string, unknown>;
+      const bytes = await bounded(responseBytes(response, maximum, diagnostics?.trace), signal);
+      return diagnostics?.trace ? diagnostics.trace.sync('strict.http-json', () => JSON.parse(bytes.toString('utf8'))) : JSON.parse(bytes.toString('utf8'));
     };
     return diagnostics ? diagnostics.guard('validation', parse) : parse();
   }
@@ -288,10 +317,10 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
   async function alias(id: string): Promise<void> {
     const domain = await provider(`/v9/projects/${artifactTarget.project}/domains/api.lovora.us`);
     const binding = await provider(`/v4/aliases/api.lovora.us?projectId=${artifactTarget.project}`);
-    if (!deploymentId.test(id) || domain.name !== 'api.lovora.us' || domain.projectId !== artifactTarget.project || domain.verified !== true
-      || domain.redirect || domain.gitBranch || domain.customEnvironmentId || binding.alias !== 'api.lovora.us'
-      || binding.projectId !== artifactTarget.project || binding.deploymentId !== id || binding.deletedAt || binding.redirect || binding.microfrontends
-      || (binding.deployment != null && binding.deployment.id !== id)) stop();
+    predicate('strict.domain-binding', deploymentId.test(id) && domain.name === 'api.lovora.us' && domain.projectId === artifactTarget.project && domain.verified === true
+      && !domain.redirect && !domain.gitBranch && !domain.customEnvironmentId && binding.alias === 'api.lovora.us'
+      && binding.projectId === artifactTarget.project && binding.deploymentId === id && !binding.deletedAt && !binding.redirect && !binding.microfrontends
+      && (binding.deployment == null || binding.deployment.id === id));
   }
   async function health(origin: string, digest: string, key: string, pending: boolean, candidate: boolean): Promise<void> {
     const http = async (url: string, init: RequestInit = {}) => {
@@ -299,51 +328,58 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
         ...(candidate ? { 'x-vercel-protection-bypass': credentials.bypass } : {}) } });
       const authorized = init.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(new URL(url).pathname)
         && new Headers(init.headers).get('authorization') === `Bearer ${key}` && ![401, 403].includes(response.status);
+      diagnostics?.trace?.check('strict.runtime-config', response.headers.get('x-activation-config-digest') === (authorized ? digest : null),
+        'runtime-digest-missing-mismatched-or-exposed-to-unauthorized-request', { authorized, pending, candidate });
       if (response.headers.get('x-activation-config-digest') !== (authorized ? digest : null)) {
         await response.body?.cancel(); diagnostics?.reject('configuration-mismatch'); stop();
       }
       return response;
     };
-    await checkHostedHttp(origin, packet.browserOrigin, key, http, pending ? 'migrations_pending' : 'current');
+    await checkHostedHttp(origin, packet.browserOrigin, key, http, pending ? 'migrations_pending' : 'current', diagnostics?.trace);
   }
-  return {
+  const operations = {
     currentMain: () => currentEtsyMain(signal, transport),
     alias,
     async predecessor(pending: boolean) {
       await alias(packet.predecessor.id);
       const project = await provider(`/v9/projects/${artifactTarget.project}`);
-      if (project.id !== artifactTarget.project || project.accountId !== artifactTarget.owner || project.name !== 'esty-admin-api'
-        || project.rootDirectory !== 'apps/api' || project.framework !== 'nestjs' || project.nodeVersion !== '24.x'
-        || project.buildCommand !== null || project.installCommand !== null || project.outputDirectory !== null
-        || project.commandForIgnoringBuildStep || project.link?.type !== 'github' || project.link?.org !== 'khuonghuyhieu'
-        || project.link?.repo !== 'esty-admin' || project.link?.productionBranch !== 'main'
-        || !equal(project.link?.deployHooks, [])) stop();
+      predicate('strict.project-settings', project.id === artifactTarget.project && project.accountId === artifactTarget.owner && project.name === 'esty-admin-api'
+        && project.rootDirectory === 'apps/api' && project.framework === 'nestjs' && project.nodeVersion === '24.x'
+        && project.buildCommand === null && project.installCommand === null && project.outputDirectory === null
+        && !project.commandForIgnoringBuildStep && project.link?.type === 'github' && project.link?.org === 'khuonghuyhieu'
+        && project.link?.repo === 'esty-admin' && project.link?.productionBranch === 'main'
+        && equal(project.link?.deployHooks, []));
       const metadata = currentAppMetadata(await provider(`/v10/projects/${artifactTarget.project}/env?decrypt=false&target=production`),
         Object.fromEntries(packet.runtimeKeys.map(key => [key, ''])));
-      if (metadata.metadataDigest !== packet.metadataDigest) stop();
+      predicate('strict.predecessor-production-metadata', metadata.metadataDigest === packet.metadataDigest);
       const source = await json(`https://api.github.com/repos/${repository}/commits/${packet.predecessor.revision}`, { Accept: 'application/vnd.github+json' });
-      if (source.sha !== packet.predecessor.revision || source.commit?.tree?.sha !== packet.predecessor.tree) stop();
+      predicate('strict.predecessor-source', source.sha === packet.predecessor.revision && source.commit?.tree?.sha === packet.predecessor.tree);
       const old = await provider(`/v13/deployments/${packet.predecessor.id}`), meta = setupObject(old.meta);
-      if (old.id !== packet.predecessor.id || old.projectId !== artifactTarget.project || old.ownerId !== artifactTarget.owner
-        || old.target !== 'production' || old.readyState !== 'READY' || old.gitSource || !equal(old.regions, ['icn1'])
-        || meta.sourceCommit !== packet.predecessor.revision || meta.artifactSha256 !== packet.predecessor.artifactDigest
-        || meta.sourceDigest !== packet.predecessor.sourceDigest) stop();
+      predicate('strict.predecessor-identity', old.id === packet.predecessor.id && old.projectId === artifactTarget.project && old.ownerId === artifactTarget.owner
+        && old.target === 'production' && old.readyState === 'READY' && !old.gitSource && equal(old.regions, ['icn1'])
+        && meta.sourceCommit === packet.predecessor.revision && meta.artifactSha256 === packet.predecessor.artifactDigest
+        && meta.sourceDigest === packet.predecessor.sourceDigest);
       await health('https://api.lovora.us', packet.predecessor.configDigest, credentials.predecessorBearer, pending, false);
       await alias(packet.predecessor.id);
     },
     async candidate(id: string, pending: boolean, final: boolean) {
       const metadata = currentAppMetadata(await provider(`/v10/projects/${artifactTarget.project}/env?decrypt=false&target=production`),
         Object.fromEntries(packet.runtimeKeys.map(key => [key, ''])));
-      if (metadata.metadataDigest !== packet.metadataDigest) stop();
+      predicate('strict.candidate-production-metadata', metadata.metadataDigest === packet.metadataDigest);
       const deployed = await provider(`/v13/deployments/${id}`);
-      const candidate = inspectCandidate(deployed, id, artifact, { revision: packet.revision, tree: packet.tree, run: packet.runId });
-      if (!candidate.ready || deployed.meta.etsySetupRun !== packet.runId || deployed.meta.etsySetupPacket !== packetDigest
-        || deployed.meta.etsyRuntimeDigest !== packet.runtimeDigest) stop();
-      const uid = uploadedCandidatePartition(await provider(`/v6/deployments/${id}/files`));
-      verifyCandidateArchive(await provider(`/v8/deployments/${id}/files/${uid}`, 350 * 1024 * 1024), uid, artifact);
+      const inspect = () => inspectCandidate(deployed, id, artifact, { revision: packet.revision, tree: packet.tree, run: packet.runId });
+      const candidate = diagnostics?.trace ? diagnostics.trace.sync('strict.candidate-identity', inspect) : inspect();
+      predicate('strict.candidate-declaration', candidate.ready && deployed.meta.etsySetupRun === packet.runId && deployed.meta.etsySetupPacket === packetDigest
+        && deployed.meta.etsyRuntimeDigest === packet.runtimeDigest);
+      const files = await provider(`/v6/deployments/${id}/files`);
+      const uid = diagnostics?.trace ? diagnostics.trace.sync('strict.uploaded-partition', () => uploadedCandidatePartition(files)) : uploadedCandidatePartition(files);
+      const archive = await provider(`/v8/deployments/${id}/files/${uid}`, 350 * 1024 * 1024);
+      if (diagnostics?.trace) diagnostics.trace.sync('strict.uploaded-archive', () => verifyCandidateArchive(archive, uid, artifact));
+      else verifyCandidateArchive(archive, uid, artifact);
       await health(final ? 'https://api.lovora.us' : candidate.origin, packet.runtimeDigest, credentials.bearer, pending, !final);
     },
   };
+  return diagnostics ? diagnostics.operations('strict-provider', operations) : operations;
 }
 
 export interface EtsyCli {
@@ -358,7 +394,7 @@ function verifyEtsyCli(packet: EtsyReleasePacket, artifact: VerifiedArtifact, cl
     || artifact.manifest.build.tools.find(tool => tool.name === 'vercel')?.filesDigest !== packet.cliOwnFilesDigest) stop();
 }
 export async function isolatedEtsyCli(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact, cli: string,
-  token: string, signal: AbortSignal): Promise<EtsyCli> {
+  token: string, signal: AbortSignal, diagnostics?: ReleaseDiagnostics): Promise<EtsyCli> {
   verifyEtsyCli(packet, artifact, cli);
   const root = await mkdtemp(join(fs.realpathSync(tmpdir()), 'esty-etsy-cli-'));
   try {
@@ -373,8 +409,8 @@ export async function isolatedEtsyCli(packet: EtsyReleasePacket, packetDigest: s
     };
     return {
       create() { verify(); return command(process.execPath, [cli, ...prebuiltCreateArguments(artifact, common),
-        '--meta', `etsySetupRun=${packet.runId}`, '--meta', `etsySetupPacket=${packetDigest}`, '--meta', `etsyRuntimeDigest=${packet.runtimeDigest}`], stage, env, signal); },
-      promote(id: string) { if (!deploymentId.test(id)) stop(); verify(); return command(process.execPath, [cli, 'promote', id, '--timeout', '5m', ...common], stage, env, signal); },
+        '--meta', `etsySetupRun=${packet.runId}`, '--meta', `etsySetupPacket=${packetDigest}`, '--meta', `etsyRuntimeDigest=${packet.runtimeDigest}`], stage, env, signal, diagnostics?.trace); },
+      promote(id: string) { if (!deploymentId.test(id)) stop(); verify(); return command(process.execPath, [cli, 'promote', id, '--timeout', '5m', ...common], stage, env, signal, diagnostics?.trace); },
       dispose: () => removeArtifactTree(root),
     };
   } catch { await removeArtifactTree(root); return stop(); }

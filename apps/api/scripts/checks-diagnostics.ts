@@ -2,15 +2,22 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { StringDecoder } from 'node:string_decoder';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
 
 const MiB = 1024 * 1024;
 const sensitive = /password|secret|token|authorization|cookie|credential|(?:api|private|access)[_-]?key/i;
-interface Limits { secrets?: readonly string[]; outputLimit?: number; fileLimit?: number; totalLimit?: number; lineLimit?: number }
+interface Limits {
+  secrets?: readonly string[]; outputLimit?: number; fileLimit?: number; totalLimit?: number; lineLimit?: number;
+  scope?: 'checks' | 'release'; correlation?: string; runId?: string;
+}
 interface Stage {
   id: string; stage: string; parents: string[]; startedAt: string; durationMs: number; status: 'running' | 'passed' | 'failed';
+  correlation: string; runId: string | null;
   command?: { binary: string; args: string[] }; code?: number | null; signal?: string | null; aborted?: boolean;
   outputLimit?: boolean; outputBytes?: number; stdout?: string; stderr?: string; error?: string;
   truncation: string[]; persistenceErrors: string[];
+  omittedBytes?: number; omittedCharacters?: number;
 }
 
 // Only explicit public/synthetic checks use this formatter. Unknown secrets cannot be inferred.
@@ -41,6 +48,26 @@ export function safeChecksError(error: unknown, secrets: readonly string[] = [])
   return parts.join('\nCaused by: ');
 }
 
+/** Private errors retain stack locations/cause topology, never arbitrary messages or payloads. */
+export function safeReleaseError(error: unknown): string {
+  const parts: string[] = [], seen = new Set<unknown>();
+  for (let depth = 0; error !== undefined && depth < 8; depth++) {
+    if (seen.has(error)) { parts.push('[OMITTED circular cause]'); return parts.join('\nCaused by: '); }
+    seen.add(error);
+    if (!(error instanceof Error)) { parts.push('[REDACTED non-Error payload]'); return parts.join('\nCaused by: '); }
+    const code = (error as NodeJS.ErrnoException).code;
+    const safeCode = typeof code === 'string' && /^(?:EACCES|EPERM|ENOENT|ELOOP|ENOSPC|EIO|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ABORT_ERR|ERR_ASSERTION|ERR_OUT_OF_RANGE|28P01|57014|40001)$/.test(code) ? code : 'omitted';
+    const locations = (error.stack ?? '').slice(0, 65536).split('\n').slice(1, 33).flatMap(line => {
+      const match = line.match(/(?:\/|\\)((?:ci-delivery|ci-provider|ci-tools|ci-migrations|checks-diagnostics|routine-retained|activation-retained|etsy-release|hosted-acceptance|vercel-deploy|artifact|ci|release-journal|private-files|migrations|bounded|ci\.test|etsy\.test|integration\.test|release\.test)\.(?:m?js|ts)):(\d{1,8}):(\d{1,8})\)?$/);
+      return match ? [`    at ${match[1]}:${match[2]}:${match[3]}`] : [];
+    });
+    parts.push(`[REDACTED error message; untrusted provider/SQL payload; code=${safeCode}]\n${locations.join('\n')}`);
+    error = error.cause;
+  }
+  if (error !== undefined) parts.push('[OMITTED cause depth exceeds8]');
+  return parts.join('\nCaused by: ');
+}
+
 /** No ambient env/private reads. Passing this context is the only logging opt-in. */
 export class ChecksDiagnostics {
   readonly directory: string;
@@ -55,27 +82,120 @@ export class ChecksDiagnostics {
   private failed = false;
   private readonly consoleBytes = { stdout: 0, stderr: 0 };
   private readonly persistenceErrors: string[] = [];
+  readonly correlation: string;
+  readonly scope: 'checks' | 'release';
+  private eventSequence = 0;
+  private eventBytes = 0;
+  private omittedEvents = 0;
+  private firstCheck?: string;
+  private storageReady = false;
+  readonly runId: string | null;
   constructor(directory: string, limits: Limits = {}) {
     this.directory = resolve(directory); this.secrets = [];
+    this.scope = limits.scope ?? 'checks';
+    this.correlation = limits.correlation && /^[a-zA-Z0-9_.:-]{1,120}$/.test(limits.correlation)
+      ? limits.correlation : randomUUID();
+    this.runId = limits.runId && /^[1-9][0-9]{0,15}$/.test(limits.runId) ? limits.runId : null;
     for (const secret of limits.secrets ?? []) this.secret(secret);
     this.outputLimit = limits.outputLimit ?? 4 * MiB; this.fileLimit = limits.fileLimit ?? 4 * MiB;
     this.totalLimit = limits.totalLimit ?? 64 * MiB; this.lineLimit = limits.lineLimit ?? 16384;
     for (const value of [this.outputLimit, this.fileLimit, this.totalLimit, this.lineLimit]) {
       if (!Number.isSafeInteger(value) || value < 1 || value > 64 * MiB) throw new Error('Invalid checks diagnostic bound.');
     }
-    fs.mkdirSync(this.directory, { mode: 0o700 });
+    try {
+      fs.mkdirSync(this.directory, { mode: 0o700, recursive: this.scope === 'release' });
+      const info = fs.lstatSync(this.directory);
+      if (!info.isDirectory() || info.isSymbolicLink() || info.uid !== process.getuid?.() || (info.mode & 0o077)) {
+        throw new Error('Diagnostic directory must be owner-only.');
+      }
+      this.storageReady = true;
+    } catch (error) {
+      if (this.scope !== 'release') throw error;
+      this.persistenceErrors.push(safeReleaseError(error));
+      this.console({ event: 'diagnostics-init-failed', correlation: this.correlation, reason: 'storage-unavailable', error: safeReleaseError(error) }, true);
+    }
   }
   private secret(value: string) {
     if (!value || this.secrets.includes(value)) return;
     if (value.length > 8192 || this.secrets.length >= 128) throw new Error('Checks redaction input exceeds its bound.');
     this.secrets.push(value);
   }
-  error(error: unknown): string { return safeChecksError(error, this.secrets); }
+  error(error: unknown): string {
+    try { return this.scope === 'release' ? safeChecksText(safeReleaseError(error), this.secrets) : safeChecksError(error, this.secrets); }
+    catch { return '[OMITTED unreadable error properties; primary operation failure preserved]'; }
+  }
+  registerSecrets(values: readonly string[]): void {
+    for (const value of values) {
+      if (typeof value === 'string' && value.length <= 8192 && this.secrets.length < 128) this.secret(value);
+      else this.event('redaction.registration', 'not-run', 'private-value-exceeds-mask-bound-payload-omitted');
+    }
+  }
+  /** Values must already be public projections; strings are restricted to fixed codes, not payloads. */
+  event(check: string, status: 'started' | 'passed' | 'failed' | 'not-run', reason: string,
+    values: Record<string, number | boolean | null | string> = {}, error?: unknown): void {
+    const safeName = (value: string) => /^[a-zA-Z0-9_.:-]{1,160}$/.test(value) ? value : 'invalid-diagnostic-label';
+    const metadata: Record<string, number | boolean | null | string> = {};
+    for (const [key, value] of Object.entries(values).slice(0, 32)) {
+      if (!/^[a-zA-Z][a-zA-Z0-9]{0,48}$/.test(key)) continue;
+      if (value === null || typeof value === 'boolean' || (typeof value === 'number' && Number.isFinite(value))) metadata[key] = value;
+      else if (typeof value === 'string') {
+        const pattern = /^(?:actual|expected)Revision$/.test(key) ? /^[a-f0-9]{40}$/
+          : /^(?:actual|expected)Id$/.test(key) ? /^(?:[1-9][0-9]{0,15}|dpl_[A-Za-z0-9]{1,124})$/
+          : /^(?:actual|expected)Mode$/.test(key) ? /^(?:current-schema-only|versioned-migration|etsy-strict-cutover|activation)$/
+          : /^(?:actual|expected)Context$/.test(key) ? /^(?:true|false|workflow_dispatch|push|pull_request|pull_request_target|be-production|preview|refs\/heads\/main|khuonghuyhieu\/esty-admin|khuonghuyhieu\/esty-admin\/\.github\/workflows\/be-delivery\.yml@refs\/heads\/main|[1-9][0-9]{0,2})$/ : null;
+        if (pattern?.test(value)) metadata[key] = safeChecksText(value, this.secrets);
+        else metadata[`${key}Omitted`] = true;
+      }
+    }
+    const firstFailure = status === 'failed' && this.firstCheck === undefined;
+    if (firstFailure) this.firstCheck = safeName(check);
+    const record = { version: 1, runId: this.runId, correlation: this.correlation, sequence: ++this.eventSequence, time: new Date().toISOString(),
+      check: safeName(check), status, reason: safeName(reason), values: metadata, firstFailure: this.firstCheck ?? null,
+      ...(error === undefined ? {} : { error: this.error(error) }) };
+    const bytes = JSON.stringify(record) + '\n';
+    if (firstFailure) this.persist(`${this.correlation}-failure.json`, bytes);
+    if (this.eventSequence > 8192 || this.eventBytes + Buffer.byteLength(bytes) > 8 * MiB) {
+      this.omittedEvents++;
+      if (firstFailure) this.console(record, true);
+      if (this.omittedEvents === 1) this.console({ event: 'diagnostics-overflow', correlation: this.correlation, reason: 'event-or-byte-limit' }, true);
+      this.persist(`${this.correlation}-limits.json`, JSON.stringify({ omittedEvents: this.omittedEvents, reason: 'event-or-byte-limit' }) + '\n');
+      return;
+    }
+    this.eventBytes += Buffer.byteLength(bytes);
+    this.persist(`${this.correlation}-events.jsonl`, bytes, true);
+    this.console(record, status === 'failed');
+  }
+  check(name: string, condition: boolean, reason: string, values: Record<string, number | boolean | null | string> = {}): boolean {
+    this.event(name, condition ? 'passed' : 'failed', condition ? 'condition-satisfied' : reason, values);
+    return condition;
+  }
+  async boundary<T>(name: string, body: () => Promise<T> | T): Promise<T> {
+    const start = performance.now();
+    this.event(name, 'started', 'operation-started');
+    try {
+      const result = await body();
+      this.event(name, 'passed', 'operation-completed', { durationMs: Math.round(performance.now() - start) });
+      return result;
+    } catch (error) {
+      this.event(name, 'failed', 'operation-threw', { durationMs: Math.round(performance.now() - start) }, error);
+      throw error;
+    }
+  }
+  sync<T>(name: string, body: () => T): T {
+    const start = performance.now();
+    this.event(name, 'started', 'operation-started');
+    try {
+      const result = body();
+      this.event(name, 'passed', 'operation-completed', { durationMs: Math.round(performance.now() - start) }); return result;
+    } catch (error) {
+      this.event(name, 'failed', 'operation-threw', { durationMs: Math.round(performance.now() - start) }, error); throw error;
+    }
+  }
   private console(record: object, failed = false) {
     try { (failed ? console.error : console.info)(JSON.stringify(record)); } catch { /* Never replace the primary failure with console failure. */ }
   }
   private persist(path: string, text: string, append = false) {
-    if (append && this.persistenceErrors.length) return false;
+    if (!this.storageReady || (append && this.persistenceErrors.length)) return false;
     try {
       if (append) fs.appendFileSync(join(this.directory, path), text, { mode: 0o600 });
       else fs.writeFileSync(join(this.directory, path), text, { mode: 0o600 });
@@ -92,6 +212,7 @@ export class ChecksDiagnostics {
   async stage<T>(name: string, action: (record: Stage) => Promise<T> | T, command?: { binary: string; args: string[] }): Promise<T> {
     if (++this.sequence > 128) throw new Error('Checks diagnostic stage limit exceeded.');
     const record: Stage = { id: String(this.sequence).padStart(3, '0'), stage: safeChecksText(name, this.secrets),
+      correlation: this.correlation, runId: this.runId,
       parents: this.active.map(parent => parent.stage), startedAt: new Date().toISOString(), durationMs: 0, status: 'running',
       truncation: [], persistenceErrors: [], ...(command ? { command } : {}) };
     const path = `${record.id}-stage.json`, start = performance.now();
@@ -102,7 +223,7 @@ export class ChecksDiagnostics {
       if (this.persistenceErrors.length) throw new Error('Required checks diagnostics could not be persisted.');
       record.status = 'passed'; return result;
     } catch (error) {
-      record.status = 'failed'; record.error = safeChecksError(error, this.secrets);
+      record.status = 'failed'; record.error = this.error(error);
       record.durationMs = Math.round(performance.now() - start); record.persistenceErrors = [...this.persistenceErrors];
       // The deepest/first failure remains the pointer even when an outer boundary or cleanup also fails.
       if (!this.failed) { this.failed = true; this.persist('failed-stage.json', JSON.stringify(record) + '\n'); }
@@ -130,7 +251,9 @@ export class ChecksDiagnostics {
     const mark = (reason: string) => { const value = `${channel}:${reason}`; if (!record.truncation.includes(value)) record.truncation.push(value); };
     const emit = (text: string) => {
       const safe = safeChecksText(text, this.secrets), bytes = Buffer.byteLength(safe);
-      if (size + bytes > this.fileLimit || this.written + bytes > this.totalLimit) { mark('disk-limit'); return; }
+      if (size + bytes > this.fileLimit || this.written + bytes > this.totalLimit) {
+        record.omittedBytes = (record.omittedBytes ?? 0) + bytes; mark('disk-limit'); return;
+      }
       if (!this.persist(path, safe, true)) {
         mark('persistence');
         if (this.consoleBytes[channel] + bytes <= 65536) {
@@ -146,9 +269,11 @@ export class ChecksDiagnostics {
         const newline = chunk.indexOf('\n', offset), end = newline < 0 ? chunk.length : newline;
         if (!dropping) {
           if (pending.length + end - offset > this.lineLimit) {
+            record.omittedCharacters = (record.omittedCharacters ?? 0) + pending.length + end - offset;
             pending = ''; dropping = true; mark('line-limit'); emit('[TRUNCATED diagnostic line exceeds configured limit]\n');
           } else pending += chunk.slice(offset, end);
         }
+        else record.omittedCharacters = (record.omittedCharacters ?? 0) + end - offset;
         if (newline < 0) return;
         if (!dropping) emit(pending + '\n');
         pending = ''; dropping = false; offset = newline + 1;
@@ -156,7 +281,10 @@ export class ChecksDiagnostics {
     };
     return { write: (chunk: Buffer) => text(decoder.write(chunk)), end: (truncated: boolean) => {
       text(decoder.end());
-      if (truncated) { if (pending) mark('incomplete-line'); pending = ''; mark('output-truncated'); }
+      if (truncated) {
+        record.omittedCharacters = (record.omittedCharacters ?? 0) + pending.length;
+        if (pending) mark('incomplete-line'); pending = ''; mark('output-truncated');
+      }
       else if (!dropping && pending) emit(pending);
     } };
   }
@@ -237,4 +365,40 @@ export class ChecksDiagnostics {
       return result;
     }, { binary: safeChecksText(binary, this.secrets), args: displayArgs });
   }
+}
+
+// Canonical workflow uses this builtin-only entry before compilation; never provider/SQL commands.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const [action, directory, name, ...args] = process.argv.slice(2);
+  const abort = new AbortController(), cancel = () => abort.abort();
+  process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
+  let diagnostics: ChecksDiagnostics | undefined;
+  try {
+    if (!directory || !name || !/^[a-z][a-z0-9-]{0,64}$/.test(name)) throw new Error('Explicit diagnostic directory and fixed phase required.');
+    if (action === 'public-command') {
+      if (!args[0]) throw new Error('Explicit public command required.');
+      fs.mkdirSync(resolve(directory, '..'), { mode: 0o700, recursive: true });
+      diagnostics = new ChecksDiagnostics(directory, { runId: process.env.GITHUB_RUN_ID });
+      await diagnostics.stage(name, () => diagnostics!.command(args[0]!, args.slice(1), process.cwd(), process.env,
+        AbortSignal.any([abort.signal, AbortSignal.timeout(1800000)])));
+    } else if (action === 'summary') {
+      diagnostics = new ChecksDiagnostics(directory, { scope: 'release', runId: process.env.GITHUB_RUN_ID });
+      const lines = [`### BE ${name} diagnostic outcomes (not release approval)`];
+      for (const argument of args) {
+        const match = argument.match(/^([a-z][a-z0-9-]{0,64})=(success|failure|cancelled|skipped|unknown)$/);
+        if (!match) throw new Error('Invalid public step outcome.');
+        const [, step, outcome] = match;
+        diagnostics.event(`workflow.${step}`, outcome === 'success' ? 'passed' : outcome === 'skipped' ? 'not-run' : 'failed',
+          outcome === 'skipped' ? 'prerequisite-failed-or-mode-not-selected' : `github-step-${outcome}`);
+        lines.push(`- ${step}: ${outcome}`);
+      }
+      lines.push('Provider/SQL payloads are omitted. Missing logs or upload failure are not evidence of no effect; inspect retained receipts.');
+      if (process.env.GITHUB_STEP_SUMMARY) {
+        try { fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n'); }
+        catch (cause) { diagnostics.event('workflow.summary', 'failed', 'summary-write-failed', {}, cause); }
+      }
+    } else throw new Error('Unsupported diagnostic action.');
+  } catch (error) {
+    console.error(diagnostics?.error(error) ?? safeReleaseError(error)); process.exitCode = 1;
+  } finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }
 }

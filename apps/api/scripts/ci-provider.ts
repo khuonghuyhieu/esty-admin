@@ -104,10 +104,15 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
   credentials: { github: string; vercel: string; bearer: string; bypass: string }, signal: AbortSignal,
   transport: typeof fetch, activation?: ActivationDeliveryContext, schema?: RoutineDeliveryApproval,
   diagnostics?: ReleaseDiagnostics): ActivationProvider & RoutineProvider {
+  diagnostics?.trace?.event('provider.credentials', 'started', 'validate-existing-consumer-inputs');
+  diagnostics?.trace?.registerSecrets([credentials.github, credentials.vercel, credentials.bearer, credentials.bypass]);
+  const predicate = (name: string, condition: boolean, message: string) => {
+    diagnostics?.trace?.check(name, condition, 'approved-contract-mismatch');
+    if (!condition) throw new Error(message);
+  };
   const expectedConfigDigest = schema?.configDigest;
-  if (!activation && (typeof expectedConfigDigest !== 'string' || !/^[a-f0-9]{64}$/.test(expectedConfigDigest))) {
-    throw new Error('An independently approved full runtime configuration digest is required.');
-  }
+  predicate('configuration.runtime-approval', Boolean(activation) || (typeof expectedConfigDigest === 'string' && /^[a-f0-9]{64}$/.test(expectedConfigDigest)),
+    'An independently approved full runtime configuration digest is required.');
   if (!activation && (!/^[a-f0-9]{64}$/.test(schema?.requestDigest ?? '')
     || (schema?.strictPacketDigest !== undefined && (!/^[a-f0-9]{64}$/.test(schema.strictPacketDigest) || schema.migration)))) {
     throw new Error('The complete approved release request binding is required.');
@@ -116,6 +121,7 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
     if (!/^[\x21-\x7e]{16,512}$/.test(token)) throw new Error('Required environment secret is absent or invalid.');
   }
   if (!/^[a-f0-9]{64}$/.test(credentials.bearer)) throw new Error('Required application secret is absent or invalid.');
+  diagnostics?.trace?.event('provider.credentials', 'passed', 'credential-shapes-valid-values-omitted');
   const verify = () => {
     if (activation) verifyActivationArtifact(artifact, activation.packet);
     else {
@@ -127,8 +133,15 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
   const request = (url: string, init: RequestInit = {}) => {
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
     const work = async () => {
-      try { return await transport(url, { ...init, redirect: 'error', signal: requestSignal }); }
-      catch (cause) { if (requestSignal.aborted) diagnostics?.reject('timeout'); throw cause; }
+      try {
+        const response = await transport(url, { ...init, redirect: 'error', signal: requestSignal });
+        diagnostics?.trace?.event('http.response', 'passed', 'headers-received-body-not-yet-validated', { status: response.status, redirected: response.redirected });
+        return response;
+      } catch (cause) {
+        diagnostics?.trace?.event('http.transport', 'failed', requestSignal.aborted ? 'timeout-or-cancel' : 'transport-error',
+          { aborted: requestSignal.aborted, callerAborted: signal.aborted }, cause);
+        if (requestSignal.aborted) diagnostics?.reject('timeout'); throw cause;
+      }
     };
     return diagnostics ? diagnostics.guard('transport', work) : work();
   };
@@ -136,8 +149,11 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
     const response = await request(url, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json',
       Accept: 'application/json', 'X-GitHub-Api-Version': '2026-03-10', ...init.headers } });
     const parse = async () => {
+      diagnostics?.trace?.check('http.status', response.status === status && !response.redirected, 'unexpected-status-or-redirect',
+        { actual: response.status, expected: status, redirected: response.redirected });
       if (response.status !== status || response.redirected) { await response.body?.cancel(); throw new Error('Provider response not confirmed.'); }
-      return JSON.parse((await responseBytes(response, maximum)).toString('utf8'));
+      const bytes = await responseBytes(response, maximum, diagnostics?.trace);
+      return diagnostics?.trace ? diagnostics.trace.sync('http.json-parse', () => JSON.parse(bytes.toString('utf8'))) : JSON.parse(bytes.toString('utf8'));
     };
     return diagnostics ? diagnostics.guard('validation', parse) : parse();
   }
@@ -153,12 +169,12 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
   };
   async function alias(): Promise<string> {
     const domain = object(await provider(`/v9/projects/${artifactTarget.project}/domains/api.lovora.us`));
-    if (domain.name !== 'api.lovora.us' || domain.projectId !== artifactTarget.project || domain.verified !== true
-      || domain.redirect || domain.gitBranch || domain.customEnvironmentId) throw new Error('Unverified production domain.');
+    predicate('domain.project-binding', domain.name === 'api.lovora.us' && domain.projectId === artifactTarget.project && domain.verified === true
+      && !domain.redirect && !domain.gitBranch && !domain.customEnvironmentId, 'Unverified production domain.');
     const value = object(await provider(`/v4/aliases/api.lovora.us?projectId=${artifactTarget.project}`));
-    if (value.alias !== 'api.lovora.us' || value.projectId !== artifactTarget.project || !deploymentId.test(value.deploymentId)
-      || (value.deployment != null && object(value.deployment).id !== value.deploymentId)
-      || value.deletedAt || value.redirect || value.microfrontends) throw new Error('Unverified production alias.');
+    predicate('domain.alias-identity', value.alias === 'api.lovora.us' && value.projectId === artifactTarget.project && deploymentId.test(value.deploymentId)
+      && (value.deployment == null || object(value.deployment).id === value.deploymentId)
+      && !value.deletedAt && !value.redirect && !value.microfrontends, 'Unverified production alias.');
     return value.deploymentId;
   }
   async function routineJournal(journal: number): Promise<void> {
@@ -171,16 +187,17 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       || payload.configDigest !== expectedConfigDigest || payload.requestDigest !== schema.requestDigest
       || payload.project !== artifactTarget.project) throw new Error('Routine journal identity differs.');
   }
-  return {
+  const operations: ActivationProvider & RoutineProvider = {
     async currentMain() {
       const commit = object(await github('/commits/main'));
-      if (commit.sha !== run.revision || object(object(commit.commit).tree).sha !== run.tree) throw new Error('Run no longer identifies current main.');
+      predicate('source.current-main-revision', commit.sha === run.revision, 'Run no longer identifies current main.');
+      predicate('source.current-main-tree', object(object(commit.commit).tree).sha === run.tree, 'Run no longer identifies current main.');
     },
     async preflight() {
       await vercelDeployment({ VERCEL_TOKEN: credentials.vercel, VERCEL_PROJECT_ID: artifactTarget.project,
         VERCEL_SCOPE: artifactTarget.scope, VERCEL_TEAM_ID: artifactTarget.owner, REPOSITORY: `https://github.com/${repository}`,
         DEPLOYMENT_TARGET: 'production', PREVIEW_ACCESS_KEY: credentials.bearer, API_ORIGIN: 'https://api.lovora.us',
-        BROWSER_ORIGIN: 'https://app.lovora.us' }, artifact, transport).preflight(signal);
+        BROWSER_ORIGIN: 'https://app.lovora.us' }, artifact, transport, diagnostics?.trace).preflight(signal);
       return alias();
     },
     async reserve() {
@@ -210,15 +227,16 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
               });
               diagnostics.remote(descriptions);
             }
+            diagnostics?.trace?.event('reservation.request-unique', 'failed', 'existing-durable-reservation-forbids-replay');
             throw new Error('This release request or strict packet already has a durable reservation.');
           }
           const statuses: unknown = await github(`/deployments/${entry.id}/statuses?per_page=1`);
-          if (!Array.isArray(statuses) || statuses.length !== 1 || object(statuses[0]).state !== 'success') {
-            throw new Error('A previous delivery outcome is unresolved; owner reconciliation is required.');
-          }
+          predicate('reservation.previous-outcome', Array.isArray(statuses) && statuses.length === 1 && object(statuses[0]).state === 'success',
+            'A previous delivery outcome is unresolved; owner reconciliation is required.');
         }
         if (entries.length < 100) break;
       }
+      diagnostics?.trace?.event('reservation.prior-intents', 'passed', 'bounded-history-has-no-unresolved-or-reused-intent');
       diagnostics?.at('reserve', 'outcome-unknown');
       try {
       const result = object(await github('/deployments', { method: 'POST', body: JSON.stringify({ ref: run.revision, task,
@@ -229,9 +247,8 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
             : { configDigest: expectedConfigDigest, requestDigest: schema!.requestDigest }),
           ...(schema?.strictPacketDigest ? { migrationPacket: schema.strictPacketDigest }
             : schema?.migration ? { migrationPacket: schema.migration.digest } : {}) } }) }, 201));
-      if (!numeric(result.id) || result.sha !== run.revision || result.task !== task || result.environment !== 'be-production') {
-        throw new Error('Durable intent acknowledgement is unknown.');
-      }
+      predicate('reservation.create-acknowledgement', numeric(result.id) && result.sha === run.revision && result.task === task && result.environment === 'be-production',
+        'Durable intent acknowledgement is unknown.');
       return result.id;
       } catch (cause) { diagnostics?.evidenceFailed(); throw diagnostics?.capture(cause) ?? cause; }
     },
@@ -240,13 +257,13 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       const result = object(await github(`/deployments/${journal}/statuses`, { method: 'POST', body: JSON.stringify({ state, description,
         auto_inactive: false, log_url: `https://github.com/${repository}/actions/runs/${run.run}`,
         environment_url: 'https://api.lovora.us' }) }, 201));
-      if (!numeric(result.id) || result.state !== state) throw new Error('Durable status acknowledgement is unknown.');
+      predicate('receipt.remote-status-acknowledgement', numeric(result.id) && result.state === state, 'Durable status acknowledgement is unknown.');
     },
     async confirmRoutineJournal(journal, description, state = 'in_progress') {
       await routineJournal(journal);
       const statuses: unknown = await github(`/deployments/${journal}/statuses?per_page=1`);
-      if (!Array.isArray(statuses) || statuses.length !== 1 || object(statuses[0]).state !== state
-        || object(statuses[0]).description !== description) throw new Error('Routine journal acknowledgement is unknown.');
+      predicate('receipt.remote-status-readback', Array.isArray(statuses) && statuses.length === 1 && object(statuses[0]).state === state
+        && object(statuses[0]).description === description, 'Routine journal acknowledgement is unknown.');
     },
     async reconcileRoutineJournal(journal) {
       await routineJournal(journal);
@@ -272,7 +289,7 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
     async compatiblePredecessor() {
       if (!schema?.migration) throw new Error('A compatible predecessor approval is required.');
       const expected = schema.migration.packet.predecessor;
-      if (await alias() !== expected.id) throw new Error('Compatible predecessor alias differs.');
+      predicate('predecessor.compatible-alias', await alias() === expected.id, 'Compatible predecessor alias differs.');
       const value = object(await provider(`/v13/deployments/${expected.id}`)), meta = object(value.meta);
       if (value.id !== expected.id || value.projectId !== artifactTarget.project || value.ownerId !== artifactTarget.owner
         || value.target !== 'production' || value.readyState !== 'READY' || value.gitSource
@@ -284,12 +301,14 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
         const response = await request(url, init);
         if (init?.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(new URL(url).pathname)) {
           const authorized = new Headers(init?.headers).get('authorization') === `Bearer ${credentials.bearer}`;
+          diagnostics?.trace?.check('predecessor.runtime-config', response.headers.get('x-activation-config-digest') === (authorized ? expected.configDigest : null),
+            'runtime-digest-missing-mismatched-or-exposed-to-unauthorized-request');
           if (response.headers.get('x-activation-config-digest') !== (authorized ? expected.configDigest : null)) {
             await response.body?.cancel(); throw new Error('Compatible predecessor configuration differs.');
           }
         }
         return response;
-      });
+      }, 'current', diagnostics?.trace);
       if (await alias() !== expected.id) throw new Error('Compatible predecessor binding changed.');
     },
     async confirmJournal(journal, state, description) {
@@ -305,12 +324,17 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
     },
     async inspect(id) {
       verify(); if (!deploymentId.test(id)) throw new Error('Invalid deployment ID.');
-      return inspectCandidate(await provider(`/v13/deployments/${id}`), id, artifact, run, activation);
+      const value = await provider(`/v13/deployments/${id}`);
+      return diagnostics?.trace ? diagnostics.trace.sync('candidate.identity-and-state', () => inspectCandidate(value, id, artifact, run, activation))
+        : inspectCandidate(value, id, artifact, run, activation);
     },
     async attest(id) {
       verify(); if (!deploymentId.test(id)) throw new Error('Invalid deployment ID.');
-      const uid = uploadedCandidatePartition(await provider(`/v6/deployments/${id}/files`));
-      verifyCandidateArchive(await provider(`/v8/deployments/${id}/files/${uid}`, 350 * 1024 * 1024), uid, artifact);
+      const files = await provider(`/v6/deployments/${id}/files`);
+      const uid = diagnostics?.trace ? diagnostics.trace.sync('artifact.uploaded-partition', () => uploadedCandidatePartition(files)) : uploadedCandidatePartition(files);
+      const archive = await provider(`/v8/deployments/${id}/files/${uid}`, 350 * 1024 * 1024);
+      if (diagnostics?.trace) diagnostics.trace.sync('artifact.uploaded-archive', () => verifyCandidateArchive(archive, uid, artifact));
+      else verifyCandidateArchive(archive, uid, artifact);
     },
     async acceptFrontend(receipt, approvedDigest) {
       if (!activation || !/^[a-f0-9]{64}$/.test(approvedDigest) || sha256(canonical(receipt)) !== approvedDigest) {
@@ -357,7 +381,7 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       await responseBytes(response, 1024 * 1024);
       await checkBinding();
     },
-    async binding(id) { if (await alias() !== id) throw new Error('Production alias changed.'); },
+    async binding(id) { predicate('domain.same-deployment', await alias() === id, 'Production alias changed.'); },
     async http(origin, candidate) {
       if (candidate ? !/^https:\/\/[a-z0-9-]+\.vercel\.app$/.test(origin) : origin !== 'https://api.lovora.us') throw new Error('Invalid acceptance origin.');
       await checkHostedHttp(origin, 'https://app.lovora.us', credentials.bearer, async (url, init) => {
@@ -374,6 +398,8 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
           const authorizedHealth = init?.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(new URL(url).pathname)
             && new Headers(init?.headers).get('authorization') === `Bearer ${credentials.bearer}`
             && response.status !== 401 && response.status !== 403;
+          diagnostics?.trace?.check('http.runtime-config', response.headers.get('x-activation-config-digest') === (authorizedHealth ? expectedConfigDigest : null),
+            'runtime-digest-missing-mismatched-or-exposed-to-unauthorized-request', { authorizedHealth, candidate });
           if (response.headers.get('x-activation-config-digest') !== (authorizedHealth ? expectedConfigDigest : null)) {
             await response.body?.cancel();
             diagnostics?.reject('configuration-mismatch');
@@ -381,7 +407,8 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
           }
         }
         return response;
-      });
+      }, 'current', diagnostics?.trace);
     },
   };
+  return diagnostics ? diagnostics.operations('provider', operations) : operations;
 }

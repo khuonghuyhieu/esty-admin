@@ -94,7 +94,9 @@ export async function authorizeRoutineMigration(input: {
   // Exclusivity survives partial authorization and prevents reusing this local execution directory.
   writeObserved(diagnostics, join(directory, 'migration-reserving.json'), { run, artifact: artifact.digest, packetDigest: schema.migration.digest });
   await provider.currentMain();
-  if (await provider.preflight() !== schema.migration.packet.predecessor.id) refuse();
+  const predecessor = await provider.preflight();
+  diagnostics?.trace?.check('migration.predecessor-binding', predecessor === schema.migration.packet.predecessor.id, 'approved-compatible-predecessor-differs');
+  if (predecessor !== schema.migration.packet.predecessor.id) refuse();
   await provider.compatiblePredecessor();
   const journal = await provider.reserve();
   diagnostics?.at('reserve', 'evidence-persistence');
@@ -125,32 +127,51 @@ export async function executeRoutineMigration(input: {
 }): Promise<void> {
   const { artifact, run, schema, directory, signal, diagnostics } = input;
   diagnostics?.at('pre-sql', 'evidence-persistence');
-  const auth = authorization(directory, artifact, run, schema), packet = schema.migration!.packet;
-  if (Date.now() - auth.authorizedAt > 60000) refuse();
-  const values = migrationInputs(input.values, { target: packet.target, migrationInputDigest: packet.migrationInputDigest });
-  const database = parseMigrationConfig(values), migrations = join(artifact.root, 'operator/apps/api/migrations');
+  const auth = diagnostics?.trace ? diagnostics.trace.sync('migration.authorization', () => authorization(directory, artifact, run, schema))
+    : authorization(directory, artifact, run, schema), packet = schema.migration!.packet;
+  const age = Date.now() - auth.authorizedAt;
+  diagnostics?.trace?.check('migration.authorization-fresh', age <= 60000, 'authorization-expired', { ageMs: age, maximumMs: 60000 });
+  if (age > 60000) refuse();
+  const consume = () => migrationInputs(input.values, { target: packet.target, migrationInputDigest: packet.migrationInputDigest });
+  const values = diagnostics?.trace ? diagnostics.trace.sync('migration.private-input-binding', consume) : consume();
+  diagnostics?.trace?.registerSecrets([values.MIGRATION_DATABASE_URL ?? '', values.DATABASE_CA_PEM ?? '']);
+  const database = diagnostics?.trace ? diagnostics.trace.sync('migration.configuration', () => parseMigrationConfig(values)) : parseMigrationConfig(values);
+  const migrations = join(artifact.root, 'operator/apps/api/migrations');
   signal.throwIfAborted();
   // Never remove this marker, including on preflight failure or loss of the commit acknowledgement.
   writeObserved(diagnostics, join(directory, 'migration-started.json'), { authorization: sha256(canonical(auth)), outcome: 'unknown' });
   diagnostics?.at('history', 'history-mismatch');
-  const before = await migrationStatus(database, migrations);
-  if (!before.initialized || !before.ordered || before.unexpected.length
-    || canonical(before.applied) !== canonical(packet.previous.map(item => item.name))
-    || canonical(before.pending) !== canonical(packet.migrations.slice(packet.previous.length).map(item => item.name))) refuse();
+  const before = diagnostics?.trace
+    ? await diagnostics.trace.boundary('sql.history-before', () => migrationStatus(database, migrations)) : await migrationStatus(database, migrations);
+  const beforeMatches = before.initialized && before.ordered && !before.unexpected.length
+    && canonical(before.applied) === canonical(packet.previous.map(item => item.name))
+    && canonical(before.pending) === canonical(packet.migrations.slice(packet.previous.length).map(item => item.name));
+  diagnostics?.trace?.check('sql.expected-history-before', beforeMatches, 'approved-history-or-pending-suffix-differs',
+    { appliedCount: before.applied.length, pendingCount: before.pending.length, unexpectedCount: before.unexpected.length });
+  if (!beforeMatches) refuse();
   signal.throwIfAborted(); verifyRoutineArtifact(artifact, run, schema);
   diagnostics?.at('sql', 'outcome-unknown'); diagnostics?.submitted('migration');
-  const report = await runMigrations(database, { directory: migrations, sourceRevision: run.revision, target: packet.target, signal,
+  const invoke = () => runMigrations(database, { directory: migrations, sourceRevision: run.revision, target: packet.target, signal,
     expectedBefore: packet.previous.map(item => item.name) });
+  const report = diagnostics?.trace ? await diagnostics.trace.boundary('sql.runner', invoke) : await invoke();
+  diagnostics?.trace?.event('sql.runner', report.result === 'success' ? 'passed' : 'failed',
+    `database-${report.database_outcome}`, { attempted: report.attempted.length, before: report.before?.length ?? null, after: report.after?.length ?? null });
   const reports = join(directory, 'migration-reports'); privateDirectory(reports);
   let saved = false;
   try { saved = saveMigrationReport(report, reports); } finally { diagnostics?.migrated(report); }
   if (!saved) { diagnostics?.reject('evidence-persistence'); refuse(); }
   writeObserved(diagnostics, join(directory, 'migration-outcome.json'), { authorization: sha256(canonical(auth)), report });
-  if (!confirmedMigration(report, packet)) refuse();
+  const confirmed = confirmedMigration(report, packet);
+  diagnostics?.trace?.check('sql.confirmed-report', confirmed, 'commit-or-report-binding-unconfirmed');
+  if (!confirmed) refuse();
   diagnostics?.at('history', 'history-mismatch');
-  const after = await migrationStatus(database, migrations);
-  if (!after.initialized || !after.ordered || after.unexpected.length || after.pending.length
-    || canonical(after.applied) !== canonical(packet.migrations.map(item => item.name))) refuse();
+  const after = diagnostics?.trace
+    ? await diagnostics.trace.boundary('sql.history-after', () => migrationStatus(database, migrations)) : await migrationStatus(database, migrations);
+  const afterMatches = after.initialized && after.ordered && !after.unexpected.length && !after.pending.length
+    && canonical(after.applied) === canonical(packet.migrations.map(item => item.name));
+  diagnostics?.trace?.check('sql.expected-history-after', afterMatches, 'committed-history-differs',
+    { appliedCount: after.applied.length, pendingCount: after.pending.length, unexpectedCount: after.unexpected.length });
+  if (!afterMatches) refuse();
   signal.throwIfAborted(); verifyRoutineArtifact(artifact, run, schema);
   writeObserved(diagnostics, join(directory, 'migration-confirmed.json'), { authorization: sha256(canonical(auth)), reportDigest: sha256(canonical(report)) });
 }
@@ -164,9 +185,11 @@ export async function continueRoutineMigration(input: {
   const outcome = object(readEvidence(join(directory, 'migration-outcome.json')).value, ['authorization', 'report']);
   const confirmed = object(readEvidence(join(directory, 'migration-confirmed.json')).value, ['authorization', 'reportDigest']);
   const hash = sha256(canonical(auth));
-  if (outcome.authorization !== hash || confirmed.authorization !== hash
-    || confirmed.reportDigest !== sha256(canonical(outcome.report))
-    || !confirmedMigration(outcome.report as MigrationReport, schema.migration!.packet)) refuse();
+  const binding = outcome.authorization === hash && confirmed.authorization === hash
+    && confirmed.reportDigest === sha256(canonical(outcome.report))
+    && confirmedMigration(outcome.report as MigrationReport, schema.migration!.packet);
+  diagnostics?.trace?.check('migration.committed-continuation', binding, 'authorization-report-or-confirmation-mismatch');
+  if (!binding) refuse();
   writeObserved(diagnostics, join(directory, 'migration-delivering.json'), { authorization: hash });
   await provider.confirmRoutineJournal(auth.journal, `migration_intent:${schema.migration!.digest}`);
   await provider.currentMain(); await provider.binding(auth.predecessor); await provider.compatiblePredecessor();
@@ -206,8 +229,10 @@ function strictBinding(artifact: VerifiedArtifact, request: ReleaseRequest, valu
 export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact; request: ReleaseRequest; env: NodeJS.ProcessEnv;
   action: string; cli: string; directory: string; signal: AbortSignal; diagnostics?: ReleaseDiagnostics }): Promise<void> {
   const { artifact, request, env, action, signal, diagnostics } = input;
-  const packet = strictBinding(artifact, request, decodePhaseInput(env.BE_MIGRATION_PACKET_JSON));
+  const bind = () => strictBinding(artifact, request, decodePhaseInput(env.BE_MIGRATION_PACKET_JSON));
+  const packet = diagnostics?.trace ? diagnostics.trace.sync('strict.packet-binding', bind) : bind();
   const packetDigest = request.migration!.packetDigest, requestDigest = sha256(canonical(request));
+  diagnostics?.trace?.check('strict.packet-input-digest', env.BE_MIGRATION_PACKET_SHA256 === packetDigest, 'packet-digest-differs-from-approved-request');
   if (env.BE_MIGRATION_PACKET_SHA256 !== packetDigest) refuse();
   const root = privateDirectory(join(input.directory, 'strict')), directory = join(root, packet.runId);
   const reservationPath = join(root, 'reservation.json');
@@ -233,7 +258,10 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
   }
   if (action === 'history' || action === 'migrate') {
     const phase = action === 'history' ? 'history' : 'sql-apply';
-    const database = parseMigrationConfig(migrationInputs(decodePhaseInput(env.BE_MIGRATION_INPUTS), packet));
+    const consume = () => migrationInputs(decodePhaseInput(env.BE_MIGRATION_INPUTS), packet);
+    const values = diagnostics?.trace ? diagnostics.trace.sync('strict.migration-input-binding', consume) : consume();
+    diagnostics?.trace?.registerSecrets([values.MIGRATION_DATABASE_URL ?? '', values.DATABASE_CA_PEM ?? '']);
+    const database = diagnostics?.trace ? diagnostics.trace.sync('strict.migration-configuration', () => parseMigrationConfig(values)) : parseMigrationConfig(values);
     const migrations = join(artifact.root, 'operator/apps/api/migrations');
     let authorized = false;
     const operations: EtsyReleaseOperations = {
@@ -245,8 +273,12 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
       },
       async history() {
         if (!authorized) refuse();
-        const status = await migrationStatus(database, migrations);
-        if (!status.initialized || !status.ordered || status.unexpected.length) refuse();
+        const status = diagnostics?.trace ? await diagnostics.trace.boundary('sql.strict-history', () => migrationStatus(database, migrations))
+          : await migrationStatus(database, migrations);
+        const valid = status.initialized && status.ordered && !status.unexpected.length;
+        diagnostics?.trace?.check('sql.strict-history-valid', valid, 'uninitialized-unordered-or-unexpected-history',
+          { appliedCount: status.applied.length, pendingCount: status.pending.length, unexpectedCount: status.unexpected.length });
+        if (!valid) refuse();
         return status.applied;
       },
       async migrate() {
@@ -261,7 +293,11 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
     };
     await runEtsyReleasePhase({ packet, packetDigest, phase, operations, signal, diagnostics, durability: {
       directory: root,
-      async intent(current, value) { authorization(current, value, true); authorized = true; },
+      async intent(current, value) {
+        if (diagnostics?.trace) diagnostics.trace.sync('strict.fresh-sql-authorization', () => authorization(current, value, true));
+        else authorization(current, value, true);
+        authorized = true;
+      },
       acknowledged: unavailable,
       async confirmed(current) {
         if (current === 'sql-apply' && (readEvidence(join(directory, 'migration-report.json')).value as MigrationReport).reporting !== 'written') refuse();
@@ -357,7 +393,7 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
     }
     journal = reservation().journal;
     if (action !== 'held' && action !== 'deliver') refuse();
-    cli = await isolatedEtsyCli(packet, packetDigest, artifact, input.cli, env.VERCEL_TOKEN ?? '', signal);
+    cli = await isolatedEtsyCli(packet, packetDigest, artifact, input.cli, env.VERCEL_TOKEN ?? '', signal, diagnostics);
     const operations: EtsyReleaseOperations = { ...remote, verify, history: unavailable, migrate: unavailable,
       async currentMain() { await provider.currentMain(); return { revision: packet.revision, tree: packet.tree }; },
       create: () => cli!.create(), promote: id => cli!.promote(id) };

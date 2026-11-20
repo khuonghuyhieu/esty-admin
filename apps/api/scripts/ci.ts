@@ -95,7 +95,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   let diagnostics: ChecksDiagnostics | undefined;
   try {
     if (!root || !output || !diagnosticDirectory || process.argv.length !== 5) throw new Error('Explicit CI source/output/diagnostic paths required.');
-    diagnostics = new ChecksDiagnostics(diagnosticDirectory);
+    diagnostics = new ChecksDiagnostics(diagnosticDirectory, { runId: process.env.GITHUB_RUN_ID });
     await runChecks(root, output, process.env, AbortSignal.any([abort.signal, AbortSignal.timeout(2100000)]), diagnostics);
   } catch (error) { console.error('BE_REQUIRED_CHECKS_FAILED: no delivery artifact is approved.\n' + (diagnostics?.error(error) ?? safeChecksError(error))); process.exitCode = 1; }
   finally { process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }

@@ -1,5 +1,39 @@
 # Etsy Admin
 
+## BE end-to-end diagnostics — review accepted
+
+**READY_FOR_BE_END_TO_END_LOGGING_ACCEPTED; source/local review accepted, not production approval.** Root accepted ONE verified Company Codex `gpt-6-luna` medium read-only review by `t1dw`, with no confirmed actionable findings; the same pass completed its source/base comparison after tooling-only failures. No fixes or checks were rerun. [Review and docs-only closeout](specs/001-connectivity-foundation/plan.md#t230-accepted-diagnostic-review-and-docs-only-closeout). The owner reports `BE_DELIVERY_ENABLED=true`; older `false` statements remain earlier status, not instructions to toggle the gate or repeat setup. The existing manual release route is unchanged. A prior packet may be expired and cannot bind changed source after future publication: new publication/artifact/approval and actual-run gates require separate authorization. No dispatch/retry, SQL, deployment or configuration action is granted here.
+
+Actual run44753413337/attempt1 stopped at `Authenticate consumer and successful producer before retrieval`, before download. CREATE/SQL/promotion were not-started and completion correctly failed. The inner cause is still **UNKNOWN**; the synthetic file-permission refusal below is not a diagnosis of that runner.
+
+### Read the diagnostic result
+
+- Checks retain bounded public stdout/stderr and stage records, including install/codegen/compile failures before the main checks entry. Inspect `failed-stage.json` first, then its named stdout/stderr files; IDs may be nested, so do not assume001.
+- Retrieval/production retain `<correlation>-events.jsonl`, `-failure.json` and, when bounded output is omitted, `-limits.json`. Records carry run ID, correlation, sequence, named condition, outcome/reason, safe expected/actual metadata and timing. The first failure is immutable; dependent operations are explicitly not-run. Workflow summaries also disclose skipped/cancelled/failed steps.
+- Provider/SQL command output, response bodies, arbitrary error messages, environment values, headers and private paths are **omitted**, not trusted to generic redaction. Private errors retain allowlisted source filenames/line numbers, safe codes and cause topology. Public checks retain useful bounded redacted errors/output. Known deployment IDs and committed/unknown SQL remain in authoritative release receipts even when diagnostic storage fails.
+- Four narrowly scoped diagnostic uploads run `always()` and best-effort for setup/checks/retrieval/production; upload loss is visible and cannot turn a failure into acceptance. Missing logs never prove no effect. Receipt retention and existing completion acceptance remain authoritative.
+- Limits: public child4MiB combined output, file4MiB, context64MiB, line16384 characters and128 stages; release trace8192 events or8MiB plus a first-failure record and omitted-event count. Safe errors cap cause depth8 and32 approved stack locations per cause. Existing provider response/archive bounds remain independent.
+
+### Local diagnostic verification
+
+From this repository root with Node24.22.1 and the existing dependencies; these commands do not authorize native builds or provider access:
+
+```sh
+node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+DIAGNOSTIC_TESTS='^end-to-end|^required-checks|^L[1-4] |^completion Bash|^routine migration|^routine committed|^routine remote|^current-only|^exact current-schema|^stale source|^nonzero, interrupted|^failed promotion|^Etsy setup release|^project and verified|^provider identity|^deployment diagnostics|^HTTP rejection|^active cancellation|^unsafe or oversized|^normalized pending|^same-deployment|^staged operator'
+node --test --test-reporter=tap --test-name-pattern="$DIAGNOSTIC_TESTS" \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js
+# Affected-only verification after the package-closure/completion-test corrections:
+node --test --test-reporter=tap --test-name-pattern='^completion Bash|^staged operator' \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/artifact.test.js
+# Final affected preflight contract and emitted controller verification:
+node --test --test-reporter=tap \
+  --test-name-pattern='^end-to-end preflight|^L4 emitted routine|^L3 emitted strict|^L2 actual ordinary|^project and verified' \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/release.test.js
+```
+
+Actual final compiler0; broad selection215/246 passed with31 failures, then corrected package/completion34/34 and final preflight/controller63/63 passed. Do not describe this as a single final full-suite run. The preflight regression preserves the original65536-character limit for Unicode instead of introducing a stricter byte limit. Emitted current-only/strict journeys, three compatible-migration scenarios and actual source entrypoint failures used synthetic inputs/transport and no real network/SQL. YAML and52 Bash blocks passed; `actionlint` and actual Actions upload enforcement were not exercised. Exact commands, first failures, corrections and frozen hashes are retained in the linked evidence.
+
 ## Current BE manual release guide
 
 **2026-11-20 — source/local validated and independently reviewed; production execution remains HELD.** This is the single current BE routine-release route. The older BE automation, activation, setup and remaining-actions sections below are retained historical records, not alternative current instructions or renewed permission. FE sections and their acceptance boundaries are unchanged. [Actual implementation, review, tests and limits](specs/001-connectivity-foundation/plan.md#source-local-completion-and-independent-review).

@@ -76,11 +76,14 @@ jobs:
           printf '## BE delivery gate\nEnabled: `%s`\nMode: `%s`\nApproved schema configured: `%s`\n\nChecks success is not deployment acceptance. Production requires be-production inputs and successful exact-artifact final-domain checks.\n' \
             "$DELIVERY_ENABLED" "$DELIVERY_MODE" "$SCHEMA_APPROVED" >> "$GITHUB_STEP_SUMMARY"
       - name: Install unchanged-lock API dependencies on this disposable runner
-        run: npm ci --workspace=@esty-admin/api --include-workspace-root=false --ignore-scripts --no-audit --no-fund
-      - name: Verify generated contract and compile
-        run: |
-          npm run codegen:check --workspace=@esty-admin/api
-          npm run build --workspace=@esty-admin/api
+        id: install
+        run: node apps/api/scripts/checks-diagnostics.ts public-command "$RUNNER_TEMP/be-setup-diagnostics/install" install npm ci --workspace=@esty-admin/api --include-workspace-root=false --ignore-scripts --no-audit --no-fund
+      - name: Verify generated contract
+        id: codegen
+        run: node apps/api/scripts/checks-diagnostics.ts public-command "$RUNNER_TEMP/be-setup-diagnostics/codegen" codegen npm run codegen:check --workspace=@esty-admin/api
+      - name: Compile exact API source
+        id: compile
+        run: node apps/api/scripts/checks-diagnostics.ts public-command "$RUNNER_TEMP/be-setup-diagnostics/compile" compile npm run build --workspace=@esty-admin/api
       - name: Build native artifact and require functional plus actual HTTP-to-test-DB checks
         id: verify
         run: node apps/api/build/scripts/ci.js "$GITHUB_WORKSPACE" "$RUNNER_TEMP/be-transfer" "$RUNNER_TEMP/be-checks-diagnostics"
@@ -96,7 +99,39 @@ jobs:
           retention-days: 14
           compression-level: 0
           overwrite: false
+      - name: Summarize checks including not-run dependencies
+        if: always()
+        continue-on-error: true
+        env:
+          INSTALL: ${{ steps.install.outcome }}
+          CODEGEN: ${{ steps.codegen.outcome }}
+          COMPILE: ${{ steps.compile.outcome }}
+          VERIFY: ${{ steps.verify.outcome }}
+          UPLOAD: ${{ steps.upload.outcome }}
+        run: >-
+          node apps/api/scripts/checks-diagnostics.ts summary "$RUNNER_TEMP/be-release-diagnostics" checks
+          "install=${INSTALL:-unknown}" "codegen=${CODEGEN:-unknown}" "compile=${COMPILE:-unknown}"
+          "native-functional-integration-package=${VERIFY:-unknown}" "tested-artifact-upload=${UPLOAD:-unknown}"
+      - name: Retain bounded setup diagnostics even before compilation
+        id: setup_diagnostics_upload
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: be-setup-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/be-setup-diagnostics/*/*-stage.json
+            ${{ runner.temp }}/be-setup-diagnostics/*/failed-stage.json
+            ${{ runner.temp }}/be-setup-diagnostics/*/*-stdout.log
+            ${{ runner.temp }}/be-setup-diagnostics/*/*-stderr.log
+            ${{ runner.temp }}/be-release-diagnostics/*-events.jsonl
+            ${{ runner.temp }}/be-release-diagnostics/*-limits.json
+            ${{ runner.temp }}/be-release-diagnostics/*-failure.json
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: false
       - name: Retain bounded public required-checks diagnostics even after failure
+        id: checks_diagnostics_upload
         if: always()
         continue-on-error: true
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -110,6 +145,18 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
           overwrite: false
+      - name: Report diagnostic upload failures without replacing checks failure
+        if: always()
+        env:
+          SETUP_UPLOAD: ${{ steps.setup_diagnostics_upload.outcome }}
+          CHECKS_UPLOAD: ${{ steps.checks_diagnostics_upload.outcome }}
+        run: |
+          for result in "$SETUP_UPLOAD" "$CHECKS_UPLOAD"; do
+            if [[ "$result" != success ]]; then
+              printf '%s\n' '::warning::BE diagnostic upload unavailable; inspect original failing step and retained runner logs. No release approval is implied.'
+              printf '%s\n' 'BE diagnostic upload failed or did not run; logs may be unavailable.' >> "$GITHUB_STEP_SUMMARY" || true
+            fi
+          done
 
   routine_retrieval:
     name: Select an approved checked routine bundle
@@ -156,6 +203,7 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: node apps/api/scripts/routine-retained.mjs select "$RUNNER_TEMP/be-transfer"
       - name: Download only the selected producer run and artifact
+        id: download
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           artifact-ids: ${{ steps.select.outputs.artifact_id }}
@@ -183,6 +231,41 @@ jobs:
           retention-days: 1
           compression-level: 0
           overwrite: false
+      - name: Summarize retained selection and dependent checks
+        if: always()
+        continue-on-error: true
+        env:
+          SELECT: ${{ steps.select.outcome }}
+          DOWNLOAD: ${{ steps.download.outcome }}
+          CONSUME: ${{ steps.consume.outcome }}
+          RELAY: ${{ steps.relay.outcome }}
+        run: >-
+          node apps/api/scripts/checks-diagnostics.ts summary "$RUNNER_TEMP/be-release-diagnostics" retrieval
+          "authenticate-select=${SELECT:-unknown}" "download=${DOWNLOAD:-unknown}"
+          "archive-identity-request=${CONSUME:-unknown}" "relay=${RELAY:-unknown}"
+      - name: Retain public retrieval diagnostics even after selection failure
+        id: release_diagnostics_upload
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: be-retrieval-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: &release-diagnostic-paths |
+            ${{ runner.temp }}/be-release-diagnostics/*-events.jsonl
+            ${{ runner.temp }}/be-release-diagnostics/*-limits.json
+            ${{ runner.temp }}/be-release-diagnostics/*-failure.json
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: false
+      - name: Disclose retrieval diagnostic upload loss
+        if: always()
+        env:
+          DIAGNOSTIC_UPLOAD: ${{ steps.release_diagnostics_upload.outcome }}
+        run: &diagnostic-upload-notice |
+          if [[ "$DIAGNOSTIC_UPLOAD" != success ]]; then
+            printf '%s\n' '::warning::BE diagnostic upload unavailable; original result and mutation receipts remain authoritative.'
+            printf '%s\n' 'Diagnostic upload failed or did not run. Missing logs do not prove no effect.' >> "$GITHUB_STEP_SUMMARY" || true
+          fi
 
   production:
     name: BE production delivery
@@ -213,19 +296,23 @@ jobs:
           node-version: 24.22.1
           package-manager-cache: false
       - name: Download only this run's verified immutable relay
+        id: download
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           artifact-ids: ${{ needs.routine_retrieval.outputs.artifact_id }}
           path: ${{ runner.temp }}/be-transfer
           merge-multiple: true
       - name: Reverify approved relay and exact controller/operator before executing bundle code
+        id: consume
         env:
           BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
           BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
         run: node apps/api/scripts/routine-retained.mjs consume-relay "$RUNNER_TEMP/be-transfer" "$RUNNER_TEMP/be-consume" "$GITHUB_WORKSPACE"
       - name: Bootstrap independently verified public CLI before provider secrets
-        run: node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-tools.js" "$RUNNER_TEMP/be-tools"
+        id: tools
+        run: node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-tools.js" "$RUNNER_TEMP/be-tools" "$RUNNER_TEMP/be-tools-diagnostics"
       - name: Reserve the common durable exclusion and authorize the explicit migration mode
+        id: authorize
         if: env.BE_DELIVERY_MODE == 'versioned-migration' || env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
         env:
           BE_ROUTINE_ACTION: authorize
@@ -240,6 +327,7 @@ jobs:
           "$RUNNER_TEMP/be-consume" "$RUNNER_TEMP/be-transfer"
           "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js" "$RUNNER_TEMP/be-receipts"
       - name: Inspect exactly strict three-entry history in the SQL-only worker
+        id: history
         if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
         env:
           BE_ROUTINE_ACTION: history
@@ -248,6 +336,7 @@ jobs:
           BE_MIGRATION_INPUTS: ${{ secrets.BE_MIGRATION_INPUTS }}
         run: *routine-command
       - name: Create held strict4 once and authorize SQL only after exact pending readiness
+        id: held
         if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
         env:
           BE_ROUTINE_ACTION: held
@@ -259,6 +348,7 @@ jobs:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: *routine-command
       - name: Apply only the approved new suffix in the SQL-only worker
+        id: migrate
         if: env.BE_DELIVERY_MODE == 'versioned-migration' || env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
         env:
           BE_ROUTINE_ACTION: migrate
@@ -278,8 +368,10 @@ jobs:
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: *routine-command
       - name: Preserve private receipt modes and record the exact transferable inventory
+        id: receipt_archive
         if: always()
         run: |
+          trap 'code=$?; if [ "$code" -ne 0 ]; then printf "BE receipt archive failed: exit=%s; retained effects are not rolled back.\n" "$code" >&2; fi' EXIT
           if [ -d "$RUNNER_TEMP/be-receipts" ]; then
             node --input-type=module -e \
               'const {inventory,canonical,sha256}=await import(process.argv[1]); console.log(sha256(canonical(inventory(process.argv[2]))));' \
@@ -289,6 +381,7 @@ jobs:
             sha256sum "$RUNNER_TEMP/be-delivery-receipts.tar.gz" > "$RUNNER_TEMP/be-delivery-receipts.archive-sha256"
           fi
       - name: Retain sanitized receipts without secret-bearing subprocess logs
+        id: receipt_upload
         if: always()
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -300,6 +393,49 @@ jobs:
           if-no-files-found: ignore
           retention-days: 30
           overwrite: false
+      - name: Summarize production boundaries without private output
+        if: always()
+        continue-on-error: true
+        env:
+          DOWNLOAD: ${{ steps.download.outcome }}
+          CONSUME: ${{ steps.consume.outcome }}
+          TOOLS: ${{ steps.tools.outcome }}
+          AUTHORIZE: ${{ steps.authorize.outcome }}
+          HISTORY: ${{ steps.history.outcome }}
+          HELD: ${{ steps.held.outcome }}
+          MIGRATE: ${{ steps.migrate.outcome }}
+          DELIVERY: ${{ steps.routine_delivery.outcome }}
+          RECEIPTS: ${{ steps.receipt_archive.outcome }}
+          RECEIPT_UPLOAD: ${{ steps.receipt_upload.outcome }}
+        run: >-
+          node apps/api/scripts/checks-diagnostics.ts summary "$RUNNER_TEMP/be-release-diagnostics" production
+          "download=${DOWNLOAD:-unknown}" "ingress=${CONSUME:-unknown}" "public-tools=${TOOLS:-unknown}"
+          "authorize=${AUTHORIZE:-unknown}" "history=${HISTORY:-unknown}" "held=${HELD:-unknown}"
+          "sql=${MIGRATE:-unknown}" "same-id-delivery=${DELIVERY:-unknown}"
+          "receipt-archive=${RECEIPTS:-unknown}" "receipt-upload=${RECEIPT_UPLOAD:-unknown}"
+      - name: Retain public production diagnostics on every outcome
+        id: release_diagnostics_upload
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: be-production-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/be-release-diagnostics/*-events.jsonl
+            ${{ runner.temp }}/be-release-diagnostics/*-limits.json
+            ${{ runner.temp }}/be-release-diagnostics/*-failure.json
+            ${{ runner.temp }}/be-tools-diagnostics/*-stage.json
+            ${{ runner.temp }}/be-tools-diagnostics/failed-stage.json
+            ${{ runner.temp }}/be-tools-diagnostics/*-stdout.log
+            ${{ runner.temp }}/be-tools-diagnostics/*-stderr.log
+          if-no-files-found: warn
+          retention-days: 14
+          overwrite: false
+      - name: Disclose production diagnostic upload loss
+        if: always()
+        env:
+          DIAGNOSTIC_UPLOAD: ${{ steps.release_diagnostics_upload.outcome }}
+        run: *diagnostic-upload-notice
 
   manual_retrieval:
     name: Select the owner-approved retained activation bundle
@@ -688,6 +824,7 @@ jobs:
           ACTIVATION_ACCEPTED: ${{ needs.manual_activation.outputs.accepted }}
         shell: bash
         run: |
+          trap 'code=$?; printf "BE completion command ended: exit=%s; checks=%s retrieval=%s production=%s accepted=%s\n" "$code" "$CHECKS_RESULT" "$ROUTINE_RETRIEVAL_RESULT" "$DELIVERY_RESULT" "$DELIVERY_ACCEPTED" | tee -a "$GITHUB_STEP_SUMMARY" || true' EXIT
           if [[ "$MANUAL_ACTIVATION" == true ]]; then
             if [[ "$RETRIEVAL_RESULT" != success || "$ACTIVATION_RESULT" != success || "$ACTIVATION_ACCEPTED" != true ]]; then
               printf '%s\n' 'BE activation not accepted: retained retrieval, activation and final BE acceptance must all succeed.' >&2

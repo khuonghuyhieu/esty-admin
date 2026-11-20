@@ -24,6 +24,8 @@ import { validateEtsyReleasePacket } from './etsy-release.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
 import { privateDirectory } from './private-files.mjs';
 import { emitRoutineResult, routineFailureResult } from './routine-retained.mjs';
+import { ChecksDiagnostics } from './checks-diagnostics.js';
+import { withRoutineDiagnostics } from './routine-retained.mjs';
 
 export interface ReleaseRequest {
   version: 1;
@@ -300,8 +302,8 @@ export class ReleaseOutcome {
 export class ReleaseFailure extends Error {
   result?: ReleaseResult;
   reported = false;
-  constructor(readonly stage: ReleaseStage, readonly category: ReleaseCategory) {
-    super('Release not accepted; inspect the bounded result and retained evidence.');
+  constructor(readonly stage: ReleaseStage, readonly category: ReleaseCategory, cause?: unknown) {
+    super('Release not accepted; inspect the bounded result and retained evidence.', cause === undefined ? undefined : { cause });
   }
 }
 
@@ -315,7 +317,8 @@ export class ReleaseDiagnostics {
   #digest: string | null = null;
   #sequence = 0;
   #final = false;
-  constructor(readonly request: ReleaseRequest, readonly directory: string, readonly signal: AbortSignal) {
+  constructor(readonly request: ReleaseRequest, readonly directory: string, readonly signal: AbortSignal,
+    readonly trace?: ChecksDiagnostics) {
     this.#outcome = new ReleaseOutcome(request, { version: 1, requestDigest: sha256(canonical(request)) });
   }
   load(allowTerminal = false): void {
@@ -347,10 +350,34 @@ export class ReleaseDiagnostics {
     }
     this.at('request', 'invalid-input');
   }
-  at(stage: ReleaseStage, category: ReleaseCategory = 'validation'): void { this.#stage = stage; this.#category = category; }
+  at(stage: ReleaseStage, category: ReleaseCategory = 'validation'): void {
+    this.#stage = stage; this.#category = category;
+    this.trace?.event(`release.${stage}`, 'started', category);
+  }
+  check(name: string, condition: boolean, values: Record<string, number | boolean | null> = {}): void {
+    this.trace?.check(`${this.#stage}.${name}`, condition, 'condition-mismatch', values);
+    if (!condition) throw this.capture(new Error(`Release predicate failed: ${name}.`));
+  }
+  /** Wrap async provider operations once; arguments/results stay private and no operation is repeated. */
+  operations<T extends object>(prefix: string, operations: T): T {
+    if (!this.trace) return operations;
+    for (const [name, operation] of Object.entries(operations)) {
+      if (typeof operation !== 'function') continue;
+      Object.assign(operations, { [name]: (...args: unknown[]) => this.trace!.boundary(`${prefix}.${name}`, () => operation(...args)) });
+    }
+    return operations;
+  }
   capture(cause?: unknown): ReleaseFailure {
-    if (!this.#failure) this.#failure = cause instanceof ReleaseFailure ? cause
-      : new ReleaseFailure(this.#stage, this.signal.aborted ? 'timeout' : this.#category);
+    if (!this.#failure) {
+      this.#failure = cause instanceof ReleaseFailure ? cause
+        : new ReleaseFailure(this.#stage, this.signal.aborted ? 'timeout' : this.#category, cause);
+      this.trace?.event(`release.${this.#failure.stage}`, 'failed', this.#failure.category,
+        { aborted: this.signal.aborted }, cause ?? this.#failure);
+      const state = this.snapshot();
+      for (const operation of ['create', 'migration', 'promotion'] as const) {
+        if (state.effects[operation] === 'not-started') this.trace?.event(`release.${operation}`, 'not-run', 'first-failure-before-submission');
+      }
+    }
     if (this.#failure.category === 'evidence-persistence') this.#unconfirmed = true;
     return this.#failure;
   }
@@ -358,24 +385,35 @@ export class ReleaseDiagnostics {
   evidenceFailed(): void { this.#unconfirmed = true; }
   async guard<T>(category: ReleaseCategory, body: () => Promise<T>): Promise<T> {
     const previous = this.#category; this.#category = category;
-    try { return await body(); }
+    try { return this.trace ? await this.trace.boundary(`${this.#stage}.${category}`, body) : await body(); }
     catch (cause) {
       if (category === 'evidence-persistence') this.#unconfirmed = true;
       throw this.capture(cause);
     } finally { this.#category = previous; }
   }
   observe(body: () => void): void {
-    try { body(); }
-    catch { this.#unconfirmed = true; throw this.capture(new ReleaseFailure(this.#stage, 'evidence-persistence')); }
+    try { if (this.trace) this.trace.sync(`${this.#stage}.receipt-write`, body); else body(); }
+    catch (cause) { this.#unconfirmed = true; throw this.capture(new ReleaseFailure(this.#stage, 'evidence-persistence', cause)); }
   }
-  submitted(operation: ReleaseOperation): void { this.#outcome.submitted(operation); this.persist(); }
-  created(id: string): void { this.#outcome.acknowledgeCreate(id); this.persist(); }
+  submitted(operation: ReleaseOperation): void {
+    this.#outcome.submitted(operation);
+    this.trace?.event(`effect.${operation}`, 'started', 'submitted-outcome-unknown'); this.persist();
+  }
+  created(id: string): void {
+    this.#outcome.acknowledgeCreate(id);
+    this.trace?.event('effect.create', 'passed', 'deployment-id-acknowledged', { actualId: id }); this.persist();
+  }
   migrated(report: MigrationReport): void {
     this.#outcome.acknowledgeMigration(report);
+    this.trace?.event('effect.migration', report.database_outcome === 'committed' ? 'passed' : 'failed',
+      `database-${report.database_outcome}`, { committed: report.database_outcome === 'committed', reportingWritten: report.reporting === 'written' });
     if (report.reporting === 'failed') this.#unconfirmed = true;
     this.persist();
   }
-  promoted(): void { this.#outcome.acknowledgePromotion(); this.persist(); }
+  promoted(): void {
+    this.#outcome.acknowledgePromotion();
+    this.trace?.event('effect.promotion', 'passed', 'promotion-acknowledged'); this.persist();
+  }
   verified(): void { this.#final = true; this.at('receipt'); }
   remote(descriptions: readonly string[]): void {
     // Remote intent/ID observations are diagnostic only. A report hash is not a SQL report.
@@ -399,12 +437,14 @@ export class ReleaseDiagnostics {
   persist(result?: ReleaseResult): void {
     const terminal = result !== undefined;
     result ??= this.snapshot();
+    this.trace?.event('release.receipt-finalization', 'started', terminal ? 'terminal-outcome' : 'intermediate-outcome');
     this.observe(() => {
       if (this.#sequence >= 256) throw new Error('Bounded diagnostic history exhausted.');
       const path = join(this.directory, `release-outcome-${String(this.#sequence).padStart(4, '0')}.json`);
       writeReleaseEvidence(path, { requestDigest: sha256(canonical(result!.request)), previous: this.#digest, result, terminal });
       this.#digest = readEvidence(path).identity.sha256; this.#sequence++;
     });
+    this.trace?.event('release.receipt-finalization', 'passed', 'durable-outcome-readback-confirmed');
   }
   failure(cause?: unknown): ReleaseResult {
     const failure = this.capture(cause), state = this.snapshot();
@@ -504,17 +544,22 @@ export async function deliver(input: { artifact: VerifiedArtifact; run: RunIdent
   const { artifact, run, provider, cli, signal, diagnostics } = input;
   const receipt = (event: Record<string, unknown>) => diagnostics ? diagnostics.observe(() => input.receipt(event)) : input.receipt(event);
   const configDigest = input.schema.configDigest;
+  diagnostics?.trace?.check('request.configuration-approval', typeof configDigest === 'string' && releaseHex.test(configDigest), 'independent-runtime-digest-required');
+  diagnostics?.trace?.check('request.migration-continuation', Boolean(input.schema.migration) === Boolean(input.reservation), 'reservation-and-migration-mode-must-agree');
   if (typeof configDigest !== 'string' || !releaseHex.test(configDigest)) throw new Error('Independent runtime configuration approval is required.');
   if (Boolean(input.schema.migration) !== Boolean(input.reservation)) throw new Error('Migration continuation is required.');
   const verify = () => {
     signal.throwIfAborted();
-    verifyRoutineArtifact(artifact, run, input.schema);
+    if (diagnostics?.trace) diagnostics.trace.sync('artifact.inventory-and-source', () => verifyRoutineArtifact(artifact, run, input.schema));
+    else verifyRoutineArtifact(artifact, run, input.schema);
   };
   diagnostics?.at('artifact', 'identity-mismatch');
   verify();
   await provider.currentMain();
   diagnostics?.at('configuration');
   const predecessor = await provider.preflight();
+  if (input.reservation) diagnostics?.trace?.check('configuration.migrated-predecessor', predecessor === input.reservation.predecessor,
+    'predecessor-binding-changed', { actualId: predecessor, expectedId: input.reservation.predecessor });
   if (input.reservation && predecessor !== input.reservation.predecessor) throw new Error('Migrated predecessor binding changed.');
   let journal: number | undefined = input.reservation?.journal, id: string | undefined;
   try {
@@ -535,6 +580,8 @@ export async function deliver(input: { artifact: VerifiedArtifact; run: RunIdent
       if (diagnostics) await diagnostics.guard('evidence-persistence', () => provider.record(journal!, 'in_progress', `ack:${id}`));
       else await provider.record(journal, 'in_progress', `ack:${id}`);
     }
+    diagnostics?.trace?.check('create.cli-acknowledgement', Boolean(id) && created.code === 0 && !created.aborted,
+      'missing-id-nonzero-exit-or-cancelled-reconcile-without-replay', { idKnown: Boolean(id), code: created.code, aborted: created.aborted });
     if (!id || created.code !== 0 || created.aborted) throw new Error('Create outcome requires reconciliation.');
     diagnostics?.at('candidate');
     let candidate: Candidate;
@@ -546,7 +593,9 @@ export async function deliver(input: { artifact: VerifiedArtifact; run: RunIdent
     await provider.attest(id); await provider.binding(predecessor);
     await provider.http(candidate.origin, true);
     await provider.currentMain(); await provider.binding(predecessor); verify();
-    if (!(await provider.inspect(id)).ready) throw new Error('Candidate readiness changed.');
+    const candidateReady = (await provider.inspect(id)).ready;
+    diagnostics?.trace?.check('candidate.pre-promotion-readiness', candidateReady, 'candidate-no-longer-ready');
+    if (!candidateReady) throw new Error('Candidate readiness changed.');
     await provider.attest(id);
     diagnostics?.at('promote', 'outcome-unknown');
     receipt({ phase: 'promotion_intent', journal, id });
@@ -555,10 +604,14 @@ export async function deliver(input: { artifact: VerifiedArtifact; run: RunIdent
     signal.throwIfAborted();
     diagnostics?.submitted('promotion');
     const promoted = await cli.promote(id);
+    diagnostics?.trace?.check('promotion.cli-acknowledgement', promoted.code === 0 && !promoted.aborted,
+      'nonzero-exit-or-cancelled-reconcile-without-replay', { code: promoted.code, aborted: promoted.aborted });
     if (promoted.code !== 0 || promoted.aborted) throw new Error('Promotion outcome requires reconciliation.');
     diagnostics?.promoted(); diagnostics?.at('domain');
     await provider.binding(id);
-    if (!(await provider.inspect(id)).ready) throw new Error('Promoted candidate is not ready.');
+    const finalReady = (await provider.inspect(id)).ready;
+    diagnostics?.trace?.check('domain.final-readiness', finalReady, 'promoted-candidate-not-ready');
+    if (!finalReady) throw new Error('Promoted candidate is not ready.');
     await provider.attest(id); await provider.http('https://api.lovora.us', false); await provider.binding(id);
     diagnostics?.at('receipt', 'evidence-persistence');
     verify(); receipt({ phase: 'accepted', journal, id, artifact: artifact.digest, configDigest, region: 'icn1', cases: 8 });
@@ -632,7 +685,7 @@ export function prebuiltCreateArguments(artifact: VerifiedArtifact, common: stri
 }
 
 export async function officialCli(artifact: VerifiedArtifact, cli: string, token: string, signal: AbortSignal,
-  activation?: ActivationDeliveryContext): Promise<OfficialCli> {
+  activation?: ActivationDeliveryContext, diagnostics?: ReleaseDiagnostics): Promise<OfficialCli> {
   if (!/^[\x21-\x7e]{16,512}$/.test(token) || !cli.endsWith('/vercel/dist/vc.js')) throw new Error('Invalid isolated CLI input.');
   if (activation) {
     validateActivationPacket(activation.packet, activation.packetDigest);
@@ -654,11 +707,11 @@ export async function officialCli(artifact: VerifiedArtifact, cli: string, token
         if (canonical(uploaded) !== canonical(artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/')))) {
           throw new Error('CLI staging bytes differ from the tested artifact.');
         }
-        return command(process.execPath, [cli, ...prebuiltCreateArguments(artifact, common, activation)], stage, env, signal);
+        return command(process.execPath, [cli, ...prebuiltCreateArguments(artifact, common, activation)], stage, env, signal, diagnostics?.trace);
       },
       async promote(id) {
         if (!created || promoted || !deploymentId.test(id)) throw new Error('CLI promotion is one-shot.'); promoted = true;
-        return command(process.execPath, [cli, 'promote', id, '--timeout', '5m', ...common], stage, env, signal);
+        return command(process.execPath, [cli, 'promote', id, '--timeout', '5m', ...common], stage, env, signal, diagnostics?.trace);
       },
       async dispose() { await removeArtifactTree(root); },
     };
@@ -687,20 +740,21 @@ function routinePhaseContext(env: NodeJS.ProcessEnv) {
 // Keeping the existing dispatch together makes zero SQL-runner calls observable without bypassing those CLI gates.
 export interface RoutinePhaseInput {
   artifact: VerifiedArtifact; request: ReleaseRequest; env: NodeJS.ProcessEnv;
-  cli: string; reports: string; signal: AbortSignal; emit?: boolean;
+  cli: string; reports: string; signal: AbortSignal; emit?: boolean; trace?: ChecksDiagnostics;
 }
 export async function runRoutinePhase(input: RoutinePhaseInput): Promise<ReleaseResult | undefined> {
   let diagnostics: ReleaseDiagnostics | undefined;
   try {
-    diagnostics = new ReleaseDiagnostics(input.request, input.reports, input.signal);
+    diagnostics = new ReleaseDiagnostics(input.request, input.reports, input.signal, input.trace);
     diagnostics.load(input.env.BE_ROUTINE_ACTION === 'reconcile');
-    await executeRoutinePhase(input, diagnostics);
+    if (input.trace) await input.trace.boundary('routine.execute-phase', () => executeRoutinePhase(input, diagnostics!));
+    else await executeRoutinePhase(input, diagnostics);
     if (input.env.BE_ROUTINE_ACTION === 'reconcile') return;
     const result = diagnostics.complete();
     if (result) {
       diagnostics.persist(result);
       if (input.emit !== false) {
-        const emitted = validateReleaseResult(emitRoutineResult(result, input.env));
+        const emitted = validateReleaseResult(emitRoutineResult(result, input.env, input.trace));
         if (emitted.status !== result.status) {
           const failure = new ReleaseFailure(emitted.stage, emitted.category!);
           failure.result = emitted; failure.reported = true; throw failure;
@@ -720,7 +774,7 @@ export async function runRoutinePhase(input: RoutinePhaseInput): Promise<Release
     try { diagnostics?.persist(result); }
     catch { diagnostics?.evidenceFailed(); result = diagnostics?.failure(cause) ?? result; }
     if (input.emit !== false) {
-      const emitted = validateReleaseResult(emitRoutineResult(result, input.env));
+      const emitted = validateReleaseResult(emitRoutineResult(result, input.env, input.trace));
       if (emitted.evidence !== result.evidence || emitted.nextAction !== result.nextAction) {
         try { diagnostics?.persist(emitted); } catch { /* Emitted evidence is already unconfirmed. */ }
       }
@@ -770,7 +824,8 @@ async function executeRoutinePhase(input: RoutinePhaseInput, diagnostics: Releas
   }
   const reservation = schema.migration
     ? await continueRoutineMigration({ artifact, run, schema, provider, directory: reports, diagnostics }) : undefined;
-  const official = await officialCli(artifact, resolve(cli), env.VERCEL_TOKEN ?? '', signal);
+  if (!schema.migration) diagnostics.trace?.event('sql.runner', 'not-run', 'unchanged-schema-zero-runner');
+  const official = await officialCli(artifact, resolve(cli), env.VERCEL_TOKEN ?? '', signal, undefined, diagnostics);
   try {
     let index = 0;
     const receipt = (event: Record<string, unknown>) => {
@@ -789,26 +844,34 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   let isolated: ArtifactSnapshot | undefined;
   let terminal: ReleaseResult | undefined, diagnostics: ReleaseDiagnostics | undefined;
   let entryStage: 'request' | 'artifact' = 'request';
+  const trace = new ChecksDiagnostics(join(process.env.RUNNER_TEMP ?? tmpdir(), 'be-release-diagnostics'),
+    { scope: 'release', runId: process.env.GITHUB_RUN_ID });
   const abort = new AbortController(), cancel = () => abort.abort();
   process.once('SIGINT', cancel); process.once('SIGTERM', cancel);
   try {
+    trace.check('entry.arguments', Boolean(bundle && transfer && cli && reports && process.argv.length === 6), 'four-explicit-paths-required');
+    trace.check('entry.node-version', process.versions.node === artifactTarget.node, 'pinned-node-required');
+    trace.check('entry.platform', process.platform === 'linux' && process.arch === 'x64', 'linux-x64-required');
     if (!bundle || !transfer || !cli || !reports || process.argv.length !== 6 || process.versions.node !== artifactTarget.node
       || process.platform !== 'linux' || process.arch !== 'x64') throw new Error('Exact delivery arguments/platform required.');
     const signal = AbortSignal.any([abort.signal, AbortSignal.timeout(900000)]);
     // Read only the independently hashed diagnostic envelope before a later
     // ingress/credential failure. This never substitutes for execution approval.
     entryStage = 'artifact';
-    const diagnosticRequest = readRoutineRequest(transfer, process.env.BE_RELEASE_REQUEST_SHA256);
-    releaseRequestShape(diagnosticRequest);
-    diagnostics = new ReleaseDiagnostics(diagnosticRequest, reports, signal);
+    const diagnosticRequest = trace.sync('request.contract-shape', () => {
+      const value = withRoutineDiagnostics(trace, () => readRoutineRequest(transfer, process.env.BE_RELEASE_REQUEST_SHA256));
+      releaseRequestShape(value); return value;
+    });
+    diagnostics = new ReleaseDiagnostics(diagnosticRequest, reports, signal, trace);
     diagnostics.load(process.env.BE_ROUTINE_ACTION === 'reconcile');
     diagnostics.at('request', 'unauthorized-context');
     const { action } = routinePhaseContext(process.env);
     diagnostics.at('artifact', 'identity-mismatch');
     // SQL-only continuation has no provider credential or authenticated-network call.
-    const { artifact: selected, request } = action === 'migrate' || action === 'history'
-      ? await prepareRoutineDelivery({ bundle, transfer, env: process.env })
-      : await authenticateRoutineDelivery({ bundle, transfer, env: process.env, read: githubReader(process.env.GITHUB_TOKEN, signal) });
+    const { artifact: selected, request } = await withRoutineDiagnostics(trace, () => trace.boundary<{ artifact: VerifiedArtifact; request: ReleaseRequest }>('delivery.authenticated-ingress', () =>
+      action === 'migrate' || action === 'history'
+        ? prepareRoutineDelivery({ bundle, transfer, env: process.env })
+        : authenticateRoutineDelivery({ bundle, transfer, env: process.env, read: githubReader(process.env.GITHUB_TOKEN, signal, fetch, trace) })));
     if (canonical(request) !== canonical(diagnosticRequest)
       || canonical(deliveryContext(process.env, request.controller.tree)) !== canonical(request.controller)) releaseRefusal();
     isolated = await snapshotArtifact(selected);
@@ -820,8 +883,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     if (canonical(executing.files) !== canonical(expectedFiles) || canonical(executing.directories) !== canonical(expectedDirectories)) {
       throw new Error('Executing operator differs from the tested artifact.');
     }
-    terminal = await runRoutinePhase({ artifact: isolated, request, env: process.env, cli, reports, signal, emit: false });
+    terminal = await runRoutinePhase({ artifact: isolated, request, env: process.env, cli, reports, signal, emit: false, trace });
   } catch (cause) {
+    trace.event('delivery.entry', 'failed', 'entry-or-phase-refused', {}, cause);
     terminal = cause instanceof ReleaseFailure && cause.result ? cause.result : diagnostics?.failure(cause)
       ?? validateReleaseResult(routineFailureResult(entryStage, entryStage === 'artifact' ? 'identity-mismatch' : 'invalid-input'));
     process.exitCode = 1;
@@ -844,7 +908,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     let retained: ReleaseDiagnostics | undefined;
     if (terminal.request && reports) {
       try {
-        retained = new ReleaseDiagnostics(terminal.request, reports, abort.signal);
+        retained = new ReleaseDiagnostics(terminal.request, reports, abort.signal, trace);
         retained.load(true); retained.persist(terminal);
       } catch {
         terminal = validateReleaseResult({ ...terminal, status: 'unknown', evidence: 'unconfirmed', proof: null,
@@ -853,7 +917,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         process.exitCode = 1;
       }
     }
-    const emitted = validateReleaseResult(emitRoutineResult(terminal));
+    const emitted = validateReleaseResult(emitRoutineResult(terminal, process.env, trace));
     if (emitted.evidence !== terminal.evidence || emitted.nextAction !== terminal.nextAction) {
       try { retained?.persist(emitted); } catch { /* Emitted evidence is already unconfirmed. */ }
     }

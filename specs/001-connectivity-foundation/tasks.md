@@ -1,5 +1,22 @@
 # Tasks: Connectivity foundation
 
+## End-to-end BE diagnostics — sequential source/local tasks
+
+Owner START on clean main6309c7d; [design](plan.md#end-to-end-be-diagnostic-amendment--2026-11-20). Existing maximum222 and historical IDs/checkmarks remain unchanged. No parallel writers, reviewer launch, publication or operational effect.
+
+- [x] T223 [US9] Amend existing001 design/requirements and map canonical diagnostic boundaries; preserve actual44753413337 cause UNKNOWN.
+- [x] T224 [US9] Instrument retained context/file/JSON/request/selection/archive/inventory checks with named safe predicates and failed/not-run traces, without relaxing guards.
+- [x] T225 [US9] Extend existing bounded diagnostic primitives for correlation/timing, safe provider/SQL stack/cause projections and explicit stream/event loss; preserve original failures/effects and default nonlogging.
+- [x] T226 [US9] Cover current-only, compatible migration and strict3→4 orchestration, provider commands/HTTP, SQL, same-ID promotion/domain and receipt finalization through existing ReleaseDiagnostics.
+- [x] T227 [US9] Retain exact public diagnostics on checks/retrieval/production failures; expose shell/completion summaries and upload faults without weakening completion.
+- [x] T228 [US9] Extend existing suites; run compiler, affected functional/security tests and emitted synthetic canonical journey/failure smoke; record failures and coverage/limits.
+- [x] T229 [US9] Add narrow README/PROJECT_STATE and existing001 actual evidence; freeze exact changed hashes and zero inflight/resources at READY_FOR_BE_END_TO_END_LOGGING_REVIEW.
+- [x] T230 [US9] Root verified and accepted ONE Company Codex gpt-6-luna medium read-only review by t1dw, with no confirmed actionable findings. The same pass completed source/base hunk comparison using root's supplied patch and15 base snapshots after tooling failures; no model substitution, second full review, fix or check rerun. Docs-only accepted closeout returns ownership to root; no publication/runtime approval inferred.
+
+**Accepted closeout:** READY_FOR_BE_END_TO_END_LOGGING_ACCEPTED / STOP WRITES / NO_INFLIGHT. [Actual T230 review and closeout](plan.md#t230-accepted-diagnostic-review-and-docs-only-closeout). All15 reviewed implementation paths,36 original evidence files and original manifest110991… remain unchanged; the current20-path/document hashes are in the separate accepted-closeout manifest. The checkpoint below remains pre-review history.
+
+**Checkpoint:** [Actual coverage/failures/limits](plan.md#end-to-end-diagnostic-local-evidence). Final compiler0; initial affected215/246 then corrected package/completion34/34, with no claimed final full rerun. Actual source and emitted synthetic current-only/compatible/strict smoke preserve safe diagnostics/effects. No actual runner diagnosis, reviewer, live operation, publication or flag change. Exact freeze manifest and resource receipt are retained externally for root.
+
 ## Required-checks integration fixture repair — 2026-11-20
 
 Current bounded root grant starts from published `44ea04c61dcfea8c0264eb542561c76777d65902`; [scope and original65-test failure evidence](plan.md#required-checks-integration-fixture-repair--2026-11-20). Earlier T213–T217 remain completed history; root alone publishes/reruns CI.

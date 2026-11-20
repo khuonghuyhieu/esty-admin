@@ -1,5 +1,16 @@
 # Feature specification: Connectivity foundation
 
+## End-to-end diagnostic acceptance — 2026-11-20
+
+Owner source/local logging grant supersedes historical source stops only for T223–T230; [design](plan.md#end-to-end-be-diagnostic-amendment--2026-11-20). Actual44753413337 inner refusal remains unknown. Delivery is owner-reported enabled; no flag/publication/dispatch/live effect is authorized.
+
+**Current acceptance:** T223–T230 complete; READY_FOR_BE_END_TO_END_LOGGING_ACCEPTED. Root accepted ONE runtime-verified Company Codex `gpt-6-luna` medium read-only review by `t1dw`, with no confirmed actionable findings or remaining source/base comparison limitation. The same pass completed the comparison after tooling-only failures; no second full review or check rerun. [Accepted review/closeout evidence](plan.md#t230-accepted-diagnostic-review-and-docs-only-closeout). This is source/local acceptance only: the actual incident's inner cause remains unknown and publication/new exact artifact/fresh approval/actual execution remain separate gates.
+
+- **FR-056:** Executed canonical checks name their condition, passed/failed outcome and safe concrete reason; skipped dependent work is not-run. Initialize before validation and correlate run/stage/check/command, timings, first failure and safe stack/cause.
+- **FR-057:** Retain bounded useful public stdout/stderr and exit/signal; project or explicitly omit provider/SQL payloads. Exclude credentials/private inputs even across chunks. Logging/storage faults preserve original failure, ACK, ID, committed SQL and unknown fences.
+- **FR-058:** Always attempt exact public failure retention and meaningful checks/retrieval/production/completion summaries, including shell and early-guard failures. Report limits/loss. No extra operation, replay, weakened completion or guard relaxation.
+- **SC-032:** Existing affected tests and emitted synthetic canonical positive/failure smoke prove named predicates, redaction/limits, failure preservation, HTTP/cancel/inventory boundaries, committed/unknown SQL without replay, failure uploads and default nonlogging. Record complete coverage/remaining limits. Only a separately approved new-source runner run can diagnose the actual failure.
+
 ## Current source-local completion notice
 
 **2026-11-20:** The planning-only authority notice below is preserved history. Story9/FR-049–055 now have source/local implementation and integrated verification, followed by ONE coordinator-verified Company Codex `gpt-6-luna` medium review with no confirmed actionable findings. [Current evidence and documentation closeout](plan.md#source-local-completion-and-independent-review) distinguish source/local completion from production acceptance; [README](../../README.md#current-be-manual-release-guide) is the single current manual operational route after separate readiness/release grants. `BE_DELIVERY_ENABLED` remains false; T207–T212 remain HELD. Owner-reported runtime ENV/digest completion is not reopened or independently verified; retained995 cannot be relabeled for changed controller/operator source. All historical requirements/evidence below retain their original scope.
