@@ -7,12 +7,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { TestContext } from 'node:test';
 
+import { readOwnedEtsyFixture } from './etsy-fixture.js';
 // Generated certificates and private keys are disposable test material, not
 // project credentials. All sockets are hard-bound to the authorized local fixture.
-export async function tlsPostgres(t: TestContext, hostname: string, onSecure?: (socket: TLSSocket) => void) {
+export async function tlsPostgres(t: TestContext, hostname: string, onSecure?: (socket: TLSSocket) => void, owned = false) {
   const profile = process.env.TEST_FIXTURE_PROFILE;
   if (profile !== undefined && profile !== 'activation001') throw new Error('Unknown synthetic fixture profile.');
-  const upstreamPort = profile === 'activation001' ? 55532 : 55432;
+  const upstreamPort = owned ? (await readOwnedEtsyFixture()).port : profile === 'activation001' ? 55532 : 55432;
   const directory = await mkdtemp(join(tmpdir(), 'esty-synthetic-tls-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   await writeFile(join(directory, 'certificate.cnf'), `[req]\nprompt=no\ndistinguished_name=dn\nx509_extensions=extensions\n[dn]\nCN=${hostname}\n[extensions]\nsubjectAltName=DNS:${hostname}\nbasicConstraints=critical,CA:TRUE\nkeyUsage=critical,digitalSignature,keyEncipherment,keyCertSign\n`);

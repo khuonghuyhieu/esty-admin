@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
-import { cp, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,9 +32,10 @@ import { assertContract, createApplication, get, startApi } from './helpers.js';
 import { tlsPostgres } from './tls.js';
 import { canonical, sha256, snapshotArtifact, verifyArtifact } from '../scripts/artifact.js';
 import { authorizeRoutineMigration, continueRoutineMigration, executeRoutineMigration } from '../scripts/ci-migrations.js';
-import type { RoutineMigrationPacket, RoutineSchema } from '../scripts/ci-migrations.js';
+import type { RoutineMigrationPacket } from '../scripts/ci-migrations.js';
 import { deliver } from '../scripts/ci-delivery.js';
-import type { RoutineProvider } from '../scripts/ci-provider.js';
+import type { RoutineDeliveryApproval, RoutineProvider } from '../scripts/ci-provider.js';
+import { strictDatabaseFixture } from './etsy-fixture.js';
 
 const nextMigrationVersion = String(Number(expectedMigrations.at(-1)!.slice(0, 13)) + 1);
 
@@ -87,6 +88,60 @@ async function databaseFixture(t: TestContext) {
   const url = `postgresql://foundation_local:local_fixture_only@127.0.0.1:${config.database.port}/${name}`;
   return { admin, client, name, database, url };
 }
+
+test('L3 owned strict suffix keeps exact history and truthful rollback lost-COMMIT and cancellation outcomes',
+  { skip: !process.env.ETSY_TEST_FIXTURE_DIRECTORY, timeout: 120000 }, async t => {
+  for (const fault of ['exact', 'under-lock-drift', 'rollback', 'lost-commit', 'cancel']) await t.test(fault, async t => {
+    const fixture = await strictDatabaseFixture(t);
+    const directory = await realpath(await mkdtemp(join(tmpdir(), 'esty-l3-runner-'))), beforeDirectory = join(directory, 'before');
+    t.after(() => rm(directory, { recursive: true, force: true }));
+    await mkdir(beforeDirectory);
+    for (const entry of migrationManifest.slice(0, 3)) await cp(join(migrationsDirectory, `${entry.name}.mjs`), join(beforeDirectory, `${entry.name}.mjs`));
+    const initial = await runMigrations(fixture.database, { directory: beforeDirectory });
+    assert.equal(initial.result, 'success'); assert.deepEqual(initial.after, expectedMigrations.slice(0, 3));
+    const script = join(directory, 'runner.mjs');
+    await writeFile(script, `
+      import fs from 'node:fs'; import {createRequire} from 'node:module';
+      const {Client}=createRequire(${JSON.stringify(new URL('../../package.json', import.meta.url).pathname)})('pg');
+      const owned=JSON.parse(fs.readFileSync(process.env.ETSY_TEST_FIXTURE_DIRECTORY+'/fixture.json','utf8'));
+      if(owned.id!==${JSON.stringify(fixture.owned.id)} || owned.port!==${fixture.owned.port})throw Error('Owned fixture changed');
+      const database={host:'127.0.0.1',port:owned.port,user:'postgres',password:owned.password,database:process.argv[2]};
+      const fault=process.argv[3], controller=new AbortController(), query=Client.prototype.query;
+      let locks=0;
+      Client.prototype.query=async function(...args){
+        const text=typeof args[0]==='string'?args[0]:args[0].text;
+        if(fault==='rollback' && text.includes('CREATE TABLE app_private.etsy_connections'))return query.call(this,'SELECT 1/0');
+        const result=await query.apply(this,args);
+        if(text.startsWith('SELECT pg_try_advisory_lock(') && result.rows[0]?.lockObtained===true){
+          locks++;
+          if(fault==='under-lock-drift')await query.call(this,'DELETE FROM public.foundation_migrations WHERE name=$1',[${JSON.stringify(expectedMigrations[2])}]);
+        }
+        if(fault==='lost-commit' && text.trim().replace(/;$/,'').toUpperCase()==='COMMIT')throw Error('Synthetic lost COMMIT ACK');
+        if(fault==='cancel' && text.includes('CREATE TABLE app_private.etsy_connections'))controller.abort();
+        return result;
+      };
+      const {runMigrations}=await import(${JSON.stringify(new URL('../scripts/migrations.js', import.meta.url).href)});
+      const report=await runMigrations(database,{sourceRevision:${JSON.stringify('a'.repeat(40))},target:'local',
+        expectedBefore:${JSON.stringify(expectedMigrations.slice(0, 3))},signal:controller.signal});
+      console.log(JSON.stringify({report,locks}));
+    `, { mode: 0o600 });
+    const result = spawnSync(process.execPath, [script, fixture.name, fault], { encoding: 'utf8', timeout: 20000,
+      env: { PATH: process.env.PATH, ETSY_TEST_FIXTURE_DIRECTORY: process.env.ETSY_TEST_FIXTURE_DIRECTORY } });
+    assert.equal(result.status, 0, result.stderr);
+    const { report, locks } = JSON.parse(result.stdout) as { report: import('../scripts/migrations.js').MigrationReport; locks: number };
+    assert.equal(locks, 1, 'The real runner must not retry');
+    assert.equal(report.database_outcome, fault === 'exact' ? 'committed' : fault === 'under-lock-drift' ? 'not_started'
+      : fault === 'rollback' ? 'rolled_back' : 'unknown');
+    assert.equal(report.result, fault === 'exact' ? 'success' : 'failed');
+    assert.deepEqual(report.attempted, fault === 'under-lock-drift' ? [] : [{ ...migrationManifest[3]!,
+      outcome: fault === 'exact' ? 'applied_committed' : fault === 'rollback' ? 'rolled_back' : 'unknown' }]);
+    const status = await migrationStatus(fixture.database);
+    const committed = fault === 'exact' || fault === 'lost-commit';
+    assert.deepEqual(status.applied, expectedMigrations.slice(0, committed ? 4 : fault === 'under-lock-drift' ? 2 : 3));
+    assert.equal((await fixture.client.query("SELECT to_regclass('app_private.etsy_connections') IS NOT NULL AS present")).rows[0].present, committed);
+    assert.equal((await fixture.client.query("SELECT to_regclass('auth.sessions') IS NOT NULL AS present")).rows[0].present, false);
+  });
+});
 
 test('fresh database, migrations twice, real HTTP readiness and dependency recovery', async t => {
   const fixture = await databaseFixture(t);
@@ -1182,13 +1237,15 @@ test('routine versioned delivery commits one exact batch before create and fence
       previous: migrationManifest, migrations: f.artifact.manifest.migrations, migrationInputDigest: sha256(canonical(values)),
       predecessor: { id: 'dpl_previous', revision: 'e'.repeat(40), artifact: sha256('prior'), configDigest: sha256('config') },
       compatibilityApproval: sha256('synthetic-reviewed-compatibility'), recoveryApproval: sha256('synthetic-recovery') };
-    const schema: RoutineSchema = { digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+    const schema: RoutineDeliveryApproval = { digest: f.artifact.manifest.migrationDigest, configDigest: sha256('synthetic-approved-runtime'),
+      requestDigest: sha256('independently-approved-synthetic-request'), migration: { packet, digest: sha256(canonical(packet)) } };
     const events: string[] = []; let alias = 'dpl_previous', status = '', creates = 0, promotions = 0;
     const provider: RoutineProvider = {
       async currentMain() {}, async preflight() { return alias; }, async compatiblePredecessor() { events.push('compatible'); },
       async reserve() { events.push('reserve'); return 44; },
       async record(_id, state, description) { status = description; events.push(`${state}:${description}`); },
       async confirmRoutineJournal(_id, description) { assert.equal(status, description); },
+      async reconcileRoutineJournal() { throw new Error('Unexpected reconciliation.'); },
       async binding(id) { assert.equal(alias, id); },
       async inspect(id) { return { id, ready: true, origin: 'https://synthetic.vercel.app' }; },
       async attest() {}, async http() {

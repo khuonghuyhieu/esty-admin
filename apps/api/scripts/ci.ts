@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { artifactTarget, assertSourceFiles, inventory, sha256, verifyArtifact } from './artifact.js';
+import { artifactTarget, assertSourceFiles, canonical, inventory, sha256, verifyArtifact } from './artifact.js';
 import { buildArtifact } from './build-artifact.js';
 import { bootstrapTools, checked, isolatedEnvironment } from './ci-tools.js';
 import { repository } from './ci-provider.js';
@@ -50,11 +50,18 @@ export async function runChecks(root: string, output: string, environment: NodeJ
     nativeHttpDatabase: 'passed', functional: 'passed', mode, node: process.versions.node, runner: inventory(runner) }, null, 2) + '\n');
   await mkdir(output, { recursive: true });
   const archive = join(output, 'be-release.tar.gz');
-  await checked('/usr/bin/tar', ['-czf', archive, '-C', bundle, 'artifact', 'runner', 'receipt.json'], work, env, signal);
+  await checked('/usr/bin/tar', ['--format=pax', '--no-xattrs', '-czf', archive, '-C', bundle, 'artifact', 'runner', 'receipt.json'], work, env, signal);
   const archiveHash = sha256(readFileSync(archive));
+  if (!/^[1-9][0-9]{0,15}$/.test(environment.GITHUB_RUN_ID ?? '')) throw new Error('Producer run identity is missing.');
+  const approval = { version: 1, mode, producer: { revision: artifact.manifest.source.revision,
+    tree: artifact.manifest.source.tree, run: environment.GITHUB_RUN_ID }, artifactDigest: artifact.digest,
+    sourceDigest: artifact.manifest.source.digest, archiveDigest: archiveHash,
+    operatorDigest: sha256(canonical(inventory(runner))), schemaDigest: artifact.manifest.migrationDigest };
+  const approvalBytes = canonical(approval) + '\n', approvalHash = sha256(approvalBytes);
+  await writeFile(join(output, 'be-release-approval.json'), approvalBytes);
   if (!environment.GITHUB_OUTPUT) throw new Error('GitHub output channel is missing.');
-  await appendFile(environment.GITHUB_OUTPUT, `archive_hash=${archiveHash}\nartifact_hash=${artifact.digest}\nsource_tree=${artifact.manifest.source.tree}\n`);
-  console.info(JSON.stringify({ checks: 'passed', nativeHttpDatabase: 'passed', mode, artifact: artifact.digest, archive: archiveHash }));
+  await appendFile(environment.GITHUB_OUTPUT, `archive_hash=${archiveHash}\nartifact_hash=${artifact.digest}\nsource_tree=${artifact.manifest.source.tree}\napproval_hash=${approvalHash}\n`);
+  console.info(JSON.stringify({ checks: 'passed', nativeHttpDatabase: 'passed', mode, artifact: artifact.digest, archive: archiveHash, approval: approvalHash }));
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [root, output] = process.argv.slice(2);

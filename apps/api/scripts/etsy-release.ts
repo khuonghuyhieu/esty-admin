@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { artifactTarget, canonical, inventory, removeArtifactTree, sha256, verifyArtifact } from './artifact.js';
 import type { VerifiedArtifact } from './artifact.js';
 import { acknowledgedId, prebuiltCreateArguments, stagePrebuiltOutput } from './ci-delivery.js';
+import type { ReleaseDiagnostics } from './ci-delivery.js';
 import { deploymentId, inspectCandidate, repository, uploadedCandidatePartition, verifyCandidateArchive } from './ci-provider.js';
 import { command, isolatedEnvironment, responseBytes } from './ci-tools.js';
 import type { CommandResult } from './ci-tools.js';
@@ -92,21 +93,36 @@ function syncDirectory(path: string): void {
 }
 interface Receipt { packetDigest: string; phase: EtsyReleasePhase; previous: string | null;
   deploymentId: string | null; completed: number; reportDigest: string | null }
+export interface EtsyReleaseIntent {
+  packetDigest: string; phase: EtsyReleasePhase; previous: string | null; deploymentId: string | null;
+}
+export interface EtsyReleaseDurability {
+  directory: string;
+  intent(phase: EtsyReleasePhase, value: EtsyReleaseIntent): Promise<void>;
+  acknowledged(id: string): Promise<void>;
+  confirmed(phase: EtsyReleasePhase, value: Receipt): Promise<void>;
+}
 export async function runEtsyReleasePhase(input: {
   packet: EtsyReleasePacket; packetDigest: string; phase: EtsyReleasePhase; operations: EtsyReleaseOperations; signal: AbortSignal;
+  durability?: EtsyReleaseDurability; diagnostics?: ReleaseDiagnostics;
 }): Promise<void> {
-  const { packetDigest, phase, operations: op, signal } = input;
+  const { packetDigest, phase, operations: op, signal, diagnostics } = input;
   const packet = validateEtsyReleasePacket(input.packet, packetDigest), index = etsyReleasePhases.indexOf(phase);
   if (index < 0) stop();
-  const root = privateDirectory(packet.ledgerRoot, false), run = join(root, packet.runId);
+  const stage = ({ history: 'history', 'held-create': 'create', 'pre-sql-check': 'pre-sql', 'sql-apply': 'sql',
+    'post-sql-check': 'candidate', 'promote-only': 'promote', 'final-domain-ack': 'domain' } as const)[phase];
+  diagnostics?.at(stage, 'evidence-persistence');
+  const persist = (path: string, value: unknown) => diagnostics
+    ? diagnostics.observe(() => writeReleaseEvidence(path, value)) : writeReleaseEvidence(path, value);
+  const root = privateDirectory(input.durability?.directory ?? packet.ledgerRoot, false), run = join(root, packet.runId);
   const lock = join(root, 'active.lock');
   // An exclusive fsynced lock survives process loss. Never automatically steal it.
-  try { writeReleaseEvidence(lock, { packetDigest, runId: packet.runId, phase }); } catch { stop(); }
+  try { persist(lock, { packetDigest, runId: packet.runId, phase }); } catch (cause) { if (diagnostics) throw diagnostics.capture(cause); stop(); }
   let success = false;
   try {
     signal.throwIfAborted(); op.verify();
     const ownerPath = join(root, 'operator.lock');
-    if (!fs.existsSync(ownerPath)) writeReleaseEvidence(ownerPath, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease });
+    if (!fs.existsSync(ownerPath)) persist(ownerPath, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease });
     if (!equal(readEvidence(ownerPath).value, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease })) stop();
     if (!fs.existsSync(run)) { fs.mkdirSync(run, { mode: 0o700 }); syncDirectory(root); }
     privateDirectory(run, false);
@@ -131,7 +147,11 @@ export async function runEtsyReleasePhase(input: {
       previous = entry.identity.sha256;
     }
     // O_EXCL intent is the cross-process one-shot barrier for every phase.
-    writeReleaseEvidence(join(run, `${phase}.intent.json`), { packetDigest, phase, previous, deploymentId: id });
+    const intent: EtsyReleaseIntent = { packetDigest, phase, previous, deploymentId: id };
+    persist(join(run, `${phase}.intent.json`), intent);
+    await input.durability?.intent(phase, intent);
+    signal.throwIfAborted();
+    diagnostics?.at(stage, phase === 'history' ? 'history-mismatch' : 'validation');
     const main = async () => {
       signal.throwIfAborted(); validateEtsyReleasePacket(packet, packetDigest); op.verify();
       const observed = await bounded(op.currentMain(), signal);
@@ -147,10 +167,12 @@ export async function runEtsyReleasePhase(input: {
       await main();
       const prior = readEvidence(join(run, 'pre-sql-check.receipt.json')).value as Receipt;
       if (Date.now() - prior.completed > 60000 || !equal(await bounded(op.history(), signal), before)) stop();
+      diagnostics?.at('sql', 'outcome-unknown'); diagnostics?.submitted('migration');
       const report = await bounded(op.migrate(), signal);
-      writeReleaseEvidence(join(run, 'migration-report.json'), report);
+      diagnostics?.migrated(report); diagnostics?.at('sql');
+      persist(join(run, 'migration-report.json'), report);
       reportDigest = readEvidence(join(run, 'migration-report.json')).identity.sha256;
-      if (report.result !== 'success' || report.database_outcome !== 'committed' || report.source_revision !== packet.revision
+      if (report.result !== 'success' || report.database_outcome !== 'committed' || report.reporting === 'failed' || report.source_revision !== packet.revision
         || report.target !== packet.target || report.manifest_digest !== packet.targetDigest || !equal(report.before, before)
         || !equal(report.after, after) || !equal(report.attempted, [{ ...migrationManifest[3], outcome: 'applied_committed' }])
         || !equal(await bounded(op.history(), signal), after)) stop();
@@ -160,10 +182,15 @@ export async function runEtsyReleasePhase(input: {
         const history = readEvidence(join(run, 'history.receipt.json')).value as Receipt;
         if (Date.now() - history.completed > 60000) stop();
         await bounded(op.predecessor(false), signal);
+        diagnostics?.at('create', 'outcome-unknown'); diagnostics?.submitted('create');
         const created = await op.create();
         // Never race away an acknowledgement: command transport settles after abort/exit.
         const acknowledged = acknowledgedId(created.stdout);
-        if (acknowledged) { writeReleaseEvidence(join(run, 'create-ack.json'), { packetDigest, deploymentId: acknowledged }); id = acknowledged; }
+        if (acknowledged) {
+          id = acknowledged; diagnostics?.created(id);
+          persist(join(run, 'create-ack.json'), { packetDigest, deploymentId: id });
+          await input.durability?.acknowledged(id);
+        }
         if (!id || id === packet.predecessor.id || created.code !== 0 || created.aborted) stop();
         signal.throwIfAborted();
       } else if (phase === 'pre-sql-check') {
@@ -175,17 +202,21 @@ export async function runEtsyReleasePhase(input: {
       } else {
         if (!id) stop();
         // Missing/altered SQL report cannot be laundered through a phase receipt.
+        diagnostics?.at(stage, 'evidence-persistence');
         const report = readEvidence(join(run, 'migration-report.json')).value as MigrationReport;
-        if (report.result !== 'success' || report.database_outcome !== 'committed' || !equal(report.after, after)
+        if (report.result !== 'success' || report.database_outcome !== 'committed' || report.reporting === 'failed' || !equal(report.after, after)
           || report.manifest_digest !== packet.targetDigest || report.source_revision !== packet.revision) stop();
+        diagnostics?.at(stage);
         if (phase === 'post-sql-check' || phase === 'promote-only') {
           await bounded(op.predecessor(true), signal);
           await bounded(op.candidate(id, false, false), signal);
           await main(); await bounded(op.alias(packet.predecessor.id), signal);
           if (phase === 'promote-only') {
-            writeReleaseEvidence(join(run, 'promote-intent.json'), { packetDigest, deploymentId: id });
+            persist(join(run, 'promote-intent.json'), { packetDigest, deploymentId: id });
+            diagnostics?.at('promote', 'outcome-unknown'); diagnostics?.submitted('promotion');
             const promoted = await op.promote(id);
             if (promoted.code !== 0 || promoted.aborted) stop();
+            diagnostics?.promoted();
             signal.throwIfAborted(); await bounded(op.alias(id), signal);
           }
         } else if (phase === 'final-domain-ack') {
@@ -197,11 +228,16 @@ export async function runEtsyReleasePhase(input: {
     }
     signal.throwIfAborted(); validateEtsyReleasePacket(packet, packetDigest); op.verify();
     const receipt: Receipt = { packetDigest, phase, previous, deploymentId: id, completed: Date.now(), reportDigest };
-    writeReleaseEvidence(join(run, `${phase}.receipt.json`), receipt);
+    diagnostics?.at(stage, 'evidence-persistence');
+    persist(join(run, `${phase}.receipt.json`), receipt);
     if (!equal(readEvidence(join(run, `${phase}.receipt.json`)).value, receipt)) stop();
+    await input.durability?.confirmed(phase, receipt);
     success = true;
-  } catch {
-    try { writeReleaseEvidence(join(run, 'STOP.json'), { packetDigest, phase, outcome: 'unknown-or-refused' }); } catch { /* Retained lock/intent is independently terminal. */ }
+  } catch (cause) {
+    const failure = diagnostics?.capture(cause);
+    try { writeReleaseEvidence(join(run, 'STOP.json'), { packetDigest, phase, outcome: 'unknown-or-refused' }); }
+    catch { diagnostics?.evidenceFailed(); }
+    if (failure) throw failure;
     stop();
   } finally {
     if (success) { fs.unlinkSync(lock); syncDirectory(root); }
@@ -224,15 +260,24 @@ async function currentEtsyMain(signal: AbortSignal, transport: typeof fetch = fe
 }
 export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact,
   credentials: { token: string; bearer: string; predecessorBearer: string; bypass: string }, signal: AbortSignal,
-  transport: typeof fetch = fetch) {
+  transport: typeof fetch = fetch, diagnostics?: ReleaseDiagnostics) {
   if (!/^[\x21-\x7e]{16,512}$/.test(credentials.token) || !hex.test(credentials.bearer) || !hex.test(credentials.predecessorBearer)
     || !/^[\x21-\x7e]{16,512}$/.test(credentials.bypass)) stop();
-  const request = async (url: string, init: RequestInit = {}) => bounded(transport(url, { ...init,
-    redirect: 'manual', signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) }), signal);
+  const request = async (url: string, init: RequestInit = {}) => {
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
+    const work = async () => {
+      try { return await bounded(transport(url, { ...init, redirect: 'manual', signal: requestSignal }), signal); }
+      catch (cause) { if (requestSignal.aborted) diagnostics?.reject('timeout'); throw cause; }
+    };
+    return diagnostics ? diagnostics.guard('transport', work) : work();
+  };
   async function json(url: string, headers: Record<string, string>, maximum = 8 * 1024 * 1024): Promise<Record<string, any>> {
     const response = await request(url, { headers });
-    if (response.status !== 200 || response.redirected) { await response.body?.cancel(); stop(); }
-    return JSON.parse((await bounded(responseBytes(response, maximum), signal)).toString('utf8')) as Record<string, any>;
+    const parse = async () => {
+      if (response.status !== 200 || response.redirected) { await response.body?.cancel(); stop(); }
+      return JSON.parse((await bounded(responseBytes(response, maximum), signal)).toString('utf8')) as Record<string, unknown>;
+    };
+    return diagnostics ? diagnostics.guard('validation', parse) : parse();
   }
   const provider = (path: string, maximum?: number) => {
     const url = new URL(path, 'https://api.vercel.com');
@@ -252,21 +297,14 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
     const http = async (url: string, init: RequestInit = {}) => {
       const response = await request(url, { ...init, headers: { ...init.headers,
         ...(candidate ? { 'x-vercel-protection-bypass': credentials.bypass } : {}) } });
-      if (init.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(new URL(url).pathname)) {
-        const authorized = new Headers(init.headers).get('authorization') === `Bearer ${key}`;
-        if (response.headers.get('x-activation-config-digest') !== (authorized ? digest : null)) { await response.body?.cancel(); stop(); }
+      const authorized = init.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(new URL(url).pathname)
+        && new Headers(init.headers).get('authorization') === `Bearer ${key}` && ![401, 403].includes(response.status);
+      if (response.headers.get('x-activation-config-digest') !== (authorized ? digest : null)) {
+        await response.body?.cancel(); diagnostics?.reject('configuration-mismatch'); stop();
       }
       return response;
     };
-    if (!pending) { await checkHostedHttp(origin, packet.browserOrigin, key, http); return; }
-    for (const [path, status, body] of [
-      ['/health/live', 200, { status: 'ok' }],
-      ['/health/ready', 503, { status: 'degraded', reason: 'migrations_pending' }],
-    ] as const) {
-      const response = await http(origin + path, { headers: { Authorization: `Bearer ${key}` } });
-      if (response.status !== status || response.redirected) { await response.body?.cancel(); stop(); }
-      if (!equal(JSON.parse((await bounded(responseBytes(response, 4096), signal)).toString('utf8')), body)) stop();
-    }
+    await checkHostedHttp(origin, packet.browserOrigin, key, http, pending ? 'migrations_pending' : 'current');
   }
   return {
     currentMain: () => currentEtsyMain(signal, transport),
@@ -308,7 +346,7 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
   };
 }
 
-interface EtsyCli {
+export interface EtsyCli {
   create(): Promise<CommandResult>;
   promote(id: string): Promise<CommandResult>;
   dispose(): Promise<void>;
@@ -319,7 +357,7 @@ function verifyEtsyCli(packet: EtsyReleasePacket, artifact: VerifiedArtifact, cl
     || sha256(canonical(inventory(resolve(cli, '../..'), new Set(['node_modules'])).files)) !== packet.cliOwnFilesDigest
     || artifact.manifest.build.tools.find(tool => tool.name === 'vercel')?.filesDigest !== packet.cliOwnFilesDigest) stop();
 }
-async function isolatedEtsyCli(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact, cli: string,
+export async function isolatedEtsyCli(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact, cli: string,
   token: string, signal: AbortSignal): Promise<EtsyCli> {
   verifyEtsyCli(packet, artifact, cli);
   const root = await mkdtemp(join(fs.realpathSync(tmpdir()), 'esty-etsy-cli-'));

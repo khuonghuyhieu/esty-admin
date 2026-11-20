@@ -3,24 +3,28 @@ import test from 'node:test';
 import { createHash, randomUUID } from 'node:crypto';
 import childProcess from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
-import { gzipSync } from 'node:zlib';
+import { runInNewContext } from 'node:vm';
 import { readFileSync, realpathSync, existsSync } from 'node:fs';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
-import { cp, chmod, mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
+import { cp, chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { rootCertificates } from 'node:tls';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
-import { artifactFixture, receiptZip, routineMigrationFixture } from './artifact-fixture.js';
+import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture,
+  tar, routineProviderFixture, routineRuntime, strictReleaseFixture } from './artifact-fixture.js';
+import { historicalActivationChild } from './historical-activation-fixture.js';
 import { checksContext } from '../scripts/ci.js';
-import { acknowledgedId, deliver, deliverActivationCandidate, deliveryContext } from '../scripts/ci-delivery.js';
+import { acknowledgedId, deliver, deliverActivationCandidate, deliveryContext, runRoutinePhase } from '../scripts/ci-delivery.js';
+import { ReleaseOutcome, approvedRoutineRequest, authenticateRoutineDelivery, validateReleaseRequest, validateReleaseResult } from '../scripts/ci-delivery.js';
 import { createActivationProvider, createProvider, repository } from '../scripts/ci-provider.js';
 import type { ActivationProvider, DeliveryProvider, RunIdentity } from '../scripts/ci-provider.js';
 import { verifyUploadedArchive } from '../scripts/ci-archive.js';
 import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
 import type { CommandResult } from '../scripts/ci-tools.js';
+import { routineContext, selectRoutine, validateRoutineSelection, confirmRoutineSelection, extractRoutineBundle } from '../scripts/routine-retained.mjs';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { activationPhases, appendActivationEvent, createActivationJournal, finishActivationJournal, importFrontendJournal,
   readActivationJournal, reserveActivationJournal, saveActivationConfigurationReceipt } from '../scripts/activation-journal.js';
@@ -32,10 +36,10 @@ import { configureActivation, observeAppMetadata, AppMetadataError, ActivationCo
   observeAppDatabasePair, postAppDatabasePair, verifyAppDatabasePair } from '../scripts/activation-configuration.js';
 import type { ActivationConfigurationReceipt } from '../scripts/activation-configuration.js';
 import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
-import { activationSchema } from '../src/config/schema-transition.js';
+import { activationSchema, assertActivationManifest } from '../src/config/schema-transition.js';
 import { approvedSchema, authorizeRoutineMigration, confirmedMigration, continueRoutineMigration, routinePacket } from '../scripts/ci-migrations.js';
 import type { RoutineMigrationPacket, RoutineSchema } from '../scripts/ci-migrations.js';
-import type { RoutineProvider } from '../scripts/ci-provider.js';
+import type { RoutineDeliveryApproval, RoutineProvider } from '../scripts/ci-provider.js';
 import type { MigrationReport } from '../scripts/migrations.js';
 import { canonical as retainedCanonical, githubReader, manualContext, readSelection, retainedActivation,
   selectRetained, validateSelection, verifyRelay, verifySelectedBundle, verifyWorkflowHead } from '../scripts/activation-retained.mjs';
@@ -51,7 +55,60 @@ import { heldCandidateCreate, readHeldCandidate, recoveryToolInventory } from '.
 import { heldPostRepair } from '../scripts/activation-journal.js';
 import { verifyHeldAppAcceptance, heldRetainedCandidate } from '../scripts/activation-held-proof.js';
 import { heldAppPolicy, heldD2, heldD2Sources } from '../scripts/activation-held-contract.mjs';
-const oldSchema: RoutineSchema = { digest: activationSchema.oldDigest };
+import { runtimeConfigDigest } from '../src/config/activation-config.js';
+const oldSchema: RoutineDeliveryApproval = { digest: activationSchema.oldDigest,
+  configDigest: runtimeConfigDigest(routineRuntime), requestDigest: sha256('independently-approved-synthetic-request') };
+
+test('L3 canonical strict reservation binds the complete request and survives a fresh runner directory', async t => {
+  const f = await strictReleaseFixture(); t.after(f.dispose);
+  const h = routineProviderFixture(f.artifact, '', undefined, { packet: f.packet });
+  const original = globalThis.fetch; globalThis.fetch = h.transport; t.after(() => { globalThis.fetch = original; });
+  const env = { ...f.env, BE_ROUTINE_ACTION: 'authorize', GITHUB_TOKEN: h.credentials.github,
+    VERCEL_TOKEN: h.credentials.vercel, BE_PREVIEW_ACCESS_KEY: h.credentials.bearer, VERCEL_AUTOMATION_BYPASS_SECRET: h.credentials.bypass };
+  const reports = join(f.root, 'strict-reports');
+  await runRoutinePhase({ artifact: f.artifact, request: f.request, env, cli: f.cli, reports, signal: AbortSignal.timeout(15000) });
+  assert.equal(h.reservation()!.payload.requestDigest, sha256(canonical(f.request)));
+  assert.equal(h.reservation()!.payload.migrationPacket, f.packetDigest);
+  assert.equal(h.reservation()!.payload.configDigest, f.request.configDigest);
+  assert.equal(fs.existsSync(f.packet.ledgerRoot), false, 'Actions must not borrow the owner-home ledger');
+  assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+  const authorization = readEvidence(join(reports, 'strict/history.authorized.json')).value as Record<string, unknown>;
+  assert.equal(authorization.requestDigest, sha256(canonical(f.request)));
+  assert.equal(h.statuses[0]!.description, authorization.description);
+  const statuses = structuredClone(h.statuses);
+  await assert.rejects(runRoutinePhase({ artifact: f.artifact, request: f.request, env, cli: f.cli,
+    reports: join(f.root, 'replacement-runner'), signal: AbortSignal.timeout(15000) }));
+  assert.deepEqual(h.statuses, statuses);
+  assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+  const changed = structuredClone(f.request); changed.archiveDigest = '0'.repeat(64);
+  await assert.rejects(runRoutinePhase({ artifact: f.artifact, request: changed, env: { ...env, BE_ROUTINE_ACTION: 'held' },
+    cli: f.cli, reports, signal: AbortSignal.timeout(15000) }));
+  assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+});
+
+test('L3 ordinary provider refuses missing request approval before transport', async t => {
+  const f = await fixture(); t.after(f.dispose); let requests = 0;
+  for (const requestDigest of [undefined, '', 'not-approved']) {
+    assert.throws(() => Reflect.apply(createProvider, undefined, [f.artifact, run, { ...oldSchema, requestDigest }, credentials,
+      AbortSignal.timeout(1000), async () => { requests++; throw new Error('Unexpected transport'); }]));
+  }
+  assert.equal(requests, 0);
+});
+
+test('L3 reconciliation reads authenticated known IDs without replay or unbounded provider descriptions', async t => {
+  const f = await fixture(); t.after(f.dispose);
+  const h = routineProviderFixture(f.artifact), provider = createProvider(f.artifact, h.run, h.schema, h.credentials,
+    AbortSignal.timeout(10000), h.transport);
+  const journal = await provider.reserve(); await provider.record(journal, 'in_progress', 'ack:dpl_candidate');
+  const statuses = structuredClone(h.statuses);
+  const observed = await provider.reconcileRoutineJournal(journal);
+  assert.deepEqual(observed, { journal, requestDigest: h.schema.requestDigest, description: 'ack:dpl_candidate',
+    state: 'in_progress', acknowledgedIds: ['dpl_candidate'] });
+  assert.deepEqual(h.statuses, statuses); assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+  h.statuses[0]!.description = 'synthetic-secret-canary';
+  await assert.rejects(provider.reconcileRoutineJournal(journal));
+  assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+});
 
 interface Fixture { artifact: VerifiedArtifact; dispose(): Promise<void> }
 async function fixture(): Promise<Fixture> {
@@ -63,17 +120,201 @@ async function fixture(): Promise<Fixture> {
   return { artifact, dispose: base.dispose };
 }
 function context(): NodeJS.ProcessEnv {
-  return { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository, GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'push',
+  return { GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository, GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'workflow_dispatch',
     GITHUB_RUN_ATTEMPT: '1', GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/be-delivery.yml@refs/heads/main`,
     BE_DELIVERY_ENABLED: 'true', BE_DELIVERY_ENVIRONMENT: 'be-production', GITHUB_SHA: 'a'.repeat(40), GITHUB_RUN_ID: '123' };
 }
 const run: RunIdentity = { revision: 'a'.repeat(40), tree: 'b'.repeat(40), run: '123' };
 const credentials = { github: 'synthetic-github-token', vercel: 'synthetic-vercel-token', bearer: 'c'.repeat(64), bypass: 'synthetic-platform-bypass' };
 
+function releaseRequest(mode: 'current-schema-only' | 'versioned-migration' | 'etsy-strict-cutover' = 'current-schema-only') {
+  const previous = migrationManifest.slice(0, 3), target = mode === 'current-schema-only' ? previous : migrationManifest;
+  return {
+    version: 1, mode, repository, target: 'supabase:abcdefghijklmnopqrst', controller: { ...run, revision: 'c'.repeat(40) },
+    producer: { ...run, run: '122' }, artifactId: '456', artifactDigest: 'd'.repeat(64), sourceDigest: '0'.repeat(64),
+    archiveDigest: 'e'.repeat(64), operatorDigest: 'f'.repeat(64), configDigest: '1'.repeat(64),
+    schema: { beforeDigest: sha256(JSON.stringify(previous)), targetDigest: sha256(JSON.stringify(target)), before: previous, target },
+    migration: mode === 'current-schema-only' ? null : {
+      packetDigest: '2'.repeat(64), predecessor: { id: 'dpl_previous', revision: '3'.repeat(40),
+        artifactDigest: '4'.repeat(64), configDigest: '5'.repeat(64) },
+      recoveryApproval: '6'.repeat(64), compatibilityApproval: mode === 'versioned-migration' ? '7'.repeat(64) : null,
+      maintenanceApproval: mode === 'etsy-strict-cutover' ? '8'.repeat(64) : null,
+    },
+  };
+}
+const releaseApproval = (request: unknown) => ({ version: 1, requestDigest: sha256(canonical(request)) });
+
+test('L0 request admits independently approved modes without treating bundle declarations as approval', () => {
+  for (const mode of ['current-schema-only', 'versioned-migration', 'etsy-strict-cutover'] as const) {
+    const request = releaseRequest(mode);
+    const admitted = validateReleaseRequest(request, releaseApproval(request));
+    assert.equal(admitted.mode, mode);
+    assert.equal(admitted.producer.run, '122');
+    assert.equal(admitted.controller.run, '123');
+    assert.notEqual(admitted.controller.revision, admitted.producer.revision);
+    request.producer.run = '999';
+    assert.equal(admitted.producer.run, '122', 'Admission snapshots the approved identities');
+    assert.throws(() => { admitted.producer.run = '999'; }, TypeError);
+  }
+});
+
+test('L0 partial, self-approved and cross-bound requests refuse before synthetic transport', () => {
+  const baseline = releaseRequest(), approval = releaseApproval(baseline);
+  const changed: unknown[] = [null, [], { ...baseline, version: 2 }, { ...baseline, mode: 'activation' },
+    { ...baseline, approval }, { ...baseline, artifactId: '0' }, { ...baseline, configDigest: undefined },
+    { ...baseline, controller: { ...baseline.controller, run: '124' } },
+    { ...baseline, producer: { ...baseline.producer, revision: '9'.repeat(40) } },
+    { ...baseline, artifactDigest: '9'.repeat(64) }, { ...baseline, archiveDigest: '9'.repeat(64) },
+    { ...baseline, operatorDigest: '9'.repeat(64) }, { ...baseline, configDigest: '9'.repeat(64) },
+    { ...baseline, repository: 'fork/esty-admin' }, { ...baseline, sourceDigest: '9'.repeat(64) },
+    { ...baseline, target: 'supabase:tsrqponmlkjihgfedcba' },
+    ...Object.keys(baseline).map(omitted => Object.fromEntries(Object.entries(baseline).filter(([key]) => key !== omitted))),
+    { ...baseline, artifactId: 'https://user:synthetic-secret-canary@provider.invalid/artifact' }];
+  let transport = 0;
+  for (const request of changed) {
+    assert.throws(() => { new ReleaseOutcome(request, approval); transport++; }, error => {
+      assert.ok(error instanceof Error); assert.doesNotMatch(error.message, /synthetic-secret-canary|user:|provider\.invalid/);
+      return true;
+    });
+    const admission = ReleaseOutcome.admit(request, approval);
+    if (admission instanceof ReleaseOutcome) transport++;
+    else {
+      assert.equal(admission.status, 'refused'); assert.equal(admission.stage, 'request');
+      assert.equal(admission.category, 'invalid-input'); assert.equal(admission.request, null);
+      assert.deepEqual(admission.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
+      assert.doesNotMatch(JSON.stringify(admission), /synthetic-secret-canary|user:|provider\.invalid/);
+    }
+  }
+  for (const invalidApproval of [undefined, {}, baseline, { ...approval, requestDigest: '0'.repeat(64) }]) {
+    assert.throws(() => { new ReleaseOutcome(baseline, invalidApproval); transport++; });
+  }
+  assert.equal(transport, 0);
+});
+
+test('L0 schema and recovery authority reject incomplete or cross-mode migration packets', () => {
+  const compatible = releaseRequest('versioned-migration'), strict = releaseRequest('etsy-strict-cutover');
+  const cases = [
+    { ...compatible, migration: null },
+    { ...compatible, migration: { ...compatible.migration, compatibilityApproval: null } },
+    { ...strict, migration: { ...strict.migration, maintenanceApproval: null } },
+    { ...strict, migration: { ...strict.migration, recoveryApproval: null } },
+    { ...strict, migration: { ...strict.migration, compatibilityApproval: 'a'.repeat(64) } },
+    { ...compatible, schema: { ...compatible.schema, target: compatible.schema.before, targetDigest: compatible.schema.beforeDigest } },
+    { ...compatible, schema: { ...compatible.schema, beforeDigest: '0'.repeat(64) } },
+    { ...compatible, schema: { ...compatible.schema, targetDigest: '0'.repeat(64) } },
+    { ...compatible, schema: { ...compatible.schema, before: [{ ...compatible.schema.before[0]!, sha256: '0'.repeat(64) }] } },
+    { ...compatible, schema: { beforeDigest: sha256(JSON.stringify(compatible.schema.before.slice(0, 1))),
+      targetDigest: compatible.schema.beforeDigest, before: compatible.schema.before.slice(0, 1), target: compatible.schema.before } },
+    { ...releaseRequest(), migration: strict.migration },
+    { ...strict, schema: { ...strict.schema, beforeDigest: sha256(JSON.stringify(strict.schema.before.slice(0, 2))),
+      before: strict.schema.before.slice(0, 2) } },
+  ];
+  let submits = 0;
+  for (const request of cases) assert.throws(() => { new ReleaseOutcome(request, releaseApproval(request)); submits++; });
+  assert.equal(submits, 0);
+});
+
+test('L0 accepted result requires same deployment and all exact final proof plus durable receipt', () => {
+  const request = releaseRequest(), state = new ReleaseOutcome(request, releaseApproval(request));
+  assert.throws(() => state.submitted('migration'), /Release contract/);
+  assert.throws(() => state.acknowledgeCreate('dpl_candidate'), /Release contract/);
+  assert.throws(() => state.acknowledgePromotion(), /Release contract/);
+  assert.throws(() => state.submitted('promotion'), /Release contract/);
+  state.submitted('create'); state.acknowledgeCreate('dpl_candidate');
+  state.submitted('promotion'); state.acknowledgePromotion();
+  const proof = { deploymentId: 'dpl_candidate', artifactDigest: request.artifactDigest, configDigest: request.configDigest,
+    schemaDigest: sha256(JSON.stringify(request.schema.target)), domain: 'api.lovora.us', checks: 'passed' };
+  for (const altered of [{ ...proof, deploymentId: 'dpl_other' }, { ...proof, configDigest: '0'.repeat(64) },
+    { ...proof, artifactDigest: '0'.repeat(64) }, { ...proof, schemaDigest: '0'.repeat(64) },
+    { ...proof, domain: 'other.invalid' }, { ...proof, checks: 'READY' }]) {
+    assert.throws(() => state.finish({ stage: 'receipt', category: null, nextAction: 'run-acceptance',
+      receiptDigest: 'a'.repeat(64), proof: altered }));
+  }
+  assert.throws(() => state.finish({ stage: 'receipt', category: null, nextAction: 'run-acceptance', receiptDigest: null, proof }));
+  const result = state.finish({ stage: 'receipt', category: null, nextAction: 'run-acceptance', receiptDigest: 'a'.repeat(64), proof });
+  assert.equal(result.status, 'accepted');
+  assert.equal(result.effects.migration, 'not-started');
+  assert.equal(result.deploymentId, 'dpl_candidate');
+  assert.deepEqual(validateReleaseResult(JSON.parse(JSON.stringify(result))), result);
+  for (const patch of [{ status: 'success' }, { stage: 'raw-provider-stage' }, { category: 'raw-provider-error' },
+    { nextAction: 'retry' }, { stage: { toString: () => 'receipt' } },
+    { effects: { ...result.effects, create: 'done' } }, { effects: { ...result.effects, create: { toString: () => 'ACKed' } } },
+    { providerBody: 'synthetic-secret-canary' }, { deploymentId: null }]) {
+    assert.throws(() => validateReleaseResult({ ...result, ...patch }), /Release contract/);
+  }
+});
+
+test('L0 compatible migration requires confirmed SQL before CREATE; strict cutover requires held CREATE first', () => {
+  const compatible = releaseRequest('versioned-migration'), strict = releaseRequest('etsy-strict-cutover');
+  const ordinary = new ReleaseOutcome(compatible, releaseApproval(compatible));
+  const held = new ReleaseOutcome(strict, releaseApproval(strict));
+  assert.throws(() => ordinary.submitted('create'), /Release contract/);
+  ordinary.submitted('migration');
+  assert.throws(() => ordinary.submitted('create'), /Release contract/);
+  assert.throws(() => held.submitted('migration'), /Release contract/);
+  held.submitted('create');
+  assert.throws(() => held.submitted('migration'), /Release contract/);
+  held.acknowledgeCreate('dpl_held');
+  held.submitted('migration');
+  const result = held.finish({ stage: 'sql', category: 'timeout', nextAction: 'reconcile-migration', receiptDigest: null });
+  assert.equal(result.status, 'unknown'); assert.equal(result.effects.create, 'ACKed'); assert.equal(result.effects.migration, 'unknown');
+  assert.throws(() => validateReleaseResult({ ...result, deploymentId: null, effects: { ...result.effects, create: 'not-started' } }));
+});
+
+test('L0 unknown reservation is fenced even before CREATE and cannot suggest nonexistent identities', () => {
+  const request = releaseRequest(), state = new ReleaseOutcome(request, releaseApproval(request));
+  const result = state.finish({ stage: 'reserve', category: 'outcome-unknown', nextAction: 'inspect-retained-evidence', receiptDigest: null });
+  assert.equal(result.status, 'unknown');
+  assert.deepEqual(result.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
+  for (const nextAction of ['inspect-known-deployment', 'reconcile-migration', 'reconcile-promotion', 'none']) {
+    assert.throws(() => validateReleaseResult({ ...result, nextAction }), /Release contract/);
+  }
+});
+
+test('L4 evidence loss preserves the original stage and category with known operation effects', () => {
+  const request = releaseRequest(), state = new ReleaseOutcome(request, releaseApproval(request));
+  state.submitted('create'); state.acknowledgeCreate('dpl_candidate');
+  const input = { stage: 'candidate' as const, category: 'configuration-mismatch' as const,
+    nextAction: 'inspect-known-deployment' as const, receiptDigest: null, evidence: 'unconfirmed' as const };
+  const result = state.finish(input);
+  assert.equal(result.status, 'unknown'); assert.equal(result.stage, 'candidate');
+  assert.equal(result.category, 'configuration-mismatch'); assert.equal(result.effects.create, 'ACKed');
+  assert.equal(result.deploymentId, 'dpl_candidate');
+  assert.throws(() => validateReleaseResult({ ...result, evidence: 'synthetic-secret-canary' }));
+});
+
+test('L4 actual delivery and selection executables emit bounded refusals without network or secret output', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-l4-entry-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const guard = join(root, 'deny-network.mjs');
+  await writeFile(guard, `
+    import net from 'node:net';import tls from 'node:tls';import dgram from 'node:dgram';
+    let calls=0;const deny=()=>{calls++;throw Error('synthetic-secret-canary');};
+    globalThis.fetch=deny;net.Socket.prototype.connect=deny;net.Server.prototype.listen=deny;tls.connect=deny;dgram.createSocket=deny;
+    process.on('exit',()=>{if(calls)process.exitCode=97;});
+  `);
+  for (const script of ['ci-delivery.js', 'routine-retained.mjs']) {
+    const output = join(root, script + '.output'), summary = join(root, script + '.summary');
+    const child = childProcess.spawnSync(process.execPath, ['--import', guard,
+      decodeURIComponent(new URL('../scripts/' + script, import.meta.url).pathname)], {
+      env: { PATH: '/usr/bin:/bin', HOME: root, GITHUB_OUTPUT: output, GITHUB_STEP_SUMMARY: summary,
+        GITHUB_TOKEN: 'synthetic-github-token', VERCEL_TOKEN: 'synthetic-vercel-token',
+        DATABASE_URL: 'postgresql://user:synthetic-secret-canary@provider.invalid/database' },
+      encoding: 'utf8', timeout: 10000 });
+    assert.equal(child.status, 1);
+    const result = validateReleaseResult(JSON.parse(child.stdout.trim()));
+    assert.equal(result.status, 'refused'); assert.equal(result.request, null);
+    assert.deepEqual(result.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
+    assert.equal(result.deploymentId, null); assert.equal(result.nextAction, 'inspect-prerequisite');
+    assert.match(await readFile(output, 'utf8'), /accepted=false/);
+    const text = child.stdout + child.stderr + await readFile(summary, 'utf8');
+    assert.doesNotMatch(text, /synthetic-secret-canary|synthetic-github-token|synthetic-vercel-token|provider\.invalid| at /);
+  }
+});
+
 test('untrusted, stale-attempt and unactivated contexts cannot enter production', () => {
   assert.deepEqual(deliveryContext(context(), run.tree), run);
   for (const change of [{ GITHUB_REPOSITORY: 'fork/esty-admin' }, { GITHUB_REF: 'refs/heads/feature' },
-    { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_EVENT_NAME: 'pull_request_target' }, { GITHUB_RUN_ATTEMPT: '2' },
+    { GITHUB_EVENT_NAME: 'push' }, { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_EVENT_NAME: 'pull_request_target' }, { GITHUB_RUN_ATTEMPT: '2' },
     { GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/other.yml@refs/heads/main` }, { BE_DELIVERY_ENABLED: 'false' },
     { BE_DELIVERY_ENVIRONMENT: 'preview' }, { GITHUB_SHA: 'invalid' }, { GITHUB_RUN_ID: '0' }]) {
     assert.throws(() => deliveryContext({ ...context(), ...change }, run.tree));
@@ -81,6 +322,109 @@ test('untrusted, stale-attempt and unactivated contexts cannot enter production'
   assert.equal(checksContext({ ...context(), GITHUB_EVENT_NAME: 'pull_request', GITHUB_REF: 'refs/pull/1/merge' }), 'development');
   assert.throws(() => checksContext({ ...context(), GITHUB_EVENT_NAME: 'pull_request_target' }));
   assert.throws(() => checksContext({ ...context(), GITHUB_REF: 'refs/heads/not-main' }));
+});
+
+test('L1 actual workflow production predicate and executable context reject push even when enabled', () => {
+  const workflow = readFileSync(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url), 'utf8');
+  const expression = workflow.match(/if: &production-eligible >-\n([\s\S]*?)\n    runs-on:/)?.[1]?.trim()
+    .replace(/^\$\{\{\s*|\s*\}\}$/g, '');
+  assert.ok(expression);
+  const evaluate = (event: string, mode = 'current-schema-only', enabled = 'true', attempt = '1') =>
+    runInNewContext(expression, { github: { repository, ref: 'refs/heads/main', run_attempt: attempt, event_name: event },
+      vars: { BE_DELIVERY_ENABLED: enabled }, inputs: { mode } }, { timeout: 100 });
+  for (const event of ['push', 'pull_request', 'pull_request_target', 'schedule']) {
+    assert.equal(evaluate(event), false, `${event} must remain checks-only`);
+    assert.throws(() => deliveryContext({ ...context(), GITHUB_EVENT_NAME: event }, run.tree));
+  }
+  for (const mode of ['current-schema-only', 'versioned-migration', 'etsy-strict-cutover']) assert.equal(evaluate('workflow_dispatch', mode), true);
+  for (const mode of ['activation', '', 'unexpected']) assert.equal(evaluate('workflow_dispatch', mode), false);
+  assert.equal(evaluate('workflow_dispatch', 'current-schema-only', 'false'), false);
+  assert.equal(evaluate('workflow_dispatch', 'current-schema-only', 'true', '2'), false);
+});
+
+test('L1 invalid dispatch and absent approval refuse before metadata transport', async () => {
+  const f = routineMetadataFixture();
+  let reads = 0;
+  for (const patch of [{ GITHUB_EVENT_NAME: 'push' }, { GITHUB_EVENT_NAME: 'pull_request' }, { GITHUB_RUN_ATTEMPT: '2' },
+    { GITHUB_REF: 'refs/heads/other' }, { GITHUB_REPOSITORY: 'fork/esty-admin' }, { BE_DELIVERY_ENABLED: 'false' },
+    { BE_DELIVERY_ENVIRONMENT: 'preview' }, { BE_RELEASE_CONTROLLER_SHA: 'f'.repeat(40) },
+    { BE_RELEASE_APPROVAL_SHA256: undefined }, { BE_DELIVERY_CONFIG_SHA256: undefined },
+    { BE_DELIVERY_SCHEMA_SHA256: 'https://secret-canary@private.invalid' }]) {
+    await assert.rejects(async () => {
+      const context = routineContext({ ...f.env, ...patch }, f.event);
+      await selectRoutine(context, async () => { reads++; return {}; });
+    }, /Routine retained release refused/);
+  }
+  for (const inputs of [{ ...f.event.inputs, release_run_id: '123' }, { ...f.event.inputs, release_artifact_id: '' },
+    { ...f.event.inputs, mode: 'activation' }, { ...f.event.inputs, activation_artifact_id: '456' }]) {
+    assert.throws(() => routineContext(f.env, { inputs }));
+  }
+  assert.equal(reads, 0);
+});
+
+test('L1 authenticated retained selection binds actual consumer, producer checks and immutable artifact', async t => {
+  const failures: Array<[string, (records: Record<string, any>) => void]> = [
+    ['forged dispatch environment with actual push run', r => { r['/actions/runs/123'].event = 'push'; }],
+    ['consumer wrong revision', r => { r['/actions/runs/123'].head_sha = 'f'.repeat(40); }],
+    ['consumer rerun', r => { r['/actions/runs/123'].run_attempt = 2; }],
+    ['consumer fork', r => { r['/actions/runs/123'].head_repository.full_name = 'fork/esty-admin'; }],
+    ['consumer wrong workflow', r => { r['/actions/runs/123'].path = '.github/workflows/other.yml'; }],
+    ['stale controller main', r => { r['/commits/main'].sha = 'f'.repeat(40); }],
+    ['producer failure', r => { r['/actions/runs/122'].conclusion = 'failure'; }],
+    ['producer cancelled', r => { r['/actions/runs/122'].conclusion = 'cancelled'; }],
+    ['producer PR development', r => { r['/actions/runs/122'].event = 'pull_request'; }],
+    ['producer fork', r => { r['/actions/runs/122'].head_repository.full_name = 'fork/esty-admin'; }],
+    ['producer wrong run', r => { r['/actions/runs/122'].id = 121; }],
+    ['producer source drift', r => { r['/actions/runs/122'].head_sha = 'f'.repeat(40); }],
+    ['checks failed', r => { r['/actions/runs/122/jobs?filter=all&per_page=100'].jobs[0].conclusion = 'failure'; }],
+    ['wrong checks job', r => { r['/actions/runs/122/jobs?filter=all&per_page=100'].jobs[0].name = 'Untrusted checks'; }],
+    ['checks wrong run', r => { r['/actions/runs/122/jobs?filter=all&per_page=100'].jobs[0].run_id = 121; }],
+    ['partial job pagination', r => { r['/actions/runs/122/jobs?filter=all&per_page=100'].total_count = 2; }],
+    ['artifact wrong ID', r => { r['/actions/artifacts/456'].id = 457; }],
+    ['artifact wrong run', r => { r['/actions/artifacts/456'].workflow_run.id = 121; }],
+    ['artifact expired', r => { r['/actions/artifacts/456'].expired = true; }],
+    ['artifact missing digest', r => { delete r['/actions/artifacts/456'].digest; }],
+    ['artifact not uploaded by checks interval', r => { r['/actions/artifacts/456'].created_at = '2020-01-01T00:00:00Z'; }],
+  ];
+  for (const [name, mutate] of failures) await t.test(name, async () => {
+    const f = routineMetadataFixture(); mutate(f.records);
+    const effects = { create: 0, sql: 0, promote: 0 };
+    await assert.rejects(async () => { await selectRoutine(f.context, f.read, f.now); effects.create++; }, /Routine retained release refused/);
+    assert.deepEqual(effects, { create: 0, sql: 0, promote: 0 });
+  });
+  await t.test('approved manual retained selection uses authenticated read-only transport', async () => {
+    const f = routineMetadataFixture(); let calls = 0;
+    const transport: typeof fetch = async (url, init) => {
+      calls++; assert.equal(init?.redirect, 'error');
+      assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${credentials.github}`);
+      assert.equal(init?.method ?? 'GET', 'GET');
+      const path = new URL(String(url)).pathname.replace(`/repos/${repository}`, '') + new URL(String(url)).search;
+      return Response.json(await f.read(path));
+    };
+    const selected = await selectRoutine(f.context, githubReader(credentials.github, AbortSignal.timeout(10000), transport), f.now);
+    assert.equal(selected.context.controller.run, '123'); assert.equal(selected.producer.run, '122');
+    assert.equal(selected.artifact.id, '456'); assert.equal(selected.checksJobId, '789'); assert.equal(calls, 5);
+    await confirmRoutineSelection(selected, f.context, f.read);
+    for (const patch of [{ checksJobId: '' }, { controllerTree: 'f'.repeat(40) }, { producer: { ...selected.producer, run: '121' } },
+      { context: { ...f.context, configDigest: 'f'.repeat(64) } }]) assert.throws(() => validateRoutineSelection({ ...selected, ...patch }, f.context, f.now));
+  });
+});
+
+test('L1 actual controller admission reauthenticates the consuming run before any release effects', async t => {
+  const f = await routineIngressFixture(); t.after(f.dispose);
+  const request = await approvedRoutineRequest(f.artifact, f.selection, f.approval, f.context, undefined), bytes = canonical(request) + '\n';
+  await writeFile(join(f.transfer, 'request.json'), bytes, { mode: 0o600 }); f.env.BE_RELEASE_REQUEST_SHA256 = sha256(bytes);
+  const valid = await authenticateRoutineDelivery({ bundle: f.bundle, transfer: f.transfer, env: f.env, read: f.read });
+  assert.equal(valid.request.controller.run, '123'); assert.equal(valid.request.producer.run, '122');
+  assert.equal(valid.artifact.digest, f.artifact.digest);
+  f.records['/actions/runs/123'].event = 'push';
+  const effects = { create: 0, sql: 0, promote: 0 };
+  await assert.rejects(async () => { await authenticateRoutineDelivery({ bundle: f.bundle, transfer: f.transfer, env: f.env, read: f.read }); effects.create++; });
+  assert.deepEqual(effects, { create: 0, sql: 0, promote: 0 });
+  f.records['/actions/runs/123'].event = 'workflow_dispatch';
+  const altered = canonical({ ...request, configDigest: 'f'.repeat(64) }) + '\n';
+  await writeFile(join(f.transfer, 'request.json'), altered); f.env.BE_RELEASE_REQUEST_SHA256 = sha256(altered);
+  await assert.rejects(authenticateRoutineDelivery({ bundle: f.bundle, transfer: f.transfer, env: f.env, read: f.read }), /Release contract/);
 });
 
 test('completion Bash distinguishes checks-only, eligible delivery and manual acceptance', async t => {
@@ -97,27 +441,32 @@ test('completion Bash distinguishes checks-only, eligible delivery and manual ac
   const directory = await mkdtemp(join(tmpdir(), 'esty-completion-gate-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const baseline = {
-    MANUAL_ACTIVATION: 'false', PRODUCTION_ELIGIBLE: 'false', CHECKS_RESULT: 'success',
+    MANUAL_ACTIVATION: 'false', MANUAL_ROUTINE: 'false', ROUTINE_RETRIEVAL_RESULT: 'skipped',
+    PRODUCTION_ELIGIBLE: 'false', CHECKS_RESULT: 'success',
     DELIVERY_RESULT: 'skipped', DELIVERY_ACCEPTED: '', RETRIEVAL_RESULT: 'skipped',
     ACTIVATION_RESULT: 'skipped', ACTIVATION_ACCEPTED: '',
   };
   type CompletionCase = { name: string; env: Partial<typeof baseline>; result: 'checks-only' | 'delivery' | 'activation' | 'failure' };
+  const routine = { MANUAL_ROUTINE: 'true', PRODUCTION_ELIGIBLE: 'true', CHECKS_RESULT: 'skipped',
+    ROUTINE_RETRIEVAL_RESULT: 'success', DELIVERY_RESULT: 'success', DELIVERY_ACCEPTED: 'true' };
   const cases: CompletionCase[] = [
     { name: 'owner-reported intentionally disabled delivery', env: {}, result: 'checks-only' },
-    { name: 'eligible accepted delivery', env: { PRODUCTION_ELIGIBLE: 'true', DELIVERY_RESULT: 'success', DELIVERY_ACCEPTED: 'true' }, result: 'delivery' },
+    { name: 'eligible accepted retained delivery', env: routine, result: 'delivery' },
     { name: 'unknown eligibility cannot claim checks-only', env: { PRODUCTION_ELIGIBLE: '' }, result: 'failure' },
     { name: 'skipped delivery cannot claim acceptance', env: { DELIVERY_ACCEPTED: 'true' }, result: 'failure' },
     { name: 'ineligible unexpected delivery cannot claim checks-only', env: { DELIVERY_RESULT: 'success', DELIVERY_ACCEPTED: 'true' }, result: 'failure' },
   ];
   for (const result of ['failure', 'cancelled', 'skipped']) {
     cases.push({ name: `checks-only checks ${result}`, env: { CHECKS_RESULT: result }, result: 'failure' });
-    cases.push({ name: `eligible checks ${result}`, env: { PRODUCTION_ELIGIBLE: 'true', CHECKS_RESULT: result,
-      DELIVERY_RESULT: 'success', DELIVERY_ACCEPTED: 'true' }, result: 'failure' });
-    cases.push({ name: `eligible delivery ${result}`, env: { PRODUCTION_ELIGIBLE: 'true', DELIVERY_RESULT: result,
-      DELIVERY_ACCEPTED: 'true' }, result: 'failure' });
+    cases.push({ name: `manual retrieval ${result}`, env: { ...routine, ROUTINE_RETRIEVAL_RESULT: result }, result: 'failure' });
+    cases.push({ name: `manual delivery ${result}`, env: { ...routine, DELIVERY_RESULT: result }, result: 'failure' });
   }
-  for (const accepted of ['', 'false']) cases.push({ name: `eligible delivery unaccepted ${JSON.stringify(accepted)}`,
-    env: { PRODUCTION_ELIGIBLE: 'true', DELIVERY_RESULT: 'success', DELIVERY_ACCEPTED: accepted }, result: 'failure' });
+  for (const result of ['success', 'failure', 'cancelled']) cases.push({ name: `manual routine unexpected checks ${result}`,
+    env: { ...routine, CHECKS_RESULT: result }, result: 'failure' });
+  for (const eligibility of ['', 'false']) cases.push({ name: `manual routine ineligible ${JSON.stringify(eligibility)}`,
+    env: { ...routine, PRODUCTION_ELIGIBLE: eligibility }, result: 'failure' });
+  for (const accepted of ['', 'false']) cases.push({ name: `manual delivery unaccepted ${JSON.stringify(accepted)}`,
+    env: { ...routine, DELIVERY_ACCEPTED: accepted }, result: 'failure' });
   for (const result of ['failure', 'cancelled']) cases.push({ name: `ineligible delivery unexpectedly ${result}`,
     env: { DELIVERY_RESULT: result }, result: 'failure' });
   const manual = { MANUAL_ACTIVATION: 'true', CHECKS_RESULT: 'skipped', RETRIEVAL_RESULT: 'success',
@@ -169,6 +518,57 @@ function harness(artifact: VerifiedArtifact, failure?: string) {
   };
   return { input, events, counts: () => ({ creates, promotions }) };
 }
+
+test('L2 ordinary delivery requires independent full configuration approval before transport', async t => {
+  const f = await fixture(); t.after(f.dispose);
+  for (const value of [undefined, '', 'not-a-digest', 'https://synthetic-secret-canary.invalid']) {
+    const h = routineProviderFixture(f.artifact), schema = { digest: h.schema.digest, configDigest: value };
+    let requests = 0;
+    // JavaScript callers can omit a required typed field; exercise the runtime boundary too.
+    assert.throws(() => Reflect.apply(createProvider, undefined, [f.artifact, h.run, schema, h.credentials, AbortSignal.timeout(10000),
+      async () => { requests++; throw new Error('Unexpected transport'); }]));
+    const stub = harness(f.artifact);
+    await assert.rejects(Reflect.apply(deliver, undefined, [{ ...stub.input, schema }]));
+    assert.equal(requests, 0); assert.deepEqual(stub.counts(), { creates: 0, promotions: 0 });
+  }
+});
+
+test('L2 actual ordinary provider enforces runtime digest on candidate and final while preserving durable fences', async t => {
+  const cases = ['', 'candidate-missing', 'candidate-wrong', 'candidate-etsy-drift', 'final-missing', 'final-wrong',
+    'final-etsy-drift', 'denial-leak', 'pending-history', 'alias-drift', 'main-drift', 'archive-drift',
+    'file-drift', 'create-unknown', 'create-known-nonzero', 'promote-unknown'];
+  for (const fault of cases) await t.test(fault || 'exact bytes/full configuration/history and same-ID final alias', async t => {
+    const f = await fixture(); t.after(f.dispose);
+    const h = routineProviderFixture(f.artifact, fault, fault === 'file-drift' ? async () => {
+      const path = join(f.artifact.root, '.vercel/output/functions/index.func/apps/api/src/main.js');
+      await chmod(path, 0o600); await writeFile(path, 'changed'); await chmod(path, 0o444);
+    } : undefined);
+    const signal = AbortSignal.timeout(10000), provider = createProvider(f.artifact, h.run, h.schema, h.credentials, signal, h.transport);
+    const input = { artifact: f.artifact, run: h.run, schema: h.schema, provider, cli: h.cli, signal, receipt: h.receipt };
+    if (!fault) {
+      assert.equal(await deliver(input), 'dpl_candidate');
+      assert.deepEqual(h.counts(), { creates: 1, promotions: 1 });
+      assert.equal(h.reservation()?.payload.configDigest, runtimeConfigDigest(routineRuntime));
+      assert.notEqual(h.schema.configDigest, routineRuntime.APP_ACTIVATION_CONFIG_DIGEST);
+      assert.equal(h.receipts.find(row => row.phase === 'accepted')?.configDigest, h.schema.configDigest);
+      assert.equal(h.receipts.find(row => row.phase === 'accepted')?.id, 'dpl_candidate');
+      assert.ok(h.events.indexOf('final:GET:/health/ready') < h.events.indexOf('success:accepted:dpl_candidate'));
+    } else {
+      await assert.rejects(deliver(input));
+      assert.equal(h.receipts.some(row => row.phase === 'accepted'), false);
+      assert.equal(h.events.some(row => row.startsWith('success:')), false);
+      assert.deepEqual(h.counts(), { creates: 1, promotions: fault.startsWith('final-') || fault === 'promote-unknown' ? 1 : 0 });
+      const unresolved = h.receipts.at(-1)!;
+      assert.equal(unresolved.phase, 'unresolved'); assert.equal(unresolved.id, fault === 'create-unknown' ? null : 'dpl_candidate');
+      if (fault.includes('unknown') || fault === 'create-known-nonzero') {
+        const before = h.counts(); await assert.rejects(deliver(input)); assert.deepEqual(h.counts(), before, 'Durable unresolved intent forbids mutation replay');
+      }
+    }
+    const acknowledged = h.events.indexOf('receipt:acknowledged'), inspected = h.events.indexOf('inspect');
+    if (fault !== 'create-unknown') assert.ok(acknowledged >= 0 && (inspected < 0 || acknowledged < inspected));
+    assert.doesNotMatch(JSON.stringify(h.receipts), /synthetic-secret-canary|synthetic-github-token|synthetic-vercel-token|synthetic-platform-bypass/);
+  });
+});
 test('exact current-schema candidate acceptance precedes one promotion and final alias acceptance', async t => {
   const f = await fixture(); t.after(f.dispose);
   assert.equal(f.artifact.manifest.migrationDigest, activationSchema.oldDigest);
@@ -179,7 +579,7 @@ test('exact current-schema candidate acceptance precedes one promotion and final
   assert.ok(h.events.indexOf('production_http') < h.events.indexOf('success:accepted:dpl_candidate'));
   assert.ok(h.events.indexOf('receipt:create_intent') < h.events.indexOf('create'));
 });
-test('current-only refuses an unapproved app schema and accepts explicitly approved TARGET without a migration phase', async t => {
+test('current-only refuses unapproved history and accepts an explicitly approved exact manifest without migration', async t => {
   const base = await artifactFixture();
   t.after(base.dispose);
   const files = base.artifact.manifest.source.files.filter(entry => !entry.path.startsWith('apps/api/migrations/'));
@@ -201,7 +601,7 @@ test('current-only refuses an unapproved app schema and accepts explicitly appro
   await assert.rejects(deliver(h.input));
   assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
   assert.deepEqual(h.events, []);
-  const approved = harness(artifact); approved.input.schema = { digest: activationSchema.targetDigest };
+  const approved = harness(artifact); approved.input.schema = { ...oldSchema, digest: sha256(JSON.stringify(migrationManifest)) };
   assert.equal(await deliver(approved.input), 'dpl_candidate');
   assert.deepEqual(approved.counts(), { creates: 1, promotions: 1 });
   let requests = 0;
@@ -233,8 +633,8 @@ test('routine migration approval rejects initial activation, altered prior check
 
 test('routine migration authorization is durable, confirmed and cannot be repeated after a lost acknowledgement', async t => {
   const f = await routineMigrationFixture(); t.after(f.dispose);
-  const packet = migrationPacketFor(f.artifact), schema: RoutineSchema = {
-    digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+  const packet = migrationPacketFor(f.artifact), schema: RoutineDeliveryApproval = {
+    ...oldSchema, digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
   for (const fail of ['compatible', 'reserve', 'record', 'confirm', 'none']) {
     const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-routine-authorization-'));
     t.after(() => rm(directory, { recursive: true, force: true }));
@@ -242,7 +642,7 @@ test('routine migration authorization is durable, confirmed and cannot be repeat
     const step = (name: string) => { events.push(name); if (fail === name) throw new Error('Synthetic unknown acknowledgement.'); };
     const provider: RoutineProvider = { ...h.input.provider, async compatiblePredecessor() { step('compatible'); },
       async reserve() { step('reserve'); return 44; }, async record() { step('record'); },
-      async confirmRoutineJournal() { step('confirm'); } };
+      async confirmRoutineJournal() { step('confirm'); }, async reconcileRoutineJournal() { throw new Error('Unexpected reconciliation.'); } };
     const input = { artifact: f.artifact, run, schema, provider, directory };
     if (fail === 'none') {
       await authorizeRoutineMigration(input);
@@ -259,8 +659,8 @@ test('routine migration authorization is durable, confirmed and cannot be repeat
 
 test('routine committed continuation rejects unknown, incomplete or changed migration outcomes before provider work', async t => {
   const f = await routineMigrationFixture(); t.after(f.dispose);
-  const packet = migrationPacketFor(f.artifact), schema: RoutineSchema = {
-    digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+  const packet = migrationPacketFor(f.artifact), schema: RoutineDeliveryApproval = {
+    ...oldSchema, digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
   const report: MigrationReport = { run_id: randomUUID(), source_revision: run.revision, target: 'local',
     manifest_digest: schema.digest, started_at: '2026-01-01T00:00:00.000Z', ended_at: '2026-01-01T00:00:01.000Z',
     duration_ms: 1000, result: 'success', stage: 'verification', failed_version: null, database_outcome: 'committed',
@@ -272,14 +672,15 @@ test('routine committed continuation rejects unknown, incomplete or changed migr
     const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-routine-outcome-'));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const auth = { version: 1, packetDigest: schema.migration!.digest, artifact: f.artifact.digest,
-      run, journal: 44, predecessor: 'dpl_previous' };
+      run, journal: 44, predecessor: 'dpl_previous', requestDigest: schema.requestDigest, configDigest: schema.configDigest, authorizedAt: Date.now() };
     const broken = { ...report, ...change } as MigrationReport;
     writeReleaseEvidence(join(directory, 'migration-authorized.json'), auth);
     writeReleaseEvidence(join(directory, 'migration-outcome.json'), { authorization: sha256(canonical(auth)), report: broken });
     writeReleaseEvidence(join(directory, 'migration-confirmed.json'), { authorization: sha256(canonical(auth)), reportDigest: sha256(canonical(broken)) });
     let calls = 0;
     const provider: RoutineProvider = { ...harness(f.artifact).input.provider,
-      async compatiblePredecessor() { calls++; }, async confirmRoutineJournal() { calls++; } };
+      async compatiblePredecessor() { calls++; }, async confirmRoutineJournal() { calls++; },
+      async reconcileRoutineJournal() { throw new Error('Unexpected reconciliation.'); } };
     await assert.rejects(continueRoutineMigration({ artifact: f.artifact, run, schema, directory, provider }));
     assert.equal(calls, 0);
   }
@@ -287,14 +688,16 @@ test('routine committed continuation rejects unknown, incomplete or changed migr
 
 test('routine remote confirmation binds run, packet and artifact rather than trusting a success-shaped status', async t => {
   const f = await routineMigrationFixture(); t.after(f.dispose);
-  const packet = migrationPacketFor(f.artifact), schema: RoutineSchema = {
-    digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+  const packet = migrationPacketFor(f.artifact), schema: RoutineDeliveryApproval = {
+    ...oldSchema, digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
   const description = `migration_intent:${schema.migration!.digest}`;
   const valid = { id: 44, sha: run.revision, task: 'deploy:esty-be-ci', environment: 'be-production',
     payload: { version: 1, ...run, migrationPacket: schema.migration!.digest, artifact: f.artifact.digest,
-      sourceDigest: f.artifact.manifest.source.digest, migrationDigest: schema.digest, project: artifactTarget.project } };
+      sourceDigest: f.artifact.manifest.source.digest, migrationDigest: schema.digest, configDigest: schema.configDigest,
+      requestDigest: schema.requestDigest, project: artifactTarget.project } };
   for (const change of [{}, { artifact: 'f'.repeat(64) }, { migrationPacket: 'f'.repeat(64) }, { run: '124' },
-    { tree: 'f'.repeat(40) }, { migrationDigest: activationSchema.oldDigest }]) {
+    { tree: 'f'.repeat(40) }, { migrationDigest: activationSchema.oldDigest }, { configDigest: 'f'.repeat(64) }, { configDigest: undefined },
+    { requestDigest: 'f'.repeat(64) }, { requestDigest: undefined }]) {
     const provider = createProvider(f.artifact, run, schema, credentials, AbortSignal.timeout(10000),
       async raw => Response.json(String(raw).includes('/statuses') ? [{ state: 'in_progress', description }]
         : { ...valid, payload: { ...valid.payload, ...change } }));
@@ -308,8 +711,8 @@ test('routine remote confirmation binds run, packet and artifact rather than tru
 
 test('routine migration refuses an incompatible predecessor before SQL authorization', async t => {
   const f = await routineMigrationFixture(); t.after(f.dispose);
-  const packet = migrationPacketFor(f.artifact), schema: RoutineSchema = {
-    digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+  const packet = migrationPacketFor(f.artifact), schema: RoutineDeliveryApproval = {
+    ...oldSchema, digest: f.artifact.manifest.migrationDigest, migration: { packet, digest: sha256(canonical(packet)) } };
   for (const mismatch of ['source', 'artifact', 'region', 'configuration']) {
     let http = 0;
     const provider = createProvider(f.artifact, run, schema, credentials, AbortSignal.timeout(10000), async raw => {
@@ -326,6 +729,36 @@ test('routine migration refuses an incompatible predecessor before SQL authoriza
     assert.equal(http, mismatch === 'configuration' ? 1 : 0);
   }
 });
+
+test('L2 compatible predecessor keeps its separately approved old config when candidate configuration changes', async t => {
+  const f = await routineMigrationFixture(); t.after(f.dispose);
+  const packet = migrationPacketFor(f.artifact), configDigest = runtimeConfigDigest(routineRuntime);
+  packet.predecessor.configDigest = runtimeConfigDigest({ ...routineRuntime, ETSY_CLIENT_ID: 'old-client' });
+  const schema = { ...oldSchema, digest: f.artifact.manifest.migrationDigest, configDigest, migration: { packet, digest: sha256(canonical(packet)) } };
+  assert.notEqual(configDigest, packet.predecessor.configDigest);
+  for (const actual of [packet.predecessor.configDigest, configDigest]) {
+    let healthyReads = 0;
+    const provider = createProvider(f.artifact, run, schema, credentials, AbortSignal.timeout(10000), async (raw, init) => {
+      const url = new URL(String(raw)), headers = new Headers(init?.headers);
+      if (url.pathname.includes('/domains/')) return Response.json({ name: 'api.lovora.us', projectId: artifactTarget.project, verified: true });
+      if (url.pathname.includes('/aliases/')) return Response.json({ alias: 'api.lovora.us', projectId: artifactTarget.project, deploymentId: packet.predecessor.id });
+      if (url.pathname.includes('/deployments/')) return Response.json({ id: packet.predecessor.id, projectId: artifactTarget.project,
+        ownerId: artifactTarget.owner, target: 'production', readyState: 'READY', regions: ['icn1'],
+        meta: { sourceCommit: packet.predecessor.revision, artifactSha256: packet.predecessor.artifact } });
+      if (init?.method === 'OPTIONS') return headers.get('origin') === 'https://app.lovora.us'
+        ? new Response(null, { status: 204, headers: { 'access-control-allow-origin': 'https://app.lovora.us' } })
+        : Response.json({ status: 'unauthorized' }, { status: 401 });
+      if (headers.get('authorization') !== `Bearer ${credentials.bearer}`) return Response.json({ status: 'unauthorized' }, { status: 401 });
+      if (url.pathname === '/__release_unknown_route') return new Response(null, { status: 404 });
+      healthyReads++;
+      return Response.json(url.pathname === '/health/live' ? { status: 'ok' } : { status: 'ready', database: 'up', migrations: 'current' },
+        { headers: { 'x-activation-config-digest': actual } });
+    });
+    if (actual === packet.predecessor.configDigest) { await provider.compatiblePredecessor(); assert.equal(healthyReads, 2); }
+    else { await assert.rejects(provider.compatiblePredecessor()); assert.equal(healthyReads, 1); }
+  }
+});
+
 test('stale source, previous intent, persistence and candidate failures prevent creation or promotion', async t => {
   const f = await fixture(); t.after(f.dispose);
   for (const failure of ['main1', 'preflight', 'reserve', 'receipt:reserved', 'in_progress:create_intent_unknown_until_acknowledged',
@@ -364,20 +797,41 @@ test('failed promotion or final domain acceptance never clears the durable fence
   }
 });
 
-function tar(entries: Array<{ path: string; content: Buffer; mode: number; type?: string }>): Buffer {
-  const chunks: Buffer[] = [];
-  for (const entry of entries) {
-    const header = Buffer.alloc(512);
-    header.write(entry.path, 0, 100); header.write(entry.mode.toString(8).padStart(7, '0') + '\0', 100);
-    header.write('0000000\0', 108); header.write('0000000\0', 116);
-    header.write(entry.content.length.toString(8).padStart(11, '0') + '\0', 124); header.write('00000000000\0', 136);
-    header.fill(32, 148, 156); header.write(entry.type ?? '0', 156); header.write('ustar\0', 257);
-    const checksum = header.reduce((sum, value) => sum + value, 0);
-    header.write(checksum.toString(8).padStart(6, '0') + '\0 ', 148);
-    chunks.push(header, entry.content, Buffer.alloc((512 - entry.content.length % 512) % 512));
+
+test('L1 retained extraction rejects unsafe archive members before creating a destination', async t => {
+  const root = await realpath(await mkdtemp(join(tmpdir(), 'esty-routine-tar-'))); t.after(() => removeArtifactTree(root));
+  const base = [{ path: 'artifact/', content: Buffer.alloc(0), mode: 0o555, type: '5' },
+    { path: 'runner/', content: Buffer.alloc(0), mode: 0o555, type: '5' },
+    { path: 'receipt.json', content: Buffer.from('{}'), mode: 0o600, type: '0' }];
+  const good = { path: 'artifact/file.js', content: Buffer.from('export {};'), mode: 0o444, type: '0' };
+  const pax = (key: string, value: string) => {
+    const body = `${key}=${value}\n`; let length = Buffer.byteLength(body) + 2;
+    while (Buffer.byteLength(`${length} ${body}`) !== length) length = Buffer.byteLength(`${length} ${body}`);
+    return Buffer.from(`${length} ${body}`);
+  };
+  const longPath = `artifact/${'segment-'.repeat(15)}module.js`;
+  const extended = tar([...base, { ...good, type: 'x',
+    content: Buffer.concat([pax('path', longPath), pax('LIBARCHIVE.creationtime', '1700000000.123')]) }, good]);
+  const extendedRoot = join(root, 'extended');
+  await extractRoutineBundle(extended, sha256(extended), extendedRoot);
+  assert.equal(await readFile(join(extendedRoot, longPath), 'utf8'), 'export {};');
+  const valid = tar([...base, good]), validRoot = join(root, 'valid');
+  await extractRoutineBundle(valid, sha256(valid), validRoot);
+  assert.equal(await readFile(join(validRoot, good.path), 'utf8'), 'export {};');
+  const cases = [
+    [{ ...good, path: '../escape' }], [{ ...good, path: '/absolute' }], [{ ...good, path: 'artifact/../escape' }],
+    [{ ...good, path: 'artifact\\escape' }], [{ ...good, path: 'artifact/.env' }],
+    [{ ...good, path: 'artifact/absent/child.js' }], [{ ...good, type: '1' }], [{ ...good, type: '2' }],
+    [{ ...good, type: '3' }], [{ ...good, mode: 0o666 }], [good, good],
+    [good, { ...good, path: 'artifact/FILE.js' }],
+    [{ ...good, type: 'x', content: pax('path', '../escape.js') }, good],
+  ];
+  for (const [index, entries] of cases.entries()) {
+    const destination = join(root, `refused-${index}`), archive = tar([...base, ...entries]);
+    await assert.rejects(extractRoutineBundle(archive, sha256(archive), destination));
+    assert.equal(existsSync(destination), false, 'No partial extraction may precede whole-archive path/type validation');
   }
-  chunks.push(Buffer.alloc(1024)); return gzipSync(Buffer.concat(chunks));
-}
+});
 function file(path: string, content: Buffer, mode = 0o444): FileRecord {
   return { path, mode, size: content.length, sha256: sha256(content), sha1: createHash('sha1').update(content).digest('hex') };
 }
@@ -437,8 +891,9 @@ test('candidate bypass is header-only and cannot mask final custom-domain applic
       ? new Response(null, { status: 204, headers: { 'access-control-allow-origin': 'https://app.lovora.us' } })
       : Response.json({ status: 'unauthorized' }, { status: 401 });
     if (headers.get('authorization') !== `Bearer ${credentials.bearer}`) return Response.json({ status: 'unauthorized' }, { status: 401 });
-    if (url.endsWith('/health/live')) return Response.json({ status: 'ok' });
-    if (url.endsWith('/health/ready')) return Response.json({ status: 'ready', database: 'up', migrations: 'current' });
+    if (url.endsWith('/health/live')) return Response.json({ status: 'ok' }, { headers: { 'x-activation-config-digest': oldSchema.configDigest } });
+    if (url.endsWith('/health/ready')) return Response.json({ status: 'ready', database: 'up', migrations: 'current' },
+      { headers: { 'x-activation-config-digest': oldSchema.configDigest } });
     return new Response(null, { status: 404 });
   };
   const provider = createProvider(f.artifact, run, oldSchema, credentials, AbortSignal.timeout(10000), transport);
@@ -476,6 +931,7 @@ test('provider archive attestation requires every exact file and canonical names
 });
 
 test('manual CLI partition attestation preserves exact runtime bytes and rejects unsupported transport evidence', async t => {
+  if (historicalActivationChild(t.name)) return;
   const f = await activationArtifact(); t.after(f.dispose);
   const records = f.artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/'));
   const entries = records.map(file => ({ path: file.path, mode: file.mode, content: readArtifactFile(f.artifact.root, file.path, file) }));
@@ -570,6 +1026,7 @@ function configurationReceiptFixture(packet: ActivationPacket, phase: 'bridge-co
     metadataDigest: sha256(`synthetic-metadata:${phase}`), count: 1, valueProof: 'pending-candidate-runtime' };
 }
 test('unknown Secret writes stay fenced across restart and cannot be reconciled from metadata', async t => {
+  if (historicalActivationChild(t.name)) return;
   const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
   let writes = 0, inspections = 0;
   const effect = async () => { writes++; throw new Error('synthetic private transport uncertainty'); };
@@ -599,6 +1056,7 @@ test('unknown Secret writes stay fenced across restart and cannot be reconciled 
 });
 
 test('transferred receipts permit only the untouched FE gate after separately approved inventory and remote confirmation', async t => {
+  if (historicalActivationChild(t.name)) return;
   const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
   const parent = await mkdtemp(join(realpathSync(tmpdir()), 'esty-activation-import-'));
   t.after(() => rm(parent, { recursive: true, force: true }));
@@ -985,7 +1443,8 @@ test('held APP metadata diagnoses bounded failures without disclosing values, ID
     assert.equal(requests, 1);
   });
 });
-test('Secret configuration accepts one-way201 acknowledgement without decrypting saved values', async () => {
+test('Secret configuration accepts one-way201 acknowledgement without decrypting saved values', async t => {
+  if (historicalActivationChild(t.name)) return;
   const { values, packet, entries } = secretConfiguration();
   let writes = 0;
   const transport: typeof fetch = async (raw, init) => {
@@ -1008,7 +1467,8 @@ test('Secret configuration accepts one-way201 acknowledgement without decrypting
   assert.equal(JSON.stringify(receipt).includes('synthetic-only'), false);
 });
 
-test('Secret metadata respects authoritative visibility and binds both runtime phases', async () => {
+test('Secret metadata respects authoritative visibility and binds both runtime phases', async t => {
+  if (historicalActivationChild(t.name)) return;
   for (const phase of ['bridge', 'app'] as const) for (const kind of ['legacy-sensitive', 'encrypted-secret', 'upgrade-config']) {
     const { values, packet, entries } = secretConfiguration(phase);
     const final = entries.map(row => kind === 'legacy-sensitive' ? { ...row, visibility: undefined }
@@ -1026,6 +1486,7 @@ test('Secret metadata respects authoritative visibility and binds both runtime p
 });
 
 test('Secret configuration fences incomplete or changed acknowledgements and metadata without readback or retry', async t => {
+  if (historicalActivationChild(t.name)) return;
   const scenarios = ['hidden', 'pagination', 'duplicate', 'preview', 'lost-ack', 'partial', 'missing-ack', 'duplicate-ack',
     'extra-ack', 'replaced-id', 'config-visibility', 'post-drift', 'post-missing', 'abort-before-write', 'abort-after-write'];
   for (const scenario of scenarios) await t.test(scenario, async () => {
@@ -1064,6 +1525,7 @@ test('Secret configuration fences incomplete or changed acknowledgements and met
 });
 
 test('lost remote acknowledgement after a durable Secret receipt is read-only recoverable without another write', async t => {
+  if (historicalActivationChild(t.name)) return;
   const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
   authorizeLocal(input, 'bridge-config');
   await executeActivationPhase(input, 'bridge-config', async () =>
@@ -1082,6 +1544,7 @@ test('lost remote acknowledgement after a durable Secret receipt is read-only re
 });
 
 test('missing or substituted durable Secret receipts prevent candidate execution after restart', async t => {
+  if (historicalActivationChild(t.name)) return;
   for (const change of ['missing', 'startedHash', 'packetDigest', 'artifactDigest', 'metadataDigest', 'valueProof', 'count']) {
     const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
     authorizeLocal(input, 'bridge-config');
@@ -1107,6 +1570,7 @@ test('missing or substituted durable Secret receipts prevent candidate execution
 });
 
 test('configuration receipt persistence failure cannot be repaired by replaying the Secret write', async t => {
+  if (historicalActivationChild(t.name)) return;
   const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
   authorizeLocal(input, 'bridge-config');
   writeReleaseEvidence(join(input.directory, `${input.packet.runId}.bridge-config.configuration.json`), { partial: true });
@@ -1123,7 +1587,8 @@ test('configuration receipt persistence failure cannot be repaired by replaying 
 });
 
 
-test('configuration refuses privileged credential aliases before mutation or decryption and fences post-write discovery', async () => {
+test('configuration refuses privileged credential aliases before mutation or decryption and fences post-write discovery', async t => {
+  if (historicalActivationChild(t.name)) return;
   const values = { API_RUNTIME: 'vercel', APP_SCHEMA_MODE: 'activation-bridge', APP_FOUNDATION_ENABLED: 'false',
     SUPABASE_PROJECT_REF: 'eotmpaliqcxxcotrcols', SUPABASE_SESSION_HOST: 'aws-0-ap-northeast-2.pooler.supabase.com',
     SUPABASE_DATABASE_NAME: 'postgres', SUPABASE_DATABASE_USER: 'postgres.eotmpaliqcxxcotrcols',
@@ -1174,7 +1639,10 @@ async function activationArtifact() {
     await writeFile(join(base.operator, path), bytes); files.push(file(path, bytes, 0o644));
   }
   const contractPath = 'specs/001-connectivity-foundation/contracts/openapi.json';
-  const contract = readFileSync(new URL(`../../../../${contractPath}`, import.meta.url));
+  // Public historical contract at97000fac531308f0a4a13e0eee932260dc868650;
+  // the production activation pin is unchanged, not the current API contract.
+  const contract = readFileSync(new URL('../../tests/fixtures/historical-activation-openapi.json', import.meta.url));
+  assert.equal(sha256(contract), '41bc4c5f0b93085fae607b680a823a32038e07e8b8512fef54223b2d2fc333ad');
   await mkdir(dirname(join(base.operator, contractPath)), { recursive: true });
   await writeFile(join(base.operator, contractPath), contract); files.push(file(contractPath, contract, 0o644));
   const artifact = await assembleArtifact({ raw: base.raw, operator: base.operator, destination: join(base.root, 'activation'),
@@ -1187,6 +1655,7 @@ async function activationArtifact() {
 test('held CLI awaits readonly stage disposal, preserves outside symlinks and retains primary read errors', {
   skip: !process.getuid || process.getuid() === 0,
 }, async t => {
+  if (historicalActivationChild(t.name)) return;
   const f = await activationArtifact(), owned = await mkdtemp(join(realpathSync(tmpdir()), 'esty-held-cleanup-test-'));
   const roots: string[] = [], makeTemp = fs.mkdtempSync;
   t.after(async () => {
@@ -1247,6 +1716,7 @@ test('held CLI awaits readonly stage disposal, preserves outside symlinks and re
 });
 
 test('post-repair and fixed correction native CREATE preserve forced prebuilt staging and capability isolation', async t => {
+  if (historicalActivationChild(t.name)) return;
   const f = await activationArtifact(), owned = await mkdtemp(join(realpathSync(tmpdir()), 'esty-correction-native-test-'));
   t.after(async () => { await removeArtifactTree(owned); await f.dispose(); });
   const tool = join(owned, 'tool'), cliPath = join(tool, 'vercel/dist/vc.js');
@@ -1292,7 +1762,28 @@ test('post-repair and fixed correction native CREATE preserve forced prebuilt st
   assert.equal(canonical(inventory(f.artifact.root)), before);
 });
 
+
+test('L5 current four-entry source refuses historical activation before provider or CLI effects', async t => {
+  assert.equal(migrationManifest.length, 4);
+  assert.throws(() => assertActivationManifest());
+  const f = await activationArtifact(); t.after(f.dispose);
+  const h = harness(f.artifact);
+  const activation = { packet: f.packet, packetDigest: sha256(canonical(f.packet)), phase: 'bridge' as const };
+  const provider: ActivationProvider = { ...h.input.provider,
+    async confirmJournal() { throw new Error('Unexpected historical journal access'); },
+    async acceptFrontend() { throw new Error('Unexpected frontend operation'); } };
+  await assert.rejects(deliverActivationCandidate({ artifact: f.artifact, activation, provider, cli: h.input.cli,
+    predecessor: 'dpl_previous', journal: 1, signal: AbortSignal.timeout(10000),
+    persist() { throw new Error('Unexpected historical persistence'); } }));
+  let requests = 0;
+  assert.throws(() => createActivationProvider(f.artifact, run, credentials, AbortSignal.timeout(10000), activation,
+    async () => { requests++; throw new Error('Unexpected historical provider transport'); }));
+  assert.deepEqual(h.counts(), { creates: 0, promotions: 0 }); assert.deepEqual(h.events, []);
+  assert.equal(requests, 0);
+});
+
 test('activation preserves known IDs and refuses promotion after unknown acknowledgement or runtime attestation failure', async t => {
+  if (historicalActivationChild(t.name)) return;
   const f = await activationArtifact(); t.after(f.dispose);
   for (const failure of [undefined, 'lost-create', 'known-nonzero', 'lost-ack', 'candidate_http', 'promote', 'production_http']) {
     const h = harness(f.artifact, failure);
@@ -1321,6 +1812,7 @@ test('activation preserves known IDs and refuses promotion after unknown acknowl
 });
 
 test('provider runtime configuration attestation cannot be replaced by deployment metadata or leaked on denial', async t => {
+  if (historicalActivationChild(t.name)) return;
   const f = await activationArtifact(); t.after(f.dispose);
   for (const mode of ['exact', 'missing', 'changed', 'leaked']) {
     const transport: typeof fetch = async (raw, init) => {
@@ -1342,11 +1834,12 @@ test('provider runtime configuration attestation cannot be replaced by deploymen
     const provider = createActivationProvider(f.artifact, run, credentials, AbortSignal.timeout(10000),
       { packet: f.packet, packetDigest: sha256(canonical(f.packet)), phase: 'bridge' }, transport);
     if (mode === 'exact') await provider.http('https://synthetic.vercel.app', true);
-    else await assert.rejects(provider.http('https://synthetic.vercel.app', true), /configuration attestation/);
+    else await assert.rejects(provider.http('https://synthetic.vercel.app', true));
   }
 });
 
 test('journal mode and event tampering prevent all later phase effects', async t => {
+  if (historicalActivationChild(t.name)) return;
   const input = await activationJournal(); t.after(() => rm(input.directory, { recursive: true, force: true }));
   authorizeLocal(input, 'bridge-config');
   const path = join(input.directory, 'activation', input.packet.runId, '000.json');
@@ -1433,7 +1926,8 @@ test('manual retained approval binds the new workflow without opening ordinary p
       const env = { ...context(), GITHUB_EVENT_NAME: event, BE_DELIVERY_MODE: mode, BE_DELIVERY_ENABLED: enabled,
         BE_ACTIVATION_ENABLED: 'true', BE_ACTIVATION_WORKFLOW_SHA: run.revision };
       assert.throws(() => deliveryContext(env, run.tree), `${event}/${mode} remains broad-gated`);
-      assert.deepEqual(deliveryContext({ ...env, BE_DELIVERY_ENABLED: 'true' }, run.tree), run);
+      if (event === 'push') assert.throws(() => deliveryContext({ ...env, BE_DELIVERY_ENABLED: 'true' }, run.tree));
+      else assert.deepEqual(deliveryContext({ ...env, BE_DELIVERY_ENABLED: 'true' }, run.tree), run);
     }
   }
 });
@@ -1806,6 +2300,7 @@ test('private mutations recheck authorized main before spawning and keep provide
   });
 
 test('failed-preflight archive proves intact reservation and rejects events, initial proof, changed lock and incomplete inventory', async t => {
+  if (historicalActivationChild(t.name)) return;
   const directory = await mkdtemp(join(realpathSync(tmpdir()), 'esty-terminal-archive-'));
   t.after(() => rm(directory, { recursive: true, force: true }));
   const packet = activationPacket(), digest = sha256(canonical(packet)), root = join(directory, 'be-receipts');

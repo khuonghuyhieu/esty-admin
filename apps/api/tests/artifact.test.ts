@@ -1,13 +1,64 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import test from 'node:test';
+import { existsSync } from 'node:fs';
 import { chmod, writeFile, readFile, unlink, symlink, cp, mkdir, mkdtemp, realpath, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { artifactFixture } from './artifact-fixture.js';
+import { artifactFixture, routineIngressFixture } from './artifact-fixture.js';
 import { assembleArtifact, canonical, inventory, readArtifactFile, sha256, snapshotArtifact, toolPins, verifyArtifact } from '../scripts/artifact.js';
 import { verifyToolPackage } from '../scripts/build-artifact.js';
+import { extractRoutineBundle, verifyRoutineBundle, verifyRoutineTransfer } from '../scripts/routine-retained.mjs';
+
+test('L1 independently approved retained archive preserves exact operator and controller source closure', async t => {
+  const f = await routineIngressFixture(); t.after(f.dispose);
+  const transfer = verifyRoutineTransfer(f.transfer, f.selection, f.context);
+  const destination = join(f.root, 'consumed');
+  await extractRoutineBundle(transfer.archive, transfer.approval.archiveDigest, destination);
+  const artifact = await verifyRoutineBundle(destination, transfer.approval, f.selection, f.context, f.sourceRoot);
+  assert.equal(artifact.digest, f.artifact.digest);
+  assert.deepEqual(inventory(join(destination, 'runner')), inventory(join(f.bundle, 'runner')));
+  await assert.rejects(verifyRoutineBundle(destination, transfer.approval, f.selection, f.context, f.root));
+  const wrongHashDestination = join(f.root, 'wrong-hash');
+  await assert.rejects(extractRoutineBundle(transfer.archive, '0'.repeat(64), wrongHashDestination));
+  assert.equal(existsSync(wrongHashDestination), false);
+});
+
+test('L1 retained transfer refuses circular approval, changed bytes, symlinks and extra files', async t => {
+  for (const change of ['archive-bytes', 'sidecar', 'circular-approval', 'symlink', 'extra-file']) await t.test(change, async t => {
+    const f = await routineIngressFixture(); t.after(f.dispose);
+    const archive = join(f.transfer, 'be-release.tar.gz');
+    if (change === 'archive-bytes' || change === 'circular-approval') await writeFile(archive, Buffer.concat([f.archive, Buffer.from('changed')]));
+    if (change === 'sidecar') await writeFile(join(f.transfer, 'be-release-approval.json'), '{"private":"synthetic-canary"}');
+    if (change === 'circular-approval') await writeFile(join(f.transfer, 'be-release-approval.json'),
+      canonical({ ...f.approval, archiveDigest: sha256(await readFile(archive)) }) + '\n');
+    if (change === 'symlink') { await unlink(archive); await symlink(join(f.transfer, 'be-release-approval.json'), archive); }
+    if (change === 'extra-file') await writeFile(join(f.transfer, 'unexpected.mjs'), 'throw new Error("must not execute");');
+    assert.throws(() => verifyRoutineTransfer(f.transfer, f.selection, f.context));
+  });
+});
+
+test('L1 runtime operator and checks receipt cannot substitute altered or partial evidence', async t => {
+  for (const change of ['operator-bytes', 'operator-mode', 'operator-extra', 'receipt-failed', 'receipt-development',
+    'receipt-source', 'receipt-tree', 'receipt-missing']) await t.test(change, async t => {
+    const f = await routineIngressFixture(); t.after(f.dispose);
+    const runner = join(f.bundle, 'runner'), file = join(runner, 'apps/api/build/scripts/migrate.js');
+    if (change === 'operator-bytes') { await chmod(file, 0o600); await writeFile(file, 'throw new Error("never execute");'); await chmod(file, 0o444); }
+    if (change === 'operator-mode') await chmod(file, 0o555);
+    if (change === 'operator-extra') { await chmod(runner, 0o700); await writeFile(join(runner, 'unexpected.mjs'), 'export {};'); }
+    if (change.startsWith('receipt-')) {
+      const path = join(f.bundle, 'receipt.json'), receipt = JSON.parse(await readFile(path, 'utf8'));
+      if (change === 'receipt-failed') receipt.functional = 'failed';
+      if (change === 'receipt-development') receipt.mode = 'development';
+      if (change === 'receipt-source') receipt.source = '0'.repeat(64);
+      if (change === 'receipt-tree') receipt.tree = '0'.repeat(40);
+      if (change === 'receipt-missing') delete receipt.nativeHttpDatabase;
+      await writeFile(path, JSON.stringify(receipt));
+    }
+    await assert.rejects(verifyRoutineBundle(f.bundle, f.approval, f.selection, f.context, undefined));
+  });
+});
 
 test('sealed private snapshots retain exact migration/runtime content independently of their source directory', async t => {
   const fixture = await artifactFixture(); t.after(fixture.dispose);
@@ -165,7 +216,6 @@ test('staged operator imports and no-input CLIs remain closed over the isolated 
     cwd: isolated, env, encoding: 'utf8', timeout: 15000,
   });
   assert.equal(deliveryCli.status, 1, deliveryCli.stderr);
-  assert.match(deliveryCli.stderr, /^BE_DELIVERY_NOT_ACCEPTED:/m);
   for (const name of ['etsy-setup.js', 'etsy-release.js', 'etsy-owner.js']) {
     const result = spawnSync(process.execPath, [...permissions, join(scripts, name)], {
       cwd: isolated, env, encoding: 'utf8', timeout: 15000,

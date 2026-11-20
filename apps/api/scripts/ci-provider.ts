@@ -8,11 +8,15 @@ import { validateActivationPacket, verifyActivationArtifact } from './activation
 import type { ActivationPacket } from './activation-journal.js';
 import { verifyRoutineArtifact } from './ci-migrations.js';
 import type { RoutineSchema } from './ci-migrations.js';
+import type { ReleaseDiagnostics } from './ci-delivery.js';
 
 export const repository = 'khuonghuyhieu/esty-admin';
 export const deploymentId = /^dpl_[A-Za-z0-9]{1,124}$/;
 const task = 'deploy:esty-be-ci';
 export interface RunIdentity { revision: string; tree: string; run: string }
+export interface RoutineDeliveryApproval extends RoutineSchema {
+  configDigest: string; requestDigest: string; strictPacketDigest?: string;
+}
 export interface Candidate { id: string; origin: string; ready: boolean }
 export interface DeliveryProvider {
   currentMain(): Promise<void>;
@@ -25,7 +29,9 @@ export interface DeliveryProvider {
   http(origin: string, candidate: boolean): Promise<void>;
 }
 export interface RoutineProvider extends DeliveryProvider {
-  confirmRoutineJournal(journal: number, description: string): Promise<void>;
+  confirmRoutineJournal(journal: number, description: string, state?: 'in_progress' | 'success'): Promise<void>;
+  reconcileRoutineJournal(journal: number): Promise<{ journal: number; requestDigest: string; description: string | null;
+    state: string; acknowledgedIds: string[] }>;
   compatiblePredecessor(): Promise<void>;
 }
 export interface ActivationProvider extends DeliveryProvider {
@@ -81,10 +87,10 @@ export function verifyCandidateArchive(content: unknown, uid: string, artifact: 
   return sha256(bytes);
 }
 
-export function createProvider(artifact: VerifiedArtifact, run: RunIdentity, schema: RoutineSchema,
+export function createProvider(artifact: VerifiedArtifact, run: RunIdentity, schema: RoutineDeliveryApproval,
   credentials: { github: string; vercel: string; bearer: string; bypass: string }, signal: AbortSignal,
-  transport: typeof fetch = fetch): RoutineProvider {
-  return providerImplementation(artifact, run, credentials, signal, transport, undefined, schema);
+  transport: typeof fetch = fetch, diagnostics?: ReleaseDiagnostics): RoutineProvider {
+  return providerImplementation(artifact, run, credentials, signal, transport, undefined, schema, diagnostics);
 }
 export function createActivationProvider(artifact: VerifiedArtifact, run: RunIdentity,
   credentials: { github: string; vercel: string; bearer: string }, signal: AbortSignal,
@@ -96,7 +102,16 @@ export function createActivationProvider(artifact: VerifiedArtifact, run: RunIde
 }
 function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
   credentials: { github: string; vercel: string; bearer: string; bypass: string }, signal: AbortSignal,
-  transport: typeof fetch, activation?: ActivationDeliveryContext, schema?: RoutineSchema): ActivationProvider & RoutineProvider {
+  transport: typeof fetch, activation?: ActivationDeliveryContext, schema?: RoutineDeliveryApproval,
+  diagnostics?: ReleaseDiagnostics): ActivationProvider & RoutineProvider {
+  const expectedConfigDigest = schema?.configDigest;
+  if (!activation && (typeof expectedConfigDigest !== 'string' || !/^[a-f0-9]{64}$/.test(expectedConfigDigest))) {
+    throw new Error('An independently approved full runtime configuration digest is required.');
+  }
+  if (!activation && (!/^[a-f0-9]{64}$/.test(schema?.requestDigest ?? '')
+    || (schema?.strictPacketDigest !== undefined && (!/^[a-f0-9]{64}$/.test(schema.strictPacketDigest) || schema.migration)))) {
+    throw new Error('The complete approved release request binding is required.');
+  }
   for (const token of [credentials.github, credentials.vercel, ...(activation ? [] : [credentials.bypass])]) {
     if (!/^[\x21-\x7e]{16,512}$/.test(token)) throw new Error('Required environment secret is absent or invalid.');
   }
@@ -109,13 +124,22 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
     }
   };
   verify();
-  const request = (url: string, init: RequestInit = {}) => transport(url, { ...init, redirect: 'error',
-    signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) });
+  const request = (url: string, init: RequestInit = {}) => {
+    const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
+    const work = async () => {
+      try { return await transport(url, { ...init, redirect: 'error', signal: requestSignal }); }
+      catch (cause) { if (requestSignal.aborted) diagnostics?.reject('timeout'); throw cause; }
+    };
+    return diagnostics ? diagnostics.guard('transport', work) : work();
+  };
   async function json(url: string, token: string, init: RequestInit = {}, status = 200, maximum = 8 * 1024 * 1024): Promise<any> {
     const response = await request(url, { ...init, headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json',
       Accept: 'application/json', 'X-GitHub-Api-Version': '2026-03-10', ...init.headers } });
-    if (response.status !== status || response.redirected) { await response.body?.cancel(); throw new Error('Provider response not confirmed.'); }
-    return JSON.parse((await responseBytes(response, maximum)).toString('utf8'));
+    const parse = async () => {
+      if (response.status !== status || response.redirected) { await response.body?.cancel(); throw new Error('Provider response not confirmed.'); }
+      return JSON.parse((await responseBytes(response, maximum)).toString('utf8'));
+    };
+    return diagnostics ? diagnostics.guard('validation', parse) : parse();
   }
   const github = (path: string, init?: RequestInit, status?: number) => {
     if (!path.startsWith('/') || path.includes('..')) throw new Error('Invalid GitHub path.');
@@ -137,6 +161,16 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       || value.deletedAt || value.redirect || value.microfrontends) throw new Error('Unverified production alias.');
     return value.deploymentId;
   }
+  async function routineJournal(journal: number): Promise<void> {
+    if (!schema || !numeric(journal)) throw new Error('Routine release binding is absent.');
+    const entry = object(await github(`/deployments/${journal}`)), payload = object(entry.payload);
+    if (entry.id !== journal || entry.sha !== run.revision || entry.task !== task || entry.environment !== 'be-production'
+      || payload.version !== 1 || payload.run !== run.run || payload.revision !== run.revision || payload.tree !== run.tree
+      || payload.migrationPacket !== (schema.strictPacketDigest ?? schema.migration?.digest) || payload.artifact !== artifact.digest
+      || payload.sourceDigest !== artifact.manifest.source.digest || payload.migrationDigest !== schema.digest
+      || payload.configDigest !== expectedConfigDigest || payload.requestDigest !== schema.requestDigest
+      || payload.project !== artifactTarget.project) throw new Error('Routine journal identity differs.');
+  }
   return {
     async currentMain() {
       const commit = object(await github('/commits/main'));
@@ -150,6 +184,7 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       return alias();
     },
     async reserve() {
+      diagnostics?.at('reserve', 'unresolved-prior');
       // Every unresolved intent survives runner loss. No reset, retry, auto-merge or implicit unlock.
       for (let page = 1; ; page++) {
         if (page > 20) throw new Error('Journal exceeds bounded reconciliation window.');
@@ -158,6 +193,25 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
         for (const raw of entries) {
           const entry = object(raw);
           if (!numeric(entry.id) || entry.task !== task || entry.environment !== 'be-production') throw new Error('Journal identity differs.');
+          if (schema && (entry.payload?.requestDigest === schema.requestDigest
+            || (schema.strictPacketDigest && entry.payload?.migrationPacket === schema.strictPacketDigest))) {
+            if (diagnostics && entry.payload?.requestDigest === schema.requestDigest) {
+              await routineJournal(entry.id);
+              const history: unknown = await github(`/deployments/${entry.id}/statuses?per_page=100`);
+              if (!Array.isArray(history) || history.length >= 100) throw new Error('Unconfirmed retained outcome.');
+              const descriptions = history.map(value => {
+                const status = object(value);
+                if (!['in_progress', 'success', 'error'].includes(status.state)
+                  || typeof status.description !== 'string' || status.description.length > 140
+                  || !/^(?:strict:(?:(?:reserved|accepted):[a-f0-9]{64}|(?:history|held-create|pre-sql-check|sql-apply|post-sql-check|promote-only|final-domain-ack):(?:intent|receipt):[a-f0-9]{64}|unresolved)|(?:ack|promoting|accepted|unresolved):dpl_[A-Za-z0-9]{1,124}|migration_(?:intent|committed):[a-f0-9]{64}|create_intent_unknown_until_acknowledged|unresolved_create_identity)$/.test(status.description)) {
+                  throw new Error('Unconfirmed retained outcome.');
+                }
+                return status.description as string;
+              });
+              diagnostics.remote(descriptions);
+            }
+            throw new Error('This release request or strict packet already has a durable reservation.');
+          }
           const statuses: unknown = await github(`/deployments/${entry.id}/statuses?per_page=1`);
           if (!Array.isArray(statuses) || statuses.length !== 1 || object(statuses[0]).state !== 'success') {
             throw new Error('A previous delivery outcome is unresolved; owner reconciliation is required.');
@@ -165,16 +219,21 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
         }
         if (entries.length < 100) break;
       }
+      diagnostics?.at('reserve', 'outcome-unknown');
+      try {
       const result = object(await github('/deployments', { method: 'POST', body: JSON.stringify({ ref: run.revision, task,
         environment: 'be-production', auto_merge: false, required_contexts: [], production_environment: true,
         description: 'Exact tested BE artifact delivery intent', payload: { version: 1, ...run, artifact: artifact.digest,
           sourceDigest: artifact.manifest.source.digest, migrationDigest: activation?.packet.targetDigest ?? schema!.digest,
-          project: artifactTarget.project, ...(activation ? { activationPacket: activation.packetDigest, activationRun: activation.packet.runId } : {}),
-          ...(schema?.migration ? { migrationPacket: schema.migration.digest } : {}) } }) }, 201));
+          project: artifactTarget.project, ...(activation ? { activationPacket: activation.packetDigest, activationRun: activation.packet.runId }
+            : { configDigest: expectedConfigDigest, requestDigest: schema!.requestDigest }),
+          ...(schema?.strictPacketDigest ? { migrationPacket: schema.strictPacketDigest }
+            : schema?.migration ? { migrationPacket: schema.migration.digest } : {}) } }) }, 201));
       if (!numeric(result.id) || result.sha !== run.revision || result.task !== task || result.environment !== 'be-production') {
         throw new Error('Durable intent acknowledgement is unknown.');
       }
       return result.id;
+      } catch (cause) { diagnostics?.evidenceFailed(); throw diagnostics?.capture(cause) ?? cause; }
     },
     async record(journal, state, description) {
       if (!numeric(journal) || description.length > 140 || !/^[a-zA-Z0-9_: .-]+$/.test(description)) throw new Error('Invalid public journal status.');
@@ -183,17 +242,32 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
         environment_url: 'https://api.lovora.us' }) }, 201));
       if (!numeric(result.id) || result.state !== state) throw new Error('Durable status acknowledgement is unknown.');
     },
-    async confirmRoutineJournal(journal, description) {
-      if (!schema?.migration || !numeric(journal)) throw new Error('Routine migration binding is absent.');
-      const entry = object(await github(`/deployments/${journal}`)), payload = object(entry.payload);
-      if (entry.id !== journal || entry.sha !== run.revision || entry.task !== task || entry.environment !== 'be-production'
-        || payload.version !== 1 || payload.run !== run.run || payload.revision !== run.revision || payload.tree !== run.tree
-        || payload.migrationPacket !== schema.migration.digest || payload.artifact !== artifact.digest
-        || payload.sourceDigest !== artifact.manifest.source.digest || payload.migrationDigest !== schema.digest
-        || payload.project !== artifactTarget.project) throw new Error('Routine journal identity differs.');
+    async confirmRoutineJournal(journal, description, state = 'in_progress') {
+      await routineJournal(journal);
       const statuses: unknown = await github(`/deployments/${journal}/statuses?per_page=1`);
-      if (!Array.isArray(statuses) || statuses.length !== 1 || object(statuses[0]).state !== 'in_progress'
+      if (!Array.isArray(statuses) || statuses.length !== 1 || object(statuses[0]).state !== state
         || object(statuses[0]).description !== description) throw new Error('Routine journal acknowledgement is unknown.');
+    },
+    async reconcileRoutineJournal(journal) {
+      await routineJournal(journal);
+      const statuses: unknown = await github(`/deployments/${journal}/statuses?per_page=100`);
+      if (!Array.isArray(statuses) || statuses.length >= 100) throw new Error('Routine reconciliation exceeds its read-only bound.');
+      const acknowledgedIds: string[] = [];
+      for (const raw of statuses) {
+        const status = object(raw);
+        if (!['in_progress', 'success', 'error'].includes(status.state) || typeof status.description !== 'string'
+          || status.description.length > 140
+          || !/^(?:strict:(?:(?:reserved|accepted):[a-f0-9]{64}|(?:history|held-create|pre-sql-check|sql-apply|post-sql-check|promote-only|final-domain-ack):(?:intent|receipt):[a-f0-9]{64}|unresolved)|(?:ack|promoting|accepted|unresolved):dpl_[A-Za-z0-9]{1,124}|migration_(?:intent|committed):[a-f0-9]{64}|create_intent_unknown_until_acknowledged|unresolved_create_identity)$/.test(status.description)) {
+          throw new Error('Unconfirmed routine journal status.');
+        }
+        if (status.description.startsWith('ack:')) {
+          const id = status.description.slice(4);
+          if (!deploymentId.test(id)) throw new Error('Unconfirmed deployment acknowledgement.');
+          if (!acknowledgedIds.includes(id)) acknowledgedIds.push(id);
+        }
+      }
+      return { journal, requestDigest: schema!.requestDigest, description: statuses.length ? object(statuses[0]).description : null,
+        state: statuses.length ? object(statuses[0]).state : 'unconfirmed', acknowledgedIds };
     },
     async compatiblePredecessor() {
       if (!schema?.migration) throw new Error('A compatible predecessor approval is required.');
@@ -294,6 +368,16 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
           const expected = activation.phase === 'bridge' ? activation.packet.bridgeConfigDigest : activation.packet.appConfigDigest;
           if (response.headers.get('x-activation-config-digest') !== (authorized ? expected : null)) {
             await response.body?.cancel(); throw new Error('Actual runtime configuration attestation differs.');
+          }
+        }
+        if (!activation) {
+          const authorizedHealth = init?.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(new URL(url).pathname)
+            && new Headers(init?.headers).get('authorization') === `Bearer ${credentials.bearer}`
+            && response.status !== 401 && response.status !== 403;
+          if (response.headers.get('x-activation-config-digest') !== (authorizedHealth ? expectedConfigDigest : null)) {
+            await response.body?.cancel();
+            diagnostics?.reject('configuration-mismatch');
+            throw new Error('Actual routine runtime configuration attestation differs.');
           }
         }
         return response;

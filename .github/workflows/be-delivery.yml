@@ -7,16 +7,25 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: Explicit delivery mode; activation retains a final FE acceptance hold
+        description: Select a checked routine bundle, or the isolated historical activation path
         required: true
         default: current-schema-only
         type: choice
         options:
           - current-schema-only
           - versioned-migration
+          - etsy-strict-cutover
           - activation
       activation_artifact_id:
         description: Exact retained artifact ID for explicit activation only
+        required: false
+        type: string
+      release_run_id:
+        description: Successful prior BE checks run for routine delivery
+        required: false
+        type: string
+      release_artifact_id:
+        description: Immutable be-tested artifact from that producer run
         required: false
         type: string
 
@@ -26,13 +35,14 @@ permissions:
 jobs:
   checks:
     name: BE required checks
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.mode != 'activation' }}
+    if: ${{ github.event_name != 'workflow_dispatch' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     outputs:
       archive_hash: ${{ steps.verify.outputs.archive_hash }}
       artifact_hash: ${{ steps.verify.outputs.artifact_hash }}
       source_tree: ${{ steps.verify.outputs.source_tree }}
+      approval_hash: ${{ steps.verify.outputs.approval_hash }}
       artifact_id: ${{ steps.upload.outputs.artifact-id }}
     services:
       postgres:
@@ -79,92 +89,179 @@ jobs:
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: be-tested-${{ github.run_id }}-${{ github.run_attempt }}
-          path: ${{ runner.temp }}/be-transfer/be-release.tar.gz
+          path: |
+            ${{ runner.temp }}/be-transfer/be-release.tar.gz
+            ${{ runner.temp }}/be-transfer/be-release-approval.json
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
           overwrite: false
 
-  production:
-    name: BE production delivery
-    needs: checks
+  routine_retrieval:
+    name: Select an approved checked routine bundle
     if: &production-eligible >-
       ${{ github.repository == 'khuonghuyhieu/esty-admin' &&
       github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
-      (github.event_name == 'push' || github.event_name == 'workflow_dispatch') &&
-      vars.BE_DELIVERY_ENABLED == 'true' &&
-      (inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only') != 'activation' }}
+      github.event_name == 'workflow_dispatch' && vars.BE_DELIVERY_ENABLED == 'true' &&
+      (inputs.mode == 'current-schema-only' || inputs.mode == 'versioned-migration' || inputs.mode == 'etsy-strict-cutover') }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: be-production
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      artifact_id: ${{ steps.relay.outputs.artifact-id }}
+      selection_sha: ${{ steps.select.outputs.selection_sha }}
+      request_sha: ${{ steps.consume.outputs.request_sha }}
+    env: &routine-expectations
+      BE_DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
+      BE_DELIVERY_ENVIRONMENT: be-production
+      BE_DELIVERY_MODE: ${{ inputs.mode }}
+      BE_RELEASE_CONTROLLER_SHA: ${{ vars.BE_RELEASE_CONTROLLER_SHA }}
+      BE_RELEASE_APPROVAL_SHA256: ${{ vars.BE_RELEASE_APPROVAL_SHA256 }}
+      BE_RELEASE_TARGET: ${{ vars.BE_RELEASE_TARGET }}
+      BE_DELIVERY_CONFIG_SHA256: ${{ vars.BE_DELIVERY_CONFIG_SHA256 }}
+      BE_DELIVERY_SCHEMA_SHA256: ${{ vars.BE_DELIVERY_SCHEMA_SHA256 }}
+      BE_MIGRATION_PACKET_JSON: ${{ vars.BE_MIGRATION_PACKET_JSON }}
+      BE_MIGRATION_PACKET_SHA256: ${{ vars.BE_MIGRATION_PACKET_SHA256 }}
+    steps:
+      - name: Check out the actual published controller without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Set exact runtime without application installation
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: 24.22.1
+          package-manager-cache: false
+      - name: Authenticate consumer and successful producer before retrieval
+        id: select
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node apps/api/scripts/routine-retained.mjs select "$RUNNER_TEMP/be-transfer"
+      - name: Download only the selected producer run and artifact
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          artifact-ids: ${{ steps.select.outputs.artifact_id }}
+          run-id: ${{ steps.select.outputs.run_id }}
+          repository: khuonghuyhieu/esty-admin
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/be-transfer
+          merge-multiple: true
+      - name: Check independent approval and archive before safe extraction and full closure verification
+        id: consume
+        env:
+          BE_RELEASE_SELECTION_SHA256: ${{ steps.select.outputs.selection_sha }}
+        run: node apps/api/scripts/routine-retained.mjs consume "$RUNNER_TEMP/be-transfer" "$RUNNER_TEMP/be-consume" "$GITHUB_WORKSPACE"
+      - name: Relay unchanged approved bytes and bounded request receipts
+        id: relay
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: be-routine-relay-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/be-transfer/be-release.tar.gz
+            ${{ runner.temp }}/be-transfer/be-release-approval.json
+            ${{ runner.temp }}/be-transfer/selection.json
+            ${{ runner.temp }}/be-transfer/request.json
+          if-no-files-found: error
+          retention-days: 1
+          compression-level: 0
+          overwrite: false
+
+  production:
+    name: BE production delivery
+    needs: routine_retrieval
+    if: *production-eligible
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: be-production
     outputs:
-      accepted: ${{ steps.routine_delivery.outcome == 'success' }}
+      accepted: ${{ steps.routine_delivery.outcome == 'success' && steps.routine_delivery.outputs.accepted == 'true' }}
     concurrency:
       group: esty-admin-be-production
       cancel-in-progress: false
     permissions:
       contents: read
+      actions: read
       deployments: write
-    env:
-      BE_DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
-      BE_DELIVERY_ENVIRONMENT: be-production
-      BE_DELIVERY_MODE: ${{ inputs.mode || vars.BE_DELIVERY_MODE || 'current-schema-only' }}
-      BE_DELIVERY_SCHEMA_SHA256: ${{ vars.BE_DELIVERY_SCHEMA_SHA256 }}
-      BE_MIGRATION_PACKET_JSON: ${{ vars.BE_MIGRATION_PACKET_JSON }}
-      BE_MIGRATION_PACKET_SHA256: ${{ vars.BE_MIGRATION_PACKET_SHA256 }}
-      ARTIFACT_SHA: ${{ needs.checks.outputs.artifact_hash }}
-      SOURCE_TREE: ${{ needs.checks.outputs.source_tree }}
+    env: *routine-expectations
     steps:
+      - name: Check out the same published controller without persisted credentials
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
       - name: Set exact delivery runtime without application installation
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: 24.22.1
           package-manager-cache: false
-      - name: Download only this successful checks job's immutable artifact ID
+      - name: Download only this run's verified immutable relay
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          artifact-ids: ${{ needs.checks.outputs.artifact_id }}
+          artifact-ids: ${{ needs.routine_retrieval.outputs.artifact_id }}
           path: ${{ runner.temp }}/be-transfer
           merge-multiple: true
-      - name: Verify independent transfer digest before extracting or executing helpers
+      - name: Reverify approved relay and exact controller/operator before executing bundle code
         env:
-          ARCHIVE_SHA: ${{ needs.checks.outputs.archive_hash }}
-        run: |
-          [[ "$ARCHIVE_SHA" =~ ^[a-f0-9]{64}$ ]]
-          printf '%s  %s\n' "$ARCHIVE_SHA" "$RUNNER_TEMP/be-transfer/be-release.tar.gz" | sha256sum --check --strict
-          mkdir "$RUNNER_TEMP/be-consume"
-          tar -xzf "$RUNNER_TEMP/be-transfer/be-release.tar.gz" -C "$RUNNER_TEMP/be-consume"
-      - name: Bootstrap independently verified public CLI before secrets are present
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
+        run: node apps/api/scripts/routine-retained.mjs consume-relay "$RUNNER_TEMP/be-transfer" "$RUNNER_TEMP/be-consume" "$GITHUB_WORKSPACE"
+      - name: Bootstrap independently verified public CLI before provider secrets
         run: node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-tools.js" "$RUNNER_TEMP/be-tools"
-      - name: Reserve and confirm compatible versioned migration intent
-        if: env.BE_DELIVERY_MODE == 'versioned-migration'
+      - name: Reserve the common durable exclusion and authorize the explicit migration mode
+        if: env.BE_DELIVERY_MODE == 'versioned-migration' || env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
         env:
           BE_ROUTINE_ACTION: authorize
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
           GITHUB_TOKEN: ${{ github.token }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: &routine-command >-
           node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-delivery.js"
-          "$RUNNER_TEMP/be-consume/artifact" "$ARTIFACT_SHA" "$SOURCE_TREE"
+          "$RUNNER_TEMP/be-consume" "$RUNNER_TEMP/be-transfer"
           "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js" "$RUNNER_TEMP/be-receipts"
-      - name: Apply approved versioned migrations in the SQL-only worker
-        if: env.BE_DELIVERY_MODE == 'versioned-migration'
+      - name: Inspect exactly strict three-entry history in the SQL-only worker
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
         env:
-          BE_ROUTINE_ACTION: migrate
+          BE_ROUTINE_ACTION: history
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
           BE_MIGRATION_INPUTS: ${{ secrets.BE_MIGRATION_INPUTS }}
         run: *routine-command
-      - name: Reserve durable intent, validate candidate, promote once and verify exact domain
-        id: routine_delivery
-        if: env.BE_DELIVERY_MODE != 'activation'
+      - name: Create held strict4 once and authorize SQL only after exact pending readiness
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
         env:
-          BE_ROUTINE_ACTION: deliver
+          BE_ROUTINE_ACTION: held
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
           GITHUB_TOKEN: ${{ github.token }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
-          BE_DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
-          BE_DELIVERY_ENVIRONMENT: be-production
+        run: *routine-command
+      - name: Apply only the approved new suffix in the SQL-only worker
+        if: env.BE_DELIVERY_MODE == 'versioned-migration' || env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
+        env:
+          BE_ROUTINE_ACTION: migrate
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
+          BE_MIGRATION_INPUTS: ${{ secrets.BE_MIGRATION_INPUTS }}
+        run: *routine-command
+      - name: Confirm durable SQL outcome when selected and accept the same exact deployment
+        id: routine_delivery
+        env:
+          BE_ROUTINE_ACTION: deliver
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: *routine-command
       - name: Preserve private receipt modes and record the exact transferable inventory
         if: always()
@@ -557,7 +654,7 @@ jobs:
 
   completion:
     name: BE completion
-    needs: [checks, production, manual_retrieval, manual_activation]
+    needs: [checks, routine_retrieval, production, manual_retrieval, manual_activation]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -566,6 +663,8 @@ jobs:
       - name: Report checks-only success or require accepted delivery
         env:
           MANUAL_ACTIVATION: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'activation' }}
+          MANUAL_ROUTINE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'activation' }}
+          ROUTINE_RETRIEVAL_RESULT: ${{ needs.routine_retrieval.result }}
           PRODUCTION_ELIGIBLE: *production-eligible
           CHECKS_RESULT: ${{ needs.checks.result }}
           DELIVERY_RESULT: ${{ needs.production.result }}
@@ -581,13 +680,17 @@ jobs:
               exit 1
             fi
             message='Exact-artifact BE activation accepted. First-activation FE acceptance remains a separate gate.'
+          elif [[ "$MANUAL_ROUTINE" == true ]]; then
+            if [[ "$PRODUCTION_ELIGIBLE" != true || "$CHECKS_RESULT" != skipped || "$ROUTINE_RETRIEVAL_RESULT" != success || "$DELIVERY_RESULT" != success || "$DELIVERY_ACCEPTED" != true ]]; then
+              printf '%s\n' 'BE routine release not accepted: explicit eligibility, retained checks and final delivery acceptance must all succeed.' >&2
+              exit 1
+            fi
+            message='Exact retained-artifact BE delivery accepted. Real product acceptance remains a separate gate.'
           elif [[ "$CHECKS_RESULT" != success ]]; then
             printf '%s\n' 'BE completion failed: required checks did not succeed.' >&2
             exit 1
-          elif [[ "$PRODUCTION_ELIGIBLE" == false && "$DELIVERY_RESULT" == skipped && -z "$DELIVERY_ACCEPTED" ]]; then
+          elif [[ "$PRODUCTION_ELIGIBLE" == false && "$ROUTINE_RETRIEVAL_RESULT" == skipped && "$DELIVERY_RESULT" == skipped && -z "$DELIVERY_ACCEPTED" ]]; then
             message='BE checks-only succeeded: production intentionally ineligible; not deployed; delivery not accepted.'
-          elif [[ "$PRODUCTION_ELIGIBLE" == true && "$DELIVERY_RESULT" == success && "$DELIVERY_ACCEPTED" == true ]]; then
-            message='Exact-artifact BE delivery accepted. First-activation FE acceptance remains a separate gate.'
           else
             printf '%s\n' 'BE delivery not accepted: eligible production and final delivery acceptance must both succeed.' >&2
             exit 1

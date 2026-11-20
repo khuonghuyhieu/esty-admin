@@ -19,6 +19,7 @@ import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { heldDatabaseRepair, validateHeldDatabaseRepairCapability, verifyHeldDatabaseRepairBasis } from '../scripts/activation-held-database-repair.js';
 import { heldRetainedCandidate } from '../scripts/activation-held-proof.js';
 import type { HeldDatabaseRepairContext } from '../scripts/activation-held-database-repair.js';
+import historicalProvenance from './fixtures/historical-release-provenance.json' with { type: 'json' };
 
 // Public synthetic GitHub responses; no token, account access or candidate HTTP.
 export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, candidate: 'dpl_SyntheticHeldApp',
@@ -71,7 +72,15 @@ export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, can
 
 export function heldRetainedProofFixture(target: HeldAppTarget, gate: { controllerRevision: string; stage: string },
   publication: { revision: string; tree: string }, workflowRun: string = heldRetainedCandidate.workflowRun) {
-  const sources = Object.fromEntries(heldD2Sources.map(path => [path, fs.readFileSync(new URL(`../../../../${path}`, import.meta.url))]));
+  const proofSource = historicalProvenance.retainedProof;
+  assert.deepEqual({ revision: proofSource.revision, tree: proofSource.tree }, heldRetainedCandidate.proofPublication);
+  assert.deepEqual(proofSource.files.map(file => file.path).sort(), [...heldD2Sources].sort());
+  const sources = Object.fromEntries(proofSource.files.map(file => {
+    const bytes = Buffer.from(file.content, 'utf8');
+    assert.equal(bytes.length, file.size); assert.equal(sha256(bytes), file.sha256);
+    assert.equal(createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex'), file.blob);
+    return [file.path, bytes];
+  }));
   const f = heldProofFixture(target, sources, gate, gate.controllerRevision, workflowRun);
   f.values['/commits/main'] = { sha: publication.revision, commit: { tree: { sha: publication.tree } } };
   for (const path of [...heldD2Sources, heldPinPath]) {

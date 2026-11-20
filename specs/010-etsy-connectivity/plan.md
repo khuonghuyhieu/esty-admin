@@ -1,5 +1,7 @@
 # Implementation Plan: Existing Etsy Connectivity
 
+**Current release routing — 2026-11-20, PLAN ONLY:** feature001 now owns the [manual delivery simplification design](../001-connectivity-foundation/plan.md#manual-be-release-simplification--layered-design) and [L0–L5 / T190–T212](../001-connectivity-foundation/tasks.md#manual-be-release-simplification--planned-tasks). Reuse implemented T027–T031 tooling and strict3→4 held-before-SQL semantics; the earlier owner-generated launcher route below is historical, not the selected next operational entry. The existing `be-delivery.yml` workflow is the proposed canonical manual entry; its adaptation is not implemented or enabled. ENV additions plus updated config digest are OWNER-REPORTED complete, not independently runtime-verified. No new Etsy production migration/deployment or real Etsy acceptance is confirmed. All historical evidence stays intact; source/local work, actual release and T025 provider acceptance require separate grants.
+
 ## Accepted recipient bridge review — documentation-only closeout
 
 **FROZEN BE_RECIPIENT_BRIDGE_SOURCE_LOCAL_REVIEW_ACCEPTED; STOP WRITES.** t151 accepted existing t175's actual final: **no confirmed actionable findings in this frozen bridge scope**. No reviewer checks ran and no prior feature was reassessed. Earlier review results and the pre-review freeze below remain unchanged historical evidence.

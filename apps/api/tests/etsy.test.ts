@@ -5,7 +5,7 @@ import type { TestContext } from 'node:test';
 import { parseEtsyConfig } from '../src/config/config.js';
 import { EtsyCredentials, EtsyFailure } from '../src/etsy/credentials.js';
 import { etsyId, EtsyProvider } from '../src/etsy/provider.js';
-import { etsyFixture } from './etsy-fixture.js';
+import { etsyFixture, strictDatabaseFixture } from './etsy-fixture.js';
 import { EtsyService } from '../src/etsy/service.js';
 import { AppDatabase } from '../src/app-foundation/adapters/postgres.js';
 import { AppError } from '../src/app-foundation/application/errors.js';
@@ -24,9 +24,179 @@ import type { EtsyReleasePacket, EtsyReleaseOperations } from '../scripts/etsy-r
 import { manifestDigest, migrationStatus, migrationsDirectory, runMigrations } from '../scripts/migrations.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { assembleArtifact, canonical, sha256 } from '../scripts/artifact.js';
-import { activationRuntimeKeys } from '../src/config/activation-config.js';
-import { artifactFixture } from './artifact-fixture.js';
+import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
+import { artifactFixture, routineProviderFixture, strictReleaseFixture } from './artifact-fixture.js';
 import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
+import childProcess from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import { syncBuiltinESMExports } from 'node:module';
+import { tlsPostgres } from './tls.js';
+import { authenticateRoutineDelivery, runRoutinePhase, validateReleaseResult } from '../scripts/ci-delivery.js';
+import type { ReleaseResult } from '../scripts/ci-delivery.js';
+import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
+
+test('L3 owned emitted strict journey changes only fourth migration and the same held deployment', {
+  skip: !process.env.ETSY_TEST_FIXTURE_DIRECTORY, timeout: 60000,
+}, async t => {
+  for (const fault of ['exact', 'report-failure', 'lost-commit']) await t.test(fault, async scenario => {
+  const db = await strictDatabaseFixture(scenario);
+  const scratch = await realpath(await mkdtemp(join(tmpdir(), 'esty-l3-journey-')));
+  scenario.after(() => rm(scratch, { recursive: true, force: true }));
+  const before = join(scratch, 'before'); await mkdir(before);
+  for (const row of migrationManifest.slice(0, 3)) await cp(join(migrationsDirectory, `${row.name}.mjs`), join(before, `${row.name}.mjs`));
+  assert.equal((await runMigrations(db.database, { directory: before })).database_outcome, 'committed');
+  await scenario.test('authenticated strict controller and isolated SQL workers', async child => {
+    const peer = await tlsPostgres(child, approvedTarget.SUPABASE_SESSION_HOST, undefined, true);
+    const target = Object.fromEntries(Object.entries(approvedTarget).filter(([key]) => key.startsWith('SUPABASE_')));
+    const logicalUrl = `postgresql://${approvedTarget.SUPABASE_DATABASE_USER}:${db.owned.password}@${approvedTarget.SUPABASE_SESSION_HOST}:5432/postgres`;
+    const runtime: Record<string, string> = { ...Object.fromEntries(activationRuntimeKeys.map(key => [key, ''])), ...target,
+      API_RUNTIME: 'vercel', VERCEL: '1', APP_SCHEMA_MODE: 'strict', APP_FOUNDATION_ENABLED: 'false', ETSY_ENABLED: 'false',
+      DATABASE_URL: logicalUrl, DATABASE_CA_PEM: peer.ca, BROWSER_ORIGIN: 'https://app.lovora.us', PREVIEW_ACCESS_KEY: 'c'.repeat(64) };
+    runtime.APP_ACTIVATION_CONFIG_DIGEST = runtimeConfigDigest(runtime);
+    const oldRuntime: Record<string, string> = { ...runtime, ETSY_CLIENT_ID: 'independent-old-config' };
+    oldRuntime.APP_ACTIVATION_CONFIG_DIGEST = runtimeConfigDigest(oldRuntime);
+    const current = parseConfig(runtime), old = parseConfig(oldRuntime);
+    assert.equal(current.appFoundation, undefined);
+    const transport = { ...db.database, port: peer.port, ssl: current.database.ssl };
+    const previousApp = await createApplication({ ...old, database: transport }, migrationManifest.slice(0, 3).map(row => row.name));
+    const heldApp = await createApplication({ ...current, database: transport }, migrationManifest.map(row => row.name));
+    child.after(async () => { await heldApp.close(); await previousApp.close(); });
+    await previousApp.listen(0, '127.0.0.1'); await heldApp.listen(0, '127.0.0.1');
+    const origins = [await previousApp.getUrl(), await heldApp.getUrl()];
+    const forbidden = new Set([54322, 55432, 55433, 55440, 55441, 55442, 55443, 55444, 55532,
+      55540, 55541, 55542, 55543, 55544, 55644, db.owned.port]);
+    const ports = [peer.port, ...origins.map(origin => Number(new URL(origin).port))];
+    assert.equal(new Set(ports).size, 3); for (const port of ports) assert.equal(forbidden.has(port), false);
+    console.info(JSON.stringify({ event: 'l3_owned_resources', container: db.owned.id, owner: db.owned.name,
+      postgres: db.owned.port, tls: peer.port, applications: ports.slice(1) }));
+    const values = { ...target, MIGRATION_TARGET: 'supabase', MIGRATION_CONFIRM_PROJECT_REF: approvedTarget.SUPABASE_PROJECT_REF,
+      MIGRATION_DATABASE_URL: logicalUrl, DATABASE_CA_PEM: peer.ca };
+    const f = await strictReleaseFixture(runtimeConfigDigest(runtime), sha256(canonical(values)),
+      `supabase:${approvedTarget.SUPABASE_PROJECT_REF}`, runtimeConfigDigest(oldRuntime));
+    child.after(f.dispose);
+    const authenticated = await authenticateRoutineDelivery({ bundle: f.bundle, transfer: f.transfer, env: f.env, read: f.read });
+    assert.equal(authenticated.artifact.digest, f.artifact.digest);
+    assert.deepEqual(authenticated.request, f.request);
+    const nativeFetch = globalThis.fetch, nativeSpawn = childProcess.spawn.bind(childProcess);
+    const responses: Array<{ predecessor: boolean; path: string; status: number; digest: string | null }> = [];
+    const h = routineProviderFixture(f.artifact, '', undefined, { packet: f.packet, async http(url, init, predecessor) {
+      const path = new URL(url).pathname;
+      const response = await nativeFetch(origins[predecessor ? 0 : 1] + path, init);
+      responses.push({ predecessor, path, status: response.status, digest: response.headers.get('x-activation-config-digest') });
+      return response;
+    } });
+    child.mock.method(globalThis, 'fetch', h.transport);
+    child.mock.method(childProcess, 'spawn', (binary: string, args: readonly string[]) => {
+      assert.equal(binary, process.execPath); assert.equal(args[0], f.cli);
+      const processStub = Object.assign(new EventEmitter(), { stdout: new PassThrough(), stderr: new PassThrough() });
+      queueMicrotask(async () => {
+        try {
+          const result = args[1] === 'deploy' ? await h.cli.create() : await h.cli.promote(args[2]!);
+          processStub.stdout.end(result.stdout); processStub.stderr.end(); processStub.emit('close', result.code);
+        } catch { processStub.emit('error', new Error('Synthetic provider CLI refused')); }
+      });
+      return processStub as unknown as ChildProcess;
+    });
+    syncBuiltinESMExports(); child.after(() => { child.mock.restoreAll(); syncBuiltinESMExports(); });
+    const reports = join(scratch, 'reports'), script = join(scratch, 'sql-worker.mjs');
+    await writeFile(script, `
+      import assert from 'node:assert/strict'; import fs from 'node:fs'; import net from 'node:net';
+      import {mock} from 'node:test';
+      import {createRequire,syncBuiltinESMExports} from 'node:module';
+      const input=JSON.parse(process.env.L3_WORKER_INPUT); delete process.env.L3_WORKER_INPUT;
+      assert.equal(Object.keys(process.env).some(key=>/GITHUB_TOKEN|VERCEL_TOKEN|APP_AUTH_|APP_OPERATOR_|APP_ROLES_/.test(key)),false);
+      const owned=JSON.parse(fs.readFileSync(input.marker,'utf8'));assert.equal(owned.id,input.owner);
+      const config=await import(${JSON.stringify(new URL('../src/config/config.js', import.meta.url).href)});
+      mock.module(${JSON.stringify(new URL('../src/config/config.js', import.meta.url).href)},{exports:{...config,
+        parseMigrationConfig(env){const parsed=config.parseMigrationConfig(env);assert.equal(parsed.ssl.rejectUnauthorized,true);
+          return {...parsed,host:'127.0.0.1',port:input.port,user:'postgres',password:owned.password,database:input.database};}}});
+      const connect=net.Socket.prototype.connect;
+      net.Socket.prototype.connect=function(...args){const value=typeof args[0]==='object'?args[0]:{port:args[0],host:args[1]};
+        if(!value||value.host!=='127.0.0.1'||Number(value.port)!==input.port)throw Error('Unleased socket');
+        return connect.apply(this,args);};
+      if(input.fault==='report-failure'&&input.env.BE_ROUTINE_ACTION==='migrate'){
+        const open=fs.openSync;fs.openSync=(path,...args)=>{
+          if(String(path).includes('/migration-reports/'))throw Object.assign(Error('Synthetic EIO'),{code:'EIO'});
+          return open(path,...args);};syncBuiltinESMExports();
+      }
+      if(input.fault==='lost-commit'&&input.env.BE_ROUTINE_ACTION==='migrate'){
+        const {Client}=createRequire(${JSON.stringify(new URL('../../package.json', import.meta.url).href)})('pg');
+        let applying=false;const query=Client.prototype.query;Client.prototype.query=async function(...args){
+          const result=await query.apply(this,args),text=typeof args[0]==='string'?args[0]:args[0].text;
+          if(text.includes('CREATE TABLE app_private.etsy_connections'))applying=true;
+          if(applying&&text.trim().replace(/;$/,'').toUpperCase()==='COMMIT')throw Error('Synthetic lost COMMIT ACK');
+          return result;};
+      }
+      globalThis.fetch=()=>{throw Error('SQL worker has no provider transport');};
+      const {verifyArtifact}=await import(${JSON.stringify(new URL('../scripts/artifact.js', import.meta.url).href)});
+      const {runRoutinePhase}=await import(${JSON.stringify(new URL('../scripts/ci-delivery.js', import.meta.url).href)});
+      try{await runRoutinePhase({...input,artifact:verifyArtifact(input.artifactRoot,input.request.artifactDigest),signal:AbortSignal.timeout(15000)});}
+      catch{process.exitCode=1;}
+    `, { mode: 0o600 });
+    const providerEnv = { GITHUB_TOKEN: h.credentials.github, VERCEL_TOKEN: h.credentials.vercel,
+      BE_PREVIEW_ACCESS_KEY: h.credentials.bearer, VERCEL_AUTOMATION_BYPASS_SECRET: h.credentials.bypass };
+    let stopped: ReleaseResult | undefined, accepted: ReleaseResult | undefined;
+    for (const action of ['authorize', 'history', 'held', 'migrate', 'deliver']) {
+      if (action === 'history' || action === 'migrate') {
+        const input = { artifactRoot: f.artifact.root, request: f.request, cli: f.cli, reports, fault,
+          env: { ...f.env, BE_ROUTINE_ACTION: action, BE_MIGRATION_INPUTS: JSON.stringify(values) },
+          marker: join(process.env.ETSY_TEST_FIXTURE_DIRECTORY!, 'fixture.json'), owner: db.owned.id, port: peer.port, database: db.name };
+        const worker = nativeSpawn(process.execPath, ['--experimental-test-module-mocks', script], {
+          env: { PATH: '/usr/bin:/bin', HOME: scratch, L3_WORKER_INPUT: JSON.stringify(input) },
+          stdio: ['ignore', 'pipe', 'pipe'], timeout: 20000 });
+        let output = ''; worker.stdout.on('data', chunk => { output += String(chunk); }); worker.stderr.on('data', chunk => { output += String(chunk); });
+        const [code] = await once(worker, 'close');
+        assert.equal(output.includes(db.owned.password), false, 'Worker output must not contain fixture credentials');
+        if (fault !== 'exact' && action === 'migrate') {
+          assert.equal(code, 1, output);
+          const results = output.split('\n').filter(line => line.startsWith('{')).map(line => JSON.parse(line))
+            .filter(row => typeof row.status === 'string');
+          assert.equal(results.length, 1);
+          stopped = validateReleaseResult(results[0]); break;
+        }
+        assert.equal(code, 0, output);
+      } else accepted = await runRoutinePhase({ artifact: authenticated.artifact, request: authenticated.request, cli: f.cli, reports,
+        env: { ...f.env, ...providerEnv, BE_ROUTINE_ACTION: action }, signal: AbortSignal.timeout(15000) });
+    }
+    if (stopped) {
+      assert.equal(stopped.status, 'unknown', JSON.stringify(stopped)); assert.equal(stopped.deploymentId, 'dpl_candidate');
+      assert.equal(stopped.effects.create, 'ACKed'); assert.equal(stopped.effects.promotion, 'not-started');
+      assert.equal(stopped.effects.migration, fault === 'report-failure' ? 'ACKed' : 'unknown');
+      assert.equal(stopped.migration?.database_outcome, fault === 'report-failure' ? 'committed' : 'unknown');
+      assert.equal(stopped.migration?.reporting, fault === 'report-failure' ? 'failed' : 'written');
+      assert.deepEqual(stopped.migration?.before, migrationManifest.slice(0, 3).map(row => row.name));
+      assert.deepEqual(stopped.migration?.after, fault === 'report-failure' ? migrationManifest.map(row => row.name) : null);
+      assert.deepEqual((await migrationStatus(db.database)).applied, migrationManifest.map(row => row.name));
+      const events = [...h.events];
+      await assert.rejects(runRoutinePhase({ artifact: authenticated.artifact, request: authenticated.request, cli: f.cli, reports,
+        env: { ...f.env, ...providerEnv, BE_ROUTINE_ACTION: 'deliver' }, signal: AbortSignal.timeout(15000) }));
+      assert.deepEqual(h.events, events); assert.deepEqual(h.counts(), { creates: 1, promotions: 0 });
+      return;
+    }
+    assert.equal(accepted?.status, 'accepted');
+    assert.equal(accepted.deploymentId, 'dpl_candidate'); assert.equal(accepted.migration?.database_outcome, 'committed');
+    assert.deepEqual(h.counts(), { creates: 1, promotions: 1 });
+    const report = readEvidence(join(reports, 'strict', f.packet.runId, 'migration-report.json')).value as {
+      database_outcome: string; reporting: string; before: string[]; after: string[]; attempted: Array<{ name: string; outcome: string }> };
+    assert.equal(report.database_outcome, 'committed'); assert.equal(report.reporting, 'written');
+    assert.deepEqual(report.before, migrationManifest.slice(0, 3).map(row => row.name));
+    assert.deepEqual(report.after, migrationManifest.map(row => row.name));
+    assert.deepEqual(report.attempted.map(row => [row.name, row.outcome]), [[migrationManifest[3]!.name, 'applied_committed']]);
+    const history = await migrationStatus(db.database); assert.deepEqual(history.applied, report.after);
+    assert.equal((await db.client.query("SELECT to_regclass('auth.sessions') AS sessions")).rows[0].sessions, null);
+    for (const [predecessor, status, digest] of [[true, 200, oldRuntime.APP_ACTIVATION_CONFIG_DIGEST],
+      [true, 503, oldRuntime.APP_ACTIVATION_CONFIG_DIGEST], [false, 503, runtime.APP_ACTIVATION_CONFIG_DIGEST],
+      [false, 200, runtime.APP_ACTIVATION_CONFIG_DIGEST]] as const) {
+      assert.ok(responses.some(row => row.predecessor === predecessor && row.path === '/health/ready'
+        && row.status === status && row.digest === digest));
+    }
+    assert.equal(h.statuses[0]!.state, 'success');
+    assert.equal(JSON.stringify(responses).includes(db.owned.password), false);
+  });
+  });
+});
 
 const config = parseEtsyConfig({ ETSY_ENABLED: 'true', APP_FOUNDATION_ENABLED: 'true', ETSY_CLIENT_ID: 'synthetic_app',
   ETSY_SHARED_SECRET: randomBytes(24).toString('hex'), ETSY_CALLBACK_URL: 'https://api.lovora.us/integrations/etsy/callback',

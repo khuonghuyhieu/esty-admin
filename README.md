@@ -1,5 +1,69 @@
 # Etsy Admin
 
+## Current BE manual release guide
+
+**2026-11-20 — source/local validated and independently reviewed; production execution remains HELD.** This is the single current BE routine-release route. The older BE automation, activation, setup and remaining-actions sections below are retained historical records, not alternative current instructions or renewed permission. FE sections and their acceptance boundaries are unchanged. [Actual implementation, review, tests and limits](specs/001-connectivity-foundation/plan.md#source-local-completion-and-independent-review).
+
+**Normal flow, only after the separate operational gates below:** code → update only genuinely changed ENV → select an already-checked producer artifact through **Actions → BE delivery → Run workflow → main** → apply migrations only when explicitly selected and new → test the same deployment ID. The existing entry is [`.github/workflows/be-delivery.yml`](.github/workflows/be-delivery.yml); do not compose another launcher or replay initial activation.
+
+### Readiness before the first manual release
+
+`BE_DELIVERY_ENABLED` remains **false**. Actual GitHub configuration readiness, publication of the reviewed controller/source, a new checked clean-published Linux bundle, its real retained Actions artifact ID, and release-specific approval are still pending. The guide describes validated expected use after those gates, not an already operational workflow or cloud PASS.
+
+The owner reports BE runtime ENV additions and `APP_ACTIVATION_CONFIG_DIGEST` complete. Values and actual runtime equality were not independently verified. Reuse the existing validated configuration; no secret entry in chat, credential reread/rekey, all-map overwrite or repeated setup questionnaire. Change only inputs genuinely required by a later approved release.
+
+Retained995 is immutable evidence for older controller/source bytes, **not presumed compatible** with this changed packaged operator. A later authorized producer must build/check a **new clean published Linux artifact** and retain its actual ID. Never relabel/reseal995 or rebuild during release consumption.
+
+### Select the checked release
+
+1. Under the publication/artifact grants, obtain a successful trusted prior **BE required checks** producer run and its immutable `be-tested-<run_id>-<run_attempt>` artifact containing `be-release.tar.gz` and `be-release-approval.json`. PR/push events perform checks only; they cannot deploy, even with the enablement variable set. A manual release consumes the selected prior run; it does not build a replacement.
+2. After the independently approved settings and release gate are ready, use **Run workflow** on `main`, first attempt only:
+
+| Actual dispatch input | Selection |
+| --- | --- |
+| `mode` | `current-schema-only` for unchanged schema: migration/history runner calls are zero. `versioned-migration` only for an approved compatible transition with an unchanged prefix and genuinely new suffix. `etsy-strict-cutover` for the separately approved initial Etsy strict3→4 cutover. |
+| `release_run_id` | The actual successful trusted producer run selected above, not the consuming dispatch run. |
+| `release_artifact_id` | Its actual immutable retained Actions artifact ID; never infer it from a filename, source hash or995. |
+| `activation_artifact_id` | Leave empty for all three routine modes. The separate `activation` mode is historical, not this routine route. |
+
+3. The workflow authenticates producer and consumer identities, verifies the independent approval before archive extraction, and checks exact source/tree/schema/application/operator/controller closure. It serializes production in `be-production` without canceling an in-flight mutation. No user-written shell wrapper or extra secret prompt is part of this path.
+4. For unchanged schema, require exact full runtime configuration, protected readiness and artifact identity before promotion. For compatible migrations, execute only the approved suffix. For the first strict3→4 release, approve a maintenance/readiness-interruption window and roll-forward recovery first: hold strict4 with exact pending503, apply only migration4, require that same held ID ready200, then promote and check `api.lovora.us`. Old strict3 may become pending503 after SQL; this is **not zero downtime or a healthy old-strict3 rollback**.
+5. Inspect the bounded result, retained receipts and completion context below. Only final same-ID artifact/config/schema/domain/TLS proof establishes release acceptance. Separate real-user/Etsy acceptance still follows under its own grant.
+
+### Approved settings and identity sources
+
+These are names and provenance, not a request to read or re-enter values. T207 must verify actual configuration readiness separately; settings changes/enablement require their own grant.
+
+| Existing setting | Independently approved source |
+| --- | --- |
+| `BE_RELEASE_CONTROLLER_SHA` | Exact reviewed and subsequently published controller commit on `main`, matching the consuming run. Current dirty local source is not that publication. |
+| `BE_RELEASE_APPROVAL_SHA256` | Independently approved SHA-256 of the canonical checked producer's `be-release-approval.json`; it binds producer/source/tree, archive, artifact, operator and schema. Do not trust an unapproved downloaded sidecar to approve itself. |
+| `BE_DELIVERY_SCHEMA_SHA256` | Approved target migration-manifest digest from the same checked bundle/release decision, matching the approval and expected history. |
+| `BE_DELIVERY_CONFIG_SHA256` | Independently approved expected full runtime digest from the existing validated configuration/release approval. It must match runtime attestation, including Etsy inputs; metadata presence or copying an observed response is not approval. Owner-reported `APP_ACTIVATION_CONFIG_DIGEST` completion is not independent runtime verification. |
+| `BE_RELEASE_TARGET` | Existing approved Supabase target identity, bound to the release request. |
+| `BE_MIGRATION_PACKET_JSON`, `BE_MIGRATION_PACKET_SHA256` | Separately approved transition packet and its digest for migration modes: exact before/target/new suffix, artifact/config/predecessor and required maintenance/roll-forward approval. Not a new migration or bootstrap setup route. |
+| `BE_DELIVERY_ENABLED`, environment `be-production` | Existing manual gate and protected production environment; leave the gate false until explicitly authorized readiness/enablement. |
+
+The workflow derives `BE_DELIVERY_MODE` from `mode` and binds selection/request receipts internally. Existing secret names are `VERCEL_TOKEN`, `BE_PREVIEW_ACCESS_KEY`, `VERCEL_AUTOMATION_BYPASS_SECRET`, and, only for isolated migration/history workers, `BE_MIGRATION_INPUTS`; `GITHUB_TOKEN` is workflow-provided. SQL workers receive no provider authority; unchanged-schema delivery receives no SQL authority. This inventory does not assert those settings are configured or authorize reading their values.
+
+### Read the result; never infer permission to retry
+
+The sanitized terminal JSON and Actions summary report `status`, `stage`, `category`, `effects.create`, `effects.migration`, `effects.promotion`, `evidence`, `nextAction`, known `deploymentId`, migration outcome and `receiptDigest`. Effects are `not-started`, `ACKed` or `unknown`; evidence is `confirmed` or `unconfirmed`. Status is `accepted`, `refused`, `failed` or `unknown`. Intermediate `phase-confirmed` is not release acceptance; skipped production or successful checks alone cannot claim acceptance.
+
+Stages distinguish request/artifact/configuration/reservation/history/create/pre-SQL/SQL/candidate/promotion/domain/receipt failures. Categories distinguish prerequisite/identity/config/history errors, unresolved prior work, transport/timeout/validation, unknown outcome and evidence-persistence failure; the emitted finite values are authoritative, not raw exception text.
+
+- `inspect-prerequisite`, `select-approved-artifact`, `approve-release-window`: resolve that named approval/input boundary before considering a separately authorized release.
+- `inspect-known-deployment`, `reconcile-migration`, `reconcile-promotion`, `inspect-retained-evidence`: stop and preserve the known ID, exact receipts and exclusion. Provider reconciliation is **GET-only under a separate grant**; migration reconciliation may require separately authorized read-only history/report inspection. Neither grants mutation replay.
+- `run-acceptance` or `none`: only an accepted final result permits the corresponding next step; real Etsy acceptance still needs its own authorization.
+
+Retain `be-delivery-receipts-<run_id>-<run_attempt>` with its archive/inventory hashes when produced. Missing receipts are missing evidence, not proof nothing happened. A lost CREATE/SQL/promote acknowledgement or failed receipt write can remain unknown despite a nonzero exit; committed SQL stays committed. Never blindly rerun, recreate, promote, unlock/delete a ledger or roll back merely because a job failed.
+
+### Separate remaining operational grants
+
+The authoritative pending tasks remain [feature001 T207–T212](specs/001-connectivity-foundation/tasks.md#separate-operational-tasks--not-part-of-sourcelocal-completion): T207 read-only GitHub configuration/name readiness and separately approved setting changes; T208 reviewed publication; T209 new checked Linux artifact/transfer and real retained ID; T210 exact release/maintenance approval; T211 actual once-only release and same-ID final-domain proof; T212 real-user/Etsy acceptance with FE ownership coordination. No gate is executed by this guide.
+
+Historical activation675/f162, role provisioning, bootstrap and older launchers remain intact but are never routine entry points. Existing keys, ledgers, tools, artifacts and historical failures are preserved. No new Linux/Actions/provider/cloud/FE acceptance is claimed by source/local tests or review.
+
 Open this `esty-admin/` folder directly. It is the standalone repository for `khuonghuyhieu/esty-admin`; Git metadata lives in its own `.git/`.
 
 Current direction: **Next.js → Vercel HTTPS website → Etsy developer registration**. The owner reports deployment at https://esty-admin.vercel.app/; release acceptance remains incomplete. Domain setup for `app.lovora.us` is deferred. Feature 002's original T001–T008 and correction T013–T020 are complete, including external review and owner visual acceptance. The coordinator confirms the owner-approved FE-only push of 20 files to `main@6c64eaa`; a deployment result for that correction is not verified. The local BE foundation is verified and separately reviewed; the owner has now authorized its source-only commit/push. Hosted acceptance remains pending. Application screens and full UI → API → DB acceptance remain outside the completed increments.

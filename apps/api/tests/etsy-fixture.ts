@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
-import { mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdtemp, readFile, readdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer, request as httpsRequest } from 'node:https';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -161,18 +161,47 @@ export function etsyRecipientFixture(config: EtsyConfig, admin: Pool, workspace:
   return { control, reset, async close() { try { await reset(); } finally { globalThis.fetch = originalFetch; } } };
 }
 
-export async function etsyFixture(t: TestContext, etsyConfig: EtsyConfig) {
+export interface OwnedEtsyFixture { name: string; id: string; port: number; password: string }
+export async function readOwnedEtsyFixture(): Promise<OwnedEtsyFixture> {
   const directory = process.env.ETSY_TEST_FIXTURE_DIRECTORY ?? '';
   assert.ok(directory.startsWith(join(await realpath(tmpdir()), 'esty-etsy-local-')));
   assert.equal(await realpath(directory), directory);
-  const owned = JSON.parse(await readFile(join(directory, 'fixture.json'), 'utf8')) as { name: string; id: string; port: number; password: string };
+  const marker = join(directory, 'fixture.json'), directoryStat = await lstat(directory), markerStat = await lstat(marker);
+  assert.ok(directoryStat.isDirectory() && directoryStat.uid === process.getuid?.() && (directoryStat.mode & 0o777) === 0o700);
+  assert.ok(markerStat.isFile() && markerStat.uid === process.getuid?.() && (markerStat.mode & 0o777) === 0o600);
+  const owned = JSON.parse(await readFile(marker, 'utf8')) as OwnedEtsyFixture;
   assert.match(owned.name, /^esty-etsy-[a-f0-9]{16}$/);
   assert.match(owned.id, /^[a-f0-9]{64}$/);
-  assert.ok(Number.isInteger(owned.port) && owned.port > 1024 && ![54322, 55432, 55433, 55440, 55441, 55442, 55443, 55444].includes(owned.port));
-  const label = execFileSync('docker', ['inspect', '--format', '{{index .Config.Labels "esty.etsy.owner"}}', owned.id], { encoding: 'utf8' }).trim();
-  assert.equal(label, owned.name);
-  const mapping = execFileSync('docker', ['port', owned.id, '5432/tcp'], { encoding: 'utf8' }).trim();
-  assert.equal(mapping, `127.0.0.1:${owned.port}`);
+  assert.ok(Number.isInteger(owned.port) && owned.port > 1024 && ![54322, 55432, 55433, 55440, 55441, 55442, 55443, 55444,
+    55532, 55540, 55541, 55542, 55543, 55544, 55644].includes(owned.port));
+  assert.equal(execFileSync('docker', ['inspect', '--format', '{{index .Config.Labels "esty.etsy.owner"}}', owned.id],
+    { encoding: 'utf8' }).trim(), owned.name);
+  assert.equal(execFileSync('docker', ['port', owned.id, '5432/tcp'], { encoding: 'utf8' }).trim(), `127.0.0.1:${owned.port}`);
+  return owned;
+}
+
+export async function strictDatabaseFixture(t: TestContext) {
+  assert.ok(process.env.DOCKER_HOST?.startsWith('unix://'), 'Strict fixture requires an explicit local Unix Docker endpoint');
+  assert.ok(process.env.DOCKER_CONFIG, 'Strict fixture requires its isolated empty Docker config');
+  const dockerConfig = await lstat(process.env.DOCKER_CONFIG);
+  assert.ok(dockerConfig.isDirectory() && dockerConfig.uid === process.getuid?.() && (dockerConfig.mode & 0o777) === 0o700);
+  assert.deepEqual(await readdir(process.env.DOCKER_CONFIG), []);
+  const owned = await readOwnedEtsyFixture();
+  const base = { host: '127.0.0.1', port: owned.port, user: 'postgres', password: owned.password,
+    database: 'etsy_fixture', connectionTimeoutMillis: 1000 };
+  const control = new Client(base); await control.connect();
+  const name = `l3_${randomBytes(12).toString('hex')}`;
+  await control.query(`CREATE DATABASE "${name}"`);
+  const database = { ...base, database: name }, client = new Client(database); await client.connect();
+  t.after(async () => {
+    await client.end();
+    try { await control.query(`DROP DATABASE "${name}"`); } finally { await control.end(); }
+  });
+  return { database, client, name, owned };
+}
+
+export async function etsyFixture(t: TestContext, etsyConfig: EtsyConfig) {
+  const owned = await readOwnedEtsyFixture();
   const base = { host: '127.0.0.1', port: owned.port, user: 'postgres', password: owned.password, database: 'etsy_fixture', connectionTimeoutMillis: 1000 };
   const control = new Client(base);
   await control.connect();

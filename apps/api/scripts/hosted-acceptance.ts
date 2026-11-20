@@ -19,10 +19,14 @@ async function exact(response: Response, status: number, expected: Record<string
   }
 }
 // Shared candidate/final-domain acceptance; caller independently establishes deployment binding and TLS origin.
-export async function checkHostedHttp(origin: string, browserOrigin: string, key: string, request: HostedRequest): Promise<void> {
+export async function checkHostedHttp(origin: string, browserOrigin: string, key: string, request: HostedRequest,
+  readiness: 'current' | 'migrations_pending' = 'current'): Promise<void> {
+  if (readiness !== 'current' && readiness !== 'migrations_pending') throw new Error('Explicit hosted readiness predicate required.');
   const authorization = { Authorization: `Bearer ${key}` };
   await exact(await request(origin + '/health/live', { headers: authorization }), 200, { status: 'ok' });
-  await exact(await request(origin + '/health/ready', { headers: authorization }), 200, { status: 'ready', database: 'up', migrations: 'current' });
+  await exact(await request(origin + '/health/ready', { headers: authorization }), readiness === 'current' ? 200 : 503,
+    readiness === 'current' ? { status: 'ready', database: 'up', migrations: 'current' }
+      : { status: 'degraded', reason: 'migrations_pending' });
   for (const token of [undefined, 'malformed', '0'.repeat(64) === key ? '1'.repeat(64) : '0'.repeat(64)]) {
     await exact(await request(origin + '/health/ready', { headers: token ? { Authorization: `Bearer ${token}` } : {} }), 401, { status: 'unauthorized' });
   }

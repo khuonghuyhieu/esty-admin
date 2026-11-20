@@ -1,5 +1,518 @@
 # Implementation plan: Connectivity foundation
 
+## Source-local completion and independent review
+
+**2026-11-20 — SOURCE_LOCAL_COMPLETE / READY_FOR_OWNER_MANUAL_ACTIONS.** L0–L5 source/local delivery is complete subject to the recorded documentation checks; production execution is not. [README's single canonical manual release guide](../../README.md#current-be-manual-release-guide) supersedes active push-release, activation675/f162, bootstrap/roles and old launcher routing. The unchanged dated sections below preserve decisions, failures and acceptance scope, not competing current instructions. Feature010's existing001 routing remains unchanged.
+
+### T205 independent integrated review
+
+Coordinator `t1b0` admitted ONE separate Company Codex reviewer `t1dp`, actual **GPT-6-Luna / `gpt-6-luna`, medium**, read-only. Launch argv, TUI footer and corrected `REVIEW_MODEL_READY` were verified before the substantive review; coordinator inspected the actual output/log and accepted **no confirmed actionable findings**. The initial probe misclassified a Herdr socket-tool permission error as model unavailability; that tool-only error was corrected before review, with no model substitution. No session UUID was supplied or inferred.
+
+Review scope was T204's exact cumulative changed implementation/workflow/tests and001 artifacts, with010 plan/tasks only as existing read-only acceptance context. Coordinator matched all27 changed-path and33 evidence hashes to `/tmp/esty-l5-integrated-Y422xh/integrated-review-manifest.json`, SHA-256 **`b1c9fe09ffbad46e268a350d5c88b931c6204df02aed2775587d155e613872d7`**, including the139-file public source inventory. Runtime/probe/review window was approximately **07:06–07:11Z**; substantive scope was submitted approximately **07:08:56Z**, and the TUI reported **2m4s** work. These are approximate observations, not an invented exact session duration.
+
+The reviewer ran no tests/builds, made no edits and performed no Git/private/provider operations. No confirmed finding required a source fix or check rerun. This review is new and separate from earlier reviews; it does not rewrite any historical findings or failures.
+
+### Actual layer timing and retained verification
+
+All times below are UTC on2026-11-20; elapsed values are the recorded checkpoint values, not additional executions.
+
+| Layer / task | Actual admission → source/local checkpoint | Recorded elapsed |
+| --- | --- | --- |
+| L0 / T190–T191 |03:34:57 →03:50:29 |15m32s |
+| L1 / T192–T194 |03:53:42 →04:21:33 |27m51s |
+| L2 / T195–T197 |04:25:30 →04:48:42 |23m12s |
+| L3 / T198–T200 |04:53:33 →05:42:27; exact owned cleanup05:43:05 |48m54s to verification |
+| L4 / T201–T203 |05:49:27.713 →06:24:57.027 |35m29s |
+| L5 integrated / T204 |06:28:42.008 →07:06:09.389 |37m27s |
+| L5 review / T205 |Approximately07:06–07:11; substantive submission approximately07:08:56 |TUI reported2m4s work |
+| L5 docs / T206 |Admission07:12:11.418; exact closeout time in the separate docs manifest below |Actual elapsed recorded at freeze |
+
+Final T204 integrated outer run **560/562 passed,0 failed,2 existing artifact/private-dependent skips**;16 isolated historical children passed49 cases,0 child skips. The deduplicated original scope is **593/595 passed,2 skipped**; do not add overlapping parent/child counts. Focused42/42 and60/60, actual owned SQL6/6 and Nest/TLS/SQL-worker7/7 passed; compiler0; workflow6 jobs/45 Bash syntax checks. `actionlint` was unavailable. Artifact-dependent recovery-origin consumer was not run. The initial compiler, historical fixture, SQL fault-placement,549/595 and498/520 failures remain in [T204's evidence](#l5-integrated-implementation-and-actual-local-evidence). Review and closeout did not repeat these executions.
+
+### T206 documentation-only closeout boundary
+
+Owner/coordinator granted same-writer additive README and PROJECT_STATE hunks plus existing001 spec/plan/tasks completion at actual admission **2026-11-20T07:12:11.418Z**; initial estimate10–20min, not an actual-duration claim. Only those five documents change. Current notices supersede dated operational/planning status without deleting old bytes, tools, configuration, keys, ledgers or artifacts. Only the applicable T205/T206 checkmarks change; T190–T204 already had actual completed evidence. T207–T212 remain unchecked and HELD.
+
+Documentation checks passed for all five documents: no introduced whitespace diagnostics;11 introduced local links/anchors resolved; task IDs T190–T212 are unique with the authorized completion/HELD boundary; all pre-existing bytes are preserved except the T205/T206 checkmarks. All22 reviewed implementation/workflow/test hashes, two read-only010 hashes,139 public source entries,33 evidence files and the original review manifest remain unchanged. The first documentation helper mistakenly treated ordinary `git diff --no-index --check` difference exit1 with empty diagnostics as a whitespace failure; its exit/diagnostic accounting was corrected, with no document repair or runtime rerun. Final results are recorded after the T206 checkmark below. The T204 review-time manifest remains immutable; it is **not** a claim that the27 document-inclusive hashes still match after closeout. The separate `/tmp/esty-t206-docs-2QYMp4/docs-closeout-manifest.json` records actual final document hashes, check results, closeout time/elapsed and explicit ownership return.
+
+No source/tests/workflow/generated/package/migration edits, runtime/test/build/reviewer reruns, resources, Git mutation/publication or private/provider operations occur in T206. The T204 lease was CLOSED at06:45:10.123Z with exact owned container/listeners/marker/config removed; no resource was restarted. Existing139 source entries and all retained review evidence remain unchanged.
+
+`BE_DELIVERY_ENABLED` remains false. Runtime ENV additions and `APP_ACTIVATION_CONFIG_DIGEST` are OWNER-REPORTED complete, not independently value/runtime-verified; no re-entry, rekey or all-map overwrite.995 is immutable older-source evidence, not approval for changed controller/operator bytes. T207 configuration/name readiness and separately approved changes, T208 publication, T209 new checked clean-published Linux bundle/actual retained ID, T210 release-specific approval, T211 once-only release and T212 real-user/Etsy/FE-coordinated acceptance remain separate grants. First strict3→4 requires maintenance/readiness interruption and roll-forward recovery, not zero downtime or healthy old-strict3 rollback. No new Linux/Actions/provider/cloud or FE acceptance is claimed. At docs freeze return source/docs ownership to `t1b0`, then **STOP WRITES / NO_INFLIGHT**.
+
+## Manual BE release simplification — layered design
+
+### Current L5 T204 admission and integration decision — 2026-11-20
+
+Coordinator `t1b0` accepted L4 by read-only inspection and11 matching checkpoint hashes, not independent review/retest, then admitted sole writer `t1dg` to **T204 only** in the same main worktree. Actual admission **2026-11-20T06:28:42.008Z**; fresh local lease `l5-t1dg-20261120` expires **09:28:42.008Z**. Freeze at READY_FOR_INTEGRATED_REVIEW / NO_INFLIGHT after T204 and exact owned cleanup. Coordinator alone owns the later Company Codex `gpt-6-luna` medium review. T205/T206, README/PROJECT_STATE and all operational tasks remain unstarted.
+
+The two historical-positive failures are a test-fixture mismatch: the historical activation gate independently pins the exact three-entry digest, while ordinary compiled tests now import the four-entry manifest. Preserve that production refusal. Run only the two positive cases in isolated child processes with a test-only preload that independently pins all three names/checksums and expected names **before** application imports/cache initialization. Keep their existing behavioral assertions, and add a current-four-entry refusal case proving no provider/CLI effect. No production schema/pin/generated-manifest edit, assertion skip,995 access or artifact relabeling is permitted.
+
+L4 changed observer paths in real migration/strict workers, so integrated proof must rerun the affected actual SQL-worker/strict journey and report/error/cleanup cases, not substitute L3's dated results. Allocate only a fresh nonce/exact-ID/owner-label/private-marker fixture after local Unix socket, existing image, name and port conflict checks; empty Docker configuration, `--pull=never`, tmpfs/no shared volumes, synthetic credentials in the owned marker only. Exclude all protected ranges and live reservations. Reuse the existing bounded fixture/test protocol; no second framework or unrelated FE/Auth/business-suite run. Record exact source hashes and all failures, then remove only resources with verified current ownership before review freeze. Native Linux builds, Actions/provider enforcement, cloud SQL/deployment and publication remain HELD.
+
+### L5 integrated implementation and actual local evidence
+
+**T204 complete; READY_FOR_INTEGRATED_REVIEW / NO_INFLIGHT. L5 overall is not complete: T205/T206 remain unstarted.** Admission was **2026-11-20T06:28:42.008Z**. The exact freeze timestamp, elapsed time, unchanged HEAD, cumulative changed-path hashes, public source inventory and retained evidence hashes are in `/tmp/esty-l5-integrated-Y422xh/integrated-review-manifest.json`. Sole writer `t1dg` returns ownership to coordinator `t1b0`; no reviewer was started. README/PROJECT_STATE remain untouched.
+
+Implemented test-only integration corrections:
+
+- The initial two historical positives now execute in explicit isolated children. The first integrated run exposed14 additional legacy archive/Secret/journal/held-CLI/preflight roots stopped by the same unchanged three-entry gate. Coordinator separately authorized those enumerated cases only. `historical-activation-fixture.ts` allowlists all16 names, installs the independently pinned three-entry module before application imports/cache, preserves the original assertions and rejects real network/listener attempts. Parent processes retain the ordinary four-entry module. The current-four-entry regression proves historical activation refuses before provider/CLI effects. No production manifest/pin/guard was changed or assertion skipped.
+- The historical activation contract is the verbatim public OpenAPI file from local Git revision `97000fac531308f0a4a13e0eee932260dc868650`, SHA-256 `41bc4c5f0b93085fae607b680a823a32038e07e8b8512fef54223b2d2fc333ad`. The current contract remains unchanged. The historical D2 positive had instead loaded changed worktree sources before reaching the real verifier. Under the separate narrow test-only authorization, `heldRetainedProofFixture` now reconstructs exact public source bytes from revision `b6743c4cb2295871c5eec523e9b33e88058874ca`, tree `e590ca280b8275dd1da4c87e82715db7ee13b811`. Each file's size, SHA-256 and actual Git blob SHA-1 were independently checked against local Git objects and are rechecked by the fixture. The actual verifier and all wrong-run/source/blob/tree/gate/race negatives remain active.
+- `tests/fixtures/historical-release-provenance.json` records the original paths/revisions/blob identities and losslessly JSON-encoded D2 bytes; the OpenAPI fixture remains verbatim. These are same-repository public test materials, not995/native/runtime artifacts. Original bytes/notices are preserved; no new or third-party license grant is invented. An initial `.txt` representation violated the existing source-inventory extension guard; it was removed and replaced with the permitted JSON representation, rather than relaxing production packaging.
+- The existing actual strict-worker journey now covers exact success, migration-report persistence failure and lost write-COMMIT acknowledgement. It runs real Nest/TLS, separate SQL workers and PostgreSQL, with synthetic provider/CLI transports. Success preserves the same deployment ID and applies only migration4; old strict3 becomes pending503 and held strict4 becomes ready200. Report failure preserves committed migration truth; lost COMMIT preserves unknown acknowledgement even when physical history is4. Both refuse promotion/replay. No Auth setup/business expansion was added.
+
+Actual checks and preserved failures:
+
+| Evidence in `/tmp/esty-l5-integrated-Y422xh/` | Observed result |
+| --- | --- |
+| `compile-fixture.log`, `historical-isolation-first.log` | Initial compiler exit2: missing manifest-digest import and incompatible installed mock-option typing. Corrected compiler exited0. First isolated run1/3 passed; the two positives then exposed the historical OpenAPI mismatch. |
+| `compile-historical-contract.log`, `historical-isolation-final.log` | Compiler0; original two positives plus current-four refusal3/3 passed, zero skips. |
+| `owned-runner.log` | Actual exact suffix, drift under lock, rollback, lost COMMIT and cancellation:6/6 passed, zero skips. |
+| `owned-worker-journey-first.log`, `owned-worker-journey-diagnostic.log` | Both4/7 passed,3 failed including ancestors. The test fault intercepted an earlier read-only history COMMIT, truthfully reporting SQL not-started. Corrected only the fixture injection to target COMMIT after the actual Etsy CREATE TABLE. |
+| `compile-worker-final.log`, `owned-worker-journey-final.log` | Compiler0; actual exact/report-failure/lost-COMMIT journeys7/7 passed, zero skips. |
+| `integrated-ci-release-artifact.log` | First full integrated run549/595 passed,44 failed,2 existing skips. This exposed the additional historical roots and stale D2 positive; it is not a green result. |
+| `compile-historical-extension.log`, `historical-d2-focused.log` | Compiler0; authorized historical/current-four/D2 roots42/42 passed, plus49 assertions/cases in16 isolated historical children, zero skips. |
+| `integrated-final.log` | First final candidate498/520 passed,20 failed,2 existing skips: newly added `.txt` fixtures were correctly rejected by the unchanged packaging extension guard. Early failures prevented later nested cases; this log is retained as a failure, not the final result. |
+| `compile-source-format.log`, `historical-d2-source-format-focused.log` | After JSON-only fixture representation, compiler0; affected historical/D2/checked-transfer/controller fixtures60/60 passed, zero skips. |
+| `integrated-verified.log`, `historical-child-accounting-verified.json` | Final full integrated run **560/562 passed,0 failed,2 existing skips**. All16 isolated children passed their49 cases, zero child skips. Counting each parent once gives the original595-case scope: **593 passed,2 skipped**. No assertions were deleted to reduce the outer count. |
+| `workflow-check.log` | Existing js-yaml parsed6 jobs; all45 run blocks passed Bash syntax with inert expression substitution. `actionlint` was unavailable; no install was attempted. |
+| `canary-scan.json` |29 retained log/JSON outputs scanned for11 existing synthetic secret canaries: zero matches. Final integrated parents reported zero guarded network/listener attempts; isolated historical children also exited successfully with their deny guards active. |
+
+Actual compiler/final integrated command shapes, using existing Node24.22.1:
+
+```sh
+NODE24=/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node
+"$NODE24" node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+"$NODE24" --import /tmp/esty-l5-integrated-Y422xh/deny-network.mjs --test \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js
+```
+
+The final run used a newly empty temporary HOME and no retained-artifact/private/provider environment. Focused runs used explicit test-name selections recorded by their output, not a substituted narrow final suite. The real owned runner root was `L3 owned strict suffix keeps exact history and truthful rollback lost-COMMIT and cancellation outcomes`; the worker root was `L3 owned emitted strict journey changes only fourth migration and the same held deployment`. They used the renewed private fixture marker and bounded listener preload, not default/shared services. Both throwaway preloads and temporary HOME directories are now removed; their hashes and cleanup are retained. These historical commands are evidence, not permission to reuse the closed lease.
+
+Owned-resource receipt: lease `l5-t1dg-20261120`, expiry09:28:42.008Z; fresh container `56e3958ffbc2baf69710b367acfe95225d6c401caab8ad4e1e9dca1ecdad5d08`, owner/name `esty-etsy-b871d800afcfc71c`, existing image `sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac`, loopback43380–43389. Admission verified the local Unix socket, name/image/ports, exact labels and empty Docker configuration; `--pull=never`,256MiB tmpfs and no mounts/shared volumes. At **06:45:10.123Z**, ownership was reverified, zero owned test databases remained, the exact container was removed, all10 ports were absent, and the marker/empty Docker config were removed. **Lease CLOSED; no restart/adoption.** Shared services/volumes were untouched. `resource-preflight.json`, `resource-allocation.json`, `resource-ready.json` and `resource-cleanup.json` retain the exact evidence.
+
+Review boundary: cumulative changed source/workflow/tests and001 artifacts are frozen against unchanged `ece3d97f8c177984f04bcbd19849daa91a284f72`;010 plan/tasks are included only as existing read-only acceptance/planning context. The public packaging source inventory contains139 files. Two pre-existing artifact/private-dependent CI cases remain skipped; the secondary retained-artifact-dependent recovery-origin consumer was not run. No Linux/native build, retained995 access/reseal/transfer, Actions run, live private/auth/provider/GitHub/ENV access, real Supabase/cloud SQL, deployment/DNS, Git mutation/publication or FE acceptance is established. Local proof and synthetic transport do not establish hosted acceptance. Coordinator alone may admit T205's one available Company Codex `gpt-6-luna` medium review; T206 and T207–T212 remain separately gated.
+
+
+### Current L4 admission and diagnostic integration decision — 2026-11-20
+
+Coordinator `t1b0` accepted L3 by read-only source/workflow inspection,16/16 checkpoint hashes and the retained89/89,6/6,3/3/cleanup receipts, then admitted **T201–T203 only** to sole writer `t1dg` in the existing main worktree. L4 admission/start: **2026-11-20T05:49:27Z**. That acceptance is not an independent review or retest. L3's fixture lease is CLOSED: no database, application, TLS listener or replacement resource may be adopted/restarted. L4 uses existing Node24/dependencies and injected synthetic transports only; stop at READY_FOR_L4_CHECKPOINT before L5.
+
+Problem confirmed in the current code: L0's bounded `ReleaseOutcome` exists, but `runRoutinePhase`/the executable catch still emit ad-hoc acceptance/generic refusal, and strict/ordinary catch blocks can replace the original error after receipt failure. Cross-step committed/known-ID evidence is not composed into that terminal contract. This is a diagnostic integration defect, not permission to replay a mutation.
+
+Decision: reuse the L0 state machine and existing receipt persistence. Add a typed boundary error and a bounded diagnostic observer passed into the existing ordinary/strict/provider/migration functions. Observe submission and returned identity/report **before** fallible acknowledgement persistence; retain the first typed stage/category when cleanup also fails. Extend the result with an explicit finite evidence-confirmation field so evidence failure makes the overall result unknown without erasing the original failure category. Persist a request-bound, append-only diagnostic chain in the existing receipts directory; it supplies diagnostic continuity only, never execution authority. Existing remote intent/ACK and exact phase predicates remain the mutation gates. Missing/corrupt diagnostic history fails closed; known request-bound remote acknowledgements may be read without replay, never synthesized into an unobserved SQL report.
+
+The existing executable entry and retained-selection boundary must emit the bounded contract on failure. Successful intermediate phases emit a clearly separate phase-confirmed event, never release acceptance. Only final same-ID/domain proof emits accepted; Actions receives a short sanitized summary and fixed outputs from the same validated result. No parsing of raw error/provider messages into categories, no raw subprocess/body/stack output, no new wrapper/pipeline, no environment setup or token speculation. T201 first exercises emitted failure/effect preservation; T203 verifies affected L0–L3 contracts and process-restart/error paths, secret canaries and zero extra mutations. README/PROJECT_STATE remain deferred to T206, historical failures remain unchanged, and L5 alone owns the isolated historical-three-entry fixture plus separately authorized reviewer.
+
+### L4 implementation and actual local evidence
+
+**T201–T203 complete; READY_FOR_L4_CHECKPOINT / STOP WRITES / NO_INFLIGHT before L5.** Admission/start **2026-11-20T05:49:27.713Z**; source/local freeze **06:24:57.027Z**, elapsed **35m29s**. Sole writer `t1dg`; coordinator `t1b0`. No database, listener, container, worker or reviewer was allocated. L3's fixture lease remains CLOSED. README/PROJECT_STATE and T204–T206 are unchanged; coordinator acceptance and the later independent review remain separate gates.
+
+Implemented contract:
+
+- The existing L0 result now reaches actual delivery entry, retained selection, ordinary/compatible/strict phases, provider transport/body validation and Actions output/summary boundaries. `ReleaseFailure` carries only a finite stage/category; raw upstream messages, stdout/stderr, bodies, stacks and credentials are not the result classification source.
+- The result includes `evidence: confirmed|unconfirmed`. Persistence/finalization failure makes the outcome unknown without replacing the first stage/category or discarding a returned deployment ID, confirmed committed SQL, report-write failure or an uncertain promotion. Each CREATE/SQL/promote effect remains `not-started|ACKed|unknown`.
+- `release-outcome-NNNN.json` is an append-only, hash-linked, request-bound diagnostic chain, bounded to256 records. A terminal marker distinguishes a stopped run from successful intermediate phase confirmation. Subsequent processes recover validated observations, refuse terminal replay and preserve a valid prefix if a later record is damaged. These files never authorize execution or replace existing remote intent/ACK, packet, history, receipt, source or phase gates.
+- Actual CLI ingress reads the independently hashed diagnostic envelope before later credential/artifact/authentication failure, then still performs the original execution approval and exact operator checks before effects. This retains earlier known effects without turning diagnostic continuity into approval. Fresh-directory admission still uses the common remote reservation; it adopts only allowlisted request-bound observations and never fabricates a SQL report from its hash. Missing report bytes stay unknown.
+- Successful intermediate phases emit `phase-confirmed` with `releaseAccepted:false`, not terminal acceptance. Terminal execution emits one versioned result and a short finite Actions summary/outputs. A summary/output failure downgrades acceptance and exits unsuccessfully. Workflow acceptance also requires the delivery step's success outcome. Reconciliation remains bounded, authenticated and GET-only; it cannot clear a fence or retry a mutation.
+- No schema/runtime guard, historical activation pin, generated manifest, migration, credential boundary, official CLI control or dependency changed. No new wrapper, launcher, migration runner or release mode was added.
+
+Actual verification: existing Node24.22.1, Darwin/arm64, synthetic transports and denied real sockets only.
+
+| Check | Observed result |
+| --- | --- |
+| T201 pre-fix emitted diagnostics | **0/16 passed**:15 scenarios plus parent failed because terminal L0 results were absent. `compile-before.log` exited0; `emitted-before.log` preserves all failures. |
+| Intermediate integration | `compile-first.log` exit0 and `results-first.log` **54/54**; `compile-second.log` exit0 and `results-second.log` **56/56**, zero skips. Later changes added reservation uncertainty, thrown CLI spawn, diagnostic persistence and affected-neighbor coverage. |
+| Final affected contracts | `compile-third.log` exit0; `affected-contracts.log` **225/225 passed**, zero skipped. Includes L0–L4, actual ingress/selection refusal,19 ordinary emitted scenarios plus parent,23 strict emitted scenarios plus parent, separate-process same-directory no-replay, corrupted suffix/prefix recovery, GET-only fresh-directory reconciliation, compatible migration guards, provider/body/configuration failures and isolated operator closure. |
+| Standalone emitted failure/restart | `standalone-final.log` exit0; **4/4 scenarios**. Current-only retained an ACKed ID after candidate configuration failure, with zero SQL/history calls. Strict retained the same ID and confirmed committed versions after unknown promotion. Both fresh processes retained those effects and performed zero CREATE/SQL/promote/history operations. `standalone-smoke.json` and the four `*-verified-*.log` files contain observations; real socket/network attempts0. SQL/CLI/provider outcomes were injected, not real DB/provider enforcement. |
+| Standalone harness failures | First attempt used macOS's symlinked `/tmp` spelling and correctly hit the existing private-directory refusal; the harness assertion failed. Second used the canonical path but its assertion incorrectly named `databaseOutcome` instead of the contract's `database_outcome`; it failed after observing committed SQL. Corrected only the throwaway harness and used fresh evidence directories. `standalone-first.log`, `smoke-current-refusal-first.log`, `standalone-second.log` and the earlier reports remain intact; no source guard was relaxed. |
+| Workflow | Existing `js-yaml` parsed **6 jobs**; all **45** run blocks passed `/bin/bash -n` after replacing Actions interpolation with inert syntax values. `workflow-check.log` exit0. No actionlint installation/run, real Actions dispatch or runner execution. |
+| Secret scan / cleanup | `canary-scan.json`: **109 retained JSON/log files, zero canary or credential-URL matches**. Actual terminal tests also scan stdout/stderr/Actions summaries. Both owned throwaway smoke scripts were removed after successful execution; their hashes and cleanup observations are retained in `cleanup.json`. Test/smoke fixture cleanup completed; no L3 resource was adopted. |
+
+Exact affected commands, from the repository root:
+
+```sh
+NODE24=/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node
+"$NODE24" node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+"$NODE24" --test \
+  --test-name-pattern='^(L[0-4] |untrusted,|completion Bash|exact current-schema|current-only refuses|routine |stale source,|nonzero,|failed promotion|durable remote history|successful durable reservation|candidate metadata|candidate bypass|provider archive attestation|archive bytes,|sealed private snapshots|missing, extra,|independent artifact/source|assembly refuses|approval cannot override|tool package integrity|staged operator imports)' \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js
+# Historical invocation; the owned throwaway driver was removed after proof.
+"$NODE24" /tmp/esty-l4-results-lVI2Nd/smoke.mjs
+```
+
+Evidence root: `/tmp/esty-l4-results-lVI2Nd/`; `checkpoint-manifest.json` records the exact11 changed source/test/workflow/document paths and SHA-256 values, checkpoint timing, commands/results and limitations. This checkpoint inherits accepted L3 manifest SHA-256 `a628f1554ababad32a32dcecb396b6e53b7cca4b644da0d771b823b6c0495065`, without changing its receipt or histories.
+
+Limits: no complete historical/full-suite claim. The two original historical-positive activation failures and L2's102/105 neighbor result remain disclosed; L5 alone owns their isolated pinned3 fixture disposition while preserving current4 refusal. No real PostgreSQL/HTTP resources were used in L4; actual Linux outer-entry success, CLI/provider/Actions enforcement, publication, new checked Linux artifact, production migration/deploy/domain and hosted acceptance remain unverified. No private/auth/actual ENV,995 artifact, provider, GitHub, Git, CI settings or deployment operation occurred. L5 has not started; its admission and coordinator-owned review are not implied by this checkpoint.
+
+### Current L3 source/local admission and bounded lease — 2026-11-20
+
+The coordinator accepted T195–T197 through read-only source/receipt/hash/log inspection and explicitly admitted **T198–T200 at2026-11-20T04:53:33Z**. Sole writer/resource owner: `t1dg`; coordinator: `t1b0`; lease: `l3-t1dg-20261120`, expiring **07:53:33Z**. Estimated work:90–150minutes. Freeze at READY_FOR_L3_CHECKPOINT before L4. The resource proposal below is now approved only within this lease: fresh nonce/exact owner ID/label/private marker, confirmed local Unix Docker endpoint, existing image with `--pull=never`, tmpfs/no volumes, distinct owned IPv4-loopback ports excluding all listed protected ranges and live reservations, selected tests only, ownership-checked cleanup. No worker/reviewer, private/provider/actual ENV/Git action, native artifact rebuild/reseal/transfer or retained995 access is authorized.
+
+The two original L2 historical-positive failures remain evidence. The coordinator assigned their **test-only** disposition to L5: isolated child/module fixtures for the independently pinned historical three-entry manifest, plus preservation of the current four-entry-to-historical-activation refusal regression. Never weaken the runtime guard, repin activation, rewrite generated manifests or skip/disable assertions. This does not block L3 and does not establish a clean historical/full-suite run.
+
+L3 integrates the existing strict release phase predicates, not a second migration runner or owner launcher route. The ordinary controller must bind the full authenticated request and strict packet to the common remote production reservation. Remote mutation intent, known CREATE ID and receipt/report hashes remain durable independently of the disposable runner's local files. Missing files/unknown acknowledgements fence continuation; an always-upload step is evidence retention, not authorization to retry. SQL-only steps consume a fresh, previously authenticated phase authorization without provider/GitHub/Auth credentials. Provider steps confirm prior receipt chains remotely before additional effects. The existing strict phase executor supplies exact history3, held strict4, fresh pending-schema checks, under-lock new-suffix execution, committed report/history4, old strict3 expected pending, same-ID ready/promotion/final acknowledgement. Compatible mode retains its own ready200/config checks; current-only retains zero migration calls. The fixed owner-home ledger remains historical/manual-only, never assumed portable to Actions.
+
+### L3 implementation and actual local evidence
+
+**T198–T200 complete; READY_FOR_L3_CHECKPOINT / STOP WRITES / NO_INFLIGHT after this evidence handback.** Source/local verification froze at **2026-11-20T05:42:27Z**, **48m54s** after admission. Exact owned resource cleanup completed at **05:43:05Z**, before the07:53:33Z lease expiry. L4 has not started. This is a source/local checkpoint, not independent review, Linux release publication, actual Actions execution or hosted acceptance.
+
+Implementation and contracts:
+
+- The same `be-delivery.yml` routine command now explicitly sequences strict `authorize → history → held → migrate → deliver`; compatible migration keeps its separate `authorize → migrate → deliver` contract. Current-only still has no SQL authority or migration-runner call. No push release, activation replay, new launcher or second migration history was added.
+- `ci-migrations.ts` binds the authenticated full request, controller/source/operator/artifact/configuration, exact before/target manifests, predecessor and approved strict packet/window to the common remote production reservation. Both a previously reserved request and a previously reserved strict packet refuse readmission, even from another local runner directory. The CI ledger is under its receipt directory, not the owner's home ledger.
+- Existing `etsy-release.ts` phase predicates remain the executor. Confirmed remote intent precedes effects; a returned CREATE ID is fsynced locally and confirmed remotely before inspection. Phase receipt/report hashes are bound to the request and confirmed remotely before follow-on mutations. SQL-only workers consume a fresh, exact authorization and predecessor receipt; they have no GitHub/provider/Auth/operator/roles credentials or provider transport.
+- Strict readiness now uses the full existing eight-case HTTP contract with an explicit exact `migrations_pending` predicate, not acceptance of arbitrary503. Authorized health responses must carry the approved configuration digest; denial, preflight and unknown-route responses must not. The held strict4 is live200/pending503 on history3, then ready200 only after the unchanged fourth migration and exact committed/written report/history4. Post-SQL old strict3 is expected pending503 with its independent old configuration, not a healthy rollback target.
+- Compatible continuation still checks its separately approved predecessor/configuration at ready200 before SQL and again after confirmed SQL, before CREATE. Shared request/configuration bindings were added without substituting the strict interruption policy for compatible behavior.
+- Unknown CREATE/SQL/promote/report/remote acknowledgement, stale or changed evidence, cancellation and local runner loss retain refusal/fences. Read-only reconciliation validates the bound remote journal, returns only allowlisted status descriptions/known IDs, and never clears, retries or unlocks a mutation. Missing local receipts cannot be reconstructed into permission to repeat work. L4 still owns integrating the existing versioned result contract through all top-level diagnostics.
+- No runtime schema guard, activation pin, generated manifest, migration file, role/bootstrap implementation, installed dependency or official CLI control changed. Existing prebuilt/archive/prod/icn1/skip-domain, full CLI own-file inventory, request/source checks and application cancellation/TLS behavior remain in place.
+
+Actual verification, all with Node24.22.1 on Darwin/arm64:
+
+| Check | Observed result |
+| --- | --- |
+| Pre-fix remote durability regression | **0/7 passed**: six intent/ACK/receipt/cancellation subcases plus their parent failed because the old executor ignored the remote durability hook. Preserved in `durability-before.log`; these same cases pass after the fix. |
+| Final selected strict/L2/compatible/release neighbors | **89/89 passed**, zero skipped. Includes23 emitted strict scenarios plus their parent, six durability failures plus their parent, complete L2 configuration cases, compatible predecessor/report protection, ordered strict phases, cross-process consumed-intent fences and fsync failure cases. |
+| Real owned PostgreSQL suffix/failure cases | **6/6 passed**: five scenarios plus parent. Exact fourth-only commit; drift rechecked under the advisory lock before apply; real transaction rollback; lost COMMIT acknowledgement with actual history4 and report outcome unknown; cancellation with actual history3 and report outcome unknown. No runner retry. |
+| Actual emitted strict controller, Nest HTTP and isolated SQL workers | **2/2 passed**. Authenticated synthetic retained selection, actual strict3/strict4 Nest applications, verified local PostgreSQL Session-style TLS, separately spawned SQL-only workers using the real migration runner, exact report/history, one CREATE and same-ID promotion/final acknowledgement. The transport alone redirects the validated cloud connection to the owned local fixture; no production validation or migration predicate is replaced. |
+| Final operator closure plus bounded owned journey | **3/3 passed**: the above two journey cases plus the existing staged-package import/no-input CLI test. Isolated Node permissions and denied networking prove the changed controller/migration/Etsy import closure without checkout imports or ambient auth access. This is ordinary operator packaging, not a native release build. |
+| Standalone emitted-controller smoke | Exit0 outside the test runner: authenticated strict reservation, replacement-runner refusal, GET-only reconciliation, zero CREATE/promote, absent SQL authority and denied real networking. |
+| Fixture lifecycle smoke | Six direct-script simulations passed: success, test failure, name collision, protected port, wrong owner and nonlocal daemon. Docker/test transports were intercepted; no second real fixture or unfiltered suite ran. Wrong-owner cleanup does not remove the unowned identity. Temporary smoke scripts were removed. |
+| Workflow/compilation | Final TypeScript exit0; existing `js-yaml` parsed six jobs and all45 Bash steps passed `bash -n`. No actionlint installation/run; prior unavailable-tool disclosure remains. |
+
+Commands exercised (`NODE24` is the same exact24.22.1 executable recorded for L2; leased environment variables named below referred only to the now-removed owned resources):
+
+```sh
+"$NODE24" node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --pretty false
+"$NODE24" --test --test-name-pattern='^(L3 |L2 |Etsy setup release|Etsy setup provider|routine migration|routine committed)' apps/api/build/tests/ci.test.js apps/api/build/tests/release.test.js
+# Under the explicit local Unix DOCKER_HOST, isolated empty DOCKER_CONFIG and ETSY_TEST_FIXTURE_DIRECTORY:
+"$NODE24" --test --test-name-pattern='^L3 owned strict suffix' apps/api/build/tests/integration.test.js
+"$NODE24" --test --test-name-pattern='^(L3 owned emitted strict journey|staged operator imports)' apps/api/build/tests/etsy.test.js apps/api/build/tests/artifact.test.js
+```
+
+Intermediate failures remain visible rather than being rewritten as a clean first run: the first implementation compile rejected a readonly manifest passed to a mutable fixture API; the owned-fixture compile then caught optional `process.getuid` calls and a missing `mkdir` import; the journey compile caught a narrowed runtime-map type; the first journey attempted to copy a migration without its `.mjs` suffix and stopped before initial migration execution. Each was corrected and its affected checks passed. The initial64/64 focused run and22/22 emitted matrix predate the additional Auth/roles/reconciliation coverage; the final89/89 run supersedes their coverage count, not their history. L2's two historical-positive activation failures remain assigned to L5's isolated pinned-three-entry test fixture; current-four-entry activation refusal stays intact. No full-suite/historical-activation pass is claimed.
+
+Owned resources and cleanup:
+
+- Confirmed local Unix OrbStack socket, isolated empty Docker config and existing image `postgres:17-alpine` digest `sha256:3540c0362c809df084ffac0ae69fe794515f9de92692f02178bcdce0ef0302ac`; no pull/install. The virtual socket's `realpath` returned EOPNOTSUPP, while socket `stat` and explicit local daemon access succeeded; no auth/config store was read.
+- Allocated04:57:50Z: owner label/name `esty-etsy-e1dd72e8cbb00b78`, exact container `57dff1d51921bd4a273cfb12d7e63e4e083b2ceebf0284b193ad1fb7bff41f65`, PostgreSQL `127.0.0.1:32782`,256MiB tmpfs, no mounts/shared volumes. Private root0700/marker0600; synthetic password was never printed or serialized into test scripts. No Auth sessions/accounts or existing foundation fixture were used.
+- Final journey used only additional loopback TLS52840 and application52841/52842 listeners, distinct from all protected ranges. Test hooks closed applications/TLS and dropped their fresh databases; SQL children exited. Before removal, exact ID/owner label/loopback mapping/tmpfs/no-mount identity was revalidated. Only that container was removed; Docker subsequently listed no such ID, and `lsof` found none of32782/52840/52841/52842 listening. Owned credential scratch and the still-empty Docker config were removed. No prune, shared-volume removal, adoption, eviction or unrelated process termination occurred.
+- Evidence: `/tmp/esty-l3-cutover-xo7wyR/`, notably `source-freeze.json`, `focused-final.log`, `owned-runner-first.log`, `owned-journey-package-final.log`, `controller-smoke.log`, `wrapper-smoke.json`, `workflow-syntax.json`, all original failure logs, and `resource-allocation.json` / `resource-ready.json` / `resource-cleanup.json`. The checkpoint manifest separately hashes the14 changed source/test/workflow files and this feature's two documentation files.
+
+Limits: GitHub/Vercel/Etsy transport and official CLI responses were synthetic; actual application HTTP and database/TLS/migration behavior were local only. No Linux/x64 outer release CLI execution, real remote journal persistence, provider upload/promotion, Supabase/cloud SQL, domain/Production configuration, native artifact build/reseal/transfer,995 read, Git mutation/publication or independent review occurred. Synthetic accepted output is not hosted acceptance. README/PROJECT_STATE remain deferred to T206; FE/feature010/root dependency ownership is unchanged. Await coordinator checkpoint acceptance and separate L4 admission.
+
+
+### Current L2 source/local authorization — 2026-11-20
+
+The coordinator accepted L1 by read-only inspection and its exact checkpoint manifest, then admitted **L2 / T195–T197 only** at **2026-11-20T04:25:30Z** in the same sole-writer repository/main lane. That checkpoint is not independent review or real Actions proof. Preserve L1's split-run86/87 plus corrected1/1 accounting, original failures and unavailable actionlint/PyYAML; this increment does not rewrite that history. No L3 resource admission, new writer/reviewer, Git mutation/publication, dependency installation, native artifact rebuild/reseal/transfer, retained995 access, private/auth/actual ENV/provider/GitHub operation, or DB/HTTP resource is granted.
+
+### L2 implementation and actual local evidence
+
+**T195–T197 complete; READY_FOR_L2_CHECKPOINT / freeze before L3.** Source/local checkpoint: **2026-11-20T04:48:42Z**, **23m12s** after admission. L2's20 focused cases and emitted synthetic journey pass. **The broader selected neighbor run is not clean:**102/105 passed; one stale current-schema fixture was corrected and its affected1/1 rerun passed, while two historical activation positives remain blocked by their unchanged compiled-manifest gate, detailed below. No full-suite or historical-activation acceptance is claimed.
+
+Implementation decisions:
+
+- `RoutineDeliveryApproval` extends the existing schema approval with a **required** `configDigest`. Ordinary `createProvider` and `deliver` reject absent/malformed approval before transport. The authenticated L0 request supplies that digest; it is never inferred from returned HTTP headers, deployment/project metadata or an artifact declaration.
+- Ordinary candidate **and** final-domain acceptance require the authorized health response's `x-activation-config-digest` to equal the independently approved full digest. Denials/preflights/non-health responses must not disclose it. Existing `runtimeConfigDigest` and its exact key/presence semantics remain unchanged, including present Etsy inputs; no runtime/Auth/config-key-policy redesign or actual ENV access occurred. Tests deliberately keep deployment metadata and the declared expected ENV field apparently correct while changing computed runtime evidence.
+- Ordinary durable reservation payloads, migration-journal confirmation and reserved/accepted local receipts bind the expected full config. Compatible predecessor checks still use the predecessor packet's **own old config digest**, not the new candidate's expected config. A behavioral case proves that a legitimate different old digest passes and substitution of the candidate digest fails.
+- The existing CLI phase body was moved within `ci-delivery.ts` to `runRoutinePhase`, not duplicated into a new wrapper/pipeline. The CLI still performs actual-run authentication, Linux/x64/Node pins, source checks, snapshotting and the unchanged complete executing-operator inventory before calling that body. This seam lets the real phase/provider/official-CLI orchestration be exercised while instrumenting the actual migration exports. Phase credential separation is checked before ingress and again at phase dispatch.
+- Current-only accepts only the deliver action, has no migration packet/continuation, rejects SQL authority and never calls `runMigrations`, including a nominal no-op apply. Its actual emitted phase also calls `migrationStatus` zero times: readiness/history remains read-only HTTP evidence against exact checked application/schema bytes, not a new direct SQL capability. Versioned migration retains its existing isolated branches; strict cutover remains explicitly refused pending L3.
+- Exclusion, held one-shot CREATE, persisted known ID before inspect, exact uploaded archive, schema readiness, main/alias/file drift checks, same-ID promotion/final alias and unresolved-ACK fences remain active. Official CLI prebuilt/archive=tgz/prod/icn1/skip-domain controls and credential isolation are exercised, not replaced.
+- Existing shared synthetic fixtures now supply complete authenticated provider/archive/HTTP responses and full-runtime hashes. The existing tar fixture was moved into `artifact-fixture.ts` for reuse. The sole integration-test change supplies the newly required approval type/digest to its existing delivery caller; no integration/DB test was run without a lease.
+
+Actual commands used Node24.22.1 at `/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node` (`NODE24`), on Darwin/arm64:
+
+```sh
+"$NODE24" node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --pretty false
+"$NODE24" --test --test-name-pattern='^L2 ' \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/release.test.js
+"$NODE24" --test --test-name-pattern='^(L0 |L1 |completion Bash|untrusted, stale-attempt|exact current-schema candidate|current-only refuses|routine |candidate bypass|archive bytes|provider archive|provider runtime configuration|activation preserves known|staged operator imports|runtime attestation|Etsy setup binds)' \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/release.test.js \
+  apps/api/build/tests/artifact.test.js apps/api/build/tests/config.test.js
+"$NODE24" --test --test-name-pattern='^current-only refuses unapproved history' apps/api/build/tests/ci.test.js
+"$NODE24" --test --test-name-pattern='^L2 emitted CLI phase' apps/api/build/tests/release.test.js
+"$NODE24" --experimental-test-module-mocks /tmp/esty-l2-runtime-enURm8/smoke.mjs
+```
+
+Evidence directory: `/tmp/esty-l2-runtime-enURm8/`.
+
+- `compile-before.log` exited0. **Before implementation**, `l2-before.log` recorded8/19 passing and11 failures: missing config admission, absent durable config binding, missing/wrong candidate/final digest, changed Etsy runtime input, leaked denial header and the not-yet-extracted phase seam. The missing/wrong digest cases demonstrably reached false acceptance under the old implementation; these are not merely import/shape tests.
+- `compile-first.log` exited0 and `l2-first.log` passed **20/20 cases including subtests**, covering full-config success, all candidate/final/denial failures, pending history, alias/main/archive/file drift, known-ID ordering, unknown CREATE/promote replay fences and independent predecessor config. The actual phase case launches isolated emitted code with instrumented real `runMigrations`/`migrationStatus` exports, authenticated synthetic provider transport and intercepted public CLI subprocess transport. Success, candidate failure, final failure, forbidden SQL authority and forbidden migration action all observe zero runner/history/network calls.
+- `neighbors-first.log` recorded **102/105 passing**, including all selected L0/L1 cases, completion gating, ordinary archive/bypass/migration-journal neighbors, unchanged runtime-key semantics and isolated operator packaging/import. One old current-only test built the complete four-migration manifest but approved only the historical three-migration TARGET digest. Its meaningful exact-approval scenario now independently approves the preselected source manifest; `current-schema-corrected.log` passed1/1. It does not self-approve provider-returned metadata.
+- **Two adjacent historical tests remain failing and intentionally unchanged:** `activation preserves known IDs and refuses promotion after unknown acknowledgement or runtime attestation failure` and `provider runtime configuration attestation cannot be replaced by deployment metadata or leaked on denial`. Both stop at unchanged `assertActivationManifest()` in `src/config/schema-transition.ts:11–14`, before the modified ordinary HTTP boundary: the current compiled manifest includes `1794890229976-etsy-connectivity` (four entries), whereas historical activation pins the three-entry digest. No historical pin/guard was loosened, fixture/retained995 relabeled, assertion disabled or failed check rerun merely to confirm it. These failures require a separately scoped historical-fixture/test decision before claiming clean full-suite/release readiness; they are not passing L2 evidence.
+- Final compilation exited0 (`compile-closeout.log`). The initial smoke exposed Node's deprecation of `mock.module`'s `namedExports`; the test/smoke now use `exports`, and the affected emitted phase rerun passed1/1 (`phase-final.log`). Node's expected experimental-module-mocking warning remains visible, not suppressed. No dependency or package setting changed.
+- `smoke-final.log` / `smoke-result.json` exercise actual emitted authenticated retained admission, full source/operator verification, `runRoutinePhase`, ordinary `createProvider`, `deliver`, official prebuilt command construction and durable receipt files. Eight synthetic scenarios passed: exact full config; missing candidate digest; changed present Etsy input; wrong final digest; missing final digest; denial disclosure; unknown CREATE; unknown promote. Each uses five authenticated synthetic metadata GETs. Real socket/fetch fallbacks are denied; total actual runner calls0, direct read-only SQL calls0, real network attempts0 and HTTP/DB resources0.
+- Exact config/bytes/history reached one CREATE and one promotion of `dpl_candidate`, all three inspections observed its already-persisted ACK file, and the final accepted receipt bound the config. Candidate failures had one CREATE/zero promotions; final failures had one CREATE/one promotion but only unresolved evidence, never acceptance. Unknown CREATE retained no invented ID; unknown promotion retained the known ID. Both retry attempts were durably fenced with unchanged mutation counts.
+- The smoke's synthetic full-config digest is `c475a75fce69f20af459179ae615a39bd210c9500f9df74bf79b6f9986eccc3b`; its successful final receipt-chain digest is `9cdb6b8e897641b07bff98983dcee01ba4c1d8789e8638b4dd725bc221c62f86`. These identify synthetic evidence, not deployed runtime values or a provider artifact. Temporary smoke code and owned synthetic fixture directories are removed after verification; sanitized JSON/logs remain.
+
+L2 source SHA-256 manifest:
+
+| Path | SHA-256 |
+| --- | --- |
+| `apps/api/scripts/ci-delivery.ts` | `9dd709caab659463192f7e8685fde5f89024dbac92b5bf969f98a365f8a91fcc` |
+| `apps/api/scripts/ci-provider.ts` | `64370cc096148cd8d528edee7da146c42a320407b04231d5390b9c7153396577` |
+| `apps/api/tests/ci.test.ts` | `80b4ec4cf448cf2d2f3a8dd2a798c3475ec7c6548a30d24ce53342d3b6f7833d` |
+| `apps/api/tests/release.test.ts` | `b64014e965f792fecad07e8d22d681ced8795c6df635c2b42196e10d43bd4e00` |
+| `apps/api/tests/artifact-fixture.ts` | `290561132adde2e2cabd4354970e6f929c242d2f8bd0732514a3314309805552` |
+| `apps/api/tests/integration.test.ts` | `ebad43fc8153df8619f013169b77995672131cda5064d94f140e23c1838c2c68` |
+
+The only additional L2 edited paths are this existing plan and `tasks.md`. Workflow and retained helper behavior stay at accepted L1; runtime configuration semantics, migration implementation, historical activation implementation, FE, feature010, root dependencies, README and PROJECT_STATE remain unchanged. No new real commit/run/artifact ID exists. Changed packaged bytes still require separately authorized publication and a newly checked clean Linux artifact/immutable transfer;995 remains untouched and cannot be reused as this corrected source. This is neither independent review nor actual Linux/Actions/provider/Supabase/domain acceptance. T207–T212 remain HELD.
+
+### Proposed L3 resource contract — not admitted or allocated
+
+Estimated L3 work after **both** checkpoint acceptance and an explicit resource lease: **90–150 minutes**. Do not start L3 code or allocate resources from this proposal.
+
+- Prefer the existing disposable ownership protocol in `scripts/etsy-local-check.mjs` / `tests/etsy-fixture.ts`: fresh `esty-etsy-<16hex>` owner nonce, matching `esty.etsy.owner` label, exact returned64hex container ID and owned mode0600 `fixture.json` under a real `esty-etsy-local-*` temporary directory. Name/identity collision means refuse, never adopt or evict. The lease must name the sole owner, selected checks, time window and cleanup owner.
+- Use a confirmed local Unix Docker endpoint and an isolated empty Docker config; an already available `postgres:17-alpine` image with `--pull=never`; tmpfs-only data, no shared/bind volume. Image/socket availability has **not** been inspected. Reuse the protocol for bounded L3 selections rather than invoking its unfiltered Etsy suite.
+- Database mapping must be exactly IPv4 loopback `127.0.0.1:<new-port>`. Exclude54322,55432,55433,55440–55444,55532,55540–55544,55644 and any live owner-reserved ports. Record nonce/name/ID/label/mapping before SQL; synthetic per-run credentials remain in the owned private marker, never chat/logs. Existing standalone/shared services and both retained volumes are outside the lease.
+- Permit only owned synthetic database/roles and exact migration history3→4, plus the minimal strict3/held4 application/TLS-test listeners needed for actual pending503→ready200, bound to distinct `127.0.0.1` ephemeral ports. Provider/GitHub/Etsy transports remain injected synthetic; no external service, FE, Auth account or production ENV interaction is implied. The existing integration suite separately supports `TEST_FIXTURE_PROFILE=activation001` at55532, but that fixed-port profile is **not** selected or borrowed by this proposal.
+- Cleanup must first revalidate exact ID/owner label, stop only owned application/proxy processes, and remove only that container/tmpfs and owned credential scratch. No prune, shared-volume removal or unrelated listener termination. Confirm this bounded lease before adding/running the L3 real-PostgreSQL journey.
+
+
+### Current L1 source/local authorization — 2026-11-20
+
+The coordinator accepted L0 and admitted **L1 / T192–T194 only** at **2026-11-20T03:53:42Z** in the existing sole-writer lane. This supersedes the older L0-only/planning notices below for this increment, not for L2 or operations. The same repository/base and dirty planning/source changes are preserved. No Git mutation/publication, worker/reviewer, dependency installation, native artifact rebuild/reseal/transfer, retained995 access or mutation, provider/GitHub/private/auth/Production ENV operation, DB or HTTP resource was authorized or performed.
+
+### L1 implementation and actual local evidence
+
+**T192–T194 complete; READY_FOR_L1_CHECKPOINT.** Actual source/local checkpoint: **2026-11-20T04:21:33Z**, **27m51s** after admission. Freeze before L2; estimated L2 source/local work after coordinator acceptance is **45–75 minutes**. No owner questionnaire or operational prerequisite is needed to start that separately admitted source/local layer. README/PROJECT_STATE remain deferred to T206; feature010 routing and all historical evidence remain unchanged.
+
+Ingress decisions and boundaries:
+
+- PR/push retain secret-free checks/build/upload only. Routine production requires main `workflow_dispatch`, first attempt, fixed repository/environment, explicit routine mode and existing enablement in both workflow eligibility and `deliveryContext`. Dispatch selects `release_run_id` plus `release_artifact_id`; it does not rebuild an application as a release prerequisite. Historical activation remains isolated and its pinned selection implementation is unchanged.
+- `routine-retained.mjs` is the small tracked routine-specific ingress helper. It reuses the historical helper's bounded authenticated `githubReader` and canonical encoding, not its historical activation pins. It authenticates actual current main, actual consumer event/ref/workflow/revision/attempt/repository, a distinct successful completed producer run, the successful exact checks job and upload interval, and the exact unexpired immutable artifact metadata. The current policy requires producer revision/tree to equal the actual published main controller revision/tree; run identities remain separate. No implicit source-equivalence exception exists.
+- `ci.ts` emits a nonsecret `be-release-approval.json` sidecar only after checks and archive creation. Its canonical byte SHA-256 is the separately approved `BE_RELEASE_APPROVAL_SHA256`; it binds producer revision/tree/run, artifact/source/archive/operator/schema digests. This avoids a circular archive hash and owner-authored inventories. `BE_RELEASE_CONTROLLER_SHA`, `BE_RELEASE_TARGET`, existing config/schema approvals and migration-packet approval remain independent controls. No actual variable/flag was read or changed, and this evidence does not establish GitHub readiness.
+- A read-only `routine_retrieval` job validates metadata, downloads the selected artifact, checks the independently approved sidecar and tar digest **before tar extraction or bundle code execution**, then verifies the complete sealed artifact, runner inventory, checks receipt and current checkout source inventory. Only then may it import the verified operator to construct the bounded L0 request. The unchanged tar, approval, selection and request are relayed to production; the trusted checkout revalidates them there before executing the operator. `authenticateRoutineDelivery` reauthenticates current main and the actual consuming run before provider work. The existing executing-operator inventory check remains in place.
+- Archive extraction validates the entire bounded gzip/PAX stream before creating a destination: allowed roots, explicit parent directories, safe paths, unique case-folded names, file/directory types and safe modes. Links, devices, traversal, private paths, ambiguous duplicates, malformed/unsupported extensions and incomplete termination refuse. Producer packaging explicitly uses `--format=pax --no-xattrs`. Recognized timestamp/owner fields, including libarchive creation time, are never applied; PAX path/size remain validated. No upstream tool or builder was patched.
+- The production job retains the noncanceling shared exclusion and existing provider-versus-SQL credential separation. Completion requires successful retained retrieval, deliberately skipped same-run checks, successful production and accepted output for a routine dispatch; a skipped release cannot claim acceptance. Push remains explicitly checks-only.
+- L1 binds all three routine request modes. **Strict cutover execution remains fail-closed in the existing CLI until L3 integration**; L1 is not a completed strict release or full-runtime attestation implementation. L2 configuration enforcement, L3 orchestration, L4 integrated result diagnostics and L5 review remain open.
+
+Actual local commands used Node **24.22.1** at `/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node` (`NODE24` below), on Darwin/arm64:
+
+```sh
+"$NODE24" node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --pretty false
+"$NODE24" --test --test-name-pattern='^(L0 |L1 |completion Bash|untrusted, stale-attempt)' \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/artifact.test.js apps/api/build/tests/release.test.js
+"$NODE24" --test --test-name-pattern='^(L1 |completion Bash|untrusted, stale-attempt)' \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/artifact.test.js
+"$NODE24" --test --test-name-pattern='^(L1 |completion Bash|untrusted, stale-attempt|exact current-schema candidate|routine committed continuation|manual retained |retained selection accepts|retained selector refuses|retained metadata reader|relay rejects substituted|staged operator imports)' \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/artifact.test.js
+"$NODE24" --test --test-name-pattern='^manual retained approval binds' apps/api/build/tests/ci.test.js
+"$NODE24" --check apps/api/scripts/routine-retained.mjs
+"$NODE24" apps/api/scripts/stage-operator.mjs
+"$NODE24" /tmp/esty-l1-ingress-vYojXc/validate-workflow.mjs
+"$NODE24" /tmp/esty-l1-ingress-vYojXc/smoke.mjs
+```
+
+Results and retained failures:
+
+- Evidence directory: `/tmp/esty-l1-ingress-vYojXc/`. Final compiler exit0 (`compile-closeout.log`). Initial new gate tests failed against both old push gates (`gates-before.log`); the initial implementation compile caught two missing test imports (`compile-first.log`).
+- L1 plus completion/context coverage passed **77/77 cases including subtests** (`focused-second.log`), and all77 passed again with the PAX regression and adjacent checks in `focused-final.log`. The broad adjacent selection recorded **86/87 passing**: its only remaining failure was an old test explicitly expecting enabled push delivery to succeed. That superseded expectation now requires refusal; its affected rerun passed **1/1** (`manual-gate-corrected.log`). The other nine adjacent cases passed, including existing current-only delivery, committed-migration continuation, historical retained selection/transport/relay and isolated operator packaging. No full suite or DB integration suite ran. The earlier combined run also passed all13 L0 cases.
+- `focused-first.log` preserves86/90 with three causes: macOS xattrs in a default tar, a brittle symlink error-message assertion and cleanup of read-only fixture directories. Packaging now explicitly emits PAX without xattrs; the test asserts refusal rather than OS wording and uses the existing owned-fixture removal helper. No security guard was bypassed.
+- The full-operator smoke initially exposed a legitimate libarchive creation-time extension, not caught by the small fixture (`smoke-first.log`, `smoke-diagnostic.log`, `smoke-pax-diagnostic.log`). The parser now recognizes but does not apply that timestamp. A permanent valid-long-path PAX case and a correctly encoded malicious PAX traversal case cover the distinction.
+- `workflow-syntax-final.log`: installed `js-yaml` parsed all six jobs; all **43 shell steps** passed actual `bash -n`. The first throwaway validator incorrectly treated a valid null `pull_request:` value as an absent event; its corrected own-property check passed (`workflow-syntax.log` preserves the first failure). `actionlint` and Python PyYAML are unavailable; neither was installed. This is not an Actions-hosted validation claim.
+- `packaging.log`: existing staging copied **157 dependency packages**. The permanent isolated-package test passed imports and no-input CLIs with filesystem permissions and denied network access, without checkout/auth fallback.
+- `smoke-final.log` / `smoke-result.json`: actual source `select → consume → consume-relay` commands passed with synthetic authenticated metadata, then the sealed emitted controller's admission function passed. The package contained **6,330 operator files**; the synthetic tar was **13,440,872 bytes**. Full current checkout source and operator inventories matched. Forged actual-consumer push and workflow push refused; modified tar bytes refused before destination creation. There were12 synthetic metadata GETs, zero real network attempts, no HTTP/DB resources and no CREATE/SQL/promote. Socket/fetch guards had no real-network fallback. Synthetic consumer123/producer122/artifact456 are test identities, not GitHub artifacts. The synthetic request digest was `22e64d0f29be1da49b2c2d4da93b34ce06199fbccf1065f26ac5fd4e57c5d2c8`.
+- Throwaway validator/debug/smoke scripts and their owned synthetic bundle directories are removed after verification; logs and sanitized JSON remain. Normal API development compilation/operator output is not a native build, release bundle, transferred artifact or Linux/Actions/provider acceptance.
+
+L1 source SHA-256 manifest at the checkpoint:
+
+| Path | SHA-256 |
+| --- | --- |
+| `.github/workflows/be-delivery.yml` | `3e9066ce98b633f8d223076e1753e7fe512ae7a3b08acf94b9ae0c381a7e8ca4` |
+| `apps/api/scripts/ci-delivery.ts` | `016e1c9bb5d1cb223f74de2929f175872b3838a96875fc089f737b08c25759d0` |
+| `apps/api/scripts/ci.ts` | `c46c9d517cfeffba4aedd0bf8b834e97b987cf52aebca79ae6512bac93353b21` |
+| `apps/api/scripts/routine-retained.mjs` | `0e8620a871b3055f3fdbca85ce34bebae97b2ce4f5bbaa90746b70f279952b92` |
+| `apps/api/scripts/stage-operator.mjs` | `22e8310f4e6b11d5fea561e045f7ab8fd916c228f34ddcf67585cb1cb0b7be02` |
+| `apps/api/tests/ci.test.ts` | `4dad646e0445ec8700c24efa2e3a59f29e84ebb3db1aa04cf61815355f3d5e14` |
+| `apps/api/tests/artifact.test.ts` | `1696ec5c3a28f0e303f5d0587dc15da289d8fcc7047709351baf84d819677eaa` |
+| `apps/api/tests/artifact-fixture.ts` | `bec43e47ab0d6d72af256f92705495147cc3d1d5292f9ea2659ed5bc4a306617` |
+
+The only additional L1 edited paths are this existing plan and `tasks.md`. Historical `activation-retained.mjs`, artifact verification, provider/migration implementations, FE, root dependency files and retained995 remain unchanged. **These changed packaged/controller bytes require separately authorized publication and a newly checked clean Linux bundle/immutable artifact/transfer before any real release.995 cannot be relabeled or used as the corrected operator.** No new real commit/run/artifact ID or operational acceptance is established. T207–T212 remain HELD.
+
+
+### Current L0 source/local authorization — 2026-11-20
+
+The owner/coordinator START supersedes the planning-only notice below **only for the incremental T190–T206 source/local lane**. This assignment admits **L0 / T190–T191 only**, with sole implementation ownership replacing the finished workers. Actual admission started at **2026-11-20T03:34:57Z**. Preserve the five coordinator planning changes and all historical evidence; no Git mutation, new worker/reviewer, dependency install, retained995 mutation, provider/private/ENV access or operational effect is granted. L1 cannot start until the coordinator accepts the L0 checkpoint. T207–T212 remain HELD.
+
+L0 places the versioned request/result boundary in `apps/api/scripts/ci-delivery.ts` and behavioral cases in the existing `ci.test.ts`/`release.test.ts`; existing provider/migration types and execution paths remain unchanged unless a demonstrated contract dependency requires otherwise. The approved request digest is supplied independently of bundle declarations; it binds controller and producer identities, artifact/archive/operator/source digests, runtime configuration, target, exact schema manifests and mode-specific recovery/compatibility/maintenance approvals. This local boundary does not authenticate GitHub metadata, verify bundle bytes, persist remote intent or run an actual release: those are later serial layers, not implied by accepting a request's shape.
+
+### L0 implementation and actual local evidence
+
+**T190/T191 complete; READY_FOR_L0_CHECKPOINT.** Source/local verification checkpoint: **2026-11-20T03:50:29Z**, **15m32s** after admission. Only L0 ran; L1 awaits coordinator acceptance under the existing incremental grant. Estimated L1 duration after acceptance: **60–90 minutes**, covering both event gates, checked retained ingress and affected packaging/workflow checks. No new worker or reviewer was started.
+
+Contract decisions:
+
+- `ReleaseRequest.version=1` separates controller revision/tree/run from producer revision/tree/run and immutable artifact ID. Required artifact, source, archive, operator, full configuration and before/target schema digests are independently bound by `{version:1, requestDigest:sha256(canonical(request))}`. Before/target manifests must match their explicit digests and immutable prefix. Approval is a separate trusted-caller argument, never a bundle field; authenticating its source and producer/controller metadata remains L1.
+- Historical `activation` is rejected by this routine boundary. Current-only has no migration authority and cannot submit SQL. Versioned migration requires the existing activated three-migration prefix, additive suffix, compatibility and recovery approvals; CREATE is fenced until a successful, written, committed migration report. Strict3→4 instead requires maintenance/recovery approval and acknowledged held CREATE before SQL. Packet/maintenance digests reference separately approved evidence; the actual packet, window and provider verification remain L3.
+- `ReleaseOutcome.admit` returns a versioned, secret-safe refusal with `request:null` on invalid/partial/cross-bound input; no untrusted fields are echoed. The admitted request and serialized results are immutable snapshots. This is an in-memory contract, not an execution engine or durable journal.
+- Submission immediately means `unknown`; valid acknowledgements separately retain CREATE ID, SQL report projection or promotion ACK. Nonzero CREATE with a valid ID is acknowledged but not accepted. Known IDs and confirmed SQL versions survive subsequent failure. A failed migration report can truthfully retain `database_outcome:committed` without authorizing promotion. Missing reserve acknowledgement or evidence persistence yields overall `unknown`, even if individual confirmed effects remain `ACKed`.
+- Result validation enforces the finite status/stage/category/effect/action vocabulary and mode ordering. Accepted output requires same-ID final-domain/artifact/config/schema proof plus a receipt digest; only accepted output has `category:null` (there is no invented success/error category). Unknown outcomes have inspection/reconciliation actions, never retry. Actions requiring a deployment or submitted operation reject absent identities/effects. Raw exception/provider fields, credential URLs and synthetic secret canaries are excluded.
+
+Actual commands used the already-installed public Node **24.22.1** binary at `/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node` (`NODE24` below), existing dependencies and normal `apps/api/build` emission. The default shell Node was26.10.0, so it was not used for compilation/tests. No download/install, operator staging, native artifact build or retained995 access occurred.
+
+```sh
+SPECIFY_FEATURE_DIRECTORY=specs/001-connectivity-foundation SPECIFY_FEATURE_NO_PERSIST=1 \
+  .specify/scripts/bash/check-prerequisites.sh --json --require-tasks --include-tasks
+"$NODE24" node_modules/typescript/bin/tsc -p apps/api/tsconfig.json --pretty false
+"$NODE24" --test --test-name-pattern='L0 ' \
+  apps/api/build/tests/ci.test.js apps/api/build/tests/release.test.js
+"$NODE24" --test --test-name-pattern='^(untrusted, stale-attempt|exact current-schema candidate|routine committed continuation)' \
+  apps/api/build/tests/ci.test.js
+"$NODE24" --test --test-name-pattern='L0 committed SQL' apps/api/build/tests/release.test.js
+"$NODE24" /tmp/esty-l0-contract-lEv2tb/smoke.mjs
+```
+
+Evidence directory: `/tmp/esty-l0-contract-lEv2tb/`. Commands were captured with `set -o pipefail` and `2>&1 | tee <log>`; no failed result was overwritten. The prerequisite resolver succeeded; no extension-hook file or feature checklist directory was present. No language server is configured; the actual TypeScript compiler supplied type verification.
+
+| Check | Actual result / retained evidence |
+| --- | --- |
+| Test-first missing boundary | `compile-before.log`: exit2, five missing-export diagnostics. `test-before.log`: exit1, both selected test modules refused missing exports before execution. |
+| Initial implementation compilation | `compile-after01.log`: exit2, one test fixture spread needed a non-null first attempted migration. `compile-after02.log`: exit0; `test-after01.log`:9/9 passed, zero skips. |
+| Meaningful failure-before correction | `compile-evidence-before.log`: exit0; `test-evidence-before.log`:1 failure, evidence-persistence after confirmed SQL incorrectly reported `failed` instead of `unknown`. Corrected while retaining SQL `ACKed` and committed history. |
+| Expanded boundary | `compile-after03.log`: exit0; `test-after02.log`:12/12 passed, zero skips. |
+| Final source | `compile-final.log`: exit0; `test-final.log`:**13/13 passed**, zero skips. Covers malformed/cross-bound/missing approvals, mode separation, both migration orders, final proof/receipt rejection, safe enum validation, uncertain reservation/CREATE/SQL/promote, rollback, committed SQL after later failures and secret canaries. |
+| Existing delivery compatibility | `existing-boundary-regression.log`:**3/3 passed**, zero skips. Existing context admission, current-schema candidate→promotion and committed-migration continuation remained intact. This ran before the final contract-only schema-digest/ordering additions; those additions were covered by the final compile/13-case run. |
+| Actual emitted standalone smoke | `smoke-result.json`, then final `smoke-final.json`: exit0. Five serialized outcomes: invalid refusal, nonzero CREATE with known ID, lost promotion ACK, committed SQL with later evidence loss, and current-only acceptance. **0 network requests**,4 synthetic CREATE calls,1 synthetic migration report,2 synthetic promotion attempts; the current-only accepted journey made **0 migration calls**. Same-ID/commit preservation, JSON roundtrip and canary exclusion asserted. No real CLI/provider/SQL execution. The throwaway smoke script was removed after verification; sanitized outputs remain. |
+
+Changed source manifest (`source-manifest.sha256`):
+
+| Path | SHA256 |
+| --- | --- |
+| `apps/api/scripts/ci-delivery.ts` | `1a1d72c962c60283d35aaceaf20f0bd54df60faeccfe418bbd361aeb665f61ed` |
+| `apps/api/tests/ci.test.ts` | `fd2431ac3e6127acc6f207e14ec832acb3e98505d74b7dfa028571aa67760bca` |
+| `apps/api/tests/release.test.ts` | `0eefb1845cc5f8e4e3dc34ce68bd787b2651312b14f6aba1b15d416ab57b4f0f` |
+
+Complete edited-file scope adds only this existing `plan.md` and `tasks.md` to those three source/test paths. Existing `ci-provider.ts`, `ci-migrations.ts`, `deliveryContext`, delivery CLI and workflow remain unchanged: **both old push gates still require L1 changes**. No L0 claim of authenticated Actions ingress, actual bundle verification, runtime digest enforcement, durable remote mutation fencing, real migration orchestration, integrated review or hosted acceptance. Normal development build output is not a new release artifact. Packaged controller changes invalidate assuming old995 matches this source; a new checked published bundle remains a separately authorized gate. README/PROJECT_STATE await T206; feature010, FE, shared pointer, dependencies and all retained operational resources were not edited.
+
+
+
+**2026-11-20 · PLAN_READY_FOR_OWNER_REVIEW · STOP BEFORE CODE.** The current grant permits only amendments to existing feature001 spec/plan/tasks and minimal feature010 routing references. It does not start any implementation, worker/reviewer, test/build/install, provider/GitHub inspection, private/auth read, ENV/flag/Git operation, SQL or release. The existing `BE_DELIVERY_ENABLED=false` state remains unchanged. This section is the current design proposal for [Story 9 / FR-049–055 / SC-027–031](spec.md#manual-be-release-simplification--current-planning-amendment); old Issue #5 push and automation instructions below remain historical. [T190–T212](tasks.md#manual-be-release-simplification--planned-tasks) preserve every previous task ID/checkmark and do not grant execution.
+
+### Evidence and scope baseline
+
+| Item | Current evidence and limit |
+| --- | --- |
+| Local committed source | Read-only Git check: clean `main=origin/main=ece3d97f8c177984f04bcbd19849daa91a284f72`, tree `78f50632b184b9e1af621aac3d5a5f80473defd2`. Planning edits are not a new committed controller or application artifact. |
+| Runtime ENV | Owner screenshots evidenced seventeen existing foundation names, all Production. Owner reports ten Etsy additions plus updated `APP_ACTIVATION_CONFIG_DIGEST` from the validated bundle: **OWNER-REPORTED ENV UPDATE COMPLETE**. No independent new metadata/value/runtime verification. Preserve foundation; backup policy is not ENV. Do not repeat the aborted audit or request secrets, policies, rekey or full-map replacement. |
+| Retained application/operator artifact | Coordinator-supplied reviewed native Linux/x64 Node24.22.1 ece3d97 artifact provenance SHA256 `99577519fcd0a05c38d745ee09c8b8f83e1ae889a2b77282250f6e90afa117bc`; independent verification,32 packaging tests and7 managed HTTP proofs passed according to handoff. Retained ready, not freshly opened or rebuilt here; no Actions artifact ID or provider-duration proof is established. |
+| Existing production | Last accepted BE per handoff: historical f162 / `dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7`. Journal675/32 is history, not a reusable launch path. No new Etsy production migration, BE deployment or actual Etsy acceptance is confirmed. No fresh endpoint probe. |
+| FE | Handoff reports reviewed real local GoTrue/BFF/Nest/owned DB plus synthetic Etsy across1440/360/390, split17/18 plus affected1/1. Prior ece3d97 FE deployment is reported, not reverified. FE server-only `ETSY_CLIENT_ID` remains an unverified acceptance dependency, outside this implementation lane. |
+| Setup tools | Feature010 T027–T031 already implemented configuration/digest, Owner client, held cutover and packaging checks. Retained ignored reuse/preparation tools, originals, ledgers, artifacts and stopped inspection failures remain preserved. Their presence is not a reason to run or delete them. |
+
+This proposal owns delivery orchestration, not application features, new migrations, Auth changes, Etsy scope changes, FE code, new hosting or a second pipeline. Existing NestJS, Vercel/Supabase, fixed project/team, Node pins, verified Session TLS, least privilege, bounded cancellation and `icn1` stay in place. No new libraries, framework, root dependency edits or shared-pointer changes are planned.
+
+### Relevant source assessment and selected reuse
+
+| Existing source | Observed capability / required adaptation |
+| --- | --- |
+| `.github/workflows/be-delivery.yml` | Checks build/test/upload an immutable bundle. Production currently accepts push **or** dispatch when enabled and consumes the same checks run. Retained selection currently serves activation only. Plan manual routine selection in this same workflow, retaining PR/push checks and historic activation isolation. |
+| `apps/api/scripts/ci-delivery.ts` | `deliveryContext` also accepts push or dispatch. Both event gates must change. CREATE/ACK/attestation/held candidate/promote/final primitives exist; reuse them rather than a new ignored wrapper. |
+| `apps/api/scripts/ci-provider.ts` | Existing durable GitHub status/exclusion, identity/archive/domain checks and HTTP boundary remain. Its HTTP configuration-digest comparison is activation-only today; ordinary delivery needs independently expected full config attestation. |
+| `apps/api/scripts/ci-migrations.ts` | Exact additive packet, unchanged prefix, SQL-only worker, confirmed report and continuation already exist. Continuation requires compatible predecessor ready200 after SQL; preserve that rule for compatible releases. It cannot handle strict3→4 unchanged. |
+| `apps/api/scripts/etsy-release.ts` | Existing history → held-create → pre-sql-check → sql-apply → post-sql-check → promote-only → final-domain-ack implements strict3→4 semantics. Reuse operations and receipt predicates, not owner-generated seven-shell choreography or a fake675 activation packet. |
+| `apps/api/scripts/activation-inputs.ts`, `activation-configuration.ts` | The historic activation runtime envelope excludes Etsy inputs. Do not repurpose it by inventing old packet identities or widening consumed activation. Full runtime config validation/digest comes from the existing current runtime config path. No ENV write is part of routine deploy. |
+| `apps/api/scripts/artifact.ts`, `ci.ts`, `ci-tools.ts`, `ci-archive.ts` | Keep producer provenance, unchanged checked bytes, mode-preserving transfer, independent digest-before-execution, exact operator inventory and secret-free pinned tooling bootstrap. New selection/controller integration must honor these checks. |
+
+### L0 — Release contract and authority
+
+Define a versioned routine-release request/result contract in existing delivery/provider/migration modules; no new generic workflow framework. The owner-facing entry is **Run workflow → select checked bundle, mode and approved nonsecret release expectations → inspect result**. No Python construction, local tool pins or fresh configuration-token prompt belongs in this normal path. Use existing approved GitHub environment credentials only in their corresponding steps; absence means a named prerequisite failure, not an interactive prompt or demand for all owner values again.
+
+Planned dispatch inputs are `release_run_id`, `release_artifact_id` and explicit `mode` (`current-schema-only`, `versioned-migration`, `etsy-strict-cutover`, with historical `activation` isolated). Required routine expectations include source revision/tree, archive/artifact digests, expected full runtime config digest and approved target schema digest; use nonsecret environment approvals plus verified producer receipts rather than hand-typing inventories. A migration selection additionally requires an exact approved packet containing before/after manifests, unchanged prefix, new suffix, target, source/artifact/config/predecessor bindings and recovery decision. Strict cutover additionally binds a maintenance window and explicit readiness-interruption/roll-forward approval. Missing approval stops; no fallback to a bundle's self-declared config/schema approval. Exact input schema is implemented/tested under T190–T191, not activated by this document.
+
+Keep three identities separate: (a) the published workflow/controller commit actually dispatched, (b) the successfully checked producer/application/operator revision/tree and immutable bundle, and (c) actual provider deployment ID plus runtime config. Bind all three in the request and durable journal. Current-main/source policy remains strict: source drift blocks release unless a later explicit, reviewed policy approves a source-equivalent retained bundle; do not silently accept an older application because controller code advanced.
+
+Contract result fields:
+
+| Field | Allowed meaning |
+| --- | --- |
+| `status` | `accepted`, `refused`, `failed`, `unknown`; accepted requires final same-ID domain/HTTP/config/artifact proof and durable completion. |
+| `stage` | `request`, `artifact`, `configuration`, `reserve`, `history`, `create`, `pre-sql`, `sql`, `candidate`, `promote`, `domain`, `receipt`. |
+| `category` | `invalid-input`, `unauthorized-context`, `missing-prerequisite`, `identity-mismatch`, `configuration-mismatch`, `history-mismatch`, `unresolved-prior`, `transport`, `timeout`, `validation`, `outcome-unknown`, `evidence-persistence`. Never derive text from raw exceptions. |
+| `effects` | Separate `create`, `migration`, `promotion`: `not-started`, `ACKed`, `unknown`. `not-started` only when no submission occurred; attempted/lost acknowledgement is unknown. `ACKed` alone is not acceptance: migration also retains confirmed report `database_outcome`/versions, promotion needs final alias checks. |
+| Safe evidence | Run/controller/producer IDs, artifact/config/schema digests, acknowledged candidate ID, sanitized receipt reference and confirmed migration outcome where available. No runtime values, raw URLs containing credentials, auth bodies, consent URLs or SQL. |
+| `nextAction` | `inspect-prerequisite`, `select-approved-artifact`, `approve-release-window`, `inspect-known-deployment`, `reconcile-migration`, `reconcile-promotion`, `inspect-retained-evidence`, `run-acceptance`, `none`. These describe owner actions; they do not execute them or grant a retry. |
+
+Write durable intent before each mutation; persist returned ID/receipt before later calls, including nonzero CREATE with a valid ID. Per-operation effects survive later failure. A response/process/storage failure after submission remains unknown unless independently confirmed evidence proves the outcome; do not infer rollback from a nonzero exit. Error contract is implemented at L0 and exercised in L1–L3, with L4 completing transport/report integration.
+
+### L1 — Manual entry and checked-artifact ingress
+
+Keep PR/push check/build/upload behavior. Require main `workflow_dispatch` in both the production job predicate and `deliveryContext`, fixed repository/environment, first attempt, explicit mode and existing enablement/approval gates. Planning does not toggle any flag. Check jobs may still run on manual dispatch as applicable, but routine release selects a previously successful checked bundle instead of rebuilding it as a release prerequisite.
+
+Confirm the consuming run's actual dispatch event/ref/attempt and published controller identity through authenticated GitHub run metadata before reserving production; caller-supplied environment fields alone are insufficient. A forged dispatch environment paired with an actual push run must fail before mutation. Checks retain no production credentials; selection gets only the read permissions needed for verified run/artifact metadata.
+
+Extend the existing retained selection approach for routine mode with an explicit trusted checks producer and exact run/artifact ID. Validate repository, workflow/job conclusion, producer event/ref/revision/tree, mode/releasability, archive SHA256, sealed provenance, manifests, paths/modes/content and executing operator closure. Download only that artifact, verify its independently bound archive digest before extraction or execution, then verify the full bundle. Reject expired/missing IDs, canceled/failed checks, forks/development bundles, symlinks/path escapes, changed content and fabricated metadata. No arbitrary artifact URL or file path ingress.
+
+**Artifact/controller dependency:** the existing routine CLI verifies its executing operator inventory against the selected sealed artifact. Changes to packaged `ci-delivery.ts`, `ci-provider.ts` or dependent operator files generally invalidate use of the old995 artifact with a new operator. The default releaseable result of this increment therefore requires separately authorized source publication, successful checks and a **new correctly bound bundle** when those bytes change. Keep995 unchanged as retained evidence; do not promise it can execute the new controller, rebuild/reseal it in place, substitute runners silently or call a new-main bundle995. A separately reviewed independently bound adapter would need explicit compatibility proof and approval; it is not the default escape from inventory checks. No artifact production/transfer is executed during planning. The eventual Actions ID/run/digests remain an operational dependency, not invented values.
+
+### L2 — Routine unchanged-schema delivery
+
+Extend ordinary candidate and final-domain HTTP verification with the required approved full runtime configuration digest. Use current config semantics including all ten Etsy keys when present, preserving legacy absent-key behavior. Require digest equality on authorized live/ready health responses and absence on denied responses. Keep technical bearer before DB, user-session/Owner policy, exact origins and existing CORS/TLS/timeout controls. Metadata name/type checks do not replace runtime value/digest verification.
+
+Use the existing exclusion → preflight/read-only exact history → one held CREATE → ACK persistence → provider/archive/config/full HTTP checks → same-ID explicit promotion → final alias/config/HTTP checks → durable accepted receipt. Preserve `--prebuilt --archive=tgz --prod --regions icn1 --skip-domain`; no Git-source rebuild. In current-schema-only mode pass no SQL authority and make **zero calls to the runner**, not an apply that reports zero. No ENV writes; the owner updates only necessary ENV separately when configuration changes.
+
+### L3 — New migrations and strict3→4 cutover
+
+Select transition explicitly; never auto-select migration by observing pending history. Reuse `ci-migrations.ts` for a separately approved genuinely compatible predecessor, including its post-SQL readiness protection. Apply only the new approved suffix once through the existing migration runner/advisory lock/report and phase-isolated SQL credentials, then check exact target history. No new migration file/history/table, checksum rewriting, runtime migration or foundation setup.
+
+For the first Etsy strict3→4 release, adapt existing `etsy-release.ts` phase operations to the canonical workflow/controller with explicit authority/receipt bindings. Required sequence:
+
+1. Reserve the common durable production exclusion before CREATE, bind predecessor/expected old config and exact history3, source/artifact/new config/target manifest and release window.
+2. CREATE strict4 once with skip-domain, durably retain its ID, attest exact bytes/config and protected live200 plus precisely `migrations_pending`503 before SQL. Timeout/database-unavailable/other503 is not an approved pending condition.
+3. Freshly verify same candidate/old alias/predecessor bindings, then execute the existing SQL-only migration path for exactly the approved fourth Etsy migration; persist intent before submission and require confirmed commit/report plus exact history4.
+4. Check the **same** held candidate ready200/current/config/bytes. Old strict3 may now report only the expected migrations_pending503 while its live/config/identity/alias remain bound; do not call the routine compatible-ready200 gate and suppress its failure.
+5. Explicitly promote that known ID once, recheck final api.lovora.us same-ID binding, TLS, config and protected cases, then record the final ACK. Provider READY alone is insufficient.
+
+Do not mount a host-home setup ledger as if it were durable across disposable Actions runners. The workflow adaptation must bind existing phase receipts/intent predicates to the common remote production exclusion and retained sanitized receipt chain; carry verified predecessor receipts within a run, durably publish mutation intent/ACK remotely, and fence missing/unknown or incomplete outcome across runner loss. Archive upload in `always()` is useful evidence, not the sole cross-run mutation barrier. No unapproved resume or lock theft. Existing local ledger/originals remain unchanged; no claim of distributed/provider exactly-once execution.
+
+Release-specific maintenance/readiness interruption and roll-forward approval is mandatory later. After schema4 commits, old strict3 is not a healthy rollback target. Failure after SQL retains the committed migration and stops for known-ID inspection/approved roll-forward; no down migration, new CREATE to discover an ID, repeated SQL, replay675/f162/roles/bootstrap, or promise of zero downtime. This workflow adaptation is new work; feature010 T030's implemented local semantics are reused rather than checked again as newly implemented.
+
+### L4 — Finite diagnostics and safe operations
+
+Thread the L0 result through delivery, selection, provider and migration phase boundaries. Emit one secret-safe machine-readable result and a short Actions summary containing stage, category, per-operation effect, known identity, evidence reference and next action. Preserve original stage if receipt finalization also fails; report the evidence failure without claiming mutations did not happen. Catch blocks must not convert an unknown CREATE/SQL/promote into not-started or hide an acknowledged committed migration.
+
+Keep bounded transport/cleanup/deadlines, existing least-privilege credential isolation and pinned public-tool bootstrap before secrets. No output of raw stdout/stderr/provider bodies/CLI auth/runtime values. Expected failures must name a finite prerequisite/stage, not mask everything as preparation refusal or blame a token without evidence. Read-only reconciliation is a separately authorized operation against retained known identity; the user-facing next action never starts it automatically. No generic force/unlock/delete/retry switch or another owner shell wrapper.
+
+### L5 — Integrated verification and handback
+
+Testing starts at L0 and accompanies each layer. Extend `apps/api/tests/ci.test.ts`, `release.test.ts`, `artifact.test.ts` and the relevant existing `integration.test.ts` cases; reuse their synthetic transports and approved disposable loopback fixtures under a future resource grant. Do not duplicate application/Auth/browser suites or run production/Etsy traffic for source-local proof.
+
+| Layer | Required observable proof before handing off the layer |
+| --- | --- |
+| L0 | Request validation and exhaustive fixed result enums; invalid context/input cannot submit; submitted/lost-ACK effects stay unknown; secret canaries absent. |
+| L1 | Workflow and executable reject push/PR even with enabled=true; manual happy path; failed/fork/stale/wrong-run/artifact/archive/operator/controller/missing-approval refusal before execution/CREATE; production completion context cannot succeed on skipped release. |
+| L2 | Matching full config + current schema + exact bytes reaches same-ID final acceptance; digest mismatch on candidate/final, denial disclosure, alias/main drift, pending schema and attestation failure block; spy proves zero migration-runner calls. |
+| L3 | Owned PostgreSQL history3 → held pending503 → exactly one fourth migration → same-ID ready200/promote; actual report/readback, old strict3 expected503 and roll-forward boundary. Drift under lock, other503, rollback, lost commit/report/ACK, canceled worker or runner loss fences follow-on mutations. Compatible routine path retains its ready200 checks. |
+| L4 | Timeouts, malformed/oversized responses, nonzero CREATE with ID, absent ID, failed receipt persistence after ACK, unknown SQL/promote and process restart produce truthful safe stage/category/effect/next action and no replay/secrets. |
+| L5 | One integrated synthetic controller/transfer/phase journey covers both current-only and strict cutover, failed workflow gates and durable receipt handback; workflow parse/shell checks and available actionlint. Compilation/affected packaging imports verify the actual controller closure. Local synthetic and Linux/Actions/provider limits remain explicit. |
+
+Planned checks after a future grant use existing API compilation and affected compiled `node --test` suites; select only changed areas. Actual local-fixture port/ownership must be agreed before creating resources. A workflow/tool/browser dependency that is unavailable is a recorded limit, not a pass. Do not rerun unrelated FE/Auth suites or previously passing full suites without a relevant change. No tests/builds run in this docs increment.
+
+After integrated checks, freeze one changed-path/source manifest and actual evidence; coordinator alone runs one available Company Codex `gpt-6-luna` medium review scoped to changed behavior/acceptance/security/test gaps. OMP fixes only confirmed findings and reruns affected checks; any re-review is fix-only where needed. No worker/reviewer starts now. After replacement validation and a later shared-doc grant, README owns one runnable operational path; retire superseded instructions by explicit links/history labels, preserving old failure/review/ledger/tool/config/key/artifact evidence. Deletion needs a separate request.
+
+### Dependencies, gates and decisions remaining
+
+Implementation sequence is **L0 → L1 → L2 → L3 → L4 → L5**; error contract starts in L0, and functional/error/security checks finish each layer. Source work is serial, not parallel writers. Minimum first increment is L0–L2 source/local proof, not production enablement or the strict migration release; owner may select a bounded increment later. Existing task worktree convention applies only after the owner selects the implementation task/base; no checkout/assignment occurs now.
+
+| Gate | Dependency and decision | Completion evidence required |
+| --- | --- | --- |
+| Plan | Owner reviews this proposal and selects implementation scope/base/worktree and writer; later worker/check/reviewer authority must be explicit. | Approved scope; not inferred from task list/context. |
+| Source/local | T190–T206, tests at every layer, one scoped review, exact changed source/controller manifest. | Actual checks/failures/review and safe handback, no hosted claim. |
+| GitHub readiness | T207: separate authorization for configuration/secret-name/environment/required-context readiness checks; no private values/export, names-only failure is not proof missing. Decide manual-only enablement only after both guards are validated. | Effective permissions/settings/name availability or precise access limitation. No automatic flag change. |
+| Publication/artifact | T208–T209: distinct grants for source publication and clean checked Linux artifact production/transfer. Bind actual new controller commit and producer/application/operator hashes, trusted successful Actions run, ID and archive digest. | Verified published identities/retained bundle; no assumption995 remains usable after packaged operator edits. |
+| Release decision | T210: confirm actual before/target/config/predecessor, exact bundle, maintenance window/readiness interruption, roll-forward authority and release effect limits. | Release-specific owner approval; no reopening configured credentials. |
+| Actual release | T211 after above, no unrelated ENV writes; needed ENV delta only if separately required/authorized. | Same-ID source/artifact/config/migration/alias/TLS/health and truthful mutation receipts; no success from skipped jobs. |
+| Product acceptance | T212 links feature010 T025: explicit actual login/lookup/invite/consent/callback/minimal read grant. FE server-only client ID remains an unresolved configuration dependency to verify under FE authority. | Actual final-origin/current-user and real Etsy results; local synthetic evidence stays distinct. |
+
+No new owner input is needed to finish this plan. Operational identity/window/configuration checks and enablement are deliberately deferred decisions; they do not block source/local planning or reopen owner-completed setup. Hobby eligibility, actual provider-duration enforcement and capacity remain unverified external limits; this plan neither changes hosting/billing nor claims them resolved.
+
+### Docs-only validation record
+
+Planning helpers are invoked only with `SPECIFY_FEATURE_DIRECTORY=specs/001-connectivity-foundation SPECIFY_FEATURE_NO_PERSIST=1`. The installed prerequisite/plan/tasks helpers resolve existing artifacts; plan setup skips template copying. Their logical feature label is not a Git branch switch. Generic skill suggestions to spawn research agents, regenerate other artifacts or replace templates are outside this narrow grant. No extension hooks are installed in `.specify/extensions.yml`; no external research is needed for this source-grounded proposal.
+
+Before handback, check relative links/heading anchors introduced here, new task-ID uniqueness/dependencies/requirement mapping, exact changed-path scope and diff whitespace. Verify all pre-existing bytes/checkmarks remain intact and README/STATE/source/workflow/pointer/ignored resources are untouched. These are documentation checks, not runtime or independent review evidence. Final receipt reports their actual outcome and ends at PLAN_READY_FOR_OWNER_REVIEW.
+
+Actual docs-only validation: prerequisite/plan/tasks resolution succeeded without replacing the existing plan/template or switching Git branches; no extension-hook file was present. Diff whitespace check passed. All new relative links/anchors resolve; T190–T212 are23 unique unchecked Story9 tasks above historical maximum189, with backward-only task dependencies and L0–L5/FR/SC mapping. Only the five authorized existing001/010 documents changed, additively; historical lines and task/checkmark records are preserved. No runtime tests/builds, external/provider/private reads, Git mutation, worker/reviewer or operational effect was performed. This is a planning consistency check, not implementation/review/production acceptance.
+
 Updated: 2026-11-01 · Actual branch: `main` · [Spec](spec.md) · [Tasks](tasks.md) · [Validation guide](quickstart.md)
 
 ## CI completion gate — deployment paused

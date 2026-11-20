@@ -1,5 +1,7 @@
 # Tasks: Existing Etsy Connectivity
 
+**Current release routing — 2026-11-20, PLAN ONLY:** delivery adaptation tasks live in [feature001 L0–L5 / T190–T212](../001-connectivity-foundation/tasks.md#manual-be-release-simplification--planned-tasks), with the [canonical design](../001-connectivity-foundation/plan.md#manual-be-release-simplification--layered-design). T027–T031 retain their implemented source/local scope; do not duplicate them or execute historical launchers. Owner reports Production Etsy ENV additions/config-digest update complete; runtime values are not independently verified. Existing T024–T026 retain their own scopes, with publication/artifact/release dependencies refined by001 T208–T211 and actual provider acceptance linked by001 T212 to010 T025. These are cross-references, not a new worker, implementation or operational grant; all IDs/checkmarks/history below remain unchanged.
+
 ## Accepted scoped recipient bridge review
 
 **FROZEN BE_RECIPIENT_BRIDGE_SOURCE_LOCAL_REVIEW_ACCEPTED; STOP WRITES.** Coordinator t151 accepted t175's actual final: **no confirmed actionable findings in this frozen bridge scope**; no reviewer checks or prior-feature reassessment. T040–T043 retain their source/local execution and cleanup evidence, now with this separate scoped acceptance. All earlier task identities/checkmarks and review/failure snapshots remain unchanged.
