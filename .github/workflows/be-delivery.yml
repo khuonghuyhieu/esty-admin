@@ -83,7 +83,7 @@ jobs:
           npm run build --workspace=@esty-admin/api
       - name: Build native artifact and require functional plus actual HTTP-to-test-DB checks
         id: verify
-        run: node apps/api/build/scripts/ci.js "$GITHUB_WORKSPACE" "$RUNNER_TEMP/be-transfer"
+        run: node apps/api/build/scripts/ci.js "$GITHUB_WORKSPACE" "$RUNNER_TEMP/be-transfer" "$RUNNER_TEMP/be-checks-diagnostics"
       - name: Retain one immutable mode-preserving tested bundle
         id: upload
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
@@ -95,6 +95,20 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           compression-level: 0
+          overwrite: false
+      - name: Retain bounded public required-checks diagnostics even after failure
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: be-checks-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/be-checks-diagnostics/*-stage.json
+            ${{ runner.temp }}/be-checks-diagnostics/failed-stage.json
+            ${{ runner.temp }}/be-checks-diagnostics/*-stdout.log
+            ${{ runner.temp }}/be-checks-diagnostics/*-stderr.log
+          if-no-files-found: warn
+          retention-days: 14
           overwrite: false
 
   routine_retrieval:

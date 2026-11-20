@@ -7,6 +7,13 @@ import { migrationManifest } from '../build/src/generated/migrations.js';
 const appRoot = fileURLToPath(new URL('../', import.meta.url));
 const repoRoot = resolve(appRoot, '../..');
 const output = join(appRoot, 'build/operator');
+const checksDiagnostics = process.argv.length === 3 && process.argv[2] === '--checks-diagnostics';
+async function reportChecksFailure(error) {
+  try {
+    const { safeChecksError } = await import('../build/scripts/checks-diagnostics.js');
+    console.error(safeChecksError(error));
+  } catch { console.error('Checks staging diagnostics unavailable; preserve the original staging failure.'); }
+}
 let staging;
 try {
   verifyMigrationFiles(join(appRoot, 'migrations'), migrationManifest);
@@ -75,9 +82,14 @@ try {
   await rename(staging, output);
   staging = undefined;
   console.info(`Operator artifact staged at apps/api/build/operator (${copied.size} dependency packages).`);
-} catch {
+} catch (error) {
+  if (checksDiagnostics) await reportChecksFailure(error);
   console.error('Operator staging failed. Build the API, verify migration assets and install the approved dependencies.');
   process.exitCode = 1;
 } finally {
-  if (staging) await rm(staging, { recursive: true, force: true });
+  if (staging) {
+    if (!checksDiagnostics) await rm(staging, { recursive: true, force: true });
+    else try { await rm(staging, { recursive: true, force: true }); }
+    catch (error) { await reportChecksFailure(error); process.exitCode = 1; }
+  }
 }

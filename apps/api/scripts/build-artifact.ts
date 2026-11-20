@@ -9,8 +9,10 @@ import { artifactTarget, assembleArtifact, assertSourceFiles, builderConfig, can
   readArtifactFile, sha256, sourceFiles, toolPins } from './artifact.js';
 import type { SourceIdentity, ToolEvidence } from './artifact.js';
 import { migrationFiles } from './migration-files.mjs';
+import type { ChecksDiagnostics } from './checks-diagnostics.js';
 
-async function command(binary: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<string> {
+async function command(binary: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal, diagnostics?: ChecksDiagnostics): Promise<string> {
+  if (diagnostics) return (await diagnostics.command(binary, args, cwd, env, signal)).stdout.trim();
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -44,7 +46,7 @@ export function verifyToolPackage(name: keyof typeof toolPins, installed: string
   if (canonical(actual) !== canonical(expected)) throw new Error(`Installed public tool own-package inventory differs: ${name}`);
   return { name, ...pin, filesDigest: sha256(canonical(expected.files)) };
 }
-async function verifyTool(name: keyof typeof toolPins, installed: string, work: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<ToolEvidence> {
+async function verifyTool(name: keyof typeof toolPins, installed: string, work: string, env: NodeJS.ProcessEnv, signal: AbortSignal, diagnostics?: ChecksDiagnostics): Promise<ToolEvidence> {
   const pin = toolPins[name], label = name.replaceAll('/', '-').replace('@', '');
   const directory = join(work, `verified-${label}`);
   await mkdir(directory, { mode: 0o700 });
@@ -63,10 +65,10 @@ async function verifyTool(name: keyof typeof toolPins, installed: string, work: 
   const archive = join(directory, 'package.tgz');
   await writeFile(archive, bytes, { flag: 'wx' });
   // Only the exact independently pinned public tarball is extracted.
-  await command('/usr/bin/tar', ['-xzf', archive, '-C', directory], directory, env, signal);
+  await command('/usr/bin/tar', ['-xzf', archive, '-C', directory], directory, env, signal, diagnostics);
   return verifyToolPackage(name, installed, join(directory, 'package'));
 }
-export async function buildArtifact(input: { repository: string; work: string; destination: string; cli: string; mode: SourceIdentity['mode']; signal: AbortSignal }) {
+export async function buildArtifact(input: { repository: string; work: string; destination: string; cli: string; mode: SourceIdentity['mode']; signal: AbortSignal; diagnostics?: ChecksDiagnostics }) {
   const root = realpathSync(input.repository), work = resolve(input.work), destination = resolve(input.destination);
   outsideRepository(work, root); outsideRepository(destination, root);
   if (process.versions.node !== artifactTarget.node || !['development', 'release'].includes(input.mode)) throw new Error('Exact Node and explicit source mode required.');
@@ -80,7 +82,7 @@ export async function buildArtifact(input: { repository: string; work: string; d
     XDG_CONFIG_HOME: home, XDG_DATA_HOME: home, TMPDIR: work, NPM_CONFIG_USERCONFIG: npmConfig, NPM_CONFIG_GLOBALCONFIG: npmGlobal,
     NPM_CONFIG_CACHE: join(work, 'npm-cache'), NPM_CONFIG_REGISTRY: 'https://registry.npmjs.org',
     VERCEL_CLI_USE_NATIVE_BINARY: '0', VERCEL_TELEMETRY_DISABLED: '1', DO_NOT_TRACK: '1', CI: '1' };
-  const git = (args: string[]) => command('git', args, root, env, input.signal);
+  const git = (args: string[]) => command('git', args, root, env, input.signal, input.diagnostics);
   const revision = await git(['rev-parse', 'HEAD']), tree = await git(['rev-parse', 'HEAD^{tree}']);
   const repository = (await git(['remote', 'get-url', 'origin'])).replace(/^git@github\.com:/, 'https://github.com/').replace(/\.git$/, '');
   if (!/^[a-f0-9]{40}$/.test(revision) || !/^[a-f0-9]{40}$/.test(tree) || !/^https:\/\/github\.com\/[\w-]+\/[\w.-]+$/.test(repository)) throw new Error('Source identity is invalid.');
@@ -102,25 +104,32 @@ export async function buildArtifact(input: { repository: string; work: string; d
   await writeFile(join(sourceRoot, '.vercel/.env.production.local'), '');
   const cli = realpathSync(input.cli), cliRoot = dirname(dirname(cli));
   if (!cli.endsWith('/vercel/dist/vc.js') || !lstatSync(cli).isFile()) throw new Error('Expected the approved public CLI entrypoint.');
-  const tools: ToolEvidence[] = [await verifyTool('vercel', cliRoot, work, env, input.signal)];
+  const tools: ToolEvidence[] = [await verifyTool('vercel', cliRoot, work, env, input.signal, input.diagnostics)];
   const resolver = createRequire(cli);
   for (const name of ['@vercel/nestjs', '@vercel/node', '@vercel/build-utils'] as const) {
-    tools.push(await verifyTool(name, dirname(resolver.resolve(`${name}/package.json`)), work, env, input.signal));
+    tools.push(await verifyTool(name, dirname(resolver.resolve(`${name}/package.json`)), work, env, input.signal, input.diagnostics));
   }
   const args = [cli, 'build', '--prod', '--non-interactive', '--standalone', '--cwd', sourceRoot, '--global-config', join(work, 'auth')];
-  await writeFile(join(work, 'invocation.json'), JSON.stringify({ node: process.execPath, args, env, source }, null, 2));
-  try {
-    const log = await command(process.execPath, args, sourceRoot, env, input.signal);
-    await writeFile(join(work, 'native-build.log'), log);
-  } catch (error) {
-    await writeFile(join(work, 'native-build.log'), String(error)); throw new Error('Native build failed; public work directory retains diagnostics.');
+  if (!input.diagnostics) await writeFile(join(work, 'invocation.json'), JSON.stringify({ node: process.execPath, args, env, source }, null, 2));
+  if (input.diagnostics) {
+    // Partial native/operator output is already streamed into the checks upload directory.
+    // Do not duplicate raw output or replace the first failure with a secondary log write.
+    await command(process.execPath, args, sourceRoot, env, input.signal, input.diagnostics);
+    await command(process.execPath, ['apps/api/scripts/stage-operator.mjs', '--checks-diagnostics'], sourceRoot, env, input.signal, input.diagnostics);
+  } else {
+    try {
+      const log = await command(process.execPath, args, sourceRoot, env, input.signal);
+      await writeFile(join(work, 'native-build.log'), log);
+    } catch (error) {
+      await writeFile(join(work, 'native-build.log'), String(error)); throw new Error('Native build failed; public work directory retains diagnostics.');
+    }
+    await writeFile(join(work, 'operator-build.log'), await command(process.execPath, ['apps/api/scripts/stage-operator.mjs'], sourceRoot, env, input.signal));
   }
-  await writeFile(join(work, 'operator-build.log'), await command(process.execPath, ['apps/api/scripts/stage-operator.mjs'], sourceRoot, env, input.signal));
   await writeFile(join(sourceRoot, 'apps/api/vercel.json'), readArtifactFile(root, 'apps/api/vercel.json'));
   assertSourceFiles(sourceRoot, source); assertSourceFiles(root, source);
   const artifact = await assembleArtifact({ raw: join(sourceRoot, '.vercel/output'), operator: join(sourceRoot, 'apps/api/build/operator'), destination,
     source, config, migrations: migrationFiles(join(root, 'apps/api/migrations')).map(({ name, sha256 }) => ({ name, sha256 })),
-    build: { node: process.versions.node, nodeSha256: sha256(readFileSync(process.execPath)), npm: await command('npm', ['--version'], work, env, input.signal),
+    build: { node: process.versions.node, nodeSha256: sha256(readFileSync(process.execPath)), npm: await command('npm', ['--version'], work, env, input.signal, input.diagnostics),
       platform: process.platform, arch: process.arch, tools, builderConfigDigest: sha256(canonical(effective)), metadata: artifactTarget } });
   assertSourceFiles(root, source);
   return artifact;

@@ -7,11 +7,13 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { artifactTarget, toolPins } from './artifact.js';
 import { verifyToolPackage } from './build-artifact.js';
+import type { ChecksDiagnostics } from './checks-diagnostics.js';
 
 export interface CommandResult { code: number | null; stdout: string; aborted: boolean }
-// Raw provider stdout stays in memory for identity acknowledgement; stderr is never logged.
+// Default provider stdout stays in memory for identity acknowledgement; stderr is never logged without explicit checks opt-in.
 export async function command(binary: string, args: string[], cwd: string, env: NodeJS.ProcessEnv,
-  signal: AbortSignal): Promise<CommandResult> {
+  signal: AbortSignal, diagnostics?: ChecksDiagnostics): Promise<CommandResult> {
+  if (diagnostics) return diagnostics.command(binary, args, cwd, env, signal);
   signal.throwIfAborted();
   return new Promise((resolveResult, reject) => {
     const child = spawn(binary, args, { cwd, env, detached: true, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -33,8 +35,8 @@ export async function command(binary: string, args: string[], cwd: string, env: 
     if (signal.aborted) stop();
   });
 }
-export async function checked(binary: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal): Promise<string> {
-  const result = await command(binary, args, cwd, env, signal);
+export async function checked(binary: string, args: string[], cwd: string, env: NodeJS.ProcessEnv, signal: AbortSignal, diagnostics?: ChecksDiagnostics): Promise<string> {
+  const result = await command(binary, args, cwd, env, signal, diagnostics);
   if (result.code !== 0 || result.aborted) throw new Error('CI subprocess failed; no delivery is authorized.');
   return result.stdout.trim();
 }
@@ -62,13 +64,13 @@ export async function responseBytes(response: Response, maximum: number): Promis
     return Buffer.concat(chunks, size);
   } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }
 }
-export async function bootstrapTools(root: string, signal: AbortSignal): Promise<string> {
+export async function bootstrapTools(root: string, signal: AbortSignal, diagnostics?: ChecksDiagnostics): Promise<string> {
   if (process.versions.node !== artifactTarget.node) throw new Error('Pinned Node is required.');
   await mkdir(root, { mode: 0o700 });
   const env = await isolatedEnvironment(join(root, 'environment'));
   const dependencies = Object.fromEntries(Object.entries(toolPins).map(([name, pin]) => [name, pin.version]));
   await writeFile(join(root, 'package.json'), JSON.stringify({ private: true, dependencies }), { flag: 'wx' });
-  await checked('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], root, env, signal);
+  await checked('npm', ['install', '--ignore-scripts', '--no-audit', '--no-fund'], root, env, signal, diagnostics);
   const cli = join(root, 'node_modules/vercel/dist/vc.js'), resolver = createRequire(cli);
   for (const name of Object.keys(toolPins) as Array<keyof typeof toolPins>) {
     const pin = toolPins[name], directory = join(root, name.replaceAll('/', '-').replace('@', ''));
@@ -80,7 +82,7 @@ export async function bootstrapTools(root: string, signal: AbortSignal): Promise
     const bytes = await responseBytes(response, 32 * 1024 * 1024);
     if (`sha512-${createHash('sha512').update(bytes).digest('base64')}` !== pin.integrity) throw new Error('Public tool integrity differs.');
     const archive = join(directory, 'package.tgz'); await writeFile(archive, bytes, { flag: 'wx' });
-    await checked('/usr/bin/tar', ['-xzf', archive, '-C', directory], root, env, signal);
+    await checked('/usr/bin/tar', ['-xzf', archive, '-C', directory], root, env, signal, diagnostics);
     verifyToolPackage(name, dirname(resolver.resolve(`${name}/package.json`)), join(directory, 'package'));
   }
   return cli;

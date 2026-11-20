@@ -16,7 +16,9 @@ import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
 import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture,
   tar, routineProviderFixture, routineRuntime, strictReleaseFixture } from './artifact-fixture.js';
 import { historicalActivationChild } from './historical-activation-fixture.js';
-import { checksContext } from '../scripts/ci.js';
+import { checksContext, runChecks } from '../scripts/ci.js';
+import { ChecksDiagnostics } from '../scripts/checks-diagnostics.js';
+import { checked, command } from '../scripts/ci-tools.js';
 import { acknowledgedId, deliver, deliverActivationCandidate, deliveryContext, runRoutinePhase } from '../scripts/ci-delivery.js';
 import { ReleaseOutcome, approvedRoutineRequest, authenticateRoutineDelivery, validateReleaseRequest, validateReleaseResult } from '../scripts/ci-delivery.js';
 import { createActivationProvider, createProvider, repository } from '../scripts/ci-provider.js';
@@ -326,6 +328,25 @@ test('untrusted, stale-attempt and unactivated contexts cannot enter production'
 
 test('L1 actual workflow production predicate and executable context reject push even when enabled', () => {
   const workflow = readFileSync(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url), 'utf8');
+  const checksJob = workflow.split('\n  checks:\n')[1]?.split(/\n  [a-z_]+:\n/)[0];
+  assert.ok(checksJob, 'The checks job must retain public failure diagnostics');
+  const diagnosticUploads = checksJob.split(/(?=^      - )/m)
+    .filter(step => /^          name: be-checks-diagnostics-/m.test(step));
+  assert.equal(diagnosticUploads.length, 1, 'Exactly one bounded diagnostics upload is required');
+  const diagnostics = diagnosticUploads[0];
+  assert.ok(diagnostics);
+  assert.equal(diagnostics.match(/^        if: (.+)$/m)?.[1]?.trim(), 'always()',
+    'Diagnostics must survive a failed checks step');
+  assert.equal(diagnostics.match(/^        continue-on-error: (.+)$/m)?.[1]?.trim(), 'true',
+    'An upload failure must not replace the original checks result');
+  const diagnosticPaths = diagnostics.match(/^          path: \|\n((?:            .*(?:\n|$))*)/m)?.[1]
+    ?.trim().split('\n').map(path => path.trim());
+  assert.deepEqual(diagnosticPaths, [
+    '${{ runner.temp }}/be-checks-diagnostics/*-stage.json',
+    '${{ runner.temp }}/be-checks-diagnostics/failed-stage.json',
+    '${{ runner.temp }}/be-checks-diagnostics/*-stdout.log',
+    '${{ runner.temp }}/be-checks-diagnostics/*-stderr.log',
+  ], 'Diagnostics must upload exactly the four public globs, never broader paths');
   const expression = workflow.match(/if: &production-eligible >-\n([\s\S]*?)\n    runs-on:/)?.[1]?.trim()
     .replace(/^\$\{\{\s*|\s*\}\}$/g, '');
   assert.ok(expression);
@@ -2538,4 +2559,183 @@ test('retained D2 proof independently pins historical run and actual new control
       assert.equal(counts.get('/commits/main'), 2); assert.equal(counts.get(f.artifactPath), 2);
     } else await assert.rejects(operation);
   });
+});
+
+test('required-checks diagnostics retain failing test stdout stderr and stage exit', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-log-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const diagnostics = new ChecksDiagnostics(join(root, 'logs'));
+  await assert.rejects(diagnostics.stage('functional', () => checked(process.execPath, ['-e',
+    'console.log("public-test-name");console.error(new Error("assertion expected ready200 got503").stack);process.exitCode=7'],
+  root, { PATH: '/usr/bin:/bin' }, AbortSignal.timeout(5000), diagnostics)));
+  const failed = JSON.parse(await readFile(join(root, 'logs/failed-stage.json'), 'utf8'));
+  assert.equal(failed.code, 7); assert.equal(failed.status, 'failed'); assert.equal(failed.signal, null);
+  assert.ok(failed.parents.includes('functional')); assert.ok(failed.durationMs >= 0);
+  assert.match(await readFile(join(root, 'logs', failed.stdout), 'utf8'), /public-test-name/);
+  const stderr = await readFile(join(root, 'logs', failed.stderr), 'utf8');
+  assert.match(stderr, /assertion expected ready200 got503/); assert.match(stderr, /at \[eval\]/);
+});
+
+test('required-checks diagnostics mask split secrets URLs headers and command arguments', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-mask-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const secret = 'fixtureConfidential987654', argument = 'argumentConfidential123456';
+  const diagnostics = new ChecksDiagnostics(join(root, 'logs'), { secrets: [secret] });
+  const consoleOutput: string[] = [], originalSpawn = childProcess.spawn;
+  t.mock.method(console, 'info', (...args: unknown[]) => consoleOutput.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args: unknown[]) => consoleOutput.push(args.join(' ')));
+  t.mock.method(childProcess, 'spawn', (...args: Parameters<typeof childProcess.spawn>) => {
+    const child = originalSpawn(...args);
+    // Real subprocess bytes, deterministically fragmented at every possible UTF-8/secret boundary.
+    for (const stream of [child.stdout, child.stderr]) if (stream) {
+      const emit = stream.emit.bind(stream);
+      stream.emit = (event: string | symbol, ...values: unknown[]) => {
+        if (event === 'data' && Buffer.isBuffer(values[0])) {
+          for (const byte of values[0]) emit('data', Buffer.from([byte]));
+          return true;
+        }
+        return emit(event, ...values);
+      };
+    }
+    return child;
+  });
+  syncBuiltinESMExports(); t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+  const script = `process.stdout.write("case name preserved\\n${secret.slice(0, 10)}",()=>{
+    process.stdout.write("${secret.slice(10)}\\nhttps://user:password987@public.invalid/path\\npublic café\\n");
+    process.stderr.write("Authorization: Bearer headerValue987\\nCookie: sid=cookieValue987\\n");
+    process.exitCode=9;});`;
+  await assert.rejects(checked(process.execPath, ['-e', script, '--', '--token', argument], root,
+    { PATH: '/usr/bin:/bin', PRIVATE_KEY: secret }, AbortSignal.timeout(5000), diagnostics));
+  const logs = (await Promise.all((await fsPromises.readdir(join(root, 'logs'))).map(path => readFile(join(root, 'logs', path), 'utf8')))).join('') + consoleOutput.join('\n');
+  for (const value of [secret, secret.slice(0, 10), secret.slice(10), argument, 'password987', 'headerValue987', 'cookieValue987']) assert.ok(!logs.includes(value));
+  assert.match(logs, /case name preserved/); assert.match(logs, /public café/); assert.match(logs, /REDACTED/);
+});
+
+test('required-checks diagnostics retain signal abort overflow and spawn failure', async t => {
+  for (const scenario of ['signal', 'abort', 'pre-abort', 'overflow', 'spawn'] as const) await t.test(scenario, async t => {
+    const root = await mkdtemp(join(tmpdir(), 'esty-checks-exit-')); t.after(() => rm(root, { recursive: true, force: true }));
+    const diagnostics = new ChecksDiagnostics(join(root, 'logs'), { outputLimit: 4096 });
+    const abort = new AbortController();
+    if (scenario === 'pre-abort') abort.abort();
+    if (scenario === 'abort') {
+      const original = childProcess.spawn;
+      t.mock.method(childProcess, 'spawn', (...args: Parameters<typeof childProcess.spawn>) => {
+        const child = original(...args); child.stdout?.once('data', () => abort.abort()); return child;
+      });
+      syncBuiltinESMExports();
+      t.after(() => { t.mock.restoreAll(); syncBuiltinESMExports(); });
+    }
+    const script = scenario === 'signal' ? 'console.log("before signal");process.kill(process.pid,"SIGTERM")'
+      : scenario === 'overflow' ? 'process.stdout.write("x".repeat(16384))'
+      : 'function emit(){process.stdout.write("before cancellation\\n",()=>setImmediate(emit))}emit()';
+    await assert.rejects(checked(scenario === 'spawn' ? join(root, 'absent-binary') : process.execPath,
+      ['-e', script], root, { PATH: '/usr/bin:/bin' }, abort.signal, diagnostics));
+    const failed = JSON.parse(await readFile(join(root, 'logs/failed-stage.json'), 'utf8'));
+    if (scenario === 'signal') assert.equal(failed.signal, 'SIGTERM');
+    if (scenario === 'abort' || scenario === 'pre-abort') assert.equal(failed.aborted, true);
+    if (scenario === 'overflow') { assert.equal(failed.outputLimit, true); assert.ok(failed.truncation.length > 0); }
+    if (scenario === 'spawn') assert.match(failed.error, /ENOENT/);
+    assert.equal(failed.status, 'failed');
+  });
+});
+
+test('required-checks diagnostics bound long lines and disk output with explicit markers', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-bound-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const diagnostics = new ChecksDiagnostics(join(root, 'logs'), { lineLimit: 128, fileLimit: 512, totalLimit: 1024 });
+  await checked(process.execPath, ['-e', 'console.log("x".repeat(1024));console.log("following test intact");console.log("ok\\n".repeat(1000))'],
+    root, { PATH: '/usr/bin:/bin' }, AbortSignal.timeout(5000), diagnostics);
+  const records = (await fsPromises.readdir(join(root, 'logs'))).filter(path => path.endsWith('.json'));
+  const record = JSON.parse(await readFile(join(root, 'logs', records[0]!), 'utf8'));
+  assert.ok(record.truncation.includes('stdout:line-limit')); assert.ok(record.truncation.includes('stdout:disk-limit'));
+  const bytes = await readFile(join(root, 'logs', record.stdout));
+  assert.ok(bytes.length <= 512); assert.match(bytes.toString(), /following test intact/);
+});
+
+test('required-checks diagnostics preserve primary stack cause and first failure through persistence errors', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-cause-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const diagnostics = new ChecksDiagnostics(join(root, 'logs'));
+  const primary = new Error('public outer assertion', { cause: new Error('public inner cause') });
+  await assert.rejects(diagnostics.stage('parent', () => diagnostics.stage('first-child', () => { throw primary; })), error => error === primary);
+  const first = JSON.parse(await readFile(join(root, 'logs/failed-stage.json'), 'utf8'));
+  assert.equal(first.stage, 'first-child'); assert.match(first.error, /public outer assertion/);
+  assert.match(first.error, /public inner cause/); assert.match(first.error, /ci\.test\.js:/);
+  const original = fs.writeFileSync, output: string[] = [];
+  t.mock.method(console, 'error', (...args: unknown[]) => output.push(args.join(' ')));
+  t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
+    if (String(args[0]).startsWith(join(root, 'logs'))) throw new Error('synthetic disk unavailable');
+    return original(...args);
+  });
+  await assert.rejects(diagnostics.stage('later-cleanup', () => { throw primary; }), error => error === primary);
+  assert.deepEqual(JSON.parse(await readFile(join(root, 'logs/failed-stage.json'), 'utf8')), first);
+  assert.match(output.join('\n'), /public outer assertion/); assert.match(output.join('\n'), /diagnostics-write-failed/);
+});
+
+test('required-checks opt-in leaves default provider command nonlogging unchanged', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-default-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const output: unknown[] = [];
+  t.mock.method(console, 'info', (...args: unknown[]) => output.push(args));
+  t.mock.method(console, 'error', (...args: unknown[]) => output.push(args));
+  const result = await command(process.execPath, ['-e', 'console.log("dpl_known");console.error("private-provider-canary");process.exitCode=1'],
+    root, { PATH: '/usr/bin:/bin' }, AbortSignal.timeout(5000));
+  assert.equal(result.stdout.trim(), 'dpl_known'); assert.equal(result.code, 1);
+  await assert.rejects(checked(process.execPath, ['-e', 'console.error("private-provider-canary");process.exitCode=1'],
+    root, { PATH: '/usr/bin:/bin' }, AbortSignal.timeout(5000)), error => {
+    assert.ok(error instanceof Error); assert.ok(!String(error.stack).includes('private-provider-canary')); return true;
+  });
+  assert.deepEqual(output, []); assert.deepEqual(await fsPromises.readdir(root), []);
+});
+
+test('required-checks failed preflight persists pointer and publishes no approval', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-preflight-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const diagnostics = new ChecksDiagnostics(join(root, 'logs'));
+  await assert.rejects(runChecks(root, join(root, 'transfer'), {}, AbortSignal.timeout(5000), diagnostics));
+  const failed = JSON.parse(await readFile(join(root, 'logs/failed-stage.json'), 'utf8'));
+  assert.equal(failed.stage, 'preflight'); assert.match(failed.error, /Unsupported checks context/);
+  assert.equal(existsSync(join(root, 'transfer/be-release-approval.json')), false);
+  assert.equal(existsSync(join(root, 'transfer/be-release.tar.gz')), false);
+});
+
+test('required-checks operator staging exposes public cause only with explicit opt-in', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-stage-diagnostics-')); t.after(() => rm(root, { recursive: true, force: true }));
+  await writeFile(join(root, 'package.json'), '{"type":"module"}\n');
+  for (const directory of ['scripts', 'build/scripts', 'build/src/generated']) await mkdir(join(root, directory), { recursive: true });
+  for (const file of ['scripts/stage-operator.mjs', 'scripts/migration-files.mjs', 'build/src/generated/migrations.js',
+    'build/scripts/checks-diagnostics.js']) await cp(join('apps/api', file), join(root, file));
+  const invoke = (args: string[]) => childProcess.spawnSync(process.execPath, [join(root, 'scripts/stage-operator.mjs'), ...args],
+    { env: { PATH: '/usr/bin:/bin' }, encoding: 'utf8', timeout: 5000 });
+  const normal = invoke([]), diagnostic = invoke(['--checks-diagnostics']);
+  assert.equal(normal.status, 1); assert.ok(!normal.stderr.includes('ENOENT'));
+  assert.equal(diagnostic.status, 1); assert.match(diagnostic.stderr, /ENOENT/);
+  assert.match(diagnostic.stderr, /migrationFiles/); assert.match(diagnostic.stderr, /migrations/);
+});
+
+test('required-checks final persistence failure cannot return a passing stage', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-final-write-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const diagnostics = new ChecksDiagnostics(join(root, 'logs')), original = fs.writeFileSync;
+  const events: Array<{ event: string; status?: string }> = [];
+  t.mock.method(console, 'info', (line: string) => events.push(JSON.parse(line)));
+  t.mock.method(fs, 'writeFileSync', (...args: Parameters<typeof fs.writeFileSync>) => {
+    if (String(args[0]).endsWith('-stage.json') && String(args[1]).includes('"status":"passed"')) throw new Error('public final write failed');
+    return original(...args);
+  });
+  await assert.rejects(diagnostics.stage('checks-complete', () => 'candidate-success'));
+  const failed = JSON.parse(await readFile(join(root, 'logs/failed-stage.json'), 'utf8'));
+  assert.equal(failed.status, 'failed'); assert.match(failed.error, /persistence/);
+  assert.deepEqual(events.filter(event => event.event === 'checks-stage-end').map(event => event.status), ['failed']);
+});
+
+test('required-checks lost log storage preserves child assertions in bounded safe console fallback', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-storage-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const diagnostics = new ChecksDiagnostics(join(root, 'logs')), original = fs.appendFileSync, output: string[] = [];
+  t.mock.method(console, 'error', (...args: unknown[]) => output.push(args.join(' ')));
+  t.mock.method(fs, 'appendFileSync', (...args: Parameters<typeof fs.appendFileSync>) => {
+    if (String(args[0]).startsWith(join(root, 'logs'))) throw new Error('public disk write refused');
+    return original(...args);
+  });
+  await assert.rejects(checked(process.execPath, ['-e',
+    'console.log("failing test name");console.error(new Error("assertion actual503 expected200").stack);console.error("password=storageCanary987");process.exitCode=7'],
+  root, { PATH: '/usr/bin:/bin' }, AbortSignal.timeout(5000), diagnostics));
+  const failed = JSON.parse(await readFile(join(root, 'logs/failed-stage.json'), 'utf8'));
+  assert.equal(failed.code, 7); assert.match(failed.error, /exit=7/);
+  assert.match(output.join('\n'), /failing test name/); assert.match(output.join('\n'), /assertion actual503 expected200/);
+  assert.match(output.join('\n'), /at \[eval\]/); assert.ok(!output.join('\n').includes('storageCanary987'));
+  assert.ok(failed.persistenceErrors.length > 0);
 });
