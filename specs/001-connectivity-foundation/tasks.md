@@ -1,5 +1,15 @@
 # Tasks: Connectivity foundation
 
+## CI functional regression repair — bounded test-only tasks
+
+Root CONTINUE on root-verified clean maind1efe22; actual previous maximum241. [Problem, hypothesis and exact verification contract](plan.md#ci-functional-regression-repair--2026-11-21). Preserve all historical evidence and production guards.
+
+- [x] T242 [US9] Read selected actual CI command029 failures, identify missing fixture digest and the unconfirmed L3 import-order hypothesis; amend this existing plan before test edits.
+- [x] T243 [US9] Reproduced31 selected cases with3 pass/28 fail (20 strict children + parent +7 L0); module-load traces confirmed the controller binds migrations before mock registration through the static fixture import. Existing socket denial preserved.
+- [x] T244 [US9] Added the true current historical digest to the outcome fixture; deferred only the strict child fixture import/initialization until after SQL mocks. All assertions/scenarios/guards/timeouts and shared fixtures remain unchanged.
+- [x] T245 [US9] Node24.22.1 compiler0; passing-after31/31; exact final full command687 total/685 pass/0 fail/2 unchanged skips. Retained first full invocation's33 local TMPDIR-environment failures and the owned0700 TMPDIR correction; no overlapping totals.
+- [x] T246 [US9] Freeze3 changed files,13 preserved published implementation hashes, original document suffixes, public CI logs and all local command evidence with actual timing/owned cleanup at READY_FOR_CI_FUNCTIONAL_REGRESSION_REVIEW / STOP WRITES / NO_INFLIGHT. Root alone starts the reserved reviewer; no publication or actual CI/release acceptance is implied.
+
 ## Historical activation-to-routine handoff — bounded source/local tasks
 
 Owner START on root-verified clean mainfed4b99; actual previous maximum235. [Contract amendment and exact evidence prerequisite](plan.md#historical-activation-to-routine-handoff--bounded-contract-amendment). Preserve all old records/claims/UNKNOWN and FE separation; no live effect or reviewer launch.

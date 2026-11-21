@@ -1,5 +1,50 @@
 # Implementation plan: Connectivity foundation
 
+## CI functional regression repair — 2026-11-21
+
+**Root CONTINUE, source-local test repair only.** Root verified clean main `d1efe22d6106a2f1ea200332445e87940b3cd16d`; actual previous task maximum241. Same sole OMP writer; root t12p alone starts the reserved t1dw Company Codex gpt-6-luna medium scoped review after freeze. No new worker, reviewer, branch or worktree.
+
+**Problem:** actual run44917634017, required-checks136886554853, command029 failed:687 tests,657 passed,28 failed,2 existing skips. Install/codegen/compile/native preparation passed; production skipped, no approved tested bundle or actual deployment/SQL. Root selected only public `checks-diagnostics.zip`, `029-stdout.log` and empty `029-stderr.log` under `.openai/reports/ci-44917634017-diagnosis/`; ZIP SHA-256e6612b5d82b00b29b02443f41433f950af4e23078b5d610fd9396059c5c2ad18. The failure count is20 strict-controller children plus their parent and7 outcome tests, not28 independent causes. The earlier199 focused pass did not exercise `release.test.ts` and is not whole-CI evidence.
+
+**Decision:** keep the production contract and all historical authorization unchanged. The manual `outcomeFixture` omits required `historicalHandoffDigest`, so its seven L0 tests fail at request shape before reaching effect/receipt assertions. Add the true current digest to this existing fixture. Existing `ci.test.ts` already rejects omission of every request field and independently approved incorrect historical digests; preserve that coverage.
+
+The L3 cause remains a reproduction hypothesis before edits: the child statically imports `routineProviderFixture`; its new historical digest import reaches `historical-release` → runtime `validateReleaseRequest` in `ci-delivery` → `ci-migrations`, which statically binds migrations before the child's `mock.module` call. Actual logs show original `migrationStatus`/pg cleanup and `ERR_SOCKET_CLOSED`. Reproduce and trace that ordering under the existing socket denial; if confirmed, defer the child fixture consumer import until after migration mocks are installed. Do not remove network denial, change target/timeout, swallow pg errors, skip scenarios, relax runtime guards or refactor the production import graph for a test bootstrap defect.
+
+**Verification:** preserve failing-before and passing-after7 L0/20 failing L3 children, including all23 existing strict scenarios and restart/race/effect assertions. Compile with installed Node24.22.1, then run exactly `node --test apps/api/build/tests/config.test.js apps/api/build/tests/http.test.js apps/api/build/tests/startup.test.js apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js apps/api/build/tests/ci.test.js apps/api/tests/hosted-config.test.mjs`. Use existing synthetic/local fixtures and existing artifact preparation; no new DB/container/install/native build or reseal. Record actual full-suite totals without adding overlapping focus counts, both existing skips and every intermediate failure. Root's reported CI failure is ground truth, not a reason to rerun hosted CI.
+
+Only `release.test.ts`, a necessary existing test bootstrap/helper if demonstrated, and this001 plan/tasks may change. Preserve the15 published increment hashes except explicitly authorized additive plan/task evidence; README/PROJECT_STATE, FE, package/lock, workflows, runtime guards/schema/packets/status/ENV/flags and owner inputs remain untouched. No live GitHub/provider/private/auth read, Git action, SQL/deploy, old675/f162 execution or historical artifact download/refresh. Artifact13587251015 still expires2026-11-21T19:10:42Z; this unrelated fixture repair does not alter that gate. Freeze exact source/evidence hashes, timings and owned cleanup at READY_FOR_CI_FUNCTIONAL_REGRESSION_REVIEW / STOP WRITES / NO_INFLIGHT.
+
+### CI functional regression result
+
+**READY_FOR_CI_FUNCTIONAL_REGRESSION_REVIEW / STOP WRITES / NO_INFLIGHT.** T242–T246 are complete locally; root alone starts the reserved scoped review. Only `apps/api/tests/release.test.ts` and additive001 plan/tasks evidence changed. All13 published implementation/test/fixture hashes from the historical increment remain exact; its two documentation files retain their complete previous content below this addition.
+
+The L3 hypothesis is now confirmed. Failing-before Node24.22.1 reproduces31 selected tests:3 pass,28 fail,0 skip (20 strict children, their parent,7 L0 tests). Original `migrationStatus` reaches pg cleanup despite the installed mock, matching the actual CI stack. A separate socket-denied module-load trace observes `artifact-fixture` → `historical-release` → `ci-delivery` → `ci-migrations` loaded **before** mock registration. With the consumer import deferred, the same controller graph loads **after** registration; the trace independently verifies that subsequent migration imports expose the mock. Both trace modes attempt zero sockets.
+
+The repair imports the true `historicalHandoffDigest` into the existing outcome fixture and moves the strict child's fixture import/initialization after `mock.module`. No production file, shared fixture, assertion, scenario, network denial, target, timeout, skip or mock behavior changed. All23 strict scenarios now execute their intended success/fault paths, including lost ACKs, request/status drift, SQL unknown/rollback/report failures, replacement-runner refusal, read-only reconciliation and fresh-process restart checks.
+
+| Actual local check | Result |
+| --- | --- |
+| Node identity |24.22.1 |
+| Compiler before and after fixture edit | exit0 for both |
+| Failing-before selected L0/L3 |31 total,3 pass,28 fail,0 skip; original failure retained |
+| Passing-after same selected L0/L3 |31/31 pass,0 skip; all7 L0 plus23 strict scenarios and their parent |
+| First exact full functional command |687 total,652 pass,33 fail,2 skips; local temporary-environment error, retained |
+| Final exact full functional command |**687 total,685 pass,0 fail,2 existing skips**, exit0 |
+
+The first full invocation intentionally used an isolated environment but accidentally omitted Darwin `TMPDIR`; Node therefore selected `/tmp` → `/private/tmp` with0777 permission bits. Existing journal fixtures require an owner-only parent, so33 journal/fsync/crash cases failed before their intended boundaries. A direct current `privateDirectory` probe confirmed rejection of that parent and acceptance of a new canonical owned0700 temporary directory. The exact same full argv then passed with command-local `TMPDIR` pointing to that directory. No repository change or private-path guard relaxation was made for this harness environment correction.
+
+The two unchanged skips are the actual retained-bundle manual-reservation test and the private-mutation child test requiring an explicitly provided retained bundle (the latter also requires Linux). No historical bundle or owner file was supplied. The full command exercises existing synthetic historical children/current source, not old675/f162 artifacts. Loopback HTTP/TLS fixtures are part of the authorized suite; strict release children retain complete socket denial and assert networkAttempts0. No actual database, provider operation, hosted acceptance or CI rerun is claimed.
+
+Exact command:
+
+```sh
+node --test apps/api/build/tests/config.test.js apps/api/build/tests/http.test.js apps/api/build/tests/startup.test.js apps/api/build/tests/release.test.js apps/api/build/tests/artifact.test.js apps/api/build/tests/ci.test.js apps/api/tests/hosted-config.test.mjs
+```
+
+The final command used the installed Node24.22.1 binary first in `PATH`, an owned HOME without user configuration and canonical owned0700 TMPDIR. Evidence root `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-ci-functional-regression-gw2yx6e1` retains exact argv/cwd/environment/Node version/timestamps/exits/stdout/stderr: `focus-before`, `import-order-before`, `import-order-deferred`, `compile-after`, `focus-after`, `functional-full`, `temp-environment-before`, `temp-environment-owned` and `functional-full-owned-tmp`. The `.json` command records and `.stdout`/`.stderr` outputs retain failures, not just the final pass. Focused and full-suite counts overlap and are not added.
+
+`ci-functional-regression-review-manifest.json` freezes all3 changed files,13 preserved published files, unchanged selected public-log hashes, emitted test identity and evidence hashes, with actual elapsed time from2026-11-21T16:33:41.473801Z versus ETA30–60 minutes. The owned import trace is retained as non-executable evidence text; the empty owned suite scratch directory is removed. No persistent service/container/volume/worker/reviewer/schedule was started; test children and loopback fixtures exited through existing cleanup, shared resources untouched. Root receives source ownership. Publication, reviewed new-source artifact/approval and actual CI/release remain separate; artifact13587251015 expiry is unchanged and it was not fetched or renewed.
+
 ## Historical activation-to-routine handoff — bounded contract amendment
 
 **Owner START — 2026-11-20, source/local only.** Root verified clean `main@fed4b9966e056b18d1d8bcfa77008dc8bf19cbad`; actual task maximum235 precedes T236–T241. Existing OMP is the sole writer; root t12p owns the reserved t1dw Company Codex gpt-6-luna medium review. No new worker, branch, worktree, runtime framework, pipeline, Git/publication or operational action.

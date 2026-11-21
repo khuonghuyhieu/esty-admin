@@ -24,6 +24,7 @@ import type { MigrationReport } from '../scripts/migrations.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { readEvidence } from '../scripts/release-journal.js';
 import { ReleaseOutcome, approvedRoutineRequest, validateReleaseResult } from '../scripts/ci-delivery.js';
+import { historicalHandoffDigest } from '../scripts/historical-release.js';
 import { rootCertificates } from 'node:tls';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
 
@@ -199,13 +200,11 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
     import {EventEmitter} from 'node:events'; import {PassThrough} from 'node:stream';
     import net from 'node:net'; import tls from 'node:tls'; import dgram from 'node:dgram'; import {randomUUID} from 'node:crypto';
     import {verifyArtifact} from ${JSON.stringify(new URL('../scripts/artifact.js', import.meta.url).href)};
-    import {routineProviderFixture} from ${JSON.stringify(new URL('./artifact-fixture.js', import.meta.url).href)};
     import {ChecksDiagnostics} from ${JSON.stringify(new URL('../scripts/checks-diagnostics.js', import.meta.url).href)};
     const input=JSON.parse(fs.readFileSync(${JSON.stringify(inputPath)},'utf8')), original=structuredClone(input.request);
     const artifact=verifyArtifact(${JSON.stringify(f.artifact.root)},input.request.artifactDigest);
     const fault=process.argv[2],reports=process.argv[3],resultPath=process.argv[4],restart=process.argv[5]==='restart';
     const trace=new ChecksDiagnostics(resultPath+'.diagnostics',{scope:'release',runId:'44'});
-    const h=routineProviderFixture(artifact,fault,undefined,{packet:input.packet});
     let runnerCalls=0,historyCalls=0,networkAttempts=0, action='';
     const deny=()=>{networkAttempts++;throw Error('Unexpected real network');};
     net.Socket.prototype.connect=deny;net.Server.prototype.listen=deny;tls.connect=deny;dgram.createSocket=deny;
@@ -225,6 +224,9 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
           database_outcome:unknown?'unknown':rolledBack?'rolled_back':'committed',before,after:unknown?null:[...names],
           attempted:[{...target[3],outcome:unknown?'unknown':rolledBack?'rolled_back':'applied_committed'}],reporting:'not_requested'};
       }}});
+    // Fixture imports reach the controller; install SQL mocks before loading that graph.
+    const {routineProviderFixture}=await import(${JSON.stringify(new URL('./artifact-fixture.js', import.meta.url).href)});
+    const h=routineProviderFixture(artifact,fault,undefined,{packet:input.packet});
     if(fault==='report-failure'){const open=fs.openSync;fs.openSync=(path,...args)=>{
       if(String(path).includes('/migration-reports/'))throw Object.assign(Error('Synthetic EIO'),{code:'EIO'});
       return open(path,...args);
@@ -369,6 +371,7 @@ function outcomeFixture(migrate = false) {
     controller: { revision: 'a'.repeat(40), tree: 'b'.repeat(40), run: '901' },
     producer: { revision: 'c'.repeat(40), tree: 'd'.repeat(40), run: '900' }, artifactId: '902',
     artifactDigest: 'e'.repeat(64), sourceDigest: '0'.repeat(64), archiveDigest: 'f'.repeat(64), operatorDigest: '1'.repeat(64), configDigest: '2'.repeat(64),
+    historicalHandoffDigest,
     schema: { beforeDigest: manifestDigest(previous), targetDigest: manifestDigest(target), before: previous, target }, migration: migrate ? {
       packetDigest: '3'.repeat(64), predecessor: { id: 'dpl_previous', revision: '4'.repeat(40),
         artifactDigest: '5'.repeat(64), configDigest: '6'.repeat(64) }, recoveryApproval: '7'.repeat(64),
