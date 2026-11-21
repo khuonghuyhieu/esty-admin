@@ -44,11 +44,11 @@ import { approvedSchema, authorizeRoutineMigration, confirmedMigration, continue
 import type { RoutineMigrationPacket, RoutineSchema } from '../scripts/ci-migrations.js';
 import type { RoutineDeliveryApproval, RoutineProvider } from '../scripts/ci-provider.js';
 import type { MigrationReport } from '../scripts/migrations.js';
-import { canonical as retainedCanonical, githubReader, manualContext, readSelection, retainedActivation,
+import { canonical as retainedCanonical, githubReader, manualContext, readSelection, retainedActivation, retainedHistoricalArchive,
   selectRetained, validateSelection, verifyRelay, verifySelectedBundle, verifyWorkflowHead } from '../scripts/activation-retained.mjs';
 import { executeManualAction } from '../scripts/manual-activation.mjs';
 import { failedPreflightProof, manualGithubIo, reserveManualActivation,
-  validatePreflightReceiptArchive } from '../scripts/activation-preflight-disposition.mjs';
+  validatePreflightReceiptArchive, validateHeldProbeArchive } from '../scripts/activation-preflight-disposition.mjs';
 import { verifyHeldAppProbe } from '../scripts/activation-held-proof.js';
 import { heldCorrection, heldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
 import { heldPinPath, heldProbeSources } from '../scripts/activation-held-contract.mjs';
@@ -59,7 +59,8 @@ import { heldPostRepair } from '../scripts/activation-journal.js';
 import { verifyHeldAppAcceptance, heldRetainedCandidate, verifyHistoricalFinalAcceptance } from '../scripts/activation-held-proof.js';
 import { heldAppPolicy, heldD2, heldD2Sources } from '../scripts/activation-held-contract.mjs';
 import { runtimeConfigDigest } from '../src/config/activation-config.js';
-import { historicalHandoffDigest } from '../scripts/historical-release.js';
+import { historicalHandoffDigest, historicalMetadataReadback, proveHistoricalHandoff } from '../scripts/historical-release.js';
+import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
 const oldSchema: RoutineDeliveryApproval = { digest: activationSchema.oldDigest,
   configDigest: runtimeConfigDigest(routineRuntime), requestDigest: sha256('independently-approved-synthetic-request') };
 
@@ -1006,6 +1007,59 @@ test('historical handoff diagnostics retain both prior identities and the first 
   for (const credential of Object.values(h.credentials)) assert.equal(logs.join('\n').includes(credential), false);
 });
 
+test('historical GitHub refusal retains endpoint and first failure before POST even when diagnostic storage or console fails', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  for (const fault of ['none', 'storage', 'console']) await t.test(fault, async st => {
+    const h = historicalProviderFixture(f.artifact), logs: string[] = [];
+    st.mock.method(globalThis, 'fetch', async () => { throw new Error('Real network denied.'); });
+    for (const method of ['info', 'error'] as const) st.mock.method(console, method, (...args: unknown[]) => {
+      if (fault === 'console') throw new Error('privateConsoleCanary12345');
+      logs.push(args.join(' '));
+    });
+    const signal = new AbortController().signal, directory = join(f.root, `historical-io-${fault}`);
+    const trace = new ChecksDiagnostics(directory, { scope: 'release', correlation: 'historical-io' });
+    const diagnostics = new ReleaseDiagnostics(h.request, join(f.root, `outcomes-${fault}`), signal, trace);
+    if (fault === 'storage') for (const method of ['writeFileSync', 'appendFileSync'] as const) {
+      const original = fs[method];
+      st.mock.method(fs, method, (...args: unknown[]) => {
+        if (String(args[0]).startsWith(directory)) throw new Error('privateStorageCanary12345');
+        return Reflect.apply(original, fs, args);
+      });
+    }
+    let posts = 0, historicalReads = 0;
+    const transport: typeof fetch = async (raw, init) => {
+      if (init?.method === 'POST') { posts++; throw new Error('Unexpected POST.'); }
+      const url = new URL(String(raw));
+      if (url.pathname.endsWith('/deployments')) return Response.json(h.records.slice(1));
+      if (url.pathname.endsWith(`/releases/tags/${retainedHistoricalArchive.tag}`)) {
+        historicalReads++; return new Response('privateBodyCanary12345', { status: 403 });
+      }
+      return h.transport(raw, init);
+    };
+    const provider = createProvider(f.artifact, h.run, h.schema, h.credentials, signal, transport, diagnostics);
+    let primary: unknown;
+    await assert.rejects(provider.reserve(), error => { primary = error; return true; });
+    const first = diagnostics.capture(primary);
+    assert.equal(diagnostics.capture(new Error('later cleanup')), first);
+    const outcome = diagnostics.failure(primary);
+    assert.equal(outcome.stage, 'reserve'); assert.equal(outcome.category, 'unresolved-prior'); assert.equal(outcome.status, 'refused');
+    assert.deepEqual(outcome.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
+    assert.equal(outcome.deploymentId, null); assert.equal(posts, 0); assert.equal(historicalReads, 1);
+    assert.equal(h.reservation(), undefined); assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+    const text = fault === 'console' ? await readFile(join(directory, 'historical-io-events.jsonl'), 'utf8') : logs.join('\n');
+    const rows = text.trim().split('\n').map(line => JSON.parse(line)), failures = rows.filter(row => row.status === 'failed');
+    assert.equal(failures[0].check, 'github.http-status');
+    assert.deepEqual(failures[0].values, { route: 'release-metadata', actual: 403,
+      expected: 200, redirected: false, bodyPresent: true });
+    assert.ok(failures.every(row => row.firstFailure === 'github.http-status'));
+    assert.ok(rows.some(row => row.check === 'github.request' && row.status === 'started' && row.values.route === 'release-metadata'));
+    assert.match(text, /activation-retained\.mjs:\d+:\d+/); assert.match(text, /historical-release\.js:\d+:\d+/);
+    if (fault === 'storage') assert.match(text, /diagnostics-write-failed/);
+    for (const credential of Object.values(h.credentials)) assert.equal(text.includes(credential), false);
+    assert.doesNotMatch(text, /private(?:Body|Storage|Console)Canary12345|https:\/\/|Authorization/);
+  });
+});
+
 test('historical evidence digest is part of independent request admission, not caller-selected exception authority', () => {
   const request = { ...releaseRequest(), historicalHandoffDigest: '0'.repeat(64) };
   assert.throws(() => validateReleaseRequest(request, releaseApproval(request)));
@@ -1013,17 +1067,25 @@ test('historical evidence digest is part of independent request admission, not c
 
 test('historical final acceptance verifies the selected real receipt under current main without weakening ordinary final proof', async () => {
   const current = { revision: 'e'.repeat(40), tree: 'f'.repeat(40) }, f = historicalProofFixture(current);
-  const proof = await verifyHistoricalFinalAcceptance(current, f.io, AbortSignal.timeout(10000));
-  assert.deepEqual(proof, f.proof);
-  assert.equal(proof.binding.candidate, heldD2.candidate);
-  assert.equal(proof.checks.authMembership, 'not-proved');
+  const read = f.io.read; let protectedReads = 0;
+  f.io.read = async path => {
+    if (path.startsWith('/environments/')) { protectedReads++; throw new Error('Protected resource unavailable to the job token.'); }
+    return read(path);
+  };
+  const observed = await verifyHistoricalFinalAcceptance(current, f.io, AbortSignal.timeout(10000));
+  assert.deepEqual(observed, { version: 1, kind: 'historical-final-acceptance', recordId: historicalReleaseEvidence.accepted.id,
+    outcomeHash: historicalReleaseEvidence.appEvents[6].sha256, proof: f.proof });
+  assert.equal(observed.proof.binding.candidate, heldD2.candidate);
+  assert.equal(observed.proof.checks.authMembership, 'not-proved'); assert.equal(protectedReads, 0);
+  f.main.sha = f.proof.binding.workflowRevision;
   await assert.rejects(verifyHeldAppAcceptance(f.proof.workflowRun, f.target, f.io, f.proof.sourceDigests,
     AbortSignal.timeout(10000), f.proof.gate));
+  assert.equal(protectedReads, 1);
 });
 
 test('historical final acceptance rejects missing, altered, stale and racing independent evidence', async t => {
   for (const fault of ['missing-archive', 'expired', 'receipt', 'artifact-id', 'rerun', 'failed-run', 'source', 'pin',
-    'binding', 'gate', 'revision', 'tree', 'main-race', 'artifact-race']) {
+    'remote-record', 'remote-commitment', 'publication', 'revision', 'tree', 'main-race', 'artifact-race', 'status-race', 'record-race']) {
     await t.test(fault, async () => {
       const current = { revision: 'e'.repeat(40), tree: 'f'.repeat(40) }, f = historicalProofFixture(current);
       const artifact = f.listing.artifacts[0]; assert.ok(artifact);
@@ -1037,18 +1099,21 @@ test('historical final acceptance rejects missing, altered, stale and racing ind
       if (fault === 'failed-run') f.finalRun.conclusion = 'failure';
       if (fault === 'source') f.setSource('.github/workflows/be-candidate-probe.yml', Buffer.from('different source'));
       if (fault === 'pin') f.setSource(heldPinPath, Buffer.from('{}'));
-      if (fault === 'binding') f.values[f.variablePath] = { name: 'BE_D1_HELD_APP_BINDING',
-        value: JSON.stringify({ ...f.proof.binding, candidate: 'dpl_other' }) };
-      if (fault === 'gate') f.values[f.gatePath] = { name: heldD2.gateVariable,
-        value: JSON.stringify({ ...f.proof.gate, stage: 'candidate' }) };
+      if (fault === 'remote-record') f.values[f.entryPath] = { ...f.records[0]!.entry, sha: '0'.repeat(40) };
+      if (fault === 'remote-commitment') f.values[f.statusPath] = [{ ...f.records[0]!.status, description: 'activation:app:outcome:' + '0'.repeat(64) }];
+      if (fault === 'publication') f.values[`/commits/${f.proof.binding.workflowRevision}`] = {
+        sha: f.proof.binding.workflowRevision, commit: { tree: { sha: '0'.repeat(40) } } };
       if (fault === 'revision') f.main.sha = '0'.repeat(40);
       if (fault === 'tree') f.main.commit.tree.sha = '0'.repeat(40);
-      if (fault === 'main-race' || fault === 'artifact-race') {
+      if (['main-race', 'artifact-race', 'status-race', 'record-race'].includes(fault)) {
         const read = f.io.read; let observations = 0;
-        const watched = fault === 'main-race' ? '/commits/main' : `/actions/runs/${f.proof.workflowRun}/artifacts?per_page=100`;
+        const watched = fault === 'main-race' ? '/commits/main' : fault === 'status-race' ? f.statusPath
+          : fault === 'record-race' ? f.entryPath : `/actions/runs/${f.proof.workflowRun}/artifacts?per_page=100`;
         f.io.read = async path => {
           if (path === watched && ++observations === 2) {
             if (fault === 'main-race') f.main.sha = '0'.repeat(40);
+            else if (fault === 'status-race') f.values[f.statusPath] = [{ ...f.records[0]!.status, state: 'error' }];
+            else if (fault === 'record-race') f.values[f.entryPath] = { ...f.records[0]!.entry, sha: '0'.repeat(40) };
             else artifact.expired = true;
           }
           return read(path);
@@ -1057,6 +1122,266 @@ test('historical final acceptance rejects missing, altered, stale and racing ind
       await assert.rejects(verifyHistoricalFinalAcceptance(current, f.io, AbortSignal.timeout(10000)));
     });
   }
+});
+
+test('historical archive admission never falls back to the expired Actions download capability', async t => {
+  const f = await strictReleaseFixture(undefined, undefined, retainedActivation.target); t.after(f.dispose);
+  const p = historicalProofFixture(f.request.controller);
+  await assert.rejects(proveHistoricalHandoff(p.records, f.request, p.io, new AbortController().signal));
+  assert.equal(p.reads.at(-1), `/actions/runs/${retainedActivation.runId}/jobs?filter=all&per_page=100`);
+  assert.deepEqual(p.downloads, []);
+  assert.equal(p.reads.some(path => path.startsWith('/actions/artifacts/') || path.startsWith('/environments/')), false);
+});
+
+test('historical acceptance refuses forged fixed preimages before any remote read', async t => {
+  const mutations: Array<[object, string, unknown]> = [
+    [historicalReleaseEvidence.appEvents[6], 'previousHash', '0'.repeat(64)],
+    [historicalReleaseEvidence.finalAccepted.proof.gate, 'stage', 'candidate'],
+    [historicalReleaseEvidence, 'promotionAck', '{}'],
+  ];
+  for (const [target, key, value] of mutations) await t.test(key, async () => {
+    const previous = Reflect.get(target, key), current = { revision: 'e'.repeat(40), tree: 'f'.repeat(40) };
+    const f = historicalProofFixture(current);
+    try {
+      Reflect.set(target, key, value);
+      await assert.rejects(verifyHistoricalFinalAcceptance(current, f.io, new AbortController().signal));
+      assert.deepEqual(f.reads, []); assert.deepEqual(f.downloads, []);
+    } finally { Reflect.set(target, key, previous); }
+  });
+});
+
+test('historical Release retention rejects invalid publication source asset and bytes before reservation POST', async t => {
+  const f = await strictReleaseFixture(undefined, undefined, retainedActivation.target); t.after(f.dispose);
+  const request = structuredClone(f.request); assert.ok(request.migration);
+  request.migration.predecessor = { id: heldD2.candidate, revision: heldAppPolicy.revision,
+    artifactDigest: heldAppPolicy.artifactDigest, configDigest: heldD2.configDigest };
+  const faults = ['missing-release', 'draft', 'prerelease', 'unpublished', 'future', 'tag', 'target', 'foreign-release',
+    'missing-asset', 'duplicate-asset', 'asset-name', 'asset-state', 'asset-type', 'asset-size', 'asset-hash', 'foreign-asset', 'browser-url',
+    'tag-target', 'tag-type', 'tag-ref', 'tag-url', 'source', 'producer-id', 'producer-attempt', 'producer-state', 'producer-source',
+    'producer-repository', 'checks-missing', 'checks-duplicate', 'checks-failed', 'checks-source', 'checks-attempt',
+    'missing-bytes', 'short-bytes', 'oversized-bytes', 'wrong-bytes'];
+  for (const fault of faults) await t.test(fault, async st => {
+    let realNetwork = 0, posts = 0, downloads = 0, protectedReads = 0;
+    st.mock.method(globalThis, 'fetch', async () => { realNetwork++; throw new Error('Real network denied.'); });
+    const p = historicalProofFixture(request.controller), h = historicalProviderFixture(f.artifact);
+    const asset = p.release.assets[0]!; let expectedLast = p.releasePath;
+    const sourcePath = `/commits/${retainedActivation.revision}`, producerPath = `/actions/runs/${retainedActivation.runId}`;
+    const jobsPath = `${producerPath}/jobs?filter=all&per_page=100`, downloadPath = `/releases/assets/${asset.id}`;
+    if (fault === 'draft') p.release.draft = true;
+    if (fault === 'prerelease') p.release.prerelease = true;
+    if (fault === 'unpublished') Reflect.set(p.release, 'published_at', null);
+    if (fault === 'future') p.release.published_at = new Date(Date.now() + 60000).toISOString();
+    if (fault === 'tag') Reflect.set(p.release, 'tag_name', 'caller-selected-tag');
+    if (fault === 'target') Reflect.set(p.release, 'target_commitish', 'main');
+    if (fault === 'foreign-release') p.release.url = p.release.url.replace(repository, 'foreign/repository');
+    if (fault === 'missing-asset') p.release.assets = [];
+    if (fault === 'duplicate-asset') p.release.assets.push({ ...asset, id: 9002 });
+    if (fault === 'asset-name') Reflect.set(asset, 'name', 'caller-selected.zip');
+    if (fault === 'asset-state') asset.state = 'open';
+    if (fault === 'asset-type') asset.content_type = 'application/json';
+    if (fault === 'asset-size') asset.size--;
+    if (fault === 'asset-hash') asset.digest = `sha256:${'0'.repeat(64)}`;
+    if (fault === 'foreign-asset') asset.url = asset.url.replace(repository, 'foreign/repository');
+    if (fault === 'browser-url') asset.browser_download_url += '?caller=untrusted';
+    if (fault.startsWith('tag-')) expectedLast = p.tagPath;
+    if (fault === 'tag-target') Reflect.set(p.tag.object, 'sha', '0'.repeat(40));
+    if (fault === 'tag-type') p.tag.object.type = 'tag';
+    if (fault === 'tag-ref') p.tag.ref = 'refs/tags/caller-selected-tag';
+    if (fault === 'tag-url') p.tag.url = p.tag.url.replace(repository, 'foreign/repository');
+    if (fault === 'source') { expectedLast = sourcePath; p.values[sourcePath] = { sha: retainedActivation.revision, commit: { tree: { sha: '0'.repeat(40) } } }; }
+    if (fault.startsWith('producer-')) expectedLast = producerPath;
+    if (fault === 'producer-id') p.producer.id++;
+    if (fault === 'producer-attempt') p.producer.run_attempt = 2;
+    if (fault === 'producer-state') p.producer.status = 'in_progress';
+    if (fault === 'producer-source') Reflect.set(p.producer, 'head_sha', '0'.repeat(40));
+    if (fault === 'producer-repository') Reflect.set(p.producer.repository, 'full_name', 'foreign/repository');
+    if (fault.startsWith('checks-')) expectedLast = jobsPath;
+    if (fault === 'checks-missing') { p.jobs.jobs = []; p.jobs.total_count = 0; }
+    if (fault === 'checks-duplicate') { p.jobs.jobs.push({ ...p.jobs.jobs[0]! }); p.jobs.total_count = 2; }
+    if (fault === 'checks-failed') p.jobs.jobs[0]!.conclusion = 'failure';
+    if (fault === 'checks-source') Reflect.set(p.jobs.jobs[0]!, 'head_sha', '0'.repeat(40));
+    if (fault === 'checks-attempt') p.jobs.jobs[0]!.run_attempt = 2;
+    if (fault.endsWith('-bytes')) expectedLast = downloadPath;
+    const expired = { ...(p.values['/actions/artifacts/13587251015'] as object), expired: true };
+    p.values['/actions/artifacts/13587251015'] = expired;
+    const reads: string[] = [];
+    const transport: typeof fetch = async (raw, init) => {
+      const url = new URL(String(raw)), path = url.pathname.slice(`/repos/${repository}`.length) + url.search;
+      assert.equal(new Headers(init?.headers).get('authorization'), `Bearer ${h.credentials.github}`);
+      if (init?.method === 'POST') { posts++; throw new Error('Reservation POST denied.'); }
+      reads.push(path);
+      if (path.startsWith('/environments/')) { protectedReads++; throw new Error('Protected environment GET denied.'); }
+      if (path.startsWith('/deployments?')) return Response.json(p.records.map(item => item.entry));
+      if (fault === 'missing-release' && path === p.releasePath) return new Response(null, { status: 404 });
+      if (path === downloadPath) {
+        downloads++;
+        assert.equal(new Headers(init?.headers).get('accept'), 'application/octet-stream');
+        return new Response(fault === 'missing-bytes' ? null : fault === 'short-bytes' ? Buffer.from('short')
+          : Buffer.alloc(retainedHistoricalArchive.size + (fault === 'oversized-bytes' ? 1 : 0)),
+        { status: fault === 'missing-bytes' ? 404 : 200 });
+      }
+      if (Object.hasOwn(p.values, path)) return Response.json(p.values[path]);
+      return h.transport(raw, init);
+    };
+    const schema = { ...h.schema, request, requestDigest: sha256(canonical(request)), strictPacketDigest: request.migration!.packetDigest };
+    await assert.rejects(createProvider(f.artifact, h.run, schema, h.credentials, new AbortController().signal, transport).reserve());
+    assert.equal(reads.at(-1), expectedLast); assert.equal(downloads, fault.endsWith('-bytes') ? 1 : 0);
+    assert.equal(posts, 0); assert.equal(realNetwork, 0); assert.equal(protectedReads, 0);
+    assert.equal(expired.expired, true); assert.equal(reads.some(path => path.startsWith('/actions/artifacts/13587251015')), false);
+    assert.deepEqual(h.counts(), { creates: 0, promotions: 0 }); assert.equal(h.reservation(), undefined);
+  });
+});
+
+test('historical Release readback rejects identity content and descriptive drift but accepts download counters', async t => {
+  for (const fault of ['release-id', 'release-description', 'asset-id', 'asset-digest', 'asset-description', 'download-count']) {
+    await t.test(fault, async () => {
+      const p = historicalProofFixture({ revision: 'e'.repeat(40), tree: 'f'.repeat(40) });
+      const asset = p.release.assets[0]!;
+      Reflect.set(p.release, 'body', 'Original release description');
+      Reflect.set(asset, 'label', 'Original asset label');
+      const { proofIo, recheck } = historicalMetadataReadback(p.io, new AbortController().signal);
+      await proofIo.read(p.releasePath); await proofIo.read('/commits/main');
+      await recheck();
+      assert.deepEqual(p.reads, [p.releasePath, '/commits/main', p.releasePath, '/commits/main']);
+      if (fault === 'release-id') p.release.id++;
+      if (fault === 'release-description') Reflect.set(p.release, 'body', 'Changed after admission');
+      if (fault === 'asset-id') asset.id++;
+      if (fault === 'asset-digest') asset.digest = `sha256:${'0'.repeat(64)}`;
+      if (fault === 'asset-description') Reflect.set(asset, 'label', 'Changed after admission');
+      if (fault === 'download-count') asset.download_count++;
+      if (fault === 'download-count') {
+        await recheck();
+        assert.deepEqual(p.reads.slice(4), [p.releasePath, '/commits/main']);
+      } else {
+        await assert.rejects(recheck(), /proof-metadata-stable/);
+        assert.deepEqual(p.reads.slice(4), [p.releasePath], 'Drift must stop before the next snapshot read.');
+        await assert.rejects(recheck(), /proof-metadata-stable/, 'A rejected snapshot must not become the new baseline.');
+      }
+      assert.deepEqual(p.downloads, []);
+    });
+  }
+});
+
+test('historical Release readback preserves unique asset and cancellation boundaries', async t => {
+  for (const fault of ['missing-asset', 'duplicate-asset', 'abort-before-read', 'abort-before-recheck']) {
+    await t.test(fault, async () => {
+      const p = historicalProofFixture({ revision: 'e'.repeat(40), tree: 'f'.repeat(40) }), controller = new AbortController();
+      const { proofIo, recheck } = historicalMetadataReadback(p.io, controller.signal);
+      const cancelled = new Error('Synthetic readback cancellation');
+      if (fault === 'abort-before-read') {
+        controller.abort(cancelled);
+        await assert.rejects(proofIo.read(p.releasePath), cause => cause === cancelled);
+        assert.deepEqual(p.reads, []);
+        return;
+      }
+      await proofIo.read(p.releasePath);
+      if (fault === 'abort-before-recheck') {
+        controller.abort(cancelled);
+        await assert.rejects(recheck(), cause => cause === cancelled);
+        assert.deepEqual(p.reads, [p.releasePath]);
+      } else {
+        if (fault === 'missing-asset') p.release.assets = [];
+        else p.release.assets.push({ ...p.release.assets[0]! });
+        await assert.rejects(recheck(), /retention-unique-asset/);
+        assert.deepEqual(p.reads, [p.releasePath, p.releasePath]);
+      }
+      assert.deepEqual(p.downloads, []);
+    });
+  }
+});
+
+test('historical readback fences consumed-lineage reservation before POST and preserves replay refusal', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  for (const fault of ['unchanged', 'changed-at-recheck']) await t.test(fault, async st => {
+    const h = historicalProviderFixture(f.artifact);
+    let historyReads = 0, posts = 0, realNetwork = 0, archiveReads = 0;
+    st.mock.method(globalThis, 'fetch', async () => { realNetwork++; throw new Error('Real network denied.'); });
+    const transport: typeof fetch = async (raw, init) => {
+      const url = new URL(String(raw));
+      if (url.pathname.includes('/releases/') || url.pathname.includes('/actions/artifacts/')) {
+        archiveReads++; throw new Error('Consumed lineage must not reopen archival admission.');
+      }
+      if (init?.method === 'POST') {
+        posts++;
+        assert.equal(historyReads, 2, 'Final metadata recheck must finish before a reservation POST.');
+      }
+      const response = await h.transport(raw, init);
+      if (url.pathname.endsWith('/deployments/900/statuses') && url.searchParams.get('per_page') === '100') {
+        historyReads++;
+        const statuses: unknown = await response.json();
+        assert.ok(Array.isArray(statuses));
+        const ack: unknown = statuses[1];
+        assert.ok(ack && typeof ack === 'object' && 'description' in ack);
+        if (fault === 'changed-at-recheck' && historyReads === 2) ack.description = 'ack:dpl_changed';
+        return Response.json(statuses);
+      }
+      return response;
+    };
+    const provider = createProvider(f.artifact, h.run, h.schema, h.credentials, AbortSignal.timeout(10000), transport);
+    if (fault === 'changed-at-recheck') {
+      await assert.rejects(provider.reserve(), /proof-metadata-stable/);
+      assert.equal(posts, 0); assert.equal(h.reservation(), undefined);
+      assert.equal(h.events.includes('reserve'), false);
+    } else {
+      assert.equal(await provider.reserve(), 44);
+      assert.equal(posts, 1);
+      const marker = h.reservation()!.payload.historicalHandoff;
+      assert.ok(marker && typeof marker === 'object' && 'predecessorRecord' in marker);
+      assert.equal(marker.predecessorRecord, 900);
+      await assert.rejects(provider.reserve(), /already has a durable reservation/);
+      assert.equal(posts, 1);
+    }
+    assert.equal(historyReads, 2); assert.equal(realNetwork, 0); assert.equal(archiveReads, 0);
+    assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+  });
+});
+
+test('historical Release binary transport keeps one deadline exact redirect hosts and safe failure diagnostics', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-release-download-')); t.after(() => rm(root, { recursive: true, force: true }));
+  for (const fault of ['401', '403', '404', '429', '500', 'followed', 'missing-location', 'invalid-location',
+    'foreign-host', 'subdomain', 'http', 'userinfo', 'port', 'fragment', 'second-redirect', 'binary-200-size',
+    'binary-302-size', 'transport-timeout', 'body-failure', 'body-timeout', 'wrong-hash']) await t.test(fault, async st => {
+    const output: string[] = [], authorizations: Array<string | null> = [], signals: Array<AbortSignal | null | undefined> = [];
+    for (const method of ['info', 'error'] as const) st.mock.method(console, method, (...args: unknown[]) => output.push(args.join(' ')));
+    const trace = new ChecksDiagnostics(join(root, fault), { scope: 'release' });
+    if (fault.endsWith('timeout')) st.mock.method(AbortSignal, 'timeout', () => AbortSignal.abort(new DOMException('privateTimeoutCanary12345', 'TimeoutError')));
+    let calls = 0;
+    const io = manualGithubIo('privateCredentialCanary12345', new AbortController().signal, async (_raw, init) => {
+      calls++; authorizations.push(new Headers(init?.headers).get('authorization')); signals.push(init?.signal);
+      if (fault === 'transport-timeout') init?.signal?.throwIfAborted();
+      if (fault.startsWith('body-')) return new Response(new ReadableStream({ start(controller) { controller.error(new Error('privateBodyCanary12345')); } }));
+      if (fault === 'wrong-hash') return new Response(Buffer.alloc(retainedHistoricalArchive.size));
+      if (fault === 'binary-200-size') return new Response('short');
+      if (calls === 2) {
+        assert.equal(init?.redirect, 'error'); assert.equal(authorizations[1], null); assert.equal(signals[1], signals[0]);
+        return fault === 'second-redirect' ? new Response(null, { status: 302, headers: { location: 'https://privateHostCanary12345.invalid' } }) : new Response('short');
+      }
+      assert.equal(init?.redirect, 'manual');
+      let location = 'https://release-assets.githubusercontent.com/privatePathCanary12345?sig=privateSignatureCanary12345';
+      if (fault === 'invalid-location') location = 'privateLocationCanary12345';
+      if (fault === 'foreign-host') location = 'https://privateHostCanary12345.blob.core.windows.net/file';
+      if (fault === 'subdomain') location = location.replace('release-assets.', 'privateSubdomainCanary12345.release-assets.');
+      if (fault === 'http') location = location.replace('https:', 'http:');
+      if (fault === 'userinfo') location = location.replace('https://', 'https://privateUserCanary12345:password@');
+      if (fault === 'port') location = location.replace('.com/', '.com:8443/');
+      if (fault === 'fragment') location += '#privateFragmentCanary12345';
+      const response = new Response(null, { status: /^\d+$/.test(fault) ? Number(fault) : 302,
+        headers: fault === 'missing-location' ? {} : { location } });
+      if (fault === 'followed') Object.defineProperty(response, 'redirected', { value: true });
+      return response;
+    }, trace);
+    await assert.rejects(io.downloadReleaseAsset(9001));
+    assert.equal(authorizations[0], 'Bearer privateCredentialCanary12345');
+    const failures = output.map(line => JSON.parse(line)).filter(row => row.status === 'failed');
+    const expected = /^\d+$/.test(fault) || fault === 'followed' ? 'github.release-status'
+      : fault.endsWith('location') ? 'github.download-location'
+      : ['foreign-host', 'subdomain', 'http', 'userinfo', 'port', 'fragment'].includes(fault) ? 'github.download-host'
+      : fault === 'second-redirect' ? 'github.download-status' : fault.startsWith('binary-') ? 'github.release-size'
+      : fault === 'transport-timeout' ? 'github.download-transport' : fault.startsWith('body-') ? 'github.download-body' : 'github.release-hash';
+    assert.equal(failures[0].check, expected); assert.ok(failures.every(row => row.firstFailure === expected));
+    assert.equal(calls, ['second-redirect', 'binary-302-size'].includes(fault) ? 2 : 1);
+    assert.doesNotMatch(output.join('\n'), /private\w*Canary12345|https?:\/\/|Authorization|sig=/);
+  });
 });
 
 test('successful durable reservation uses exact commit, no auto-merge and no secret payload', async t => {
@@ -3020,28 +3345,177 @@ test('end-to-end diagnostic quota preserves first failure and refuses unsafe sto
   assert.ok(output.some(line => JSON.parse(line).event === 'diagnostics-init-failed'));
 });
 
-test('end-to-end GitHub reader exposes status malformed body and timeout without credential or payload', async t => {
-  const root = await mkdtemp(join(tmpdir(), 'esty-e2e-github-')); t.after(() => rm(root, { recursive: true, force: true }));
-  const output: string[] = [];
-  t.mock.method(console, 'info', (...args: unknown[]) => output.push(args.join(' ')));
-  t.mock.method(console, 'error', (...args: unknown[]) => output.push(args.join(' ')));
-  const trace = new ChecksDiagnostics(join(root, 'logs'), { scope: 'release' });
-  for (const fault of ['status', 'malformed', 'timeout']) {
-    const controller = new AbortController();
-    const transport: typeof fetch = async (_url, init) => {
-      if (fault === 'timeout') {
-        controller.abort(new DOMException('opaqueTransportCanary98765', 'TimeoutError'));
-        init?.signal?.throwIfAborted();
-      }
-      return new Response('opaqueResponseCanary98765', { status: fault === 'status' ? 403 : 200 });
+test('historical GitHub reader distinguishes HTTP body parse and timeout failures without leaking caller data', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-historical-github-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const cases = ['valid', '401', '403', '404', '429', '500', '503', 'redirect', 'no-body', 'empty-body',
+    'transport', 'transport-timeout', 'body', 'body-timeout', 'oversize', 'json'];
+  for (const fault of cases) await t.test(fault, async st => {
+    const output: string[] = [];
+    for (const method of ['info', 'error'] as const) st.mock.method(console, method, (...args: unknown[]) => output.push(args.join(' ')));
+    const trace = new ChecksDiagnostics(join(root, fault), { scope: 'release' }), caller = new AbortController();
+    const primary = new Error('privateTransportCanary98765', { cause: new Error('privateCauseCanary98765') });
+    if (fault.endsWith('timeout')) st.mock.method(AbortSignal, 'timeout', () => AbortSignal.abort(new DOMException('privateTimeoutCanary98765', 'TimeoutError')));
+    const transport: typeof fetch = async (_raw, init) => {
+      assert.equal(init?.redirect, 'error');
+      if (fault === 'transport-timeout') init?.signal?.throwIfAborted();
+      if (fault === 'transport') throw primary;
+      if (fault === 'body' || fault === 'body-timeout') return new Response(new ReadableStream({
+        start(controller) { controller.error(primary); },
+      }));
+      if (fault === 'no-body') return new Response(null);
+      if (fault === 'oversize') return new Response(Buffer.alloc(8 * 1024 * 1024 + 1));
+      const response = new Response(fault === 'json' ? 'privateBodyCanary98765' : fault === 'empty-body' ? ''
+        : JSON.stringify({ accepted: true, value: 'privateValueCanary98765' }), { status: /^\d+$/.test(fault) ? Number(fault) : 200 });
+      if (fault === 'redirect') Object.defineProperty(response, 'redirected', { value: true });
+      return response;
     };
-    await assert.rejects(githubReader('opaqueCredentialCanary98765', controller.signal, transport, trace)('/actions/runs/44'));
+    const io = manualGithubIo('privateCredentialCanary98765', caller.signal, transport, trace);
+    if (fault === 'valid') assert.deepEqual(await io.read('/actions/artifacts/13587251015'), { accepted: true, value: 'privateValueCanary98765' });
+    else await assert.rejects(io.read('/actions/artifacts/13587251015'), error => {
+      if (['transport', 'body', 'body-timeout'].includes(fault)) assert.equal(error, primary);
+      return true;
+    });
+    const rows = output.map(line => JSON.parse(line)), failures = rows.filter(row => row.status === 'failed');
+    const expected = /^\d+$/.test(fault) ? 'github.http-status' : fault === 'redirect' ? 'github.no-redirect'
+      : fault === 'no-body' ? 'github.body-present' : ['empty-body', 'json'].includes(fault) ? 'github.json-parse'
+      : fault.startsWith('transport') ? 'github.transport' : fault === 'oversize' ? 'github.body-size' : 'github.body';
+    if (fault === 'valid') assert.deepEqual(failures, []);
+    else {
+      assert.equal(failures[0].check, expected); assert.equal(failures[0].values.route, 'artifact-metadata');
+      assert.ok(failures.every(row => row.firstFailure === expected));
+      if (/^\d+$/.test(fault)) assert.equal(failures[0].values.actual, Number(fault));
+      if (fault.endsWith('timeout')) {
+        assert.equal(failures[0].reason, 'timeout-or-cancel');
+        assert.equal(failures[0].values.aborted, true); assert.equal(failures[0].values.callerAborted, false);
+      }
+      if (['transport', 'body', 'body-timeout'].includes(fault)) assert.match(failures[0].error, /Caused by/);
+    }
+    assert.doesNotMatch(output.join('\n'), /private\w*Canary98765|Authorization|https:\/\/|\/actions\/artifacts/);
+  });
+});
+
+test('historical GitHub routes disclose only finite endpoint classes and the fixed public artifact ID', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-historical-routes-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const output: string[] = [];
+  for (const method of ['info', 'error'] as const) t.mock.method(console, method, (...args: unknown[]) => output.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(join(root, 'logs'), { scope: 'release' });
+  const routes = [
+    ['/actions/artifacts/13587251015', 'artifact-metadata'], ['/actions/artifacts/987654321012345', 'artifact-metadata'],
+    ['/actions/runs/44', 'run-metadata'], ['/actions/runs/44/attempts/1/jobs?per_page=100', 'run-jobs'],
+    ['/actions/runs/44/artifacts?per_page=100', 'run-artifacts'], ['/deployments/44', 'deployment'],
+    ['/deployments/44/statuses?per_page=100', 'deployment-statuses'],
+    ['/environments/be-production/variables/BE_D1_HELD_APP_BINDING', 'environment-binding'],
+    ['/environments/be-production/variables/BE_D2_APP_ACCEPTANCE_GATE', 'environment-gate'],
+    ['/contents/privatePathCanary98765?ref=privateQueryCanary98765', 'source-content'], ['/commits/main', 'commit'],
+    ['/environments/privatePathCanary98765/variables/privateVariableCanary98765', 'unclassified'],
+  ];
+  const io = manualGithubIo('privateCredentialCanary98765', new AbortController().signal, async () => Response.json({ value: 'privateValueCanary98765' }), trace);
+  for (const [path, route] of routes) {
+    output.length = 0; assert.deepEqual(await io.read(path!), { value: 'privateValueCanary98765' });
+    const row = output.map(line => JSON.parse(line)).find(row => row.check === 'github.request' && row.status === 'started');
+    assert.equal(row.values.route, route);
+    assert.equal(row.values.actualId, path === '/actions/artifacts/13587251015' ? '13587251015' : undefined);
+    assert.doesNotMatch(output.join('\n'), /private\w*Canary98765|987654321012345|BE_D[12]_|\/environments\/|\/contents\//);
   }
-  const records = output.map(line => JSON.parse(line));
-  assert.ok(records.some(row => row.check === 'github.http-status' && row.status === 'failed' && row.values.actual === 403 && row.values.expected === 200));
-  assert.ok(records.some(row => row.check === 'github.json-parse' && row.status === 'failed'));
-  assert.ok(records.some(row => row.check === 'github.transport' && row.reason === 'timeout-or-cancel' && row.values.aborted));
-  assert.doesNotMatch(output.join('\n'), /opaque(?:Credential|Response|Transport)Canary98765/);
+  output.length = 0;
+  const unlogged = manualGithubIo('privateCredentialCanary98765', new AbortController().signal, async () => Response.json({ accepted: true }));
+  assert.deepEqual(await unlogged.read('/actions/runs/44'), { accepted: true }); assert.deepEqual(output, []);
+});
+
+test('historical GitHub downloads expose bounded phase failures without signed locations or authorization', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-historical-download-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const cases = ['valid', '401', '403', '404', '429', '500', 'missing-location', 'invalid-location', 'host', 'scheme', 'userinfo',
+    'transport', 'transport-timeout', 'blob-status', 'blob-redirect', 'blob-no-body', 'blob-transport', 'blob-timeout', 'body', 'body-timeout', 'oversize'];
+  for (const fault of cases) await t.test(fault, async st => {
+    const output: string[] = [], authorizations: Array<string | null> = [];
+    for (const method of ['info', 'error'] as const) st.mock.method(console, method, (...args: unknown[]) => output.push(args.join(' ')));
+    const trace = new ChecksDiagnostics(join(root, fault), { scope: 'release' }), caller = new AbortController();
+    const primary = new Error('privateDownloadCanary98765', { cause: new Error('privateCauseCanary98765') });
+    if (fault.endsWith('timeout')) st.mock.method(AbortSignal, 'timeout', () => AbortSignal.abort(new DOMException('privateTimeoutCanary98765', 'TimeoutError')));
+    let calls = 0;
+    const transport: typeof fetch = async (_raw, init) => {
+      authorizations.push(new Headers(init?.headers).get('authorization')); calls++;
+      if (calls === 1) {
+        assert.equal(init?.redirect, 'manual');
+        if (fault === 'transport') throw primary;
+        if (fault === 'transport-timeout') init?.signal?.throwIfAborted();
+        let location = 'https://privateHostCanary98765.blob.core.windows.net/privatePathCanary98765?sig=privateSignatureCanary98765';
+        if (fault === 'invalid-location') location = 'privateLocationCanary98765';
+        if (fault === 'host') location = 'https://privateHostCanary98765.invalid/privatePathCanary98765';
+        if (fault === 'scheme') location = location.replace('https:', 'http:');
+        if (fault === 'userinfo') location = location.replace('https://', 'https://privateUserCanary98765:privatePasswordCanary98765@');
+        return new Response(null, { status: /^\d+$/.test(fault) ? Number(fault) : 302, headers: fault === 'missing-location' ? {} : { location } });
+      }
+      assert.equal(init?.redirect, 'error'); assert.equal(authorizations[1], null);
+      if (fault === 'blob-transport') throw primary;
+      if (fault === 'blob-timeout') init?.signal?.throwIfAborted();
+      if (fault === 'body' || fault === 'body-timeout') return new Response(new ReadableStream({ start(controller) { controller.error(primary); } }));
+      if (fault === 'blob-no-body') return new Response(null);
+      const response = new Response(Buffer.from('synthetic zip'), { status: fault === 'blob-status' ? 503 : 200 });
+      if (fault === 'blob-redirect') Object.defineProperty(response, 'redirected', { value: true });
+      return response;
+    };
+    const io = manualGithubIo('privateCredentialCanary98765', caller.signal, transport, trace);
+    if (fault === 'valid') assert.equal((await io.download(13587251015)).toString(), 'synthetic zip');
+    else await assert.rejects(io.download(13587251015, fault === 'oversize' ? 4 : 65536), error => {
+      if (['transport', 'blob-transport', 'body', 'body-timeout'].includes(fault)) assert.equal(error, primary);
+      return true;
+    });
+    assert.equal(authorizations[0], 'Bearer privateCredentialCanary98765');
+    const rows = output.map(line => JSON.parse(line)), failures = rows.filter(row => row.status === 'failed');
+    const expected = /^\d+$/.test(fault) ? 'github.download-redirect-status'
+      : fault.endsWith('location') ? 'github.download-location' : ['host', 'scheme', 'userinfo'].includes(fault) ? 'github.download-host'
+      : ['transport', 'transport-timeout', 'blob-transport', 'blob-timeout'].includes(fault) ? 'github.download-transport'
+      : fault === 'blob-status' ? 'github.download-status' : fault === 'blob-redirect' ? 'github.download-no-redirect'
+      : fault === 'blob-no-body' ? 'github.download-body-present' : fault === 'oversize' ? 'github.download-size' : 'github.download-body';
+    if (fault === 'valid') {
+      assert.deepEqual(failures, []); assert.equal(calls, 2);
+      assert.ok(rows.some(row => row.check === 'github.download-host' && row.values.allowedHost && row.values.safeLocation));
+      assert.ok(rows.some(row => row.check === 'github.download-body' && row.values.bytes === 13));
+    } else {
+      assert.equal(failures[0].check, expected); assert.ok(failures.every(row => row.firstFailure === expected));
+      const blob = fault.startsWith('blob-') || fault.startsWith('body') || fault === 'oversize';
+      assert.equal(failures[0].values.route, blob ? 'artifact-blob' : 'artifact-download'); assert.equal(calls, blob ? 2 : 1);
+      if (/^\d+$/.test(fault)) assert.equal(failures[0].values.actual, Number(fault));
+      if (fault.endsWith('timeout')) assert.equal(failures[0].reason, 'timeout-or-cancel');
+    }
+    assert.doesNotMatch(output.join('\n'), /private\w*Canary98765|https?:\/\/|Authorization|sig=/);
+  });
+});
+
+test('historical held archive failures retain size hash and archive boundaries without exposing payloads', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-historical-archive-')); t.after(() => rm(root, { recursive: true, force: true }));
+  for (const fault of ['valid', 'size', 'hash', 'structure', 'json']) await t.test(fault, async st => {
+    const output: string[] = [];
+    for (const method of ['info', 'error'] as const) st.mock.method(console, method, (...args: unknown[]) => output.push(args.join(' ')));
+    const trace = new ChecksDiagnostics(join(root, fault), { scope: 'release' }), f = heldProofFixture();
+    f.io.diagnostics = trace;
+    if (fault === 'size') {
+      const bytes = Buffer.alloc(65537);
+      assert.throws(() => trace.sync('github.archive.held', () => validateHeldProbeArchive(bytes, sha256(bytes), trace)));
+    } else {
+      if (fault !== 'valid') {
+        const changed = fault === 'json' ? receiptZip([['held-app-probe.json', Buffer.from('privateArchiveCanary98765')]])
+          : Buffer.from('privateArchiveCanary98765');
+        const artifact = f.values[f.artifactPath].artifacts[0];
+        artifact.size_in_bytes = changed.length;
+        if (fault !== 'hash') artifact.digest = `sha256:${sha256(changed)}`;
+        f.io.download = async id => { assert.equal(id, f.artifactId); return changed; };
+      }
+      if (fault === 'valid') assert.equal((await verifyHeldAppProbe(f.workflowRun, f.target, f.io, f.sourceDigests, new AbortController().signal)).binding.candidate, f.target.candidate);
+      else await assert.rejects(verifyHeldAppProbe(f.workflowRun, f.target, f.io, f.sourceDigests, new AbortController().signal));
+    }
+    const rows = output.map(line => JSON.parse(line)), failures = rows.filter(row => row.status === 'failed');
+    if (fault === 'valid') {
+      assert.deepEqual(failures, []); assert.ok(rows.some(row => row.check === 'github.archive-hash' && row.values.digestMatches));
+      assert.ok(rows.some(row => row.check === 'github.archive.held' && row.status === 'passed'));
+    } else {
+      const expected = fault === 'size' ? 'github.archive-size' : fault === 'hash' ? 'github.archive-hash' : 'github.archive.held';
+      assert.equal(failures[0].check, expected); assert.ok(failures.every(row => row.firstFailure === expected));
+      assert.match(output.join('\n'), /activation-preflight-disposition\.mjs:\d+:\d+/);
+    }
+    assert.doesNotMatch(output.join('\n'), /privateArchiveCanary98765/);
+  });
 });
 
 test('end-to-end executable workflow summary distinguishes failure skipped dependency and unavailable summary', async t => {

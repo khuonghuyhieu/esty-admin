@@ -293,15 +293,15 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
         if (!activation && before.some(item => historicalRecordId(item.entry.id))) {
           predicate('reservation.historical-request', approvedRequest?.historicalHandoffDigest === historicalHandoffDigest,
             'A bound historical handoff request is required.');
-          const prove = () => proveHistoricalHandoff(before, approvedRequest!, manualGithubIo(credentials.github, signal, transport), signal);
+          const prove = () => proveHistoricalHandoff(before, approvedRequest!, manualGithubIo(credentials.github, signal, transport, diagnostics?.trace), signal);
           admission = diagnostics?.trace ? await diagnostics.trace.boundary('reservation.historical-proof', prove) : await prove();
           await historicalPredecessor(admission);
           await admission.dispose(); disposed = true;
-          await admission.recheck();
           await operations.currentMain();
           const after = await scan();
           predicate('reservation.history-stable', historicalSnapshot(before) === historicalSnapshot(after), 'Durable history changed during handoff verification.');
           predicate('reservation.predecessor-final-alias', await alias() === admission.marker.predecessor.id, 'Historical handoff predecessor changed.');
+          await admission.recheck();
           for (const item of before.filter(item => historicalRecordId(item.entry.id))) {
             diagnostics?.trace?.event('reservation.prior-record', 'passed', 'verified-historical-handoff', { actualId: String(item.entry.id) });
           }

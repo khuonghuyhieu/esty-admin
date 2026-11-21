@@ -1,10 +1,12 @@
 import { createHash } from 'node:crypto';
 import { canonical, sha256 } from './artifact.js';
-import { validateHeldProbeArchive } from './activation-preflight-disposition.mjs';
+import { validateHeldProbeArchive, failedPreflightStatus } from './activation-preflight-disposition.mjs';
 import { heldAppPolicy, heldBindingVariable, heldPinPath, heldProbeSources, validateHeldBinding,
   validateHeldTarget, heldD2, heldD2Sources, validateHeldD2Gate, validateHeldD2Target, validateHeldD2Capability } from './activation-held-contract.mjs';
 import type { HeldAppPolicy } from './activation-held-contract.mjs';
 import { historicalReleaseEvidence } from './historical-release-evidence.js';
+import type { ChecksDiagnostics } from './checks-diagnostics.js';
+import type { HistoricalItem } from './historical-release.js';
 
 export interface HeldAppTarget {
   executionId: string; unknownHead: string; packetDigest: string; artifactDigest: string;
@@ -13,7 +15,7 @@ export interface HeldAppTarget {
   createAckDigest: string; heldReceiptDigest: string;
 }
 export interface HeldAppBinding extends HeldAppTarget { workflowRevision: string }
-export interface HeldProbeIo { read(path: string): Promise<unknown>; download(id: number): Promise<Buffer> }
+export interface HeldProbeIo { read(path: string): Promise<unknown>; download(id: number): Promise<Buffer>; diagnostics?: ChecksDiagnostics }
 export interface HeldAppProbeProof {
   version: 1; kind: 'github-held-app-live'; binding: HeldAppBinding; bindingDigest: string;
   workflowRun: string; artifactId: number; archiveDigest: string; receiptDigest: string;
@@ -100,12 +102,65 @@ export async function verifyHeldAppAcceptance(runId: string, target: HeldAppTarg
   }
   return verifyProbe(runId, target, io, sourceDigests, signal, heldAppPolicy, gate, retained) as Promise<HeldAppAcceptanceProof>;
 }
+export interface HistoricalFinalAcceptance {
+  version: 1; kind: 'historical-final-acceptance'; recordId: number; outcomeHash: string; proof: HeldAppAcceptanceProof;
+}
+export function validateHistoricalPreimages(): void {
+  const evidence = historicalReleaseEvidence, accepted = evidence.finalAccepted, proof = accepted.proof;
+  if (accepted.binding.basisHead !== heldD2.head || accepted.binding.candidate !== heldD2.candidate
+    || accepted.binding.packetDigest !== heldAppPolicy.packetDigest || accepted.binding.artifactDigest !== heldAppPolicy.artifactDigest) refuse();
+  let head: string = heldD2.head;
+  const kinds = ['intent', 'authorized', 'started', 'acknowledged', 'candidate-attested', 'promotion-intent', 'outcome', 'confirming', 'remote-confirmed'];
+  if (evidence.appEvents.length !== kinds.length) refuse();
+  for (const [index, row] of evidence.appEvents.entries()) {
+    const { sha256: hash, ...body } = row;
+    if (row.version !== 1 || row.packetDigest !== heldAppPolicy.packetDigest || row.sequence !== 23 + index
+      || row.phase !== 'app' || row.kind !== kinds[index] || row.previousHash !== head || sha256(canonical(body)) !== hash) refuse();
+    head = hash;
+  }
+  const rows = evidence.appEvents;
+  if (canonical(rows[0].value) !== canonical({ outcome: 'unknown' }) || canonical(rows[1].value) !== canonical({ intentHash: rows[0].sha256 })
+    || canonical(rows[2].value) !== canonical({ outcome: 'unknown' }) || canonical(rows[3].value) !== canonical({ deploymentId: heldD2.candidate })
+    || canonical(rows[4].value) !== canonical({ deploymentId: heldD2.candidate, configDigest: heldD2.configDigest })
+    || canonical(rows[5].value) !== canonical({ deploymentId: heldD2.candidate })) refuse();
+  if (canonical(rows[6].value) !== canonical({ result: 'confirmed', databaseOutcome: 'not_started', count: 1,
+    deploymentId: heldD2.candidate, reportDigest: sha256(canonical(accepted)) })
+    || canonical(rows[7].value) !== canonical({ outcomeHash: rows[6].sha256 })
+    || canonical(rows[8].value) !== canonical({ outcomeHash: rows[6].sha256 })
+    || evidence.accepted.status.description !== `activation:app:outcome:${rows[6].sha256}`) refuse();
+  const ack = record(JSON.parse(evidence.promotionAck));
+  if (canonical(ack.binding) !== canonical(accepted.binding) || ack.intentHead !== rows[5].sha256 || ack.code !== 0 || ack.aborted !== false
+    || proof.gate.stage !== 'final' || proof.gate.head !== ack.intentHead || proof.gate.claimDigest !== sha256(evidence.promotionAck)
+    || proof.gate.controllerRevision !== accepted.binding.capability.controllerPublication.revision
+    || canonical(proof.sourceDigests) !== canonical(accepted.binding.capability.sourceDigests)
+    || failedPreflightStatus(evidence.failed.proof).description !== evidence.failed.status.description) refuse();
+}
+export function validateHistoricalRecord(item: HistoricalItem): void {
+  const evidence = historicalReleaseEvidence, accepted = item.entry.id === evidence.accepted.id;
+  const selected = accepted ? evidence.accepted : evidence.failed;
+  if (item.entry.id !== selected.id || item.entry.sha !== heldAppPolicy.revision || item.entry.task !== 'deploy:esty-be-ci'
+    || item.entry.environment !== 'be-production' || item.entry.production_environment !== true) refuse();
+  const p = record(item.entry.payload);
+  if (canonical(Object.keys(p).sort()) !== canonical(['version', 'revision', 'tree', 'run', 'artifact', 'sourceDigest', 'migrationDigest', 'project', 'activationPacket', 'activationRun'].sort())
+    || p.version !== 1 || p.revision !== heldAppPolicy.revision || p.tree !== heldAppPolicy.tree || p.artifact !== heldAppPolicy.artifactDigest
+    || p.sourceDigest !== heldAppPolicy.sourceDigest || p.project !== heldAppPolicy.project
+    || p.run !== (accepted ? evidence.accepted.run : evidence.failed.proof.workflowRun)
+    || p.activationRun !== (accepted ? evidence.accepted.activationRun : evidence.failed.proof.activationRun)
+    || p.activationPacket !== (accepted ? heldAppPolicy.packetDigest : evidence.failed.proof.packetDigest)
+    || p.migrationDigest !== '149cb530551c0f0e2b734c1aa1086eac5615e01ebca152a8203490c8d93200c3'
+    || !Object.entries(selected.status).every(([key, value]) => item.status[key] === value)) refuse();
+}
 export async function verifyHistoricalFinalAcceptance(current: { revision: string; tree: string },
-  io: HeldProbeIo, signal: AbortSignal): Promise<HeldAppAcceptanceProof> {
-  const selected = historicalReleaseEvidence.finalAccepted, expected = selected.proof;
+  io: HeldProbeIo, signal: AbortSignal): Promise<HistoricalFinalAcceptance> {
+  validateHistoricalPreimages(); signal.throwIfAborted();
+  const evidence = historicalReleaseEvidence, selected = evidence.finalAccepted, expected = selected.proof;
   if (Object.keys(current).sort().join(',') !== 'revision,tree'
     || !/^[a-f0-9]{40}$/.test(current.revision) || !/^[a-f0-9]{40}$/.test(current.tree)
     || current.revision === expected.binding.workflowRevision) refuse();
+  const entryPath = `/deployments/${evidence.accepted.id}`, statusPath = `${entryPath}/statuses?per_page=100`;
+  const entry = record(await io.read(entryPath)), statuses = await io.read(statusPath);
+  if (!Array.isArray(statuses) || statuses.length < 1 || statuses.length >= 100) refuse();
+  validateHistoricalRecord({ entry, status: record(statuses[0]) });
   const publication = record(await io.read(`/commits/${expected.binding.workflowRevision}`));
   if (publication.sha !== selected.binding.capability.controllerPublication.revision
     || record(record(publication.commit).tree).sha !== selected.binding.capability.controllerPublication.tree) refuse();
@@ -113,8 +168,11 @@ export async function verifyHistoricalFinalAcceptance(current: { revision: strin
   validateHeldD2Target(target); validateHeldD2Gate(expected.gate, 'final', expected.binding.workflowRevision);
   const observed = await verifyProbe(expected.workflowRun, target, io, expected.sourceDigests, signal,
     heldAppPolicy, expected.gate, undefined, current);
-  if (canonical(observed) !== canonical(expected)) refuse();
-  return observed as HeldAppAcceptanceProof;
+  if (canonical(observed) !== canonical(expected) || canonical(await io.read(entryPath)) !== canonical(entry)
+    || canonical(await io.read(statusPath)) !== canonical(statuses)) refuse();
+  signal.throwIfAborted();
+  return { version: 1, kind: 'historical-final-acceptance', recordId: evidence.accepted.id,
+    outcomeHash: evidence.appEvents[6].sha256, proof: observed as HeldAppAcceptanceProof };
 }
 async function verifyProbe(runId: string, target: HeldAppTarget, io: HeldProbeIo, sourceDigests: Readonly<Record<string, string>>,
   signal: AbortSignal, policy: HeldAppPolicy, gate?: HeldAcceptanceGate,
@@ -125,16 +183,18 @@ async function verifyProbe(runId: string, target: HeldAppTarget, io: HeldProbeIo
   if (!/^[1-9][0-9]{0,19}$/.test(runId) || canonical(Object.keys(sourceDigests).sort()) !== canonical([...sources].sort())
     || Object.values(sourceDigests).some(value => !/^[a-f0-9]{64}$/.test(value))) refuse();
   const read = async (path: string) => { signal.throwIfAborted(); const value = await io.read(path); signal.throwIfAborted(); return value; };
-  const variable = record(await read(variablePath));
-  if (variable.name !== heldBindingVariable || typeof variable.value !== 'string' || Buffer.byteLength(variable.value) > 65536) refuse();
-  const binding = record(JSON.parse(variable.value));
+  // Only the dedicated historical entry point reaches this branch, after authenticating
+  // the fixed remote outcome and its complete code-owned preimage chain.
+  const variable = historicalCurrent ? undefined : record(await read(variablePath));
+  if (!historicalCurrent && (variable?.name !== heldBindingVariable || typeof variable.value !== 'string' || Buffer.byteLength(variable.value) > 65536)) refuse();
+  const binding = historicalCurrent ? historicalReleaseEvidence.finalAccepted.proof.binding : record(JSON.parse(variable!.value));
   if (!/^[a-f0-9]{40}$/.test(binding.workflowRevision ?? '')) refuse();
   const revision = binding.workflowRevision as string;
   const gatePath = `/environments/be-production/variables/${heldD2.gateVariable}`;
-  const gateResource = gate ? record(await read(gatePath)) : undefined;
-  if (gate && (revision !== gate.controllerRevision || gateResource?.name !== heldD2.gateVariable
+  const gateResource = gate && !historicalCurrent ? record(await read(gatePath)) : undefined;
+  if (gate && (revision !== gate.controllerRevision || (!historicalCurrent && (gateResource?.name !== heldD2.gateVariable
     || typeof gateResource.value !== 'string' || Buffer.byteLength(gateResource.value) > 65536
-    || canonical(JSON.parse(gateResource.value)) !== canonical(gate))) refuse();
+    || canonical(JSON.parse(gateResource.value)) !== canonical(gate))))) refuse();
   const source = async (path: string, sourceRevision = revision): Promise<Buffer> => {
     const file = record(await read(`/contents/${path}?ref=${sourceRevision}`));
     if (file.type !== 'file' || file.path !== path || file.encoding !== 'base64' || typeof file.content !== 'string'
@@ -179,14 +239,19 @@ async function verifyProbe(runId: string, target: HeldAppTarget, io: HeldProbeIo
   const bytes = await io.download(artifact.id); signal.throwIfAborted();
   if (bytes.length !== artifact.size_in_bytes) refuse();
   const archiveDigest = (artifact.digest as string).slice(7);
-  const receipt = validateHeldProbeArchive(bytes, archiveDigest), bindingDigest = sha256(canonical(binding));
+  const receipt = io.diagnostics
+    ? io.diagnostics.sync('github.archive.held', () => validateHeldProbeArchive(bytes, archiveDigest, io.diagnostics))
+    : validateHeldProbeArchive(bytes, archiveDigest);
+  const bindingDigest = sha256(canonical(binding));
   const expected = { version: 1, kind: gate ? 'held-app-acceptance' : 'held-app-live', bindingDigest,
     workflowRevision: revision, workflowRun: runId, status: 200, configDigestMatch: true, bodyStatus: 'ok',
     ...(gate ? { stage: gate.stage, gateDigest: sha256(canonical(gate)), acceptance: 'passed' } : {}) };
   if (canonical(receipt) !== canonical(expected)) refuse();
-  const after = record(await read(variablePath));
-  if (canonical(after) !== canonical(variable)) refuse();
-  if (gate && canonical(await read(gatePath)) !== canonical(gateResource)) refuse();
+  if (!historicalCurrent) {
+    const after = record(await read(variablePath));
+    if (canonical(after) !== canonical(variable)) refuse();
+    if (gate && canonical(await read(gatePath)) !== canonical(gateResource)) refuse();
+  }
   await checkMain(); checkRun(record(await read(runPath)));
   if ((retained || historicalCurrent) && canonical(await read(`${runPath}/artifacts?per_page=100`)) !== canonical(listing)) refuse();
   const base = { version: 1 as const, binding: binding as HeldAppBinding, bindingDigest,

@@ -21,6 +21,7 @@ import { heldRetainedCandidate } from '../scripts/activation-held-proof.js';
 import type { HeldDatabaseRepairContext } from '../scripts/activation-held-database-repair.js';
 import historicalProvenance from './fixtures/historical-release-provenance.json' with { type: 'json' };
 import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
+import { retainedActivation, retainedHistoricalArchive } from '../scripts/activation-retained.mjs';
 
 // Public synthetic GitHub responses; no token, account access or candidate HTTP.
 export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, candidate: 'dpl_SyntheticHeldApp',
@@ -102,6 +103,43 @@ export function historicalProofFixture(current: { revision: string; tree: string
     commit: { tree: { sha: selected.binding.capability.controllerPublication.tree } } };
   const main = { sha: current.revision, commit: { tree: { sha: current.tree } } };
   values['/commits/main'] = main;
+  const evidence = historicalReleaseEvidence, retention = retainedHistoricalArchive;
+  const records = [evidence.accepted, evidence.failed].map(item => {
+    const accepted = item.id === evidence.accepted.id;
+    const entry = { id: item.id, sha: heldAppPolicy.revision, task: 'deploy:esty-be-ci', environment: 'be-production',
+      production_environment: true, payload: { version: 1, revision: heldAppPolicy.revision, tree: heldAppPolicy.tree,
+        run: accepted ? evidence.accepted.run : evidence.failed.proof.workflowRun,
+        artifact: heldAppPolicy.artifactDigest, sourceDigest: heldAppPolicy.sourceDigest,
+        migrationDigest: '149cb530551c0f0e2b734c1aa1086eac5615e01ebca152a8203490c8d93200c3', project: heldAppPolicy.project,
+        activationPacket: accepted ? heldAppPolicy.packetDigest : evidence.failed.proof.packetDigest,
+        activationRun: accepted ? evidence.accepted.activationRun : evidence.failed.proof.activationRun } };
+    values[`/deployments/${item.id}`] = entry;
+    values[`/deployments/${item.id}/statuses?per_page=100`] = [item.status];
+    return { entry, status: structuredClone(item.status) };
+  });
+  const entryPath = `/deployments/${evidence.accepted.id}`, statusPath = `${entryPath}/statuses?per_page=100`;
+  const api = `https://api.github.com/repos/${retention.repository}`, releasePath = `/releases/tags/${retention.tag}`;
+  const published = new Date(Date.now() - 60000).toISOString();
+  const release = { id: 9000, url: `${api}/releases/9000`, assets_url: `${api}/releases/9000/assets`,
+    html_url: `https://github.com/${retention.repository}/releases/tag/${retention.tag}`,
+    tag_name: retention.tag, target_commitish: retention.revision, draft: false, prerelease: false,
+    published_at: published, created_at: published, updated_at: published,
+    assets: [{ id: 9001, url: `${api}/releases/assets/9001`,
+      browser_download_url: `https://github.com/${retention.repository}/releases/download/${retention.tag}/${retention.asset}`,
+      name: retention.asset, state: 'uploaded', content_type: 'application/zip', size: retention.size,
+      digest: `sha256:${retention.zipDigest}`, created_at: published, updated_at: published, download_count: 0 }] };
+  const tagPath = `/git/ref/tags/${retention.tag}`;
+  const tag = { ref: `refs/tags/${retention.tag}`, url: `${api}/git/refs/tags/${retention.tag}`,
+    object: { type: 'commit', sha: retention.revision, url: `${api}/git/commits/${retention.revision}` } };
+  values[releasePath] = release; values[tagPath] = tag;
+  values[`/commits/${retention.revision}`] = { sha: retention.revision, commit: { tree: { sha: heldAppPolicy.tree } } };
+  const producer = { id: Number(retainedActivation.runId), run_attempt: 1, status: 'completed', conclusion: 'success',
+    head_sha: retention.revision, head_branch: 'main', event: 'push', path: retainedActivation.workflowPath,
+    repository: { full_name: retention.repository }, head_repository: { full_name: retention.repository } };
+  const jobs = { total_count: 1, jobs: [{ id: Number(retainedActivation.checksJobId), name: 'BE required checks',
+    run_id: producer.id, run_attempt: 1, head_sha: retention.revision, status: 'completed', conclusion: 'success' }] };
+  values[`/actions/runs/${retainedActivation.runId}`] = producer;
+  values[`/actions/runs/${retainedActivation.runId}/jobs?filter=all&per_page=100`] = jobs;
   const setSource = (path: string, bytes: Buffer) => {
     values[`/contents/${path}?ref=${proof.binding.workflowRevision}`] = { type: 'file', path, encoding: 'base64', size: bytes.length,
       content: bytes.toString('base64'), sha: createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex') };
@@ -125,7 +163,8 @@ export function historicalProofFixture(current: { revision: string; tree: string
     },
   };
   const { workflowRevision: _revision, ...target } = proof.binding;
-  return { io, values, archives, reads, downloads, main, finalRun, listing, variablePath, gatePath, proof, target, setSource };
+  return { io, values, archives, reads, downloads, main, finalRun, listing, variablePath, gatePath, proof, target, setSource,
+    records, entryPath, statusPath, releasePath, release, tagPath, tag, producer, jobs };
 }
 
 // Historical hashes and inode-bound origin stay real/read-only. Only new public output paths

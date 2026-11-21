@@ -58,7 +58,7 @@ export function safeReleaseError(error: unknown): string {
     const code = (error as NodeJS.ErrnoException).code;
     const safeCode = typeof code === 'string' && /^(?:EACCES|EPERM|ENOENT|ELOOP|ENOSPC|EIO|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ABORT_ERR|ERR_ASSERTION|ERR_OUT_OF_RANGE|28P01|57014|40001)$/.test(code) ? code : 'omitted';
     const locations = (error.stack ?? '').slice(0, 65536).split('\n').slice(1, 33).flatMap(line => {
-      const match = line.match(/(?:\/|\\)((?:ci-delivery|ci-provider|ci-tools|ci-migrations|checks-diagnostics|routine-retained|activation-retained|etsy-release|hosted-acceptance|vercel-deploy|artifact|ci|release-journal|private-files|migrations|bounded|ci\.test|etsy\.test|integration\.test|release\.test)\.(?:m?js|ts)):(\d{1,8}):(\d{1,8})\)?$/);
+      const match = line.match(/(?:\/|\\)((?:ci-delivery|ci-provider|ci-tools|ci-migrations|checks-diagnostics|routine-retained|activation-retained|activation-preflight-disposition|activation-held-proof|historical-release|etsy-release|hosted-acceptance|vercel-deploy|artifact|ci|release-journal|private-files|migrations|bounded|ci\.test|etsy\.test|integration\.test|release\.test)\.(?:m?js|ts)):(\d{1,8}):(\d{1,8})\)?$/);
       return match ? [`    at ${match[1]}:${match[2]}:${match[3]}`] : [];
     });
     parts.push(`[REDACTED error message; untrusted provider/SQL payload; code=${safeCode}]\n${locations.join('\n')}`);
@@ -142,6 +142,7 @@ export class ChecksDiagnostics {
         const pattern = /^(?:actual|expected)Revision$/.test(key) ? /^[a-f0-9]{40}$/
           : /^(?:actual|expected)Id$/.test(key) ? /^(?:[1-9][0-9]{0,15}|dpl_[A-Za-z0-9]{1,124})$/
           : /^(?:actual|expected)Mode$/.test(key) ? /^(?:current-schema-only|versioned-migration|etsy-strict-cutover|activation)$/
+          : key === 'route' ? /^(?:artifact-metadata|run-metadata|run-jobs|run-artifacts|deployment|deployment-statuses|environment-binding|environment-gate|source-content|commit|artifact-download|artifact-blob|release-metadata|release-tag|release-asset|release-blob|unclassified)$/
           : /^(?:actual|expected)Context$/.test(key) ? /^(?:true|false|workflow_dispatch|push|pull_request|pull_request_target|be-production|preview|refs\/heads\/main|khuonghuyhieu\/esty-admin|khuonghuyhieu\/esty-admin\/\.github\/workflows\/be-delivery\.yml@refs\/heads\/main|[1-9][0-9]{0,2})$/ : null;
         if (pattern?.test(value)) metadata[key] = safeChecksText(value, this.secrets);
         else metadata[`${key}Omitted`] = true;

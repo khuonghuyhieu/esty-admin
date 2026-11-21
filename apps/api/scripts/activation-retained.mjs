@@ -14,6 +14,12 @@ export const retainedActivation = Object.freeze({
   zipDigest: 'adf6b726971c34a2086a0d915f09ae91c595fdf6b1e92f95b5c5a939f99f67d2',
   project: 'prj_uITHKLUGGE98VxrEcs5FoktBbcls', scope: 'team_k2Hk4wx5XAb9Mgc6lP5AjVhf', target: 'supabase:eotmpaliqcxxcotrcols',
 });
+// Separately approved archival transport; never an Actions freshness override.
+export const retainedHistoricalArchive = Object.freeze({
+  version: 1, kind: 'github-release-archive', repository: retainedActivation.repository,
+  tag: 'retained-be-f162c8db8ec149724c0a25537a4a0674bd012035', revision: retainedActivation.revision,
+  asset: 'be-tested-42404748672-1.zip', size: 13293825, zipDigest: retainedActivation.zipDigest,
+});
 const pin = retainedActivation, hex = /^[a-f0-9]{64}$/, commit = /^[a-f0-9]{40}$/;
 const maximumArchive = 64 * 1024 * 1024;
 function refuse() { throw new Error('Retained activation identity or prerequisite differs.'); }
@@ -81,12 +87,32 @@ export function loadManualContext(env = process.env) {
   if (!env.GITHUB_EVENT_PATH) refuse();
   return manualContext(env, JSON.parse(plainFile(env.GITHUB_EVENT_PATH, 1024 * 1024).toString('utf8')));
 }
+// Classify endpoints, never echo a caller path, query, variable value or arbitrary ID.
+function githubRoute(path) {
+  if (/^\/actions\/artifacts\/[1-9][0-9]*$/.test(path)) return 'artifact-metadata';
+  if (/^\/actions\/runs\/[1-9][0-9]*$/.test(path)) return 'run-metadata';
+  if (/^\/actions\/runs\/[1-9][0-9]*\/(?:attempts\/[1-9][0-9]*\/jobs\?per_page=100|jobs\?filter=all&per_page=100)$/.test(path)) return 'run-jobs';
+  if (/^\/actions\/runs\/[1-9][0-9]*\/artifacts\?per_page=100$/.test(path)) return 'run-artifacts';
+  if (/^\/deployments\/[1-9][0-9]*$/.test(path)) return 'deployment';
+  if (/^\/deployments\/[1-9][0-9]*\/statuses(?:\?per_page=100(?:&page=[1-9][0-9]*)?)?$/.test(path)) return 'deployment-statuses';
+  if (path === '/environments/be-production/variables/BE_D1_HELD_APP_BINDING') return 'environment-binding';
+  if (path === '/environments/be-production/variables/BE_D2_APP_ACCEPTANCE_GATE') return 'environment-gate';
+  if (path.startsWith('/contents/')) return 'source-content';
+  if (/^\/commits\/(?:main|[a-f0-9]{40})$/.test(path)) return 'commit';
+  if (path === `/releases/tags/${retainedHistoricalArchive.tag}`) return 'release-metadata';
+  if (path === `/git/ref/tags/${retainedHistoricalArchive.tag}`) return 'release-tag';
+  if (/^\/releases\/assets\/[1-9][0-9]*$/.test(path)) return 'release-asset';
+  return 'unclassified';
+}
 export function githubReader(token, signal, transport = fetch, diagnostics) {
   diagnostics?.registerSecrets([token ?? '']);
   diagnostics?.check('github.credential-shape', /^[\x21-\x7e]{16,512}$/.test(token ?? ''), 'credential-absent-or-invalid');
   if (!/^[\x21-\x7e]{16,512}$/.test(token ?? '')) refuse();
   return async path => {
     if (typeof path !== 'string' || !path.startsWith('/') || path.includes('..') || /[\\\u0000-\u0020#]/.test(path)) refuse();
+    const metadata = diagnostics ? { route: githubRoute(path),
+      ...(path === `/actions/artifacts/${pin.artifactId}` ? { actualId: pin.artifactId } : {}) } : undefined;
+    diagnostics?.event('github.request', 'started', 'read-started', metadata);
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
     const send = async () => {
       try {
@@ -96,12 +122,19 @@ export function githubReader(token, signal, transport = fetch, diagnostics) {
         });
       } catch (cause) {
         diagnostics?.event('github.transport', 'failed', requestSignal.aborted ? 'timeout-or-cancel' : 'transport-error',
-          { aborted: requestSignal.aborted, callerAborted: signal.aborted }, cause); throw cause;
+          { ...metadata, aborted: requestSignal.aborted, callerAborted: signal.aborted },
+          diagnostics?.scope === 'release' ? cause : undefined); throw cause;
       }
     };
-    const response = diagnostics ? await diagnostics.boundary('github.request', send) : await send();
-    diagnostics?.check('github.http-status', response.status === 200 && !response.redirected && Boolean(response.body),
-      'unexpected-status-redirect-or-empty-body', { actual: response.status, expected: 200, redirected: response.redirected });
+    const response = await send();
+    diagnostics?.event('github.request', 'passed', 'response-received', { ...metadata,
+      actual: response.status, redirected: response.redirected, bodyPresent: Boolean(response.body) });
+    diagnostics?.check('github.http-status', response.status === 200, 'unexpected-status',
+      { ...metadata, actual: response.status, expected: 200, redirected: response.redirected, bodyPresent: Boolean(response.body) });
+    if (response.status === 200) {
+      diagnostics?.check('github.no-redirect', !response.redirected, 'unexpected-redirect', { ...metadata, redirected: response.redirected });
+      if (!response.redirected) diagnostics?.check('github.body-present', Boolean(response.body), 'empty-body', { ...metadata, bodyPresent: Boolean(response.body) });
+    }
     if (response.status !== 200 || response.redirected || !response.body) { await response.body?.cancel(); refuse(); }
     const reader = response.body.getReader(), chunks = []; let total = 0;
     try {
@@ -109,17 +142,26 @@ export function githubReader(token, signal, transport = fetch, diagnostics) {
         const { done, value } = await reader.read(); if (done) break;
         total += value.length;
         if (total > 8 * 1024 * 1024) {
-          diagnostics?.event('github.body-size', 'failed', 'response-exceeds-bound', { actual: total, maximum: 8 * 1024 * 1024 });
+          diagnostics?.event('github.body-size', 'failed', 'response-exceeds-bound', { ...metadata, actual: total, maximum: 8 * 1024 * 1024 });
           await reader.cancel(); refuse();
         }
         chunks.push(value);
       }
     } catch (cause) {
-      diagnostics?.event('github.body', 'failed', requestSignal.aborted ? 'timeout-or-cancel' : 'body-read-failed', { bytes: total }, cause); throw cause;
+      diagnostics?.event('github.body', 'failed', requestSignal.aborted ? 'timeout-or-cancel' : 'body-read-failed',
+        { ...metadata, bytes: total, aborted: requestSignal.aborted, callerAborted: signal.aborted },
+        diagnostics?.scope === 'release' ? cause : undefined); throw cause;
     } finally { reader.releaseLock(); }
-    diagnostics?.event('github.body', 'passed', 'bounded-body-read-payload-omitted', { bytes: total });
-    return diagnostics ? diagnostics.sync('github.json-parse', () => JSON.parse(Buffer.concat(chunks, total).toString('utf8')))
-      : JSON.parse(Buffer.concat(chunks, total).toString('utf8'));
+    diagnostics?.event('github.body', 'passed', 'bounded-body-read-payload-omitted', { ...metadata, bytes: total });
+    diagnostics?.event('github.json-parse', 'started', 'parse-started', metadata);
+    try {
+      const value = JSON.parse(Buffer.concat(chunks, total).toString('utf8'));
+      diagnostics?.event('github.json-parse', 'passed', 'json-parsed-payload-omitted', metadata);
+      return value;
+    } catch (cause) {
+      diagnostics?.event('github.json-parse', 'failed', 'invalid-json', metadata, diagnostics?.scope === 'release' ? cause : undefined);
+      throw cause;
+    }
   };
 }
 function workflowPath(value) { return [pin.workflowPath, `${pin.workflowPath}@main`, `${pin.workflowPath}@refs/heads/main`].includes(value); }

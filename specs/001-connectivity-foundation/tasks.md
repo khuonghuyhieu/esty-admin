@@ -1,5 +1,39 @@
 # Tasks: Connectivity foundation
 
+## Confirmed P2 — fix-only maintained readback coverage
+
+Root's actual t1dw review found **ONE P2**: metadata readback drift/counter acceptance lacked maintained regression tests. [Bounded approach and fixture dependency](plan.md#confirmed-p2--maintained-historical-metadata-readback-regression). Preserve original review history, manifest4058b4… and49 evidence files; actual previous maximum258.
+
+- [x] T259 [US9] Verify the frozen ten-path baseline and49 evidence hashes; record the confirmed P2 and test-only approach before editing the maintained suite.
+- [x] T260 [US9] Extracted the unchanged metadata-only read/recheck closure for production and maintained tests;12 child cases/3 parents cover Release/asset drift, counter-only acceptance, uniqueness/cancellation and the real consumed-lineage provider POST/replay fence. Compiler0; targeted126/126 with0 skips; one justified exact full suite818 total/816 pass/0 fail/2 unchanged skips.
+- [x] T261 [US9] Freeze the four-path FIX_ONLY delta, protected remaining implementation hashes, preserved49 evidence files, exact commands/results/limits/timing and owned cleanup at READY_FOR_P2_FIX_ONLY_INSPECTION / STOP WRITES / NO_INFLIGHT. Original review remains ONE P2; root's same-reviewer one-finding inspection is pending, not accepted.
+
+## Complete historical release readiness — bounded two-gate tasks
+
+Owner START on mainfb847f36099d6c4fcebec7727a227343221e218e plus the accepted nine-path diagnostic increment; actual previous maximum251. [Root decisions A/B, conjunction and publication handoff](plan.md#complete-historical-release-readiness--approved-two-gate-contract). Existing29 evidence files and all historical receipts/failures remain immutable.
+
+- [x] T252 [US9] Verify the accepted baseline/review, read affected contracts and amend this existing plan before source changes; preserve UNKNOWN original incident route/status.
+- [x] T253 [US9] Dedicated historical acceptance authenticates the fixed remote outcome and code-owned preimages without protected ENV reads; ordinary protected-resource proof and actual current-main/old-source guards remain enforced.
+- [x] T254 [US9] Fixed Release retention verifies tag/source/publication/unique asset/actual bytes with bounded safe transport, request binding and fresh full-metadata readback excluding only download counters; exact public upload/instructions prepared, PUBLICATION_PENDING.
+- [x] T255 [US9] Retained corrected failing-before evidence for both gates and earlier harness setup failure; existing suites cover metadata/bytes/redirect/default expiry/protected proof/preimages/unknown/replay/concurrency and first-failure/effect fences. Affected209/209 passes; actual-public-archive refusal/readback checks pass separately.
+- [x] T256 [US9] ONE successful emitted full-first strict3→4 journey uses the actual public ZIP and original receipt preimages: schema3→held pending503→one fourth-migration SQL call→same-ID ready200/promotion/final ACK. Real sockets/network and protected ENV reads0; synthetic CREATE1/promotion1; consumed lineage refuses archival replay. Three harness failures remain evidence.
+- [x] T257 [US9] Final compiler0; exact seven-file suite803 total/801 pass/0 fail/2 unchanged skips, including isolated staged-operator import/CLI closure. Final readback tightening separately passes11 real-archive refusal boundaries plus counter-change admission. Initial compiler/test-harness failures and exact commands/counts are retained.
+- [x] T258 [US9] Freeze ten-path per-delta/combined accepted-baseline hashes, preserved29 prior evidence files, actual checks/limits and owned cleanup at READY_FOR_RELEASE_READINESS_REVIEW / STOP WRITES / NO_INFLIGHT. Fixed Release asset PUBLICATION_PENDING belongs to root; root alone starts the reserved scoped review, with no operational acceptance inferred.
+
+**Evidence:** [Two-gate source-local completion, failures and limits](plan.md#two-gate-source-local-completion-evidence--2026-11-21). Exact commands, hashes, elapsed time and the reviewable public upload are indexed by the external release-readiness-review manifest linked there.
+
+## Historical GitHub I/O diagnostics — bounded source/local tasks
+
+Owner START on root-verified clean mainfb847f36099d6c4fcebec7727a227343221e218e; actual previous maximum246. [Incident, diagnostic design and independent permission/expiry gates](plan.md#historical-github-io-diagnostics-and-permission-contract). Preserve historical claims and every existing proof/effect guard.
+
+- [x] T247 [US9] Amend the existing plan before source edits; map the missing optional diagnostic link and distinguish the UNKNOWN original route/status from the documented Environments:read contract gap.
+- [x] T248 [US9] Failing-before emitted probe produced one synthetic403 and zero nested events; optional finite read/download/archive diagnostics now preserve guards, original errors/first failure and default unlogged callers.
+- [x] T249 [US9] Extended existing ci.test.ts with HTTP/body/timeout/JSON/archive boundaries, finite route/fixed public-ID projection, credential/signed-URL canaries, storage/console loss and backward-compatible behavior.
+- [x] T250 [US9] Initial/final compiler0; affected154 total/153 pass/0 fail/1 existing skip; exact final seven-file suite736 total/734 pass/0 fail/2 unchanged skips. ONE emitted historical refusal passed with real network denied, synthetic route/status first failure, zero POST and all effects not-started.
+- [x] T251 [US9] Freeze nine scoped source/document paths and external command/evidence hashes, unchanged protected files, actual counts/limits and owned cleanup at READY_FOR_HISTORICAL_IO_FIX_REVIEW / STOP WRITES / NO_INFLIGHT. Static Environments:read and elapsed recorded artifact-expiry gates remain unresolved; root alone starts the reserved review. No incident HTTP-status attribution or operational retry/readiness claim.
+
+**Evidence:** [Actual source-local checks and independent permission/expiry limits](plan.md#historical-io-source-local-evidence--2026-11-21). Exact commands, source/evidence hashes and timing are in the external historical-io-review manifest linked there.
+
 ## CI functional regression repair — bounded test-only tasks
 
 Root CONTINUE on root-verified clean maind1efe22; actual previous maximum241. [Problem, hypothesis and exact verification contract](plan.md#ci-functional-regression-repair--2026-11-21). Preserve all historical evidence and production guards.

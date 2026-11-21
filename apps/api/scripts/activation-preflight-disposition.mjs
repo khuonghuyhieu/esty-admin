@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { crc32, gunzipSync, inflateRawSync } from 'node:zlib';
-import { canonical, githubReader, retainedActivation } from './activation-retained.mjs';
+import { canonical, githubReader, retainedActivation, retainedHistoricalArchive } from './activation-retained.mjs';
 
 const pin = retainedActivation, task = 'deploy:esty-be-ci', environment = 'be-production';
 export const failedPreflightRun = '42847325668';
@@ -43,8 +43,13 @@ function positive(value) { return Number.isSafeInteger(value) && value > 0; }
 function equal(left, right) { return canonical(left) === canonical(right); }
 
 // Bounded, in-memory archive readers: no extraction, executable members, links, traversal or ZIP64.
-function zipMembers(bytes, approved, names = ['be-delivery-receipts.tar.gz', 'be-delivery-receipts.inventory-sha256', 'be-delivery-receipts.archive-sha256'], maximum = 65536) {
-  if (!Buffer.isBuffer(bytes) || bytes.length > maximum || hash(bytes) !== approved) refuse();
+function zipMembers(bytes, approved, names = ['be-delivery-receipts.tar.gz', 'be-delivery-receipts.inventory-sha256', 'be-delivery-receipts.archive-sha256'], maximum = 65536, diagnostics) {
+  const bounded = Buffer.isBuffer(bytes) && bytes.length <= maximum;
+  diagnostics?.check('github.archive-size', bounded, 'invalid-or-oversized-archive', { bytes: Buffer.isBuffer(bytes) ? bytes.length : null, maximum });
+  if (!bounded) refuse();
+  const digestMatches = hash(bytes) === approved;
+  diagnostics?.check('github.archive-hash', digestMatches, 'archive-digest-mismatch', { digestMatches });
+  if (!digestMatches) refuse();
   const end = bytes.lastIndexOf(Buffer.from('504b0506', 'hex'));
   if (end < 0 || end + 22 > bytes.length || end + 22 + bytes.readUInt16LE(end + 20) !== bytes.length
     || bytes.readUInt16LE(end + 4) || bytes.readUInt16LE(end + 6) || bytes.readUInt16LE(end + 8) !== names.length
@@ -74,19 +79,21 @@ function zipMembers(bytes, approved, names = ['be-delivery-receipts.tar.gz', 'be
   if (cursor !== end) refuse();
   return files;
 }
-export function validateHeldProbeArchive(bytes, approved) {
-  const members = zipMembers(bytes, approved, ['held-app-probe.json']);
+export function validateHeldProbeArchive(bytes, approved, diagnostics) {
+  const members = zipMembers(bytes, approved, ['held-app-probe.json'], 65536, diagnostics);
   return JSON.parse(members.get('held-app-probe.json').toString('utf8'));
 }
-export function validateRetainedArtifactArchive(bytes) {
-  const archive = zipMembers(bytes, pin.zipDigest, ['be-release.tar.gz'], 64 * 1024 * 1024).get('be-release.tar.gz');
-  if (hash(archive) !== pin.archiveDigest) refuse();
+export function validateRetainedArtifactArchive(bytes, diagnostics) {
+  const archive = zipMembers(bytes, pin.zipDigest, ['be-release.tar.gz'], 64 * 1024 * 1024, diagnostics).get('be-release.tar.gz');
+  const digestMatches = hash(archive) === pin.archiveDigest;
+  diagnostics?.check('github.archive-inner-hash', digestMatches, 'inner-archive-digest-mismatch', { digestMatches });
+  if (!digestMatches) refuse();
   return archive;
 }
-export function validatePreflightReceiptArchive(zip, approvedZip, expected) {
+export function validatePreflightReceiptArchive(zip, approvedZip, expected, diagnostics) {
   const { runId, packetDigest } = expected;
   if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(runId) || !hex.test(packetDigest)) refuse();
-  const members = zipMembers(zip, approvedZip), compressed = members.get('be-delivery-receipts.tar.gz');
+  const members = zipMembers(zip, approvedZip, undefined, 65536, diagnostics), compressed = members.get('be-delivery-receipts.tar.gz');
   const archiveLine = members.get('be-delivery-receipts.archive-sha256').toString('utf8');
   const inventoryLine = members.get('be-delivery-receipts.inventory-sha256').toString('utf8');
   if (!/^[a-f0-9]{64}  [^\r\n]*\/be-delivery-receipts\.tar\.gz\n$/.test(archiveLine)
@@ -176,8 +183,10 @@ export async function failedPreflightProof(io, intent, verifyArtifact) {
   if (!positive(artifact.id) || artifact.expired !== false || !positive(artifact.size_in_bytes) || artifact.size_in_bytes > 65536
     || !/^sha256:[a-f0-9]{64}$/.test(artifact.digest) || String(object(artifact.workflow_run).id) !== failedPreflightRun
     || artifact.workflow_run.head_sha !== run.head_sha) refuse();
-  const zip = await io.download(artifact.id), receipt = validatePreflightReceiptArchive(zip, artifact.digest.slice(7),
-    { runId: oldActivationRun, packetDigest: oldPacketDigest });
+  const zip = await io.download(artifact.id), expected = { runId: oldActivationRun, packetDigest: oldPacketDigest };
+  const receipt = io.diagnostics
+    ? io.diagnostics.sync('github.archive.preflight', () => validatePreflightReceiptArchive(zip, artifact.digest.slice(7), expected, io.diagnostics))
+    : validatePreflightReceiptArchive(zip, artifact.digest.slice(7), expected);
   if (zip.length !== artifact.size_in_bytes || receipt.journal !== entry.id) refuse();
   assertIntent(entry, receipt.packet);
   await verifyArtifact(receipt.packet);
@@ -190,17 +199,51 @@ export function failedPreflightStatus(proof) {
   return { state: 'error', description: `failed_preflight_no_effects:${hash(canonical(proof))}`, auto_inactive: false,
     log_url: `https://github.com/${pin.repository}/actions/runs/${failedPreflightRun}`, environment_url: 'https://api.lovora.us' };
 }
-export function manualGithubIo(token, signal, transport = fetch) {
-  const read = githubReader(token, signal, transport);
-  const bounded = async (response, limit) => {
+export function manualGithubIo(token, signal, transport = fetch, diagnostics) {
+  const read = githubReader(token, signal, transport, diagnostics);
+  const bounded = async (response, limit, downloadSignal, route = 'artifact-blob') => {
+    const trace = downloadSignal ? diagnostics : undefined;
+    trace?.check('github.download-status', response.status === 200, 'unexpected-status',
+      { route, actual: response.status, expected: 200, redirected: response.redirected, bodyPresent: Boolean(response.body) });
+    if (response.status === 200) {
+      trace?.check('github.download-no-redirect', !response.redirected, 'unexpected-redirect', { route, redirected: response.redirected });
+      if (!response.redirected) trace?.check('github.download-body-present', Boolean(response.body), 'empty-body', { route, bodyPresent: Boolean(response.body) });
+    }
     if (response.status !== 200 || response.redirected || !response.body) { await response.body?.cancel(); refuse(); }
     const reader = response.body.getReader(), chunks = []; let total = 0;
-    try { for (;;) { const { done, value } = await reader.read(); if (done) break; total += value.length; if (total > limit) { await reader.cancel(); refuse(); } chunks.push(value); } }
-    finally { reader.releaseLock(); }
+    try {
+      for (;;) {
+        const { done, value } = await reader.read(); if (done) break; total += value.length;
+        if (total > limit) {
+          trace?.event('github.download-size', 'failed', 'response-exceeds-bound', { route, actual: total, maximum: limit });
+          await reader.cancel(); refuse();
+        }
+        chunks.push(value);
+      }
+    } catch (cause) {
+      trace?.event('github.download-body', 'failed', downloadSignal.aborted ? 'timeout-or-cancel' : 'body-read-failed',
+        { route, bytes: total, aborted: downloadSignal.aborted, callerAborted: signal.aborted }, trace.scope === 'release' ? cause : undefined);
+      throw cause;
+    } finally { reader.releaseLock(); }
+    trace?.event('github.download-body', 'passed', 'bounded-body-read-payload-omitted', { route, bytes: total, maximum: limit });
     return Buffer.concat(chunks, total);
   };
   const options = () => ({ redirect: 'error', signal: AbortSignal.any([signal, AbortSignal.timeout(15000)]) });
-  return { read,
+  const downloadResponse = async (url, init, route, id) => {
+    const metadata = diagnostics ? { route, ...(route.startsWith('artifact-') && String(id) === pin.artifactId ? { actualId: pin.artifactId } : {}) } : undefined;
+    diagnostics?.event('github.download-request', 'started', 'download-started', metadata);
+    try {
+      const response = await transport(url, init);
+      diagnostics?.event('github.download-request', 'passed', 'response-received', { ...metadata,
+        actual: response.status, redirected: response.redirected, bodyPresent: Boolean(response.body) });
+      return response;
+    } catch (cause) {
+      diagnostics?.event('github.download-transport', 'failed', init.signal.aborted ? 'timeout-or-cancel' : 'transport-error',
+        { ...metadata, aborted: init.signal.aborted, callerAborted: signal.aborted }, diagnostics?.scope === 'release' ? cause : undefined);
+      throw cause;
+    }
+  };
+  return { read, ...(diagnostics ? { diagnostics } : {}),
     async post(path, body) {
       if (!/^\/deployments(?:\/[1-9][0-9]*\/statuses)?$/.test(path)) refuse();
       const response = await transport(`https://api.github.com/repos/${pin.repository}${path}`, { ...options(), method: 'POST',
@@ -211,14 +254,65 @@ export function manualGithubIo(token, signal, transport = fetch) {
     },
     async download(id, maximum = 65536) {
       if (!positive(id) || !Number.isSafeInteger(maximum) || maximum < 1 || maximum > 64 * 1024 * 1024) refuse();
-      const redirect = await transport(`https://api.github.com/repos/${pin.repository}/actions/artifacts/${id}/zip`, { ...options(), redirect: 'manual',
-        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' } });
-      const location = redirect.headers.get('location'); await redirect.body?.cancel();
+      const redirect = await downloadResponse(`https://api.github.com/repos/${pin.repository}/actions/artifacts/${id}/zip`, { ...options(), redirect: 'manual',
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' } }, 'artifact-download', id);
+      const location = redirect.headers.get('location');
+      diagnostics?.check('github.download-redirect-status', redirect.status === 302, 'unexpected-status',
+        { route: 'artifact-download', actual: redirect.status, expected: 302, redirected: redirect.redirected, locationPresent: Boolean(location) });
+      if (redirect.status === 302) diagnostics?.check('github.download-location', Boolean(location), 'missing-location',
+        { route: 'artifact-download', locationPresent: Boolean(location) });
+      await redirect.body?.cancel();
       if (redirect.status !== 302 || !location) refuse();
-      const url = new URL(location);
-      if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash
-        || ![ '.blob.core.windows.net', '.actions.githubusercontent.com' ].some(suffix => url.hostname.endsWith(suffix))) refuse();
-      return bounded(await transport(url.href, options()), maximum);
+      let url;
+      try { url = new URL(location); }
+      catch (cause) {
+        diagnostics?.event('github.download-location', 'failed', 'invalid-location', { route: 'artifact-download' },
+          diagnostics?.scope === 'release' ? cause : undefined); throw cause;
+      }
+      const allowedHost = [ '.blob.core.windows.net', '.actions.githubusercontent.com' ].some(suffix => url.hostname.endsWith(suffix));
+      const safeLocation = url.protocol === 'https:' && !url.username && !url.password && !url.port && !url.hash && allowedHost;
+      diagnostics?.check('github.download-host', safeLocation, 'unapproved-location', { route: 'artifact-download', allowedHost, safeLocation });
+      if (!safeLocation) refuse();
+      const blobOptions = options();
+      return bounded(await downloadResponse(url.href, blobOptions, 'artifact-blob', id), maximum, blobOptions.signal);
+    },
+    async downloadReleaseAsset(id) {
+      if (!positive(id)) refuse();
+      const requestOptions = options(), retained = retainedHistoricalArchive;
+      let route = 'release-asset';
+      let response = await downloadResponse(`https://api.github.com/repos/${pin.repository}/releases/assets/${id}`,
+        { ...requestOptions, redirect: 'manual', headers: { Authorization: `Bearer ${token}`,
+          Accept: 'application/octet-stream', 'X-GitHub-Api-Version': '2026-03-10' } }, route, id);
+      const statusAllowed = [200, 302].includes(response.status) && !response.redirected;
+      diagnostics?.check('github.release-status', statusAllowed, 'unexpected-status-or-redirect',
+        { route, actual: response.status, redirected: response.redirected, bodyPresent: Boolean(response.body) });
+      if (!statusAllowed) { await response.body?.cancel(); refuse(); }
+      if (response.status === 302) {
+        const location = response.headers.get('location');
+        diagnostics?.check('github.download-location', Boolean(location), 'missing-location', { route, locationPresent: Boolean(location) });
+        await response.body?.cancel();
+        if (!location) refuse();
+        let url;
+        try { url = new URL(location); }
+        catch (cause) {
+          diagnostics?.event('github.download-location', 'failed', 'invalid-location', { route },
+            diagnostics?.scope === 'release' ? cause : undefined); throw cause;
+        }
+        const allowedHost = url.hostname === 'release-assets.githubusercontent.com';
+        const safeLocation = url.protocol === 'https:' && !url.username && !url.password && !url.port && !url.hash && allowedHost;
+        diagnostics?.check('github.download-host', safeLocation, 'unapproved-location', { route, allowedHost, safeLocation });
+        if (!safeLocation) refuse();
+        route = 'release-blob';
+        response = await downloadResponse(url.href, requestOptions, route, id);
+      }
+      const bytes = await bounded(response, retained.size, requestOptions.signal, route);
+      const sizeMatches = bytes.length === retained.size;
+      diagnostics?.check('github.release-size', sizeMatches, 'archive-size-mismatch', { route, actual: bytes.length, expected: retained.size });
+      if (!sizeMatches) refuse();
+      const digestMatches = hash(bytes) === retained.zipDigest;
+      diagnostics?.check('github.release-hash', digestMatches, 'archive-digest-mismatch', { route, digestMatches });
+      if (!digestMatches) refuse();
+      return bytes;
     },
   };
 }

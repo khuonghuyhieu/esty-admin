@@ -6,20 +6,23 @@ import { canonical, removeArtifactTree, sha256, verifyArtifact } from './artifac
 import type { VerifiedArtifact } from './artifact.js';
 import { verifyActivationArtifact } from './activation-journal.js';
 import type { ActivationPacket } from './activation-journal.js';
-import { failedPreflightProof, failedPreflightStatus, validateRetainedArtifactArchive } from './activation-preflight-disposition.mjs';
-import { retainedActivation } from './activation-retained.mjs';
+import { failedPreflightProof, validateRetainedArtifactArchive } from './activation-preflight-disposition.mjs';
+import { retainedActivation, retainedHistoricalArchive } from './activation-retained.mjs';
 import { extractRoutineBundle } from './routine-retained.mjs';
-import { verifyHistoricalFinalAcceptance } from './activation-held-proof.js';
+import { verifyHistoricalFinalAcceptance, validateHistoricalPreimages, validateHistoricalRecord } from './activation-held-proof.js';
 import { heldAppPolicy, heldD2 } from './activation-held-contract.mjs';
 import { historicalReleaseEvidence as evidence } from './historical-release-evidence.js';
 import type { ReleaseRequest } from './ci-delivery.js';
 import { validateReleaseRequest } from './ci-delivery.js';
+import type { ChecksDiagnostics } from './checks-diagnostics.js';
 
-export const historicalHandoffDigest = sha256(canonical(evidence));
+export const historicalHandoffDigest = sha256(canonical({ evidence, retention: retainedHistoricalArchive }));
 export interface HistoricalItem { entry: Record<string, unknown>; status: Record<string, unknown> }
 export interface HistoricalIo {
   read(path: string): Promise<unknown>;
   download(id: number, maximum?: number): Promise<Buffer>;
+  downloadReleaseAsset?(id: number): Promise<Buffer>;
+  diagnostics?: ChecksDiagnostics;
 }
 export interface HistoricalPredecessor {
   id: string; revision: string; tree: string; artifactDigest: string; sourceDigest: string; configDigest: string;
@@ -40,51 +43,6 @@ function requireProof(condition: boolean, check: string): asserts condition {
 function equal(a: unknown, b: unknown): boolean { return canonical(a) === canonical(b); }
 export function historicalRecordId(id: unknown): boolean { return id === evidence.accepted.id || id === evidence.failed.id; }
 
-export function validateHistoricalPreimages(): void {
-  const accepted = evidence.finalAccepted, proof = accepted.proof;
-  requireProof(accepted.binding.basisHead === heldD2.head && accepted.binding.candidate === heldD2.candidate
-    && accepted.binding.packetDigest === heldAppPolicy.packetDigest && accepted.binding.artifactDigest === heldAppPolicy.artifactDigest,
-  'accepted-basis');
-  let head: string = heldD2.head;
-  const kinds = ['intent', 'authorized', 'started', 'acknowledged', 'candidate-attested', 'promotion-intent', 'outcome', 'confirming', 'remote-confirmed'];
-  requireProof(evidence.appEvents.length === kinds.length, 'app-event-count');
-  for (const [index, row] of evidence.appEvents.entries()) {
-    const { sha256: hash, ...body } = row;
-    requireProof(row.version === 1 && row.packetDigest === heldAppPolicy.packetDigest && row.sequence === 23 + index
-      && row.phase === 'app' && row.kind === kinds[index] && row.previousHash === head && sha256(canonical(body)) === hash, 'app-chain');
-    head = hash;
-  }
-  const rows = evidence.appEvents;
-  requireProof(equal(rows[0].value, { outcome: 'unknown' }) && equal(rows[1].value, { intentHash: rows[0].sha256 })
-    && equal(rows[2].value, { outcome: 'unknown' }) && equal(rows[3].value, { deploymentId: heldD2.candidate })
-    && equal(rows[4].value, { deploymentId: heldD2.candidate, configDigest: heldD2.configDigest })
-    && equal(rows[5].value, { deploymentId: heldD2.candidate }), 'app-transition');
-  requireProof(equal(rows[6].value, { result: 'confirmed', databaseOutcome: 'not_started', count: 1,
-    deploymentId: heldD2.candidate, reportDigest: sha256(canonical(accepted)) })
-    && equal(rows[7].value, { outcomeHash: rows[6].sha256 }) && equal(rows[8].value, { outcomeHash: rows[6].sha256 })
-    && evidence.accepted.status.description === `activation:app:outcome:${rows[6].sha256}`, 'app-outcome');
-  const ack = object(JSON.parse(evidence.promotionAck));
-  requireProof(equal(ack.binding, accepted.binding) && ack.intentHead === rows[5].sha256 && ack.code === 0 && ack.aborted === false
-    && proof.gate.stage === 'final' && proof.gate.head === ack.intentHead && proof.gate.claimDigest === sha256(evidence.promotionAck)
-    && proof.gate.controllerRevision === accepted.binding.capability.controllerPublication.revision
-    && equal(proof.sourceDigests, accepted.binding.capability.sourceDigests), 'promotion-final-binding');
-  requireProof(failedPreflightStatus(evidence.failed.proof).description === evidence.failed.status.description, 'failed-proof-commitment');
-}
-export function validateHistoricalRecord(item: HistoricalItem): void {
-  const accepted = item.entry.id === evidence.accepted.id;
-  const selected = accepted ? evidence.accepted : evidence.failed;
-  requireProof(item.entry.id === selected.id && item.entry.sha === heldAppPolicy.revision && item.entry.task === 'deploy:esty-be-ci'
-    && item.entry.environment === 'be-production' && item.entry.production_environment === true, 'record-identity');
-  const p = object(item.entry.payload);
-  requireProof(equal(Object.keys(p).sort(), ['version', 'revision', 'tree', 'run', 'artifact', 'sourceDigest', 'migrationDigest', 'project', 'activationPacket', 'activationRun'].sort())
-    && p.version === 1 && p.revision === heldAppPolicy.revision && p.tree === heldAppPolicy.tree && p.artifact === heldAppPolicy.artifactDigest
-    && p.sourceDigest === heldAppPolicy.sourceDigest && p.project === heldAppPolicy.project
-    && p.run === (accepted ? evidence.accepted.run : evidence.failed.proof.workflowRun)
-    && p.activationRun === (accepted ? evidence.accepted.activationRun : evidence.failed.proof.activationRun)
-    && p.activationPacket === (accepted ? heldAppPolicy.packetDigest : evidence.failed.proof.packetDigest)
-    && p.migrationDigest === '149cb530551c0f0e2b734c1aa1086eac5615e01ebca152a8203490c8d93200c3', 'record-payload');
-  requireProof(Object.entries(selected.status).every(([key, value]) => item.status[key] === value), 'latest-status');
-}
 export function historicalSnapshot(items: readonly HistoricalItem[]): string {
   return canonical(items.map(({ entry, status }) => ({ id: entry.id, sha: entry.sha, task: entry.task, environment: entry.environment,
     production_environment: entry.production_environment, payload: entry.payload,
@@ -138,6 +96,35 @@ async function consumedPredecessor(items: readonly HistoricalItem[], io: Histori
   }
   return previous;
 }
+// Metadata stability only; this reader does not grant historical admission.
+export function historicalMetadataReadback(io: HistoricalIo, signal: AbortSignal) {
+  const releasePath = `/releases/tags/${retainedHistoricalArchive.tag}`, snapshots = new Map<string, string>();
+  const proofIo: HistoricalIo = { diagnostics: io.diagnostics, download: (id, maximum) => io.download(id, maximum), async read(path) {
+    signal.throwIfAborted();
+    const value = await io.read(path);
+    if (/^\/(?:actions|deployments|commits|git|releases)\//.test(path)) {
+      let stable = value;
+      if (path === releasePath) {
+        const release = object(value);
+        requireProof(Array.isArray(release.assets) && release.assets.length === 1, 'retention-unique-asset');
+        // Download counters change during this read-only operation; byte/publication identity must not.
+        stable = { ...release, assets: release.assets.map(raw => {
+          const { download_count: _downloads, ...identity } = object(raw);
+          return identity;
+        }) };
+      }
+      const encoded = canonical(stable), prior = snapshots.get(path);
+      requireProof(prior === undefined || prior === encoded, 'proof-metadata-stable');
+      snapshots.set(path, encoded);
+    }
+    return value;
+  } };
+  const recheck = async () => {
+    for (const path of snapshots.keys()) await proofIo.read(path);
+  };
+  return { proofIo, recheck };
+}
+
 export async function proveHistoricalHandoff(items: readonly HistoricalItem[], request: ReleaseRequest, io: HistoricalIo,
   signal: AbortSignal): Promise<HistoricalAdmission> {
   validateHistoricalPreimages(); signal.throwIfAborted();
@@ -146,42 +133,53 @@ export async function proveHistoricalHandoff(items: readonly HistoricalItem[], r
   const acceptedRecord = accepted[0], failedRecord = failed[0];
   requireProof(accepted.length === 1 && failed.length === 1 && acceptedRecord !== undefined && failedRecord !== undefined, 'both-records-present');
   validateHistoricalRecord(acceptedRecord); validateHistoricalRecord(failedRecord);
-  const snapshots = new Map<string, string>();
-  const proofIo: HistoricalIo = { download: (id, maximum) => io.download(id, maximum), async read(path) {
-    signal.throwIfAborted();
-    const value = await io.read(path);
-    if (/^\/(?:actions|deployments|environments)\//.test(path)) {
-      const encoded = canonical(value), prior = snapshots.get(path);
-      requireProof(prior === undefined || prior === encoded, 'proof-metadata-stable');
-      snapshots.set(path, encoded);
-    }
-    return value;
-  } };
-  const recheck = async () => {
-    for (const [path, expected] of snapshots) {
-      signal.throwIfAborted();
-      requireProof(canonical(await io.read(path)) === expected, 'proof-metadata-stable');
-    }
-  };
+  const retention = retainedHistoricalArchive, releasePath = `/releases/tags/${retention.tag}`;
+  const api = `https://api.github.com/repos/${retention.repository}`;
+  const { proofIo, recheck } = historicalMetadataReadback(io, signal);
   const consumed = await consumedPredecessor(items, proofIo);
   if (consumed) {
     bindPredecessor(request, consumed.predecessor, consumed.request.schema.target);
     return { marker: { version: 1, evidenceDigest: historicalHandoffDigest, predecessorRecord: consumed.id,
       predecessor: consumed.predecessor }, recheck, async dispose() {} };
   }
-  const metaPath = `/actions/artifacts/${retainedActivation.artifactId}`, metadata = object(await proofIo.read(metaPath));
-  const artifactRun = object(metadata.workflow_run);
-  requireProof(typeof metadata.id === 'number' && String(metadata.id) === retainedActivation.artifactId
-    && metadata.name === `be-tested-${retainedActivation.runId}-1` && metadata.expired === false
-    && metadata.digest === `sha256:${retainedActivation.zipDigest}` && typeof metadata.size_in_bytes === 'number'
-    && Number.isSafeInteger(metadata.size_in_bytes) && metadata.size_in_bytes > 0 && metadata.size_in_bytes <= 64 * 1024 * 1024
-    && typeof metadata.expires_at === 'string' && Date.parse(metadata.expires_at) > Date.now()
-    && typeof metadata.created_at === 'string' && Date.parse(metadata.created_at) <= Date.now()
-    && String(artifactRun.id) === retainedActivation.runId && artifactRun.head_sha === heldAppPolicy.revision
-    && artifactRun.head_branch === 'main', 'legacy-artifact-metadata');
-  const zip = await io.download(metadata.id, 64 * 1024 * 1024); signal.throwIfAborted();
-  requireProof(zip.length === metadata.size_in_bytes, 'legacy-artifact-size');
-  const archive = validateRetainedArtifactArchive(zip), root = await mkdtemp(join(realpathSync(tmpdir()), 'esty-historical-proof-'));
+  const release = object(await proofIo.read(releasePath));
+  requireProof(typeof release.id === 'number' && Number.isSafeInteger(release.id) && release.id > 0
+    && release.url === `${api}/releases/${release.id}` && release.assets_url === `${api}/releases/${release.id}/assets`
+    && release.html_url === `https://github.com/${retention.repository}/releases/tag/${retention.tag}`
+    && release.tag_name === retention.tag && release.target_commitish === retention.revision
+    && release.draft === false && release.prerelease === false
+    && typeof release.published_at === 'string' && Number.isFinite(Date.parse(release.published_at))
+    && Date.parse(release.published_at) <= Date.now(), 'retention-publication');
+  requireProof(Array.isArray(release.assets) && release.assets.length === 1, 'retention-unique-asset');
+  const asset = object(release.assets[0]);
+  requireProof(typeof asset.id === 'number' && Number.isSafeInteger(asset.id) && asset.id > 0
+    && asset.url === `${api}/releases/assets/${asset.id}`
+    && asset.browser_download_url === `https://github.com/${retention.repository}/releases/download/${retention.tag}/${retention.asset}`
+    && asset.name === retention.asset && asset.state === 'uploaded' && asset.content_type === 'application/zip'
+    && asset.size === retention.size && asset.digest === `sha256:${retention.zipDigest}`, 'retention-asset');
+  const ref = object(await proofIo.read(`/git/ref/tags/${retention.tag}`)), tag = object(ref.object);
+  requireProof(ref.ref === `refs/tags/${retention.tag}` && ref.url === `${api}/git/refs/tags/${retention.tag}`
+    && tag.type === 'commit' && tag.sha === retention.revision && tag.url === `${api}/git/commits/${retention.revision}`, 'retention-tag');
+  const source = object(await proofIo.read(`/commits/${retention.revision}`));
+  requireProof(source.sha === retention.revision && object(object(source.commit).tree).sha === heldAppPolicy.tree, 'retention-source');
+  const producer = object(await proofIo.read(`/actions/runs/${retainedActivation.runId}`));
+  requireProof(String(producer.id) === retainedActivation.runId && producer.run_attempt === 1 && producer.status === 'completed'
+    && producer.head_sha === retention.revision && producer.head_branch === 'main' && ['push', 'workflow_dispatch'].includes(String(producer.event))
+    && [retainedActivation.workflowPath, `${retainedActivation.workflowPath}@main`, `${retainedActivation.workflowPath}@refs/heads/main`].includes(String(producer.path))
+    && object(producer.repository).full_name === retention.repository && object(producer.head_repository).full_name === retention.repository, 'retention-producer');
+  const jobs = object(await proofIo.read(`/actions/runs/${retainedActivation.runId}/jobs?filter=all&per_page=100`));
+  requireProof(Array.isArray(jobs.jobs) && jobs.total_count === jobs.jobs.length && jobs.jobs.length <= 100, 'retention-jobs');
+  const checks = jobs.jobs.map(object).filter(job => String(job.id) === retainedActivation.checksJobId);
+  requireProof(checks.length === 1 && checks[0]!.name === 'BE required checks' && checks[0]!.status === 'completed'
+    && checks[0]!.conclusion === 'success' && String(checks[0]!.run_id) === retainedActivation.runId
+    && checks[0]!.run_attempt === 1 && checks[0]!.head_sha === retention.revision, 'retention-checks');
+  requireProof(typeof io.downloadReleaseAsset === 'function', 'retention-transport');
+  const zip = await io.downloadReleaseAsset(asset.id); signal.throwIfAborted();
+  requireProof(zip.length === retention.size, 'retention-byte-count');
+  const archive = io.diagnostics
+    ? io.diagnostics.sync('github.archive.retained', () => validateRetainedArtifactArchive(zip, io.diagnostics))
+    : validateRetainedArtifactArchive(zip);
+  const root = await mkdtemp(join(realpathSync(tmpdir()), 'esty-historical-proof-'));
   const dispose = () => removeArtifactTree(root);
   try {
     const bundle = await extractRoutineBundle(archive, retainedActivation.archiveDigest, join(root, 'bundle'), true);
@@ -193,11 +191,9 @@ export async function proveHistoricalHandoff(items: readonly HistoricalItem[], r
     requireProof(equal(proof, evidence.failed.proof), 'failed-proof');
     await verifyHistoricalFinalAcceptance({ revision: request.controller.revision, tree: request.controller.tree }, proofIo, signal);
     const predecessor = firstPredecessor(); bindPredecessor(request, predecessor, artifact.manifest.migrations);
-    requireProof(request.migration !== null && equal(await proofIo.read(metaPath), metadata), 'legacy-artifact-stable');
-    signal.throwIfAborted();
-    const expires = Date.parse(metadata.expires_at);
-    return { artifact, marker: { version: 1, evidenceDigest: historicalHandoffDigest, predecessorRecord: null, predecessor },
-      async recheck() { requireProof(expires > Date.now(), 'legacy-artifact-expired'); await recheck(); }, dispose };
+    requireProof(request.migration !== null, 'historical-migration-required');
+    await recheck(); signal.throwIfAborted();
+    return { artifact, marker: { version: 1, evidenceDigest: historicalHandoffDigest, predecessorRecord: null, predecessor }, recheck, dispose };
   } catch (cause) {
     try { await dispose(); }
     catch (cleanup) { throw new AggregateError([cause, cleanup], 'Historical handoff proof and temporary evidence cleanup failed.', { cause }); }
