@@ -14,6 +14,11 @@ import { routineContext, selectRoutine } from '../scripts/routine-retained.mjs';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { manifestDigest } from '../scripts/migrations.js';
 import type { EtsyReleasePacket } from '../scripts/etsy-release.js';
+import type { ReleaseRequest } from '../scripts/ci-delivery.js';
+import { historicalHandoffDigest } from '../scripts/historical-release.js';
+import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
+import { heldAppPolicy, heldD2 } from '../scripts/activation-held-contract.mjs';
+import { retainedActivation } from '../scripts/activation-retained.mjs';
 export function tar(entries: Array<{ path: string; content: Buffer; mode: number; type?: string }>): Buffer {
   const chunks: Buffer[] = [];
   for (const entry of entries) {
@@ -305,6 +310,99 @@ export async function routineMigrationFixture(extra = 'export function up(pgm) {
     config: base.config, source: { ...base.artifact.manifest.source, repository: 'https://github.com/khuonghuyhieu/esty-admin',
       files, digest: sha256(canonical(files)) }, migrations, build: base.artifact.manifest.build });
   return { ...base, artifact };
+}
+
+export function historicalProviderFixture(artifact: VerifiedArtifact, fault = '') {
+  const h = routineProviderFixture(artifact), selected = historicalReleaseEvidence;
+  const predecessor = { id: heldD2.candidate, revision: heldAppPolicy.revision, tree: heldAppPolicy.tree,
+    artifactDigest: heldAppPolicy.artifactDigest, sourceDigest: heldAppPolicy.sourceDigest, configDigest: heldD2.configDigest };
+  const prior: ReleaseRequest = { version: 1, mode: 'etsy-strict-cutover', repository: 'khuonghuyhieu/esty-admin',
+    target: retainedActivation.target, controller: { revision: 'c'.repeat(40), tree: 'd'.repeat(40), run: '120' },
+    producer: { revision: 'c'.repeat(40), tree: 'd'.repeat(40), run: '119' }, artifactId: '118', artifactDigest: '9'.repeat(64),
+    sourceDigest: '8'.repeat(64), archiveDigest: '7'.repeat(64), operatorDigest: '6'.repeat(64), configDigest: h.schema.configDigest,
+    historicalHandoffDigest, schema: { before: [...migrationManifest].slice(0, 3), beforeDigest: manifestDigest(migrationManifest.slice(0, 3)),
+      target: [...migrationManifest], targetDigest: manifestDigest(migrationManifest) },
+    migration: { packetDigest: '5'.repeat(64), predecessor: { id: predecessor.id, revision: predecessor.revision,
+      artifactDigest: predecessor.artifactDigest, configDigest: predecessor.configDigest },
+    compatibilityApproval: null, maintenanceApproval: '4'.repeat(64), recoveryApproval: '3'.repeat(64) } };
+  const request: ReleaseRequest = { ...prior, mode: 'current-schema-only', controller: h.run, producer: { ...h.run, run: '122' },
+    artifactId: '456', artifactDigest: artifact.digest, sourceDigest: artifact.manifest.source.digest, migration: null,
+    schema: { before: artifact.manifest.migrations, target: artifact.manifest.migrations,
+      beforeDigest: artifact.manifest.migrationDigest, targetDigest: artifact.manifest.migrationDigest } };
+  const schema = { ...h.schema, request, requestDigest: sha256(canonical(request)) };
+  const historic = (accepted: boolean) => ({ id: accepted ? selected.accepted.id : selected.failed.id,
+    sha: heldAppPolicy.revision, task: 'deploy:esty-be-ci', environment: 'be-production', production_environment: true,
+    payload: { version: 1, revision: heldAppPolicy.revision, tree: heldAppPolicy.tree,
+      run: accepted ? selected.accepted.run : selected.failed.proof.workflowRun, artifact: heldAppPolicy.artifactDigest,
+      sourceDigest: heldAppPolicy.sourceDigest, migrationDigest: prior.schema.beforeDigest, project: heldAppPolicy.project,
+      activationPacket: accepted ? heldAppPolicy.packetDigest : selected.failed.proof.packetDigest,
+      activationRun: accepted ? selected.accepted.activationRun : selected.failed.proof.activationRun } });
+  const marker = { version: 1, evidenceDigest: historicalHandoffDigest, predecessorRecord: null, predecessor };
+  const consumed = { id: 900, sha: prior.controller.revision, task: 'deploy:esty-be-ci', environment: 'be-production',
+    production_environment: true, payload: { version: 1, ...prior.controller, artifact: prior.artifactDigest,
+      sourceDigest: prior.sourceDigest, migrationDigest: prior.schema.targetDigest, project: heldAppPolicy.project,
+      requestDigest: sha256(canonical(prior)), configDigest: prior.configDigest, migrationPacket: prior.migration!.packetDigest,
+      historicalHandoff: marker, releaseRequest: prior } };
+  const success = { id: 901, state: 'success', description: `strict:accepted:${'2'.repeat(64)}` };
+  const records: Array<{ id: number; sha: string; task: string; environment: string; production_environment: boolean; payload: Record<string, unknown> }>
+    = [consumed, historic(true), historic(false)];
+  let lists = 0, aliases = 0;
+  const transport: typeof fetch = async (raw, init) => {
+    const url = new URL(String(raw)), path = url.pathname, method = init?.method ?? 'GET';
+    if (url.hostname === 'api.github.com' && method === 'GET') {
+      if (path.endsWith('/deployments')) {
+        lists++;
+        const rows = structuredClone(records);
+        const successor = rows[0], accepted = rows[1];
+        if (!successor || !accepted) throw new Error('Historical fixture inventory differs.');
+        if (fault === 'missing-failed') rows.pop();
+        if (fault === 'duplicate') rows.push(accepted);
+        if (fault === 'unknown' || (fault === 'concurrent' && lists > 1)) rows.unshift({ ...successor, id: 999, payload: {} });
+        if (fault === 'replay') successor.payload.requestDigest = schema.requestDigest;
+        if (fault === 'marker-digest') successor.payload.historicalHandoff = { ...marker, evidenceDigest: '0'.repeat(64) };
+        if (fault === 'marker-fork') successor.payload.historicalHandoff = { ...marker, predecessorRecord: 999 };
+        if (fault === 'request-tamper') successor.payload.releaseRequest = { ...prior, artifactDigest: '0'.repeat(64) };
+        if (fault === 'schema') successor.payload.migrationDigest = '0'.repeat(64);
+        if (fault === 'record-drift' && lists > 1) accepted.payload.sourceDigest = '0'.repeat(64);
+        const current = h.reservation();
+        if (current) rows.unshift({ id: 44, sha: h.run.revision, task: 'deploy:esty-be-ci', environment: 'be-production',
+          production_environment: true, payload: current.payload });
+        return Response.json(rows);
+      }
+      if (path.endsWith('/deployments/900/statuses')) {
+        const status = fault === 'unresolved-successor' ? { ...success, state: 'error' } : success;
+        return Response.json(url.searchParams.get('per_page') === '100'
+          ? [status, { id: 899, state: 'in_progress', description: fault === 'missing-ack' ? 'strict:unresolved' : 'ack:dpl_previous' }]
+          : [status]);
+      }
+      if (path.endsWith('/deployments/999/statuses')) return Response.json([{ state: 'in_progress' }]);
+      for (const selectedRecord of [selected.accepted, selected.failed]) {
+        if (path.endsWith(`/deployments/${selectedRecord.id}/statuses`)) return Response.json([{
+          ...selectedRecord.status, ...(fault === 'status-drift' && lists > 1 ? { id: 1 } : {}),
+          ...(fault === 'forged-status' ? { description: 'failed_preflight_no_effects:' + '0'.repeat(64) } : {}) }]);
+      }
+      if (path.endsWith(`/commits/${prior.controller.revision}`)) return Response.json({ sha: prior.controller.revision,
+        commit: { tree: { sha: fault === 'source' ? '0'.repeat(40) : prior.controller.tree } } });
+      if (fault === 'main' && path.endsWith('/commits/main')) return Response.json({ sha: '0'.repeat(40), commit: { tree: { sha: h.run.tree } } });
+    }
+    if (url.hostname === 'api.vercel.com') {
+      if (path === '/v13/deployments/dpl_previous') return Response.json({ id: 'dpl_previous', projectId: artifactTarget.project,
+        ownerId: artifactTarget.owner, target: 'production', readyState: 'READY', regions: ['icn1'], meta: {
+          sourceCommit: prior.controller.revision, sourceDigest: prior.sourceDigest,
+          artifactSha256: fault === 'artifact' ? '0'.repeat(64) : prior.artifactDigest } });
+      if (path === '/v4/aliases/api.lovora.us') {
+        aliases++;
+        if (fault === 'alias' || (fault === 'alias-drift' && aliases > 1)) return Response.json({
+          alias: 'api.lovora.us', projectId: artifactTarget.project, deploymentId: 'dpl_other' });
+      }
+    }
+    const response = await h.transport(raw, init);
+    if (fault === 'runtime' && url.hostname === 'api.lovora.us' && response.headers.has('x-activation-config-digest')) {
+      response.headers.set('x-activation-config-digest', '0'.repeat(64));
+    }
+    return response;
+  };
+  return { ...h, schema, request, prior, records, transport, marker };
 }
 
 

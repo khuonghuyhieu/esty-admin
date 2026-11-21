@@ -24,6 +24,7 @@ try {
   await cp(join(appRoot, 'build/config'), join(targetApp, 'build/config'), { recursive: true });
   for (const name of ['migrate.js', 'migrations.js', 'migration-files.mjs', 'migration-status.js', 'migration-report.js', 'private-files.mjs', 'bounded.js',
     'artifact.js', 'build-artifact.js', 'checks-diagnostics.js', 'ci-tools.js', 'ci-archive.js', 'ci-provider.js', 'ci-delivery.js', 'ci-migrations.js', 'routine-retained.mjs', 'vercel-deploy.js', 'hosted-acceptance.js',
+    'historical-release.js', 'historical-release-evidence.js',
     'release-journal.js', 'activation-journal.js', 'activation-inputs.js', 'activation-configuration.js', 'activation.js',
     'activation-archive-transport.mjs', 'activation-candidate-recovery.js', 'activation-diagnostic.js',
     'activation-held-contract.mjs', 'activation-held-correction-contract.mjs', 'activation-held-correction.js',

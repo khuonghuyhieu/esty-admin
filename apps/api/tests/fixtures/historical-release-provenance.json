@@ -43,5 +43,413 @@
         "content": "export type HostedRequest = (url: string, init?: RequestInit) => Promise<Response>;\nasync function exact(response: Response, status: number, expected: Record<string, string>): Promise<void> {\n  if (response.status !== status || response.redirected || !response.body) {\n    await response.body?.cancel(); throw new Error('Hosted application acceptance failed.');\n  }\n  const reader = response.body.getReader(); let text = '', bytes = 0;\n  try {\n    for (;;) {\n      const part = await reader.read(); if (part.done) break;\n      bytes += part.value.length;\n      if (bytes > 4096) throw new Error('Hosted response exceeds bounds.');\n      text += Buffer.from(part.value).toString('utf8');\n    }\n  } finally { await reader.cancel().catch(() => {}); reader.releaseLock(); }\n  const value: unknown = JSON.parse(text);\n  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).length !== Object.keys(expected).length\n    || Object.entries(expected).some(([key, entry]) => (value as Record<string, unknown>)[key] !== entry)) {\n    throw new Error('Hosted application contract differs.');\n  }\n}\n// Shared candidate/final-domain acceptance; caller independently establishes deployment binding and TLS origin.\nexport async function checkHostedHttp(origin: string, browserOrigin: string, key: string, request: HostedRequest): Promise<void> {\n  const authorization = { Authorization: `Bearer ${key}` };\n  await exact(await request(origin + '/health/live', { headers: authorization }), 200, { status: 'ok' });\n  await exact(await request(origin + '/health/ready', { headers: authorization }), 200, { status: 'ready', database: 'up', migrations: 'current' });\n  for (const token of [undefined, 'malformed', '0'.repeat(64) === key ? '1'.repeat(64) : '0'.repeat(64)]) {\n    await exact(await request(origin + '/health/ready', { headers: token ? { Authorization: `Bearer ${token}` } : {} }), 401, { status: 'unauthorized' });\n  }\n  const unknown = await request(origin + '/__release_unknown_route', { headers: authorization });\n  await unknown.body?.cancel();\n  if (unknown.status !== 404 || unknown.redirected) throw new Error('Hosted route acceptance failed.');\n  for (const allowedOrigin of [browserOrigin, 'https://untrusted.example']) {\n    const response = await request(origin + '/health/ready', { method: 'OPTIONS', headers: {\n      Origin: allowedOrigin, 'Access-Control-Request-Method': 'GET', 'Access-Control-Request-Headers': 'authorization',\n    } });\n    await response.body?.cancel();\n    if (response.redirected || response.status !== (allowedOrigin === browserOrigin ? 204 : 401)\n      || (allowedOrigin === browserOrigin && response.headers.get('access-control-allow-origin') !== browserOrigin)) {\n      throw new Error('Hosted origin acceptance failed.');\n    }\n  }\n}\n"
       }
     ]
+  },
+  "historicalHandoff": {
+    "provenance": "Root-selected public receipt ZIPs and bounded authenticated GitHub metadata captured on 2026-11-20. The 13 MB runtime artifact is not embedded; all runtime transports in these tests are synthetic. Pinned D2 source bytes are reused from retainedProof.files.",
+    "metadata": {
+      "/actions/runs/42847325668/attempts/1/jobs?per_page=100": {
+        "total_count": 5,
+        "jobs": [
+          {
+            "id": 129938236499,
+            "run_id": 42847325668,
+            "run_attempt": 1,
+            "head_sha": "776cb034f035ce94388f83be8bc52b199ce7fd34",
+            "name": "Select the owner-approved retained activation bundle",
+            "status": "completed",
+            "conclusion": "success",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Check out the actual reviewed workflow source without persisted credentials",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Set the exact runtime without application installation",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Validate explicit approval and select exact retained metadata before retrieval",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Retrieve only the selected retained run and artifact",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Verify the original archive before extraction and bind the full sealed bundle",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Relay only the unchanged original archive and independently bound selection",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Set the exact runtime without application installation",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Check out the actual reviewed workflow source without persisted credentials",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 129938238942,
+            "run_id": 42847325668,
+            "run_attempt": 1,
+            "head_sha": "776cb034f035ce94388f83be8bc52b199ce7fd34",
+            "name": "BE required checks",
+            "status": "completed",
+            "conclusion": "skipped",
+            "steps": []
+          },
+          {
+            "id": 129938239751,
+            "run_id": 42847325668,
+            "run_attempt": 1,
+            "head_sha": "776cb034f035ce94388f83be8bc52b199ce7fd34",
+            "name": "BE production delivery",
+            "status": "completed",
+            "conclusion": "skipped",
+            "steps": []
+          },
+          {
+            "id": 129938488019,
+            "run_id": 42847325668,
+            "run_attempt": 1,
+            "head_sha": "776cb034f035ce94388f83be8bc52b199ce7fd34",
+            "name": "Activate the owner-approved retained bundle",
+            "status": "completed",
+            "conclusion": "failure",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Check out the actual reviewed workflow source without persisted credentials",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Set the exact runtime without application installation",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Download only this run's verified transport relay without cross-run credentials",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Revalidate the selection and original archive before extraction or helper execution",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Bootstrap independently verified public CLI before secrets are present",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Prepare the explicitly approved public activation packet without credentials",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Reserve the shared durable production exclusion",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Verify exact OLD history and role prerequisites without writes",
+                "status": "completed",
+                "conclusion": "failure"
+              },
+              {
+                "name": "Authorize bridge configuration durably",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Configure only approved bridge Production inputs",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Confirm bridge configuration before any create",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Authorize one immutable bridge candidate",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Create attest and promote the bridge without runtime inputs in CREATE",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Confirm the bridge before SQL mutation",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Authorize role provisioning",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Provision or verify fixed application roles",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Confirm role outcome",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Authorize the ordinary two-file migration batch",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Execute the ordinary OLD to TARGET migration runner once",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Verify TARGET roles effective privileges and definer without writes",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Confirm migration and postflight before bootstrap",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Authorize the existing-identity bootstrap",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Bootstrap and inspect only the approved existing identity",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Confirm bootstrap outcome without blind replay",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Authorize strict app configuration independently",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Configure only approved strict app Production inputs",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Confirm strict app configuration before its create",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Authorize one strict app candidate",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Consume the same immutable artifact and attest actual strict runtime",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Confirm strict BE and retain the external FE acceptance gate",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Preserve private receipt modes and record the exact transferable inventory",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Retain sanitized receipts without secret-bearing subprocess logs",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Post Set the exact runtime without application installation",
+                "status": "completed",
+                "conclusion": "skipped"
+              },
+              {
+                "name": "Post Check out the actual reviewed workflow source without persisted credentials",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          },
+          {
+            "id": 129939045136,
+            "run_id": 42847325668,
+            "run_attempt": 1,
+            "head_sha": "776cb034f035ce94388f83be8bc52b199ce7fd34",
+            "name": "BE delivery accepted",
+            "status": "completed",
+            "conclusion": "failure",
+            "steps": [
+              {
+                "name": "Set up job",
+                "status": "completed",
+                "conclusion": "success"
+              },
+              {
+                "name": "Require successful exact-artifact delivery, never a skipped job",
+                "status": "completed",
+                "conclusion": "failure"
+              },
+              {
+                "name": "Complete job",
+                "status": "completed",
+                "conclusion": "success"
+              }
+            ]
+          }
+        ]
+      },
+      "/actions/runs/42847325668/artifacts?per_page=100": {
+        "total_count": 1,
+        "artifacts": [
+          {
+            "id": 13777634542,
+            "name": "be-delivery-receipts-42847325668-1",
+            "expired": false,
+            "size_in_bytes": 2506,
+            "digest": "sha256:ead036b6dabb78d411eb24ef11eb3970fb8295387bfa797c0753c4c6138b656d",
+            "workflow_run": {
+              "id": 42847325668,
+              "head_sha": "776cb034f035ce94388f83be8bc52b199ce7fd34"
+            }
+          }
+        ]
+      },
+      "/actions/runs/43847640596": {
+        "id": 43847640596,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "success",
+        "event": "workflow_dispatch",
+        "head_branch": "main",
+        "head_sha": "a9b3d70ceff042b893fa06877eca197d3d31c06c",
+        "path": ".github/workflows/be-candidate-probe.yml",
+        "repository": {
+          "full_name": "khuonghuyhieu/esty-admin"
+        },
+        "head_repository": {
+          "full_name": "khuonghuyhieu/esty-admin"
+        }
+      },
+      "/actions/runs/43847640596/artifacts?per_page=100": {
+        "total_count": 1,
+        "artifacts": [
+          {
+            "id": 14216865139,
+            "name": "held-app-probe-43847640596-1",
+            "expired": false,
+            "size_in_bytes": 415,
+            "digest": "sha256:89dc2f4cac25a9b61858c37a0e8203de05667bd581c3635d393a50cdba6705c6",
+            "workflow_run": {
+              "id": 43847640596,
+              "head_sha": "a9b3d70ceff042b893fa06877eca197d3d31c06c"
+            }
+          }
+        ]
+      },
+      "/contents/.github/workflows/be-delivery.yml?ref=776cb034f035ce94388f83be8bc52b199ce7fd34": {
+        "type": "file",
+        "path": ".github/workflows/be-delivery.yml",
+        "sha": "ce6c9e94ed4d037200ae4a290891ec4591ea912f"
+      },
+      "/contents/apps/api/scripts/manual-activation.mjs?ref=776cb034f035ce94388f83be8bc52b199ce7fd34": {
+        "type": "file",
+        "path": "apps/api/scripts/manual-activation.mjs",
+        "sha": "40747f1faeaec45023e7b9eaca17e22a2ed91f68"
+      },
+      "/contents/apps/api/scripts/activation-retained.mjs?ref=776cb034f035ce94388f83be8bc52b199ce7fd34": {
+        "type": "file",
+        "path": "apps/api/scripts/activation-retained.mjs",
+        "sha": "d5aac87fa09c6ac15f176b4c8e8b6d1f99b90c4c"
+      },
+      "/actions/runs/42847325668": {
+        "id": 42847325668,
+        "run_attempt": 1,
+        "status": "completed",
+        "conclusion": "failure",
+        "event": "workflow_dispatch",
+        "head_branch": "main",
+        "head_sha": "776cb034f035ce94388f83be8bc52b199ce7fd34",
+        "path": ".github/workflows/be-delivery.yml",
+        "repository": {
+          "full_name": "khuonghuyhieu/esty-admin"
+        },
+        "head_repository": {
+          "full_name": "khuonghuyhieu/esty-admin"
+        }
+      },
+      "/actions/artifacts/13587251015": {
+        "id": 13587251015,
+        "name": "be-tested-42404748672-1",
+        "expired": false,
+        "size_in_bytes": 13293825,
+        "digest": "sha256:adf6b726971c34a2086a0d915f09ae91c595fdf6b1e92f95b5c5a939f99f67d2",
+        "created_at": "2026-11-07T19:10:44Z",
+        "expires_at": "2026-11-21T19:10:42Z",
+        "workflow_run": {
+          "id": 42404748672,
+          "repository_id": 1430691691,
+          "head_repository_id": 1430691691,
+          "head_branch": "main",
+          "head_sha": "f162c8db8ec149724c0a25537a4a0674bd012035"
+        }
+      }
+    },
+    "bindingSource": "{\n  \"version\": 1,\n  \"enabled\": true,\n  \"target\": {\n    \"executionId\": \"675b465c-f3cc-48e0-8994-7a3312970e53\",\n    \"unknownHead\": \"75333c2fa9074f418c23f4d67ea5a68db4ecf659718983ebfb13d2c46b096267\",\n    \"packetDigest\": \"5b2567f007b8ba7870a858b22e0a48b28e3a1a7bb302b51e1e01f2d704dd6690\",\n    \"artifactDigest\": \"82419e360517389f1e20c23d43f0e5948518ad659f0f8a87b9f41abcb8d302d2\",\n    \"revision\": \"f162c8db8ec149724c0a25537a4a0674bd012035\",\n    \"tree\": \"181b2c014f9373e4d6cdf055cba01eac11ed5a5e\",\n    \"sourceDigest\": \"73e8f1f5cb7683da2f337b6f3092d6cdcd6dd42ea15a224ce35aa3ea0b77c3e8\",\n    \"project\": \"prj_uITHKLUGGE98VxrEcs5FoktBbcls\",\n    \"scope\": \"team_k2Hk4wx5XAb9Mgc6lP5AjVhf\",\n    \"candidate\": \"dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7\",\n    \"origin\": \"https://esty-admin-dialgx31z-khuonghuyhieu0705s-projects.vercel.app\",\n    \"configDigest\": \"249e18e93eb01e5fa1f66117c82a8cca2e0777938655308cc43af437095e7892\",\n    \"createClaimDigest\": \"7ef8fb53f3faefa088d3499694b458eb4556064fbf7c2e77d023cf656f85a6e0\",\n    \"createAckDigest\": \"43fdfd2b59a02081ffab894379b781a964564f398ed955da95b488b2377b9362\",\n    \"heldReceiptDigest\": \"ad8570403fcc26bed885c4f3363eea8550f21f05035119cb049ef1be84f77058\"\n  }\n}\n",
+    "archives": {
+      "13777634542": "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",
+      "14216865139": "UEsDBBQACAAIAFRScF0AAAAAAAAAAAAAAAATAAAAaGVsZC1hcHAtcHJvYmUuanNvbk2QS2oDMRAF9zlGr2XQtyXNOttskhO0Wq2JsJkZPLJNCLl7CDbB+1dQ9b7hKue9rwtMRsGxLxUm+JRTPdC2HYhZtkELCygofal9mV/7LPuACaQ0adgiNoPGSDHCMVWfMURfQqvNe7REngsbJ9aSa2Ij2pCLLc5FUHBbz8d2Wm/vcu13CaBcXI2apTXtbUnZNdKYYhQmk2N11RnWyM/05Q/0LvmIXoeMoGAfNC47TFZrBbwurT/E32jwJ0zjfBEFZa1fH48lrMc7NwtM0PpCJ1Aw05D/YqMxkXbaGsPNEGIm54z2KZP1mDhjCgkdSQjVG22YS0tFbK0JQxQHCp4enWCjfZcKPy+/UEsHCOhMCVMHAQAAhgEAAFBLAQItAxQACAAIAFRScF3oTAlTBwEAAIYBAAATAAAAAAAAAAAAIACAgQAAAABoZWxkLWFwcC1wcm9iZS5qc29uUEsFBgAAAAABAAEAQQAAAEgBAAAAAA=="
+    }
   }
 }

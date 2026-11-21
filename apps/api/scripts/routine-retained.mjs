@@ -237,8 +237,9 @@ export function verifyRoutineTransfer(directory, selection, context, requireRequ
 async function artifactModule() {
   return import(new URL(basename(dirname(dirname(fileURLToPath(import.meta.url)))) === 'build' ? './artifact.js' : './artifact.ts', import.meta.url).href);
 }
-export async function extractRoutineBundle(compressed, digest, destination) {
+export async function extractRoutineBundle(compressed, digest, destination, artifactOnly = false) {
   check('archive.compressed-digest', Buffer.isBuffer(compressed) && compressed.length <= maximumArchive && hex.test(digest ?? '') && hash(compressed) === digest);
+  check('archive.extraction-mode', typeof artifactOnly === 'boolean');
   const { safePath } = await artifactModule();
   const bytes = observed('archive.bounded-gunzip', () => gunzipSync(compressed, { maxOutputLength: maximumExpanded }));
   const text = buffer => {
@@ -263,6 +264,12 @@ export async function extractRoutineBundle(compressed, digest, destination) {
       { size, mode, maximumSize: 32 * 1024 * 1024 });
     const content = bytes.subarray(offset, offset + size); offset += Math.ceil(size / 512) * 512;
     check('archive.padded-member-bound', offset <= bytes.length);
+    if (type === 76) {
+      check('archive.gnu-longname', !attributes && size > 1 && size <= 1025
+        && text(header.subarray(0, 100)) === '././@LongLink' && content.indexOf(0) === size - 1);
+      attributes = { path: text(content) };
+      continue;
+    }
     if (type === 120) {
       check('archive.pax-size', !attributes && size <= 16384); attributes = {}; let cursor = 0;
       while (cursor < content.length) {
@@ -296,10 +303,11 @@ export async function extractRoutineBundle(compressed, digest, destination) {
     while (parent !== '.') { check('archive.parent-inventory', directories.has(parent)); parent = dirname(parent); }
   }
   // Parse the whole archive before the first filesystem effect; create only a new private root.
+  const materialized = artifactOnly ? entries.filter(entry => entry.path === 'artifact' || entry.path.startsWith('artifact/')) : entries;
   destination = resolve(destination); root(dirname(destination)); mkdirSync(destination, { mode: 0o700 });
-  for (const entry of entries.filter(entry => entry.directory).sort((a, b) => a.path.length - b.path.length)) mkdirSync(join(destination, entry.path), { mode: 0o700 });
-  for (const entry of entries.filter(entry => !entry.directory)) writeFileSync(join(destination, entry.path), entry.content, { flag: 'wx', mode: entry.mode });
-  for (const entry of entries.filter(entry => entry.directory).sort((a, b) => b.path.length - a.path.length)) chmodSync(join(destination, entry.path), entry.mode);
+  for (const entry of materialized.filter(entry => entry.directory).sort((a, b) => a.path.length - b.path.length)) mkdirSync(join(destination, entry.path), { mode: 0o700 });
+  for (const entry of materialized.filter(entry => !entry.directory)) writeFileSync(join(destination, entry.path), entry.content, { flag: 'wx', mode: entry.mode });
+  for (const entry of materialized.filter(entry => entry.directory).sort((a, b) => b.path.length - a.path.length)) chmodSync(join(destination, entry.path), entry.mode);
   return destination;
 }
 export async function verifyRoutineBundle(bundleRoot, approval, selection, context, controllerRoot) {

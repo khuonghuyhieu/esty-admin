@@ -15,7 +15,7 @@ import { rootCertificates } from 'node:tls';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
 import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture,
-  tar, routineProviderFixture, routineRuntime, strictReleaseFixture } from './artifact-fixture.js';
+  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, historicalProviderFixture } from './artifact-fixture.js';
 import { historicalActivationChild } from './historical-activation-fixture.js';
 import { checksContext, runChecks } from '../scripts/ci.js';
 import { ChecksDiagnostics } from '../scripts/checks-diagnostics.js';
@@ -52,13 +52,14 @@ import { failedPreflightProof, manualGithubIo, reserveManualActivation,
 import { verifyHeldAppProbe } from '../scripts/activation-held-proof.js';
 import { heldCorrection, heldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
 import { heldPinPath, heldProbeSources } from '../scripts/activation-held-contract.mjs';
-import { heldProofFixture, heldRetainedProofFixture } from './held-app-fixture.js';
+import { heldProofFixture, heldRetainedProofFixture, historicalProofFixture } from './held-app-fixture.js';
 import { manualArchiveTransport } from '../scripts/activation-archive-transport.mjs';
 import { heldCandidateCreate, readHeldCandidate, recoveryToolInventory } from '../scripts/activation-recovery-io.js';
 import { heldPostRepair } from '../scripts/activation-journal.js';
-import { verifyHeldAppAcceptance, heldRetainedCandidate } from '../scripts/activation-held-proof.js';
+import { verifyHeldAppAcceptance, heldRetainedCandidate, verifyHistoricalFinalAcceptance } from '../scripts/activation-held-proof.js';
 import { heldAppPolicy, heldD2, heldD2Sources } from '../scripts/activation-held-contract.mjs';
 import { runtimeConfigDigest } from '../src/config/activation-config.js';
+import { historicalHandoffDigest } from '../scripts/historical-release.js';
 const oldSchema: RoutineDeliveryApproval = { digest: activationSchema.oldDigest,
   configDigest: runtimeConfigDigest(routineRuntime), requestDigest: sha256('independently-approved-synthetic-request') };
 
@@ -135,7 +136,7 @@ function releaseRequest(mode: 'current-schema-only' | 'versioned-migration' | 'e
   return {
     version: 1, mode, repository, target: 'supabase:abcdefghijklmnopqrst', controller: { ...run, revision: 'c'.repeat(40) },
     producer: { ...run, run: '122' }, artifactId: '456', artifactDigest: 'd'.repeat(64), sourceDigest: '0'.repeat(64),
-    archiveDigest: 'e'.repeat(64), operatorDigest: 'f'.repeat(64), configDigest: '1'.repeat(64),
+    archiveDigest: 'e'.repeat(64), operatorDigest: 'f'.repeat(64), configDigest: '1'.repeat(64), historicalHandoffDigest,
     schema: { beforeDigest: sha256(JSON.stringify(previous)), targetDigest: sha256(JSON.stringify(target)), before: previous, target },
     migration: mode === 'current-schema-only' ? null : {
       packetDigest: '2'.repeat(64), predecessor: { id: 'dpl_previous', revision: '3'.repeat(40),
@@ -895,6 +896,10 @@ test('L1 retained extraction rejects unsafe archive members before creating a de
   const extendedRoot = join(root, 'extended');
   await extractRoutineBundle(extended, sha256(extended), extendedRoot);
   assert.equal(await readFile(join(extendedRoot, longPath), 'utf8'), 'export {};');
+  const longName = { ...good, path: '././@LongLink', type: 'L', content: Buffer.from(longPath + '\0') };
+  const gnu = tar([...base, longName, good]), gnuRoot = join(root, 'gnu');
+  await extractRoutineBundle(gnu, sha256(gnu), gnuRoot);
+  assert.equal(await readFile(join(gnuRoot, longPath), 'utf8'), 'export {};');
   const valid = tar([...base, good]), validRoot = join(root, 'valid');
   await extractRoutineBundle(valid, sha256(valid), validRoot);
   assert.equal(await readFile(join(validRoot, good.path), 'utf8'), 'export {};');
@@ -905,6 +910,11 @@ test('L1 retained extraction rejects unsafe archive members before creating a de
     [{ ...good, type: '3' }], [{ ...good, mode: 0o666 }], [good, good],
     [good, { ...good, path: 'artifact/FILE.js' }],
     [{ ...good, type: 'x', content: pax('path', '../escape.js') }, good],
+    [{ ...longName, content: Buffer.from('../escape.js\0') }, good],
+    [{ ...longName, content: Buffer.from('runner/../escape.js\0') }, good],
+    [{ ...longName, content: Buffer.from(longPath) }, good],
+    [{ ...longName, content: Buffer.from('artifact/a\0hidden\0') }, good],
+    [longName], [longName, longName, good],
   ];
   for (const [index, entries] of cases.entries()) {
     const destination = join(root, `refused-${index}`), archive = tar([...base, ...entries]);
@@ -940,6 +950,115 @@ test('durable remote history blocks every unresolved outcome, including absent s
     await assert.rejects(provider.reserve(), /unresolved/); assert.equal(posts, 0);
   }
 });
+test('historical handoff follows a successful typed successor instead of requiring the old D2 alias forever', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  const h = historicalProviderFixture(f.artifact), before = structuredClone(h.records);
+  const provider = createProvider(f.artifact, h.run, h.schema, h.credentials, AbortSignal.timeout(10000), h.transport);
+  assert.equal(await provider.reserve(), 44);
+  assert.deepEqual(h.reservation()?.payload.historicalHandoff, { version: 1, evidenceDigest: historicalHandoffDigest,
+    predecessorRecord: 900, predecessor: { id: 'dpl_previous', revision: h.prior.controller.revision, tree: h.prior.controller.tree,
+      artifactDigest: h.prior.artifactDigest, sourceDigest: h.prior.sourceDigest, configDigest: h.prior.configDigest } });
+  assert.equal(h.reservation()?.payload.requestDigest, sha256(canonical(h.request)));
+  assert.deepEqual(h.reservation()?.payload.releaseRequest, h.request);
+  assert.deepEqual(h.records, before);
+  await assert.rejects(provider.reserve());
+  assert.equal(h.events.filter(event => event === 'reserve').length, 1);
+  assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+});
+
+test('historical handoff rejects forged disposition, missing evidence, drift and concurrent claims before POST', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  for (const fault of ['missing-failed', 'duplicate', 'unknown', 'concurrent', 'replay', 'marker-digest', 'marker-fork',
+    'request-tamper', 'schema', 'record-drift', 'unresolved-successor', 'missing-ack', 'status-drift', 'forged-status',
+    'source', 'artifact', 'alias', 'alias-drift', 'runtime', 'main']) {
+    await t.test(fault, async () => {
+      const h = historicalProviderFixture(f.artifact, fault);
+      const provider = createProvider(f.artifact, h.run, h.schema, h.credentials, AbortSignal.timeout(10000), h.transport);
+      await assert.rejects(provider.reserve());
+      assert.equal(h.reservation(), undefined, `${fault} must not reserve`);
+      assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+      assert.equal(h.events.includes('reserve'), false);
+    });
+  }
+});
+
+test('historical handoff diagnostics retain both prior identities and the first failed predicate without effects', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  const h = historicalProviderFixture(f.artifact, 'artifact'), logs: string[] = [];
+  t.mock.method(console, 'info', (...args: unknown[]) => logs.push(args.join(' ')));
+  t.mock.method(console, 'error', (...args: unknown[]) => logs.push(args.join(' ')));
+  const signal = AbortSignal.timeout(10000);
+  const trace = new ChecksDiagnostics(join(f.root, 'historical-diagnostics'), { scope: 'release' });
+  const diagnostics = new ReleaseDiagnostics(h.request, join(f.root, 'historical-outcomes'), signal, trace);
+  const provider = createProvider(f.artifact, h.run, h.schema, h.credentials, signal, h.transport, diagnostics);
+  await assert.rejects(provider.reserve());
+  const rows = logs.map(line => JSON.parse(line) as {
+    check?: string; status?: string; reason?: string; values?: { actualId?: string }; firstFailure?: string | null;
+  });
+  for (const [id, state] of [['7703208254', 'in_progress'], ['7686732071', 'error']]) {
+    assert.ok(rows.some(row => row.check === 'reservation.prior-record' && row.values?.actualId === id && row.reason === `prior-${state}`));
+  }
+  const failures = rows.filter(row => row.status === 'failed');
+  assert.equal(failures[0]?.check, 'reservation.predecessor-identity');
+  assert.ok(failures.every(row => row.firstFailure === 'reservation.predecessor-identity'));
+  assert.equal(h.reservation(), undefined);
+  assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+  for (const credential of Object.values(h.credentials)) assert.equal(logs.join('\n').includes(credential), false);
+});
+
+test('historical evidence digest is part of independent request admission, not caller-selected exception authority', () => {
+  const request = { ...releaseRequest(), historicalHandoffDigest: '0'.repeat(64) };
+  assert.throws(() => validateReleaseRequest(request, releaseApproval(request)));
+});
+
+test('historical final acceptance verifies the selected real receipt under current main without weakening ordinary final proof', async () => {
+  const current = { revision: 'e'.repeat(40), tree: 'f'.repeat(40) }, f = historicalProofFixture(current);
+  const proof = await verifyHistoricalFinalAcceptance(current, f.io, AbortSignal.timeout(10000));
+  assert.deepEqual(proof, f.proof);
+  assert.equal(proof.binding.candidate, heldD2.candidate);
+  assert.equal(proof.checks.authMembership, 'not-proved');
+  await assert.rejects(verifyHeldAppAcceptance(f.proof.workflowRun, f.target, f.io, f.proof.sourceDigests,
+    AbortSignal.timeout(10000), f.proof.gate));
+});
+
+test('historical final acceptance rejects missing, altered, stale and racing independent evidence', async t => {
+  for (const fault of ['missing-archive', 'expired', 'receipt', 'artifact-id', 'rerun', 'failed-run', 'source', 'pin',
+    'binding', 'gate', 'revision', 'tree', 'main-race', 'artifact-race']) {
+    await t.test(fault, async () => {
+      const current = { revision: 'e'.repeat(40), tree: 'f'.repeat(40) }, f = historicalProofFixture(current);
+      const artifact = f.listing.artifacts[0]; assert.ok(artifact);
+      if (fault === 'missing-archive') f.archives.delete(f.proof.artifactId);
+      if (fault === 'expired') artifact.expired = true;
+      if (fault === 'receipt') f.archives.set(f.proof.artifactId, Buffer.from('untrusted replacement'));
+      if (fault === 'artifact-id') {
+        artifact.id = 999; f.archives.set(999, f.archives.get(f.proof.artifactId)!);
+      }
+      if (fault === 'rerun') f.finalRun.run_attempt = 2;
+      if (fault === 'failed-run') f.finalRun.conclusion = 'failure';
+      if (fault === 'source') f.setSource('.github/workflows/be-candidate-probe.yml', Buffer.from('different source'));
+      if (fault === 'pin') f.setSource(heldPinPath, Buffer.from('{}'));
+      if (fault === 'binding') f.values[f.variablePath] = { name: 'BE_D1_HELD_APP_BINDING',
+        value: JSON.stringify({ ...f.proof.binding, candidate: 'dpl_other' }) };
+      if (fault === 'gate') f.values[f.gatePath] = { name: heldD2.gateVariable,
+        value: JSON.stringify({ ...f.proof.gate, stage: 'candidate' }) };
+      if (fault === 'revision') f.main.sha = '0'.repeat(40);
+      if (fault === 'tree') f.main.commit.tree.sha = '0'.repeat(40);
+      if (fault === 'main-race' || fault === 'artifact-race') {
+        const read = f.io.read; let observations = 0;
+        const watched = fault === 'main-race' ? '/commits/main' : `/actions/runs/${f.proof.workflowRun}/artifacts?per_page=100`;
+        f.io.read = async path => {
+          if (path === watched && ++observations === 2) {
+            if (fault === 'main-race') f.main.sha = '0'.repeat(40);
+            else artifact.expired = true;
+          }
+          return read(path);
+        };
+      }
+      await assert.rejects(verifyHistoricalFinalAcceptance(current, f.io, AbortSignal.timeout(10000)));
+    });
+  }
+});
+
 test('successful durable reservation uses exact commit, no auto-merge and no secret payload', async t => {
   const f = await fixture(); t.after(f.dispose); let posted: Record<string, any> | undefined;
   const transport: typeof fetch = async (_url, init) => {

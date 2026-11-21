@@ -1,5 +1,121 @@
 # Implementation plan: Connectivity foundation
 
+## Historical activation-to-routine handoff — bounded contract amendment
+
+**Owner START — 2026-11-20, source/local only.** Root verified clean `main@fed4b9966e056b18d1d8bcfa77008dc8bf19cbad`; actual task maximum235 precedes T236–T241. Existing OMP is the sole writer; root t12p owns the reserved t1dw Company Codex gpt-6-luna medium review. No new worker, branch, worktree, runtime framework, pipeline, Git/publication or operational action.
+
+### Observed blocker and preserved truth
+
+Root-reported run44807419097/production136536420448 passed retrieval, relay revalidation and official public CLI bootstrap. Reservation first failed `reservation.previous-outcome` at `ci-provider.ts:234`, category `unresolved-prior`; CREATE/migration/promotion were not-started and there was no new candidate. Root supplied authenticated read-only history; the writer does not reread live GitHub/provider state:
+
+| Historical record | Latest supplied status | Meaning, not a disposition |
+| --- | --- | --- |
+| Deployment7703208254; run42970824679; f162c8db8ec149724c0a25537a4a0674bd012035; activationRun dcbc0b5f-1707-485d-adb5-02b45037319a |22303718377 at2026-11-16T10:23:54Z; in_progress; `activation:app:outcome:aa1dc0e90fd3921e3b14d303991cfdcdbb73efad0c481ce0d0eff0f4931af7f9` | Owner received D2 BE_ACCEPTED for dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7, next=fe. App confirmation intentionally remains in_progress; FE/full activation is not accepted. |
+| Deployment7686732071; run42847325668; same f162 source; activationRun36a0c3c3-0a74-4ccf-b6a3-8d5da26e4eed |21921899888 at2026-11-11T06:00:12Z; error; `failed_preflight_no_effects:829cbf0bb11517fb0607b18902488133be08deb635589581b42db192f66120fa` | The status description commits to a proof; its text alone does not prove no effects. It would remain a blocker after the first record. |
+
+Never mark either old deployment success/inactive, skip history, rename the exclusion task, reset claims, fabricate an APP write ACK, erase UNKNOWN, replay675/f162, or equate BE predecessor acceptance with FE/full activation.
+
+### Existing public verification contracts
+
+1. `ci-provider.ts` enumerates the common `deploy:esty-be-ci`/`be-production` history; it rejects reused request/strict-packet identities and requires success for every remaining predecessor. `routineJournal` independently binds current request/source/artifact/config/schema. Preserve these normal-terminal and replay semantics.
+2. `activation.ts:continueHeldD2` binds the pinned D1 basis and held CREATE ACK, consumes candidate proof, records adoption with `createCommands:0`, persists promotion ACK, then independently consumes final-domain proof. Its `final-accepted` public value is `{binding, proof}`; the app outcome's `reportDigest` is SHA-256 of its canonical value. `confirmActivationPhase` writes the app outcome hash as in_progress and appends remote-confirmed; the result is BE_ACCEPTED/next=fe, not full activation success.
+3. `activation-journal.ts:readHeldAppPending` validates the contiguous nine-event app suffix023–031 from pinned D1 event022/head e8a2ac61…: intent, authorized, started, acknowledged, candidate-attested, promotion-intent, outcome, confirming, remote-confirmed. Public D1 pins and [D2 design](#task-d2-held-application-adoption--2026-11-16) retain historical configuration UNKNOWN/no historical POST ACK. A projected status hash does not supply the missing event/receipt preimages.
+4. `activation-held-proof.ts:verifyHeldAppAcceptance` verifies exact protected binding/gate, historical source blobs, successful first-attempt probe run, bounded artifact metadata/archive and receipt, plus before/after invariants. Its ordinary final mode requires proof revision=current main. The existing retained exception is explicitly candidate-only for43826155118; it cannot be reused for a historical final proof by forging current-main responses or changing its meaning.
+5. `activation-preflight-disposition.mjs:failedPreflightProof` is already the exact failed run42847325668 classifier: original intent, completed run/jobs, pinned workflow/controller Git blobs, all later mutating steps skipped, bounded authoritative receipt ZIP/tar/inventory, intact original packet/operator-lock/reservation with no events/initial proof, and caller-supplied real `verifyActivationArtifact`. `failedPreflightStatus` derives the description from the verified proof. `reserveManualActivation` composes it for the old manual path; routine reserve does not.
+6. Public `production-activation-handoff.md` and this plan contain D1 current-proof pins and source/local D2 checkpoints, not an actual final-accepted/app-suffix bundle. Existing public test fixtures contain historical OpenAPI/source bytes and synthetic cases, not the actual final receipt or complete original failed-preflight packet/artifact. No private/auth/control/phase file was opened.
+
+### Smallest fail-closed implementation proposal and evidence prerequisite
+
+Keep normal success semantics. Add one independently approved, bounded public historical-handoff descriptor through the existing release approval/request/checked-transfer contract, not a new secret, generic exception callback or owner-recomposed runtime ENV. Its digest must be included in the complete current request and durable new reservation. Resolve only the exact two supplied remote records; any other unresolved record remains blocked. No bare ID allowlist is sufficient.
+
+The descriptor must bind exact remote intent projections and latest status ID/state/time/description; the accepted predecessor's complete source/tree/artifact/source digest/config and target schema; the old app outcome and final remote-confirmed head; retained final-accepted/probe receipt and contiguous suffix inventory; and the failed-preflight proof/receipt/artifact identities. Evidence must have independent trust roots in authenticated historical source/run/artifact metadata, fixed D1 lineage and the remote outcome/status commitments, not only a hash supplied alongside caller-authored JSON.
+
+Before a new reservation: verify both branches completely with existing primitives; require final-only historical acceptance under explicitly bound current controller admission without weakening the ordinary verifier's current-main fence; independently verify the current predecessor alias/READY/identity/exact uploaded bytes/runtime digest/current before-schema; reread current main, history identities and latest statuses to detect drift. Retain shared workflow exclusion and request/strict-packet replay fences; a new reservation consumes this handoff digest, while historical evidence/statuses stay untouched. All missing, partial, expired, forged, changed or unknown evidence must fail before the new reservation POST, CREATE or SQL. Emit only safe prior-record ID, finite state/check/reason and first-failure metadata, never remote payloads or provider bodies.
+
+**Exact missing public inputs:** (a) the selected actual D2 `final-accepted` value, promotion ACK/final gate and app events023–031, with independent inventory/digests and the actual final probe run/artifact/ZIP/source pins; (b) the retained failed-preflight proof/ZIP metadata and archive for42847325668 plus a permitted read-only verified f162/82419 artifact reference for the existing artifact verifier. The supplied two status hashes cannot reconstruct these bytes. Root must select these public receipts/references separately, without exposing credentials or reopening owner configuration. If an artifact is expired/missing, report that fact; do not replace independent verification with a trusted-looking status string or a synthetic proof.
+
+A generic synthetic handoff is permitted by the owner but cannot substitute for an unbound historical-final trust root or a no-op legacy artifact verifier. Do not add an accepting path or claim the actual histories are consumable until the descriptor's concrete evidence shape can be checked against the preserved contracts. Source work remains gated on this evidence/contract selection; no protocol, schema, packet value or unrelated diagnostics/completion edit is implied.
+
+### Verification and stopping boundary
+
+First exercise the current emitted provider with synthetic copies of each supplied status, false no-effect text, ordinary terminal success and consumed requests; retain original failures and zero real transport/effects. This is source-local boundary evidence, not a live incident rerun or a positive handoff proof. Once the evidence contract is resolved, add meaningful failing-before/passing-after tests for accepted exact-proof handoff, normal success, all missing/tampered/stale/identity/schema/alias/status/head failures, replay/concurrency and refusal before reservation/CREATE; run compiler and affected provider/controller tests, then ONE emitted synthetic reservation-to-release journey if supported.
+
+Freeze exact source/evidence hashes and actual timing at READY_FOR_HISTORICAL_RELEASE_HANDOFF_REVIEW only if the full source/local repair is proved; otherwise return a precise evidence-contract blocker with implementation/positive verification explicitly not run. Root alone starts review. No DB/container/native rebuild, private/auth read, live GH/provider inspection, status/config/flag/ENV mutation, SQL/deploy/dispatch/rerun/reconciliation or historical replay.
+
+### Selected evidence resume — 2026-11-20
+
+Root CONTINUE selects `.openai/reports/historical-release-handoff-selection/selection.json`, SHA-256 `542bbcd914302af08228fe7b4964e894d81c14b25654bdc33e65e264a2b962da`, and only its public receipts, two receipt archives and read-only f162 artifact. This resolves the missing public preimages in the historical stop below; it does not itself authorize a handoff or operational action. T238–T240 resume in the same writer. The original blocked checkpoint remains unchanged.
+
+The current pure artifact verifier accepted the selected f162 artifact: digest82419e360517389f1e20c23d43f0e5948518ad659f0f8a87b9f41abcb8d302d2,7387 files,28786735 file bytes, original three-migration schema149cb530551c0f0e2b734c1aa1086eac5615e01ebca152a8203490c8d93200c3. No retained module or entrypoint executed. The existing failed-preflight verifier independently reproduced the selected proof using the real receipt ZIP, newly authenticated historical run/jobs/source/artifact metadata and this actual artifact verifier; its intent input was an explicit synthetic projection of the validated packet, not a fresh deployment read.
+
+Newly authorized bounded GitHub CLI reads used only the existing gh-lovora profile, historical runs42847325668/43847640596 and their jobs/artifacts, the three pinned failed-run source records and four pinned D2 proof sources. Both receipt artifacts are unexpired and their ZIP digests match the selection; all four D2 source SHA-256 values match. No credential file/token was read or exported by the writer, and no provider/runtime endpoint or remote mutation was invoked.
+
+Implementation decision: retain a bounded public evidence value in reviewed source, covered by the normal checked artifact/source inventory and complete request binding. Reuse the existing receipt/archive, failed-preflight and final-proof validators; historical final acceptance receives an explicit current-controller fence rather than fabricated main responses or the candidate-only exception. The legacy artifact must be verified with current code, never loaded as executable authority. Production consumption needs a concrete immutable artifact ingress as well as the selected local verification reference; no local owner path or test-only accepting callback may become the production contract.
+
+The owner additionally authorized exactly artifact13587251015 metadata and ZIP reads through gh-lovora. Actual metadata/download agree:13293825 bytes, ZIP SHA-256adf6b726971c34a2086a0d915f09ae91c595fdf6b1e92f95b5c5a939f99f67d2, unexpired at inspection, expiry2026-11-21T19:10:42Z. Its sole member is the pinned original `be-release.tar.gz`; the implementation will parse/extract it with current bounded readers and use only current pure artifact verification. No old executable is imported. Expiry remains an operational gate, not permission to renew or publish an artifact.
+
+The complete request binds the reviewed public evidence digest. A successful normal successor retains that digest, complete bound request and typed predecessor-record link in its new durable reservation payload. Only the original admission requires the two independently verified historical branches and old artifact; later admissions must validate the exact unchanged historical records, a contiguous successful typed successor chain, and the current predecessor/schema/runtime identity. An unresolved successor, fork, missing receipt or changed history still blocks. This explicit consumed disposition avoids requiring an expired historical download forever or requiring the old D2 candidate to remain the production alias after a successful release. Historical statuses remain untouched; the existing shared workflow exclusion and request/packet replay guards remain authoritative.
+
+Preserve the original refusal until both proof branches, exact current predecessor/schema binding, stable history and durable handoff consumption are integrated and exercised. Source-local proof of selected historical evidence is not yet a reservation repair, current hosted acceptance or a release journey.
+
+### Historical handoff source-local result — 2026-11-21
+
+**READY_FOR_HISTORICAL_RELEASE_HANDOFF_REVIEW / STOP WRITES / NO_INFLIGHT.** T238–T240 are implemented and locally verified after the selected-evidence resume; this supersedes only the blocked implementation status below. The original T241 blocked handback remains dated evidence. Root t12p alone starts the reserved t1dw Company Codex gpt-6-luna medium review. No review, publication or actual release acceptance is claimed.
+
+The reviewed-source descriptor is `historical-release-evidence.ts`, canonical digest `feb74ea31835049ec8b435cd22f0d1a0a81bcb4fdb422ede865d9ab7b0ac1b1d`. `historical-release.ts` validates the exact two intent/status projections, actual app suffix/outcome/promotion preimages, independent final-domain proof and existing failed-preflight proof with current pure legacy-artifact verification. The complete release request and durable new reservation bind that digest. Later successful typed successors must retain the exact request, terminal/ACK evidence and contiguous predecessor link; unknown, replayed, forked or altered history remains blocked. Current source, predecessor identity/alias, before-schema and runtime configuration are revalidated before POST. Initial admission also attests the old candidate's exact uploaded runtime bytes. No old status or UNKNOWN claim is rewritten.
+
+The authenticated original tar contains736 GNU long-name metadata records. Its first current-extractor refusal was real, not ignored: the existing bounded extractor now admits only a bounded, terminal-NUL UTF-8 GNU `L` path for the next ordinary member, retaining traversal, type, mode, duplicate and parent checks. GNU links remain rejected. The artifact-only extraction mode parses the full archive but materializes only the verified artifact, not an unused retained runner. The two new modules are included in the existing staged operator closure; no framework, dependency, workflow or strict3→4 ordering change.
+
+Actual verification, with installed Node24.22.1 and closed synthetic transport:
+
+| Check | Observed result |
+| --- | --- |
+| Failing-before / passing-after, same typed-successor fixture and real emitted provider | Preserved baseline provider58f08a57… refuses before POST, expected exit1; corrected provider returns reservation44, one POST, exit0. Both CREATE0/promotion0/network0. |
+| Initial historical proof, three actual public archives and current pure verifier | exit0; original13587251015, failed receipt13777634542 and final receipt14216865139; exact82419 artifact,7387 files,34 metadata reads. No retained module execution. |
+| Canonical `runRoutinePhase(authorize)` first strict admission | exit0; both real historical proof branches and uploaded legacy bytes verified, one reservation44 with initial typed predecessor, durable `history.authorized.json`;37 proof metadata reads. SQL/CREATE/promotion not-started; owner-home ledger absent; no old status mutation. |
+| Final TypeScript compiler | exit0. |
+| Final affected provider/controller/archive/proof/diagnostic selection |199/199 passed,0 failed,0 skipped; includes40 historical cases and the new GNU archive boundaries. The earlier39-case focus is overlapping evidence, not added to this total. |
+| ONE emitted reservation-to-release journey, corrected harness | exit0; valid current-schema-only4 successor after a synthetic successful first strict handoff; reservation44 → one synthetic CREATE → exact candidate/runtime/file checks → one same-ID promotion → final-domain checks → durable accepted status. Old history unchanged; migration not invoked. |
+| Real existing operator staging and staged module imports | Both exit0;157 installed dependency packages copied, historical modules importable from staged closure. No install/native build. |
+| All guarded source-local checks |0 attempted real network connections; no actual provider mutation, SQL, deployment or legacy execution. |
+
+The two journey checks prove different boundaries: the first strict admission reaches history authorization without executing SQL; the complete release journey exercises a later current-schema-only successor. Neither is a simulated claim that the actual first strict3→4 cutover, real database migration, Linux artifact or hosted release has succeeded.
+
+All intermediate failures are retained: initial TypeScript narrowing errors; first baseline harness unable to resolve `pg` before an owned dependency symlink correction; initial original-tar refusal at `archive.member-type`; and first release-journey harness missing its owned0700 outcome directory (`ENOENT`, before CREATE). The latter was fixed only in the throwaway harness, then the same journey passed on a fresh owned output directory. No product guard was weakened to make these checks green. The new diagnostic regression independently proves both historical record IDs/states, first failure `reservation.predecessor-identity`, unchanged first-failure attribution through outer handling, no credential output and no effects.
+
+Evidence root: `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-handoff-resume-vbc2n66m`. Exact argv/times/exits/stdout/stderr are retained in `compile-final.json`, `affected-final.json`, `strict-admission-01.json`, `reservation-release-e2e-02.json`, `stage-operator.json`, `staged-import.json` and the earlier `*-command.json` records. `historical-handoff-review-manifest.json` records all15 changed path hashes, emitted identities, selected evidence preservation, check evidence, cleanup and actual elapsed time from2026-11-20T20:35:31.957067Z. Original ETA90–120 minutes was exceeded; the manifest records actual wall time rather than relabeling the estimate. Throwaway harnesses are retained as non-executable `.evidence.txt`; owned baseline executable copies are removed after hashing. Normal development build output remains, not a release artifact.
+
+Operational gates remain explicit: original artifact13587251015 expires at **2026-11-21T19:10:42Z**; first admission must still verify fresh unexpired metadata and exact bytes. No automatic renewal, substitute ID or bypass is authorized. Root review, publication, a newly checked source-bound artifact/fresh approval and actual execution remain separate. Selected historical receipts and the read-only f162 artifact are unchanged; no private/auth file was read, owner inputs reopened, ENV/flag changed, old675/f162 entrypoint run, or FE/full activation accepted. README/PROJECT_STATE and FE/shared governance files are intentionally unchanged because this increment has no shared-document lease. No services, containers, volumes, reviewers, branches, worktrees, schedules or background jobs were created; existing shared resources are untouched. Source ownership returns to root.
+
+### Historical handoff evidence-contract stop
+
+**BLOCKED_HISTORICAL_RELEASE_HANDOFF_EVIDENCE / STOP WRITES / NO_INFLIGHT.** T236/T237 mapping/design and T241 blocked handback are complete; T238–T240 are explicitly blocked, not implemented or accepted. Only this plan and `tasks.md` change. No source/test/workflow/README/PROJECT_STATE or historical artifact/receipt is modified; the existing refusal remains intact. Do not start the reserved implementation review as if a repair were ready.
+
+Inspected public references establish the producer/consumer contracts above but do not select the actual D2 final receipt/chain or supply the legacy artifact verifier input. The source-local fixture provenance explicitly says it is neither a retained runtime artifact nor a native release. Missing historical hash preimages are not reconstructed, and private `.openai`/owner/auth/control/phase files are outside this read scope. Root can unblock by selecting only the exact public receipt/artifact references in the prerequisite list; no token, secret, owner data re-entry, ENV redo or live effect is requested.
+
+Actual current-source checks, not repair proof:
+
+| Command/scenario | Result |
+| --- | --- |
+| Installed Node24 TypeScript compiler, `-p apps/api/tsconfig.json` | exit0; ordinary emitted development output, no native rebuild |
+| Emitted reservation boundary investigation | exit0; five expected outcomes using existing artifact/provider fixtures and real emitted provider/ReleaseDiagnostics |
+| Supplied app in_progress status projection | Refused at reservation.previous-outcome; unresolved-prior; zero new reservation POST |
+| Supplied failed-preflight error description, without proof | Same refusal, zero new reservation POST |
+| Forged no-effect description | Same refusal, zero new reservation POST |
+| Ordinary prior success | One synthetic new reservation ACK, preserving current normal semantics |
+| Consumed current request | Refused before new reservation POST |
+| All five scenarios | Real network0, CREATE0, promotion0; no SQL/controller release execution; original refusal traces retained |
+| Positive historical handoff, new permanent regressions, affected repair suite, reservation-to-release E2E | NOT RUN: evidence contract blocked; the boundary probe is not this journey |
+
+Exact commands:
+
+```sh
+/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json
+/Users/khuonghuyhieu/.npm/_npx/ef8b185be06dfeb4/node_modules/node/bin/node /private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-historical-handoff-ouz6f465/reservation-boundary.mjs /private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-historical-handoff-ouz6f465
+```
+
+Evidence directory above retains command argv/cwd/timing/exit/stdout/stderr, original safe failure traces, scenario result and `historical-handoff-blocked-manifest.json` with changed/public-source/emitted/evidence hashes and byte-preservation checks. Startup2026-11-20T20:13:24.711388Z, original implementation ETA60–90 minutes; exact actual time to this blocked handback is in the manifest/receipt. Socket absent at startup; no hc delivery is fabricated. No background worker/reviewer/service/container/schedule was started; the synthetic artifact tree was removed by its fixture disposer. Root receives ownership and the precise prerequisite, not a source fix or operational disposition.
+
 ## Routine optional-input compatibility amendment — 2026-11-20
 
 **Owner START; sole existing OMP writer, source/local only.** Root verified clean `main@3f87117eb747ff8612e71c9abd77bbe0ffe8fcdb`. T231–T235 follow actual maximum230. Root t12p coordinates the reserved t1dw Company Codex gpt-6-luna medium review after freeze; no new worker, branch, worktree or reviewer is authorized.

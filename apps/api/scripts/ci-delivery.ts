@@ -26,6 +26,7 @@ import { privateDirectory } from './private-files.mjs';
 import { emitRoutineResult, routineFailureResult } from './routine-retained.mjs';
 import { ChecksDiagnostics } from './checks-diagnostics.js';
 import { withRoutineDiagnostics } from './routine-retained.mjs';
+import { historicalHandoffDigest } from './historical-release.js';
 
 export interface ReleaseRequest {
   version: 1;
@@ -40,6 +41,7 @@ export interface ReleaseRequest {
   archiveDigest: string;
   operatorDigest: string;
   configDigest: string;
+  historicalHandoffDigest: string;
   schema: { beforeDigest: string; targetDigest: string; before: Manifest; target: Manifest };
   migration: null | {
     packetDigest: string;
@@ -108,10 +110,10 @@ function releaseRun(value: unknown): void {
 }
 function releaseRequestShape(value: unknown): asserts value is ReleaseRequest {
   const data = releaseObject(value, ['version', 'mode', 'repository', 'target', 'controller', 'producer', 'artifactId',
-    'artifactDigest', 'sourceDigest', 'archiveDigest', 'operatorDigest', 'configDigest', 'schema', 'migration']);
+    'artifactDigest', 'sourceDigest', 'archiveDigest', 'operatorDigest', 'configDigest', 'historicalHandoffDigest', 'schema', 'migration']);
   if (data.version !== 1 || data.repository !== repository || !releaseString(data.target, /^supabase:[a-z]{20}$/)
     || typeof data.mode !== 'string' || !['current-schema-only', 'versioned-migration', 'etsy-strict-cutover'].includes(data.mode)
-    || !releaseString(data.artifactId, /^[1-9][0-9]{0,19}$/)
+    || !releaseString(data.artifactId, /^[1-9][0-9]{0,19}$/) || data.historicalHandoffDigest !== historicalHandoffDigest
     || ![data.artifactDigest, data.sourceDigest, data.archiveDigest, data.operatorDigest, data.configDigest]
       .every(item => releaseString(item, releaseHex))) releaseRefusal();
   releaseRun(data.controller); releaseRun(data.producer);
@@ -488,7 +490,7 @@ export async function approvedRoutineRequest(artifact: VerifiedArtifact, selecti
   const request: ReleaseRequest = { version: 1, mode: controls.mode, repository, target: controls.target,
     controller: { ...controls.controller, tree: selected.controllerTree }, producer: selected.producer, artifactId: controls.artifactId,
     artifactDigest: approved.artifactDigest, sourceDigest: approved.sourceDigest, archiveDigest: approved.archiveDigest,
-    operatorDigest: approved.operatorDigest, configDigest: controls.configDigest,
+    operatorDigest: approved.operatorDigest, configDigest: controls.configDigest, historicalHandoffDigest,
     schema: { beforeDigest: controls.schemaDigest, targetDigest: controls.schemaDigest,
       before: artifact.manifest.migrations, target: artifact.manifest.migrations }, migration: null };
   if (controls.mode === 'versioned-migration') {
@@ -793,7 +795,7 @@ async function executeRoutinePhase(input: RoutinePhaseInput, diagnostics: Releas
     || request.schema.targetDigest !== artifact.manifest.migrationDigest
     || canonical(request.schema.target) !== canonical(artifact.manifest.migrations)) releaseRefusal();
   const run = request.controller, schema: RoutineDeliveryApproval = { digest: request.schema.targetDigest,
-    configDigest: request.configDigest, requestDigest: sha256(canonical(request)) };
+    configDigest: request.configDigest, requestDigest: sha256(canonical(request)), request };
   if (mode === 'etsy-strict-cutover') {
     await runStrictRoutinePhase({ artifact, request, env, action: action!, cli, directory: reports, signal, diagnostics });
     return;

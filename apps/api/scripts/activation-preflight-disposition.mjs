@@ -43,8 +43,8 @@ function positive(value) { return Number.isSafeInteger(value) && value > 0; }
 function equal(left, right) { return canonical(left) === canonical(right); }
 
 // Bounded, in-memory archive readers: no extraction, executable members, links, traversal or ZIP64.
-function zipMembers(bytes, approved, names = ['be-delivery-receipts.tar.gz', 'be-delivery-receipts.inventory-sha256', 'be-delivery-receipts.archive-sha256']) {
-  if (!Buffer.isBuffer(bytes) || bytes.length > 65536 || hash(bytes) !== approved) refuse();
+function zipMembers(bytes, approved, names = ['be-delivery-receipts.tar.gz', 'be-delivery-receipts.inventory-sha256', 'be-delivery-receipts.archive-sha256'], maximum = 65536) {
+  if (!Buffer.isBuffer(bytes) || bytes.length > maximum || hash(bytes) !== approved) refuse();
   const end = bytes.lastIndexOf(Buffer.from('504b0506', 'hex'));
   if (end < 0 || end + 22 > bytes.length || end + 22 + bytes.readUInt16LE(end + 20) !== bytes.length
     || bytes.readUInt16LE(end + 4) || bytes.readUInt16LE(end + 6) || bytes.readUInt16LE(end + 8) !== names.length
@@ -58,7 +58,7 @@ function zipMembers(bytes, approved, names = ['be-delivery-receipts.tar.gz', 'be
     const checksum = bytes.readUInt32LE(cursor + 16), compressed = bytes.readUInt32LE(cursor + 20), size = bytes.readUInt32LE(cursor + 24);
     const length = bytes.readUInt16LE(cursor + 28), extra = bytes.readUInt16LE(cursor + 30), comment = bytes.readUInt16LE(cursor + 32);
     const local = bytes.readUInt32LE(cursor + 42), mode = bytes.readUInt32LE(cursor + 38) >>> 16;
-    if (cursor + 46 + length + extra + comment > end || flags & 1 || ![0, 8].includes(method) || size > 65536
+    if (cursor + 46 + length + extra + comment > end || flags & 1 || ![0, 8].includes(method) || size > maximum
       || (mode & 0o170000) && (mode & 0o170000) !== 0o100000 || bytes.readUInt16LE(cursor + 34)) refuse();
     const name = bytes.subarray(cursor + 46, cursor + 46 + length).toString('utf8');
     if (!names.includes(name) || files.has(name) || local + 30 > bytes.length || bytes.readUInt32LE(local) !== 0x04034b50
@@ -67,7 +67,7 @@ function zipMembers(bytes, approved, names = ['be-delivery-receipts.tar.gz', 'be
     const start = local + 30 + localNameLength + localExtra;
     if (bytes.subarray(local + 30, local + 30 + localNameLength).toString('utf8') !== name || start + compressed > cursor) refuse();
     const payload = bytes.subarray(start, start + compressed);
-    const decoded = method === 0 ? payload : inflateRawSync(payload, { maxOutputLength: 65536 });
+    const decoded = method === 0 ? payload : inflateRawSync(payload, { maxOutputLength: maximum });
     if (decoded.length !== size || crc32(decoded) !== checksum) refuse();
     files.set(name, decoded); cursor += 46 + length + extra + comment;
   }
@@ -77,6 +77,11 @@ function zipMembers(bytes, approved, names = ['be-delivery-receipts.tar.gz', 'be
 export function validateHeldProbeArchive(bytes, approved) {
   const members = zipMembers(bytes, approved, ['held-app-probe.json']);
   return JSON.parse(members.get('held-app-probe.json').toString('utf8'));
+}
+export function validateRetainedArtifactArchive(bytes) {
+  const archive = zipMembers(bytes, pin.zipDigest, ['be-release.tar.gz'], 64 * 1024 * 1024).get('be-release.tar.gz');
+  if (hash(archive) !== pin.archiveDigest) refuse();
+  return archive;
 }
 export function validatePreflightReceiptArchive(zip, approvedZip, expected) {
   const { runId, packetDigest } = expected;
@@ -204,8 +209,8 @@ export function manualGithubIo(token, signal, transport = fetch) {
       const bytes = await bounded(new Response(response.body, { status: 200 }), 65536);
       return JSON.parse(bytes.toString('utf8'));
     },
-    async download(id) {
-      if (!positive(id)) refuse();
+    async download(id, maximum = 65536) {
+      if (!positive(id) || !Number.isSafeInteger(maximum) || maximum < 1 || maximum > 64 * 1024 * 1024) refuse();
       const redirect = await transport(`https://api.github.com/repos/${pin.repository}/actions/artifacts/${id}/zip`, { ...options(), redirect: 'manual',
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'X-GitHub-Api-Version': '2026-03-10' } });
       const location = redirect.headers.get('location'); await redirect.body?.cancel();
@@ -213,7 +218,7 @@ export function manualGithubIo(token, signal, transport = fetch) {
       const url = new URL(location);
       if (url.protocol !== 'https:' || url.username || url.password || url.port || url.hash
         || ![ '.blob.core.windows.net', '.actions.githubusercontent.com' ].some(suffix => url.hostname.endsWith(suffix))) refuse();
-      return bounded(await transport(url.href, options()), 65536);
+      return bounded(await transport(url.href, options()), maximum);
     },
   };
 }

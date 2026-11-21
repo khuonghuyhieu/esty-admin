@@ -20,6 +20,7 @@ import { heldDatabaseRepair, validateHeldDatabaseRepairCapability, verifyHeldDat
 import { heldRetainedCandidate } from '../scripts/activation-held-proof.js';
 import type { HeldDatabaseRepairContext } from '../scripts/activation-held-database-repair.js';
 import historicalProvenance from './fixtures/historical-release-provenance.json' with { type: 'json' };
+import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
 
 // Public synthetic GitHub responses; no token, account access or candidate HTTP.
 export function heldProofFixture(target: HeldAppTarget = { ...heldAppPolicy, candidate: 'dpl_SyntheticHeldApp',
@@ -88,6 +89,43 @@ export function heldRetainedProofFixture(target: HeldAppTarget, gate: { controll
     f.setSource(path, Buffer.from(old.content, 'base64'), publication.revision);
   }
   return { ...f, sources, context: { binding: heldRetainedCandidate, controllerPublication: publication } };
+}
+
+export function historicalProofFixture(current: { revision: string; tree: string }) {
+  const selected = historicalReleaseEvidence.finalAccepted, proof = selected.proof;
+  const values: Record<string, unknown> = structuredClone(historicalProvenance.historicalHandoff.metadata);
+  const variablePath = `/environments/be-production/variables/${heldBindingVariable}`;
+  const gatePath = `/environments/be-production/variables/${heldD2.gateVariable}`;
+  values[variablePath] = { name: heldBindingVariable, value: JSON.stringify(proof.binding) };
+  values[gatePath] = { name: heldD2.gateVariable, value: JSON.stringify(proof.gate) };
+  values[`/commits/${proof.binding.workflowRevision}`] = { sha: proof.binding.workflowRevision,
+    commit: { tree: { sha: selected.binding.capability.controllerPublication.tree } } };
+  const main = { sha: current.revision, commit: { tree: { sha: current.tree } } };
+  values['/commits/main'] = main;
+  const setSource = (path: string, bytes: Buffer) => {
+    values[`/contents/${path}?ref=${proof.binding.workflowRevision}`] = { type: 'file', path, encoding: 'base64', size: bytes.length,
+      content: bytes.toString('base64'), sha: createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex') };
+  };
+  for (const file of historicalProvenance.retainedProof.files) setSource(file.path, Buffer.from(file.content));
+  setSource(heldPinPath, Buffer.from(historicalProvenance.historicalHandoff.bindingSource));
+  const finalRun = structuredClone(historicalProvenance.historicalHandoff.metadata['/actions/runs/43847640596']);
+  const listing = structuredClone(historicalProvenance.historicalHandoff.metadata['/actions/runs/43847640596/artifacts?per_page=100']);
+  values[`/actions/runs/${proof.workflowRun}`] = finalRun;
+  values[`/actions/runs/${proof.workflowRun}/artifacts?per_page=100`] = listing;
+  const archives = new Map(Object.entries(historicalProvenance.historicalHandoff.archives).map(([id, bytes]) => [Number(id), Buffer.from(bytes, 'base64')]));
+  const reads: string[] = [], downloads: number[] = [];
+  const io: HeldProbeIo = {
+    async read(path) {
+      reads.push(path); assert.ok(Object.hasOwn(values, path), `Unexpected synthetic historical path ${path}`);
+      return structuredClone(values[path]);
+    },
+    async download(id) {
+      downloads.push(id); const bytes = archives.get(id);
+      assert.ok(bytes, 'The selected historical archive must exist'); return bytes;
+    },
+  };
+  const { workflowRevision: _revision, ...target } = proof.binding;
+  return { io, values, archives, reads, downloads, main, finalRun, listing, variablePath, gatePath, proof, target, setSource };
 }
 
 // Historical hashes and inode-bound origin stay real/read-only. Only new public output paths

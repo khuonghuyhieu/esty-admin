@@ -4,6 +4,7 @@ import { validateHeldProbeArchive } from './activation-preflight-disposition.mjs
 import { heldAppPolicy, heldBindingVariable, heldPinPath, heldProbeSources, validateHeldBinding,
   validateHeldTarget, heldD2, heldD2Sources, validateHeldD2Gate, validateHeldD2Target, validateHeldD2Capability } from './activation-held-contract.mjs';
 import type { HeldAppPolicy } from './activation-held-contract.mjs';
+import { historicalReleaseEvidence } from './historical-release-evidence.js';
 
 export interface HeldAppTarget {
   executionId: string; unknownHead: string; packetDigest: string; artifactDigest: string;
@@ -99,9 +100,26 @@ export async function verifyHeldAppAcceptance(runId: string, target: HeldAppTarg
   }
   return verifyProbe(runId, target, io, sourceDigests, signal, heldAppPolicy, gate, retained) as Promise<HeldAppAcceptanceProof>;
 }
+export async function verifyHistoricalFinalAcceptance(current: { revision: string; tree: string },
+  io: HeldProbeIo, signal: AbortSignal): Promise<HeldAppAcceptanceProof> {
+  const selected = historicalReleaseEvidence.finalAccepted, expected = selected.proof;
+  if (Object.keys(current).sort().join(',') !== 'revision,tree'
+    || !/^[a-f0-9]{40}$/.test(current.revision) || !/^[a-f0-9]{40}$/.test(current.tree)
+    || current.revision === expected.binding.workflowRevision) refuse();
+  const publication = record(await io.read(`/commits/${expected.binding.workflowRevision}`));
+  if (publication.sha !== selected.binding.capability.controllerPublication.revision
+    || record(record(publication.commit).tree).sha !== selected.binding.capability.controllerPublication.tree) refuse();
+  const { workflowRevision: _revision, ...target } = expected.binding;
+  validateHeldD2Target(target); validateHeldD2Gate(expected.gate, 'final', expected.binding.workflowRevision);
+  const observed = await verifyProbe(expected.workflowRun, target, io, expected.sourceDigests, signal,
+    heldAppPolicy, expected.gate, undefined, current);
+  if (canonical(observed) !== canonical(expected)) refuse();
+  return observed as HeldAppAcceptanceProof;
+}
 async function verifyProbe(runId: string, target: HeldAppTarget, io: HeldProbeIo, sourceDigests: Readonly<Record<string, string>>,
   signal: AbortSignal, policy: HeldAppPolicy, gate?: HeldAcceptanceGate,
-  retained?: HeldRetainedCandidateContext): Promise<HeldAppProbeProof | HeldAppAcceptanceProof> {
+  retained?: HeldRetainedCandidateContext,
+  historicalCurrent?: { revision: string; tree: string }): Promise<HeldAppProbeProof | HeldAppAcceptanceProof> {
   signal.throwIfAborted(); validateHeldTarget(target, policy);
   const sources = gate ? heldD2Sources : heldProbeSources;
   if (!/^[1-9][0-9]{0,19}$/.test(runId) || canonical(Object.keys(sourceDigests).sort()) !== canonical([...sources].sort())
@@ -133,8 +151,9 @@ async function verifyProbe(runId: string, target: HeldAppTarget, io: HeldProbeIo
   if (canonical(boundTarget) !== canonical(target)) refuse();
   const checkMain = async () => {
     const main = record(await read('/commits/main'));
-    if (main.sha !== (retained?.controllerPublication.revision ?? revision)
-      || (retained && record(record(main.commit).tree).sha !== retained.controllerPublication.tree)) refuse();
+    const publication = historicalCurrent ?? retained?.controllerPublication;
+    if (main.sha !== (publication?.revision ?? revision)
+      || (publication && record(record(main.commit).tree).sha !== publication.tree)) refuse();
   };
   await checkMain();
   for (const path of sources) if (sha256(await source(path)) !== sourceDigests[path]) refuse();
@@ -169,7 +188,7 @@ async function verifyProbe(runId: string, target: HeldAppTarget, io: HeldProbeIo
   if (canonical(after) !== canonical(variable)) refuse();
   if (gate && canonical(await read(gatePath)) !== canonical(gateResource)) refuse();
   await checkMain(); checkRun(record(await read(runPath)));
-  if (retained && canonical(await read(`${runPath}/artifacts?per_page=100`)) !== canonical(listing)) refuse();
+  if ((retained || historicalCurrent) && canonical(await read(`${runPath}/artifacts?per_page=100`)) !== canonical(listing)) refuse();
   const base = { version: 1 as const, binding: binding as HeldAppBinding, bindingDigest,
     workflowRun: runId, artifactId: artifact.id, archiveDigest, receiptDigest: sha256(canonical(receipt)),
     sourceDigests: { ...sourceDigests }, sourcePinDigest: sha256(pinBytes) };

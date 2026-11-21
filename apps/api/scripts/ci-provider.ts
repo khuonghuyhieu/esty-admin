@@ -8,14 +8,19 @@ import { validateActivationPacket, verifyActivationArtifact } from './activation
 import type { ActivationPacket } from './activation-journal.js';
 import { verifyRoutineArtifact } from './ci-migrations.js';
 import type { RoutineSchema } from './ci-migrations.js';
-import type { ReleaseDiagnostics } from './ci-delivery.js';
+import { validateReleaseRequest } from './ci-delivery.js';
+import type { ReleaseDiagnostics, ReleaseRequest } from './ci-delivery.js';
+import { historicalHandoffDigest, historicalRecordId, historicalSnapshot, proveHistoricalHandoff } from './historical-release.js';
+import type { HistoricalAdmission, HistoricalItem } from './historical-release.js';
+import { manualGithubIo } from './activation-preflight-disposition.mjs';
+import { normalizeManualArchive } from './activation-archive-transport.mjs';
 
 export const repository = 'khuonghuyhieu/esty-admin';
 export const deploymentId = /^dpl_[A-Za-z0-9]{1,124}$/;
 const task = 'deploy:esty-be-ci';
 export interface RunIdentity { revision: string; tree: string; run: string }
 export interface RoutineDeliveryApproval extends RoutineSchema {
-  configDigest: string; requestDigest: string; strictPacketDigest?: string;
+  configDigest: string; requestDigest: string; strictPacketDigest?: string; request?: ReleaseRequest;
 }
 export interface Candidate { id: string; origin: string; ready: boolean }
 export interface DeliveryProvider {
@@ -117,6 +122,14 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
     || (schema?.strictPacketDigest !== undefined && (!/^[a-f0-9]{64}$/.test(schema.strictPacketDigest) || schema.migration)))) {
     throw new Error('The complete approved release request binding is required.');
   }
+  const approvedRequest = schema?.request
+    ? validateReleaseRequest(schema.request, { version: 1, requestDigest: schema.requestDigest }) : undefined;
+  if (approvedRequest && schema) {
+    predicate('reservation.request-binding', canonical(approvedRequest.controller) === canonical(run)
+      && approvedRequest.artifactDigest === artifact.digest && approvedRequest.sourceDigest === artifact.manifest.source.digest
+      && approvedRequest.schema.targetDigest === schema.digest && approvedRequest.configDigest === schema.configDigest,
+    'The complete release request differs from the provider binding.');
+  }
   for (const token of [credentials.github, credentials.vercel, ...(activation ? [] : [credentials.bypass])]) {
     if (!/^[\x21-\x7e]{16,512}$/.test(token)) throw new Error('Required environment secret is absent or invalid.');
   }
@@ -185,7 +198,37 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       || payload.migrationPacket !== (schema.strictPacketDigest ?? schema.migration?.digest) || payload.artifact !== artifact.digest
       || payload.sourceDigest !== artifact.manifest.source.digest || payload.migrationDigest !== schema.digest
       || payload.configDigest !== expectedConfigDigest || payload.requestDigest !== schema.requestDigest
+      || (approvedRequest !== undefined && canonical(payload.releaseRequest) !== canonical(approvedRequest))
       || payload.project !== artifactTarget.project) throw new Error('Routine journal identity differs.');
+  }
+  async function historicalPredecessor(admission: HistoricalAdmission): Promise<void> {
+    const expected = admission.marker.predecessor;
+    predicate('reservation.predecessor-alias', await alias() === expected.id, 'Historical handoff predecessor alias differs.');
+    const source = object(await github(`/commits/${expected.revision}`));
+    predicate('reservation.predecessor-source', source.sha === expected.revision && object(object(source.commit).tree).sha === expected.tree,
+      'Historical handoff predecessor source differs.');
+    const deployed = object(await provider(`/v13/deployments/${expected.id}`)), meta = object(deployed.meta);
+    predicate('reservation.predecessor-identity', deployed.id === expected.id && deployed.projectId === artifactTarget.project
+      && deployed.ownerId === artifactTarget.owner && deployed.target === 'production' && deployed.readyState === 'READY' && !deployed.gitSource
+      && canonical(deployed.regions) === canonical(['icn1']) && meta.sourceCommit === expected.revision
+      && meta.sourceDigest === expected.sourceDigest && meta.artifactSha256 === expected.artifactDigest,
+    'Historical handoff predecessor identity differs.');
+    if (admission.artifact) {
+      const roots = normalizeManualArchive(await provider(`/v6/deployments/${expected.id}/files`));
+      const uid = uploadedCandidatePartition(roots);
+      verifyCandidateArchive(await provider(`/v8/deployments/${expected.id}/files/${uid}`, 350 * 1024 * 1024), uid, admission.artifact);
+    }
+    const http = async (url: string, init: RequestInit = {}) => {
+      const response = await request(url, init), path = new URL(url).pathname;
+      const authorized = init.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(path)
+        && new Headers(init.headers).get('authorization') === `Bearer ${credentials.bearer}` && ![401, 403].includes(response.status);
+      const matches = response.headers.get('x-activation-config-digest') === (authorized ? expected.configDigest : null);
+      if (!matches) await response.body?.cancel();
+      predicate('reservation.predecessor-runtime', matches, 'Historical handoff predecessor runtime digest differs.');
+      return response;
+    };
+    await checkHostedHttp('https://api.lovora.us', 'https://app.lovora.us', credentials.bearer, http, 'current', diagnostics?.trace);
+    predicate('reservation.predecessor-alias-stable', await alias() === expected.id, 'Historical handoff predecessor alias changed.');
   }
   const operations: ActivationProvider & RoutineProvider = {
     async currentMain() {
@@ -202,55 +245,92 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
     },
     async reserve() {
       diagnostics?.at('reserve', 'unresolved-prior');
-      // Every unresolved intent survives runner loss. No reset, retry, auto-merge or implicit unlock.
-      for (let page = 1; ; page++) {
-        if (page > 20) throw new Error('Journal exceeds bounded reconciliation window.');
-        const entries: unknown = await github(`/deployments?task=${encodeURIComponent(task)}&environment=be-production&per_page=100&page=${page}`);
-        if (!Array.isArray(entries)) throw new Error('Durable intent history is unavailable.');
-        for (const raw of entries) {
-          const entry = object(raw);
-          if (!numeric(entry.id) || entry.task !== task || entry.environment !== 'be-production') throw new Error('Journal identity differs.');
-          if (schema && (entry.payload?.requestDigest === schema.requestDigest
-            || (schema.strictPacketDigest && entry.payload?.migrationPacket === schema.strictPacketDigest))) {
-            if (diagnostics && entry.payload?.requestDigest === schema.requestDigest) {
-              await routineJournal(entry.id);
-              const history: unknown = await github(`/deployments/${entry.id}/statuses?per_page=100`);
-              if (!Array.isArray(history) || history.length >= 100) throw new Error('Unconfirmed retained outcome.');
-              const descriptions = history.map(value => {
-                const status = object(value);
-                if (!['in_progress', 'success', 'error'].includes(status.state)
-                  || typeof status.description !== 'string' || status.description.length > 140
-                  || !/^(?:strict:(?:(?:reserved|accepted):[a-f0-9]{64}|(?:history|held-create|pre-sql-check|sql-apply|post-sql-check|promote-only|final-domain-ack):(?:intent|receipt):[a-f0-9]{64}|unresolved)|(?:ack|promoting|accepted|unresolved):dpl_[A-Za-z0-9]{1,124}|migration_(?:intent|committed):[a-f0-9]{64}|create_intent_unknown_until_acknowledged|unresolved_create_identity)$/.test(status.description)) {
-                  throw new Error('Unconfirmed retained outcome.');
-                }
-                return status.description as string;
-              });
-              diagnostics.remote(descriptions);
+      const scan = async (): Promise<HistoricalItem[]> => {
+        const history: HistoricalItem[] = [], ids = new Set<number>();
+        // Every unresolved intent survives runner loss. No reset, retry, auto-merge or implicit unlock.
+        for (let page = 1; ; page++) {
+          if (page > 20) throw new Error('Journal exceeds bounded reconciliation window.');
+          const entries: unknown = await github(`/deployments?task=${encodeURIComponent(task)}&environment=be-production&per_page=100&page=${page}`);
+          if (!Array.isArray(entries)) throw new Error('Durable intent history is unavailable.');
+          for (const raw of entries) {
+            const entry = object(raw);
+            if (!numeric(entry.id) || ids.has(entry.id) || entry.task !== task || entry.environment !== 'be-production') throw new Error('Journal identity differs.');
+            ids.add(entry.id);
+            if (schema && (entry.payload?.requestDigest === schema.requestDigest
+              || (schema.strictPacketDigest && entry.payload?.migrationPacket === schema.strictPacketDigest))) {
+              if (diagnostics && entry.payload?.requestDigest === schema.requestDigest) {
+                await routineJournal(entry.id);
+                const history: unknown = await github(`/deployments/${entry.id}/statuses?per_page=100`);
+                if (!Array.isArray(history) || history.length >= 100) throw new Error('Unconfirmed retained outcome.');
+                const descriptions = history.map(value => {
+                  const status = object(value);
+                  if (!['in_progress', 'success', 'error'].includes(status.state)
+                    || typeof status.description !== 'string' || status.description.length > 140
+                    || !/^(?:strict:(?:(?:reserved|accepted):[a-f0-9]{64}|(?:history|held-create|pre-sql-check|sql-apply|post-sql-check|promote-only|final-domain-ack):(?:intent|receipt):[a-f0-9]{64}|unresolved)|(?:ack|promoting|accepted|unresolved):dpl_[A-Za-z0-9]{1,124}|migration_(?:intent|committed):[a-f0-9]{64}|create_intent_unknown_until_acknowledged|unresolved_create_identity)$/.test(status.description)) {
+                    throw new Error('Unconfirmed retained outcome.');
+                  }
+                  return status.description as string;
+                });
+                diagnostics.remote(descriptions);
+              }
+              diagnostics?.trace?.event('reservation.request-unique', 'failed', 'existing-durable-reservation-forbids-replay');
+              throw new Error('This release request or strict packet already has a durable reservation.');
             }
-            diagnostics?.trace?.event('reservation.request-unique', 'failed', 'existing-durable-reservation-forbids-replay');
-            throw new Error('This release request or strict packet already has a durable reservation.');
+            const statuses: unknown = await github(`/deployments/${entry.id}/statuses?per_page=1`);
+            const status = Array.isArray(statuses) && statuses.length === 1 ? object(statuses[0]) : {};
+            const state = ['success', 'error', 'in_progress'].includes(status.state) ? status.state as string : 'unknown';
+            diagnostics?.trace?.event('reservation.prior-record', 'started', `prior-${state}`, { actualId: String(entry.id) });
+            predicate('reservation.previous-outcome', status.state === 'success' || (!activation && historicalRecordId(entry.id)),
+              'A previous delivery outcome is unresolved; owner reconciliation is required.');
+            history.push({ entry, status });
           }
-          const statuses: unknown = await github(`/deployments/${entry.id}/statuses?per_page=1`);
-          predicate('reservation.previous-outcome', Array.isArray(statuses) && statuses.length === 1 && object(statuses[0]).state === 'success',
-            'A previous delivery outcome is unresolved; owner reconciliation is required.');
+          if (entries.length < 100) return history;
         }
-        if (entries.length < 100) break;
-      }
-      diagnostics?.trace?.event('reservation.prior-intents', 'passed', 'bounded-history-has-no-unresolved-or-reused-intent');
-      diagnostics?.at('reserve', 'outcome-unknown');
+      };
+      const before = await scan();
+      let admission: HistoricalAdmission | undefined, disposed = false, failed = false;
       try {
-      const result = object(await github('/deployments', { method: 'POST', body: JSON.stringify({ ref: run.revision, task,
-        environment: 'be-production', auto_merge: false, required_contexts: [], production_environment: true,
-        description: 'Exact tested BE artifact delivery intent', payload: { version: 1, ...run, artifact: artifact.digest,
-          sourceDigest: artifact.manifest.source.digest, migrationDigest: activation?.packet.targetDigest ?? schema!.digest,
-          project: artifactTarget.project, ...(activation ? { activationPacket: activation.packetDigest, activationRun: activation.packet.runId }
-            : { configDigest: expectedConfigDigest, requestDigest: schema!.requestDigest }),
-          ...(schema?.strictPacketDigest ? { migrationPacket: schema.strictPacketDigest }
-            : schema?.migration ? { migrationPacket: schema.migration.digest } : {}) } }) }, 201));
-      predicate('reservation.create-acknowledgement', numeric(result.id) && result.sha === run.revision && result.task === task && result.environment === 'be-production',
-        'Durable intent acknowledgement is unknown.');
-      return result.id;
-      } catch (cause) { diagnostics?.evidenceFailed(); throw diagnostics?.capture(cause) ?? cause; }
+        if (!activation && before.some(item => historicalRecordId(item.entry.id))) {
+          predicate('reservation.historical-request', approvedRequest?.historicalHandoffDigest === historicalHandoffDigest,
+            'A bound historical handoff request is required.');
+          const prove = () => proveHistoricalHandoff(before, approvedRequest!, manualGithubIo(credentials.github, signal, transport), signal);
+          admission = diagnostics?.trace ? await diagnostics.trace.boundary('reservation.historical-proof', prove) : await prove();
+          await historicalPredecessor(admission);
+          await admission.dispose(); disposed = true;
+          await admission.recheck();
+          await operations.currentMain();
+          const after = await scan();
+          predicate('reservation.history-stable', historicalSnapshot(before) === historicalSnapshot(after), 'Durable history changed during handoff verification.');
+          predicate('reservation.predecessor-final-alias', await alias() === admission.marker.predecessor.id, 'Historical handoff predecessor changed.');
+          for (const item of before.filter(item => historicalRecordId(item.entry.id))) {
+            diagnostics?.trace?.event('reservation.prior-record', 'passed', 'verified-historical-handoff', { actualId: String(item.entry.id) });
+          }
+        }
+        diagnostics?.trace?.event('reservation.prior-intents', 'passed', 'bounded-history-has-no-unresolved-or-reused-intent');
+        signal.throwIfAborted();
+        diagnostics?.at('reserve', 'outcome-unknown');
+        try {
+          const result = object(await github('/deployments', { method: 'POST', body: JSON.stringify({ ref: run.revision, task,
+            environment: 'be-production', auto_merge: false, required_contexts: [], production_environment: true,
+            description: 'Exact tested BE artifact delivery intent', payload: { version: 1, ...run, artifact: artifact.digest,
+              sourceDigest: artifact.manifest.source.digest, migrationDigest: activation?.packet.targetDigest ?? schema!.digest,
+              project: artifactTarget.project, ...(activation ? { activationPacket: activation.packetDigest, activationRun: activation.packet.runId }
+                : { configDigest: expectedConfigDigest, requestDigest: schema!.requestDigest }),
+              ...(approvedRequest ? { releaseRequest: approvedRequest } : {}),
+              ...(admission ? { historicalHandoff: admission.marker } : {}),
+              ...(schema?.strictPacketDigest ? { migrationPacket: schema.strictPacketDigest }
+                : schema?.migration ? { migrationPacket: schema.migration.digest } : {}) } }) }, 201));
+          predicate('reservation.create-acknowledgement', numeric(result.id) && result.sha === run.revision && result.task === task && result.environment === 'be-production',
+            'Durable intent acknowledgement is unknown.');
+          return result.id;
+        } catch (cause) { diagnostics?.evidenceFailed(); throw diagnostics?.capture(cause) ?? cause; }
+      } catch (cause) { failed = true; throw cause; }
+      finally {
+        if (admission && !disposed) {
+          try { await admission.dispose(); }
+          catch (cause) { diagnostics?.evidenceFailed(); if (!failed) throw cause; }
+        }
+      }
     },
     async record(journal, state, description) {
       if (!numeric(journal) || description.length > 140 || !/^[a-zA-Z0-9_: .-]+$/.test(description)) throw new Error('Invalid public journal status.');

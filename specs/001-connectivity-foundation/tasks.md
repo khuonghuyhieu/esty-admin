@@ -1,5 +1,18 @@
 # Tasks: Connectivity foundation
 
+## Historical activation-to-routine handoff — bounded source/local tasks
+
+Owner START on root-verified clean mainfed4b99; actual previous maximum235. [Contract amendment and exact evidence prerequisite](plan.md#historical-activation-to-routine-handoff--bounded-contract-amendment). Preserve all old records/claims/UNKNOWN and FE separation; no live effect or reviewer launch.
+
+- [x] T236 [US9] Map both supplied reservation blockers to public D1/D2 final acceptance and exact failed-preflight verifier contracts; distinguish app acceptance from whole activation.
+- [x] T237 [US9] Amend the existing plan before source changes; identify independently bound public evidence ingress and exact missing historical receipt/artifact prerequisites.
+- [x] T238 [US9] After root's selected-evidence CONTINUE, implement the bounded two-record handoff, complete request/durable typed successor binding and safe prior-record diagnostics. Both branches use independent real evidence/current verifiers; no broad error/in_progress acceptance or historical status mutation.
+- [x] T239 [US9] Preserve failing-before/passing-after proof; cover missing/forged/stale evidence, identity/schema/alias/status drift, unknown/replay/concurrency and first-failure diagnostics before POST. Final compiler0 and affected199/199,0 skips; initial failures retained.
+- [x] T240 [US9] Run ONE emitted synthetic reservation-to-release journey with real effects denied: current-schema-only successor accepts the same candidate after one synthetic CREATE/promotion. Separately, canonical first strict authorize verifies actual historical preimages and reaches history authorization without SQL/CREATE/promotion. Original harness ENOENT and corrected passing journey are retained, not called actual strict-cutover or hosted proof.
+- [x] T241 [US9] Freeze this two-document contract amendment and unchanged-source/evidence hashes at BLOCKED_HISTORICAL_RELEASE_HANDOFF_EVIDENCE / STOP WRITES / NO_INFLIGHT. Compiler0 and five emitted boundary scenarios are recorded separately from unrun positive repair/E2E; root receives exact public evidence prerequisites and ETA/actual elapsed.
+
+**Resumed T241 handback — 2026-11-21:** READY_FOR_HISTORICAL_RELEASE_HANDOFF_REVIEW / STOP WRITES / NO_INFLIGHT. [Actual source-local result, failures and limits](plan.md#historical-handoff-source-local-result--2026-11-21). Exact15-path/evidence hashes, selected-input preservation and actual elapsed time are in the external review manifest. Original blocked handback above remains historical. Root alone starts the reserved independent review; source publication/new checked artifact/fresh approval and actual operations remain separate. First admission still depends on original artifact13587251015 remaining unexpired at execution (expiry2026-11-21T19:10:42Z).
+
 ## Routine optional-input compatibility — bounded source/local tasks
 
 Owner START on root-verified clean main3f87117; [plan and contract](plan.md#routine-optional-input-compatibility-amendment--2026-11-20). Actual maximum230 checked before allocating these IDs. Actual44803038548 value/type is unknown; null remains a hypothesis. No new worker/reviewer or operational action.

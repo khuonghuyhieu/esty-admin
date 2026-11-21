@@ -237,7 +237,7 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
   const root = privateDirectory(join(input.directory, 'strict')), directory = join(root, packet.runId);
   const reservationPath = join(root, 'reservation.json');
   const schema: RoutineDeliveryApproval = { digest: request.schema.targetDigest, configDigest: request.configDigest,
-    requestDigest, strictPacketDigest: packetDigest };
+    requestDigest, strictPacketDigest: packetDigest, request };
   const verify = () => { signal.throwIfAborted(); strictBinding(artifact, request, packet); };
   const unavailable = async (): Promise<never> => refuse();
   function reservation(): StrictReservation {
