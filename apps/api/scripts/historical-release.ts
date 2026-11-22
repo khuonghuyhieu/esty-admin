@@ -6,14 +6,15 @@ import { canonical, removeArtifactTree, sha256, verifyArtifact } from './artifac
 import type { VerifiedArtifact } from './artifact.js';
 import { verifyActivationArtifact } from './activation-journal.js';
 import type { ActivationPacket } from './activation-journal.js';
-import { failedPreflightProof, validateRetainedArtifactArchive } from './activation-preflight-disposition.mjs';
+import { failedPreflightProof, validateRetainedArtifactArchive, validateAuthorizationProducerArchive,
+  validateAuthorizationReceiptArchive } from './activation-preflight-disposition.mjs';
 import { retainedActivation, retainedHistoricalArchive } from './activation-retained.mjs';
-import { extractRoutineBundle } from './routine-retained.mjs';
+import { extractRoutineBundle, verifyRoutineBundle } from './routine-retained.mjs';
 import { verifyHistoricalFinalAcceptance, validateHistoricalPreimages, validateHistoricalRecord } from './activation-held-proof.js';
 import { heldAppPolicy, heldD2 } from './activation-held-contract.mjs';
 import { historicalReleaseEvidence as evidence } from './historical-release-evidence.js';
 import type { ReleaseRequest } from './ci-delivery.js';
-import { validateReleaseRequest } from './ci-delivery.js';
+import { validateReleaseRequest, validateReleaseResult } from './ci-delivery.js';
 import type { ChecksDiagnostics } from './checks-diagnostics.js';
 
 export const historicalHandoffDigest = sha256(canonical({ evidence, retention: retainedHistoricalArchive }));
@@ -58,14 +59,16 @@ function bindPredecessor(request: ReleaseRequest, expected: HistoricalPredecesso
     artifactDigest: expected.artifactDigest, configDigest: expected.configDigest }), 'approved-predecessor');
 }
 interface ConsumedHandoff { id: number; predecessor: HistoricalPredecessor; request: ReleaseRequest }
-async function consumedPredecessor(items: readonly HistoricalItem[], io: HistoricalIo): Promise<ConsumedHandoff | undefined> {
+async function consumedPredecessor(items: readonly HistoricalItem[], io: HistoricalIo,
+  refused: ReadonlyMap<number, FailedAuthorizationAdmission>): Promise<ConsumedHandoff | undefined> {
   const marked = items.filter(item => !historicalRecordId(item.entry.id) && item.entry.payload !== null
     && typeof item.entry.payload === 'object' && Object.hasOwn(item.entry.payload, 'historicalHandoff'));
   let previous: ConsumedHandoff | undefined;
   for (const item of [...marked].reverse()) {
     const id = item.entry.id, p = object(item.entry.payload), marker = object(p.historicalHandoff);
     const request = validateReleaseRequest(p.releaseRequest, { version: 1, requestDigest: p.requestDigest });
-    requireProof(typeof id === 'number' && Number.isSafeInteger(id) && id > 0 && item.status.state === 'success'
+    const noEffect = typeof id === 'number' ? refused.get(id) : undefined;
+    requireProof(typeof id === 'number' && Number.isSafeInteger(id) && id > 0 && (item.status.state === 'success' || noEffect !== undefined)
       && item.entry.task === 'deploy:esty-be-ci' && item.entry.environment === 'be-production' && item.entry.production_environment === true
       && p.version === 1 && request.target === retainedActivation.target && p.migrationPacket === request.migration?.packetDigest
       && marker.version === 1 && marker.evidenceDigest === historicalHandoffDigest
@@ -81,6 +84,10 @@ async function consumedPredecessor(items: readonly HistoricalItem[], io: Histori
     else requireProof(request.schema.beforeDigest === '149cb530551c0f0e2b734c1aa1086eac5615e01ebca152a8203490c8d93200c3'
       && request.migration !== null && equal(request.migration.predecessor, { id: heldD2.candidate, revision: heldAppPolicy.revision,
         artifactDigest: heldAppPolicy.artifactDigest, configDigest: heldD2.configDigest }), 'consumed-origin');
+    if (noEffect) {
+      requireProof(noEffect.marker.recordDigest === sha256(historicalSnapshot([item])), 'refused-lineage-binding');
+      continue; // A verified refusal retains its predecessor; it never consumes a successful handoff.
+    }
     const statuses: unknown = await io.read(`/deployments/${id}/statuses?per_page=100`);
     requireProof(Array.isArray(statuses) && statuses.length > 0 && statuses.length < 100 && equal(statuses[0], item.status), 'consumed-status-readback');
     const ids = [...new Set(statuses.map(object).flatMap(row => {
@@ -102,7 +109,7 @@ export function historicalMetadataReadback(io: HistoricalIo, signal: AbortSignal
   const proofIo: HistoricalIo = { diagnostics: io.diagnostics, download: (id, maximum) => io.download(id, maximum), async read(path) {
     signal.throwIfAborted();
     const value = await io.read(path);
-    if (/^\/(?:actions|deployments|commits|git|releases)\//.test(path)) {
+    if (/^\/(?:actions|deployments|commits|contents|git|releases)\//.test(path)) {
       let stable = value;
       if (path === releasePath) {
         const release = object(value);
@@ -126,7 +133,7 @@ export function historicalMetadataReadback(io: HistoricalIo, signal: AbortSignal
 }
 
 export async function proveHistoricalHandoff(items: readonly HistoricalItem[], request: ReleaseRequest, io: HistoricalIo,
-  signal: AbortSignal): Promise<HistoricalAdmission> {
+  signal: AbortSignal, refused: ReadonlyMap<number, FailedAuthorizationAdmission> = new Map()): Promise<HistoricalAdmission> {
   validateHistoricalPreimages(); signal.throwIfAborted();
   requireProof(request.historicalHandoffDigest === historicalHandoffDigest && request.target === retainedActivation.target, 'request-evidence-binding');
   const accepted = items.filter(item => item.entry.id === evidence.accepted.id), failed = items.filter(item => item.entry.id === evidence.failed.id);
@@ -136,7 +143,7 @@ export async function proveHistoricalHandoff(items: readonly HistoricalItem[], r
   const retention = retainedHistoricalArchive, releasePath = `/releases/tags/${retention.tag}`;
   const api = `https://api.github.com/repos/${retention.repository}`;
   const { proofIo, recheck } = historicalMetadataReadback(io, signal);
-  const consumed = await consumedPredecessor(items, proofIo);
+  const consumed = await consumedPredecessor(items, proofIo, refused);
   if (consumed) {
     bindPredecessor(request, consumed.predecessor, consumed.request.schema.target);
     return { marker: { version: 1, evidenceDigest: historicalHandoffDigest, predecessorRecord: consumed.id,
@@ -199,4 +206,275 @@ export async function proveHistoricalHandoff(items: readonly HistoricalItem[], r
     catch (cleanup) { throw new AggregateError([cause, cleanup], 'Historical handoff proof and temporary evidence cleanup failed.', { cause }); }
     throw cause;
   }
+}
+
+export interface FailedAuthorizationAdmission {
+  marker: {
+    version: 1; kind: 'failed-authorization-no-effects'; journal: number; requestDigest: string;
+    packetDigest: string; recordDigest: string; statusesDigest: string; sourcePolicy: 'current' | 'reviewed-legacy';
+    workflowDigest: string; producerZipDigest: string; receiptArtifact: number; receiptZipDigest: string;
+    receiptArchiveDigest: string; receiptInventoryDigest: string; outcomeHead: string; outcomeCount: number;
+  };
+  consumed?: true;
+  recheck(): Promise<void>;
+}
+// Reviewed source identities, never incident run/journal/artifact IDs or caller-selected authority.
+const authorizationWorkflowDigest = 'c9cd73e744ff32998b9874d0782480bc2c2eff1c92d1ec00f1be5d189ef89a53';
+const authorizationLegacy = Object.freeze({
+  revision: '5b038868fb636ad98d2d46a5c1ae3c089510ef4d', tree: '9afb8fd6329c2cc271e67b896d2b2b5afa2b45d1',
+  source: '1bc2ea6eb7a1789fc00b1f3eb896a67d168a5044d5e0bd95e0dfc41abe3559a2',
+  artifact: '259cc1cdafca81b51534f5164d1fbe51664638346e2b6602672932c029c9031d',
+  operator: '3d2c5c3ea3d0a3f7b032f1de6c59639333b45050d5416337b3c8a922add0020d',
+});
+function operatorDigest(artifact: VerifiedArtifact): string {
+  return sha256(canonical({
+    files: artifact.manifest.files.filter(file => file.path.startsWith('operator/')).map(file => ({ ...file, path: file.path.slice(9) })),
+    directories: artifact.manifest.directories.filter(dir => dir.path.startsWith('operator/')).map(dir => ({ ...dir, path: dir.path.slice(9) })),
+  }));
+}
+function positive(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value > 0; }
+function timestamp(value: unknown): number {
+  requireProof(typeof value === 'string' && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{3})?Z$/.test(value)
+    && Number.isFinite(Date.parse(value)), 'authorization-timestamp');
+  return Date.parse(value);
+}
+const authorizationSteps = [
+  ['Set up job', 'success'],
+  ['Check out the same published controller without persisted credentials', 'success'],
+  ['Set exact delivery runtime without application installation', 'success'],
+  ["Download only this run's verified immutable relay", 'success'],
+  ['Reverify approved relay and exact controller/operator before executing bundle code', 'success'],
+  ['Bootstrap independently verified public CLI before provider secrets', 'success'],
+  ['Reserve the common durable exclusion and authorize the explicit migration mode', 'failure'],
+  ['Inspect exactly strict three-entry history in the SQL-only worker', 'skipped'],
+  ['Create held strict4 once and authorize SQL only after exact pending readiness', 'skipped'],
+  ['Apply only the approved new suffix in the SQL-only worker', 'skipped'],
+  ['Confirm durable SQL outcome when selected and accept the same exact deployment', 'skipped'],
+  ['Preserve private receipt modes and record the exact transferable inventory', 'success'],
+  ['Retain sanitized receipts without secret-bearing subprocess logs', 'success'],
+  ['Summarize production boundaries without private output', 'success'],
+  ['Retain public production diagnostics on every outcome', 'success'],
+  ['Disclose production diagnostic upload loss', 'success'],
+  ['Post Set exact delivery runtime without application installation', 'skipped'],
+  ['Post Check out the same published controller without persisted credentials', 'success'],
+  ['Complete job', 'success'],
+] as const;
+export async function proveFailedAuthorization(item: HistoricalItem, current: VerifiedArtifact,
+  io: HistoricalIo, signal: AbortSignal): Promise<FailedAuthorizationAdmission> {
+  const { proofIo, recheck: metadataRecheck } = historicalMetadataReadback(io, signal);
+  const p = object(item.entry.payload), request = validateReleaseRequest(p.releaseRequest, { version: 1, requestDigest: p.requestDigest });
+  const journal = item.entry.id, repository = retainedActivation.repository, workflow = retainedActivation.workflowPath;
+  requireProof(positive(journal) && item.status.state === 'error' && request.mode === 'etsy-strict-cutover'
+    && request.target === retainedActivation.target && request.migration !== null
+    && item.entry.task === 'deploy:esty-be-ci' && item.entry.environment === 'be-production' && item.entry.production_environment === true
+    && item.entry.sha === request.controller.revision && p.version === 1 && p.revision === request.controller.revision
+    && p.run === request.controller.run && p.tree === request.controller.tree && p.artifact === request.artifactDigest
+    && p.sourceDigest === request.sourceDigest && p.configDigest === request.configDigest && p.project === heldAppPolicy.project
+    && p.migrationDigest === request.schema.targetDigest && p.migrationPacket === request.migration.packetDigest
+    && request.controller.revision === request.producer.revision && request.controller.tree === request.producer.tree
+    && request.controller.run !== request.producer.run, 'authorization-journal-binding');
+  const source = current.manifest.source;
+  const isCurrent = request.artifactDigest === current.digest && request.sourceDigest === source.digest
+    && request.controller.revision === source.revision && request.controller.tree === source.tree
+    && request.operatorDigest === operatorDigest(current);
+  const isLegacy = request.artifactDigest === authorizationLegacy.artifact && request.sourceDigest === authorizationLegacy.source
+    && request.controller.revision === authorizationLegacy.revision && request.controller.tree === authorizationLegacy.tree
+    && request.operatorDigest === authorizationLegacy.operator;
+  requireProof(isCurrent || isLegacy, 'authorization-reviewed-source');
+  const remote = object(await proofIo.read(`/deployments/${journal}`));
+  requireProof(equal(remote, item.entry), 'authorization-journal-readback');
+  const statuses = await proofIo.read(`/deployments/${journal}/statuses?per_page=100`);
+  requireProof(Array.isArray(statuses) && statuses.length === 2 && equal(statuses[0], item.status), 'authorization-complete-statuses');
+  const terminal = object(statuses[0]), reserved = object(statuses[1]);
+  requireProof(terminal.state === 'error' && terminal.description === 'strict:unresolved'
+    && reserved.state === 'in_progress' && reserved.description === `strict:reserved:${p.requestDigest}`
+    && positive(terminal.id) && positive(reserved.id) && terminal.id > reserved.id
+    && statuses.every(raw => { const s = object(raw); return s.log_url === `https://github.com/${repository}/actions/runs/${request.controller.run}`
+      && s.environment_url === 'https://api.lovora.us'; }), 'authorization-status-effects');
+  const run = object(await proofIo.read(`/actions/runs/${request.controller.run}`));
+  const producer = object(await proofIo.read(`/actions/runs/${request.producer.run}`));
+  const repositoryId = object(run.repository).id;
+  requireProof(positive(repositoryId) && positive(run.workflow_id) && run.workflow_id === producer.workflow_id, 'authorization-workflow-identity');
+  for (const [value, identity, failed] of [[run, request.controller, true], [producer, request.producer, false]] as const) {
+    requireProof(positive(value.id) && String(value.id) === identity.run && value.run_attempt === 1 && value.status === 'completed'
+      && value.conclusion === (failed ? 'failure' : 'success') && value.head_sha === identity.revision && value.head_branch === 'main'
+      && value.path === workflow && (failed ? value.event === 'workflow_dispatch' : ['push', 'workflow_dispatch'].includes(String(value.event)))
+      && object(value.repository).full_name === repository && object(value.head_repository).full_name === repository
+      && object(value.repository).id === repositoryId && object(value.head_repository).id === repositoryId, 'authorization-run');
+  }
+  const commit = object(await proofIo.read(`/commits/${request.controller.revision}`));
+  requireProof(commit.sha === request.controller.revision && object(object(commit.commit).tree).sha === request.controller.tree, 'authorization-tree');
+  const file = object(await proofIo.read(`/contents/${workflow}?ref=${request.controller.revision}`));
+  requireProof(file.type === 'file' && file.path === workflow && file.encoding === 'base64'
+    && typeof file.content === 'string' && file.content.length <= 256 * 1024, 'authorization-workflow-content');
+  const workflowBytes = Buffer.from(file.content.replace(/\n/g, ''), 'base64');
+  requireProof(workflowBytes.toString('base64') === file.content.replace(/\n/g, '') && workflowBytes.length === file.size
+    && sha256(workflowBytes) === authorizationWorkflowDigest, 'authorization-workflow-source');
+  const jobsFor = async (identity: ReleaseRequest['controller'], failed: boolean) => {
+    const listing = object(await proofIo.read(`/actions/runs/${identity.run}/jobs?filter=all&per_page=100`));
+    requireProof(Array.isArray(listing.jobs) && listing.total_count === listing.jobs.length && listing.jobs.length === 6, 'authorization-complete-jobs');
+    const jobs = listing.jobs.map(object), expected = new Map<string, string>([
+      ['BE required checks', failed ? 'skipped' : 'success'], ['BE completion', failed ? 'failure' : 'success'],
+      ['BE production delivery', failed ? 'failure' : 'skipped'],
+      ['Select an approved checked routine bundle', failed ? 'success' : 'skipped'],
+      ['Activate the owner-approved retained bundle', 'skipped'], ['Select the owner-approved retained activation bundle', 'skipped'],
+    ]);
+    requireProof(new Set(jobs.map(job => job.id)).size === 6 && new Set(jobs.map(job => job.name)).size === 6
+      && jobs.every(job => typeof job.name === 'string' && expected.has(job.name)
+        && (job.conclusion === 'success' || job.conclusion === 'failure' || job.conclusion === 'skipped')
+        && positive(job.id) && String(job.run_id) === identity.run && job.run_attempt === 1
+        && job.head_sha === identity.revision && job.status === 'completed' && expected.get(job.name) === job.conclusion), 'authorization-job-identity');
+    return jobs;
+  };
+  const jobs = await jobsFor(request.controller, true), producerJobs = await jobsFor(request.producer, false);
+  const production = jobs.find(job => job.name === 'BE production delivery')!, retrieval = jobs.find(job => job.name === 'Select an approved checked routine bundle')!;
+  const checks = producerJobs.find(job => job.name === 'BE required checks')!;
+  requireProof(Array.isArray(production.steps) && production.steps.every(step => object(step).status === 'completed')
+    && equal(production.steps.map(step => { const s = object(step); return [s.name, s.conclusion]; }), authorizationSteps), 'authorization-before-effects');
+  for (const [job, required] of [[retrieval, ['Authenticate consumer and successful producer before retrieval',
+    'Check independent approval and archive before safe extraction and full closure verification',
+    'Relay unchanged approved bytes and bounded request receipts']], [checks, ['Compile exact API source',
+    'Build native artifact and require functional plus actual HTTP-to-test-DB checks', 'Retain one immutable mode-preserving tested bundle']]] as const) {
+    requireProof(Array.isArray(job.steps) && job.steps.length > 0 && job.steps.length < 100, 'authorization-successful-steps');
+    const steps = job.steps.map(object);
+    requireProof(new Set(steps.map(step => step.name)).size === steps.length
+      && steps.every(step => step.status === 'completed' && step.conclusion === 'success')
+      && required.every(name => steps.some(step => step.name === name)), 'authorization-successful-checks');
+  }
+  requireProof(timestamp(producer.updated_at) <= timestamp(run.created_at)
+    && timestamp(reserved.created_at) >= timestamp(production.started_at)
+    && timestamp(terminal.created_at) >= timestamp(reserved.created_at)
+    && timestamp(terminal.created_at) <= timestamp(production.completed_at), 'authorization-effect-window');
+  const expirations: number[] = [];
+  const artifactFor = async (identity: ReleaseRequest['controller'], job: Record<string, unknown>, name: string, maximum: number) => {
+    const listing = object(await proofIo.read(`/actions/runs/${identity.run}/artifacts?per_page=100`));
+    requireProof(Array.isArray(listing.artifacts) && listing.artifacts.length < 100 && listing.total_count === listing.artifacts.length, 'authorization-complete-artifacts');
+    requireProof(listing.artifacts.every(raw => positive(object(raw).id))
+      && new Set(listing.artifacts.map(raw => object(raw).id)).size === listing.artifacts.length, 'authorization-artifact-identities');
+    const found = listing.artifacts.map(object).filter(artifact => artifact.name === name);
+    requireProof(found.length === 1, 'authorization-unique-artifact');
+    const artifact = found[0]!, binding = object(artifact.workflow_run);
+    requireProof(positive(artifact.id) && positive(artifact.size_in_bytes) && artifact.size_in_bytes <= maximum
+      && artifact.expired === false && typeof artifact.digest === 'string' && /^sha256:[a-f0-9]{64}$/.test(artifact.digest)
+      && String(binding.id) === identity.run && binding.head_sha === identity.revision && binding.head_branch === 'main'
+      && binding.repository_id === repositoryId && binding.head_repository_id === repositoryId
+      && timestamp(artifact.created_at) >= timestamp(job.started_at) && timestamp(artifact.created_at) <= timestamp(job.completed_at)
+      && timestamp(artifact.expires_at) > Date.now(), 'authorization-artifact');
+    expirations.push(timestamp(artifact.expires_at));
+    return artifact as Record<string, unknown> & { id: number; size_in_bytes: number; digest: string; expires_at: string };
+  };
+  const producerArtifact = await artifactFor(request.producer, checks, `be-tested-${request.producer.run}-1`, 64 * 1024 * 1024);
+  requireProof(String(producerArtifact.id) === request.artifactId, 'authorization-producer-artifact');
+  const receiptArtifact = await artifactFor(request.controller, production, `be-delivery-receipts-${request.controller.run}-1`, 65536);
+  const producerZip = await proofIo.download(producerArtifact.id, 64 * 1024 * 1024);
+  requireProof(producerZip.length === producerArtifact.size_in_bytes, 'authorization-producer-size');
+  const packaged = validateAuthorizationProducerArchive(producerZip, producerArtifact.digest.slice(7), io.diagnostics);
+  requireProof(equal(packaged.approval, { version: 1, mode: 'release', producer: request.producer,
+    artifactDigest: request.artifactDigest, sourceDigest: request.sourceDigest, archiveDigest: request.archiveDigest,
+    operatorDigest: request.operatorDigest, schemaDigest: request.schema.targetDigest }), 'authorization-packaged-approval');
+  const context = { version: 1, controller: { revision: request.controller.revision, run: request.controller.run },
+    producerRun: request.producer.run, artifactId: request.artifactId, mode: request.mode, approvalDigest: packaged.approvalDigest,
+    configDigest: request.configDigest, schemaDigest: request.schema.targetDigest, target: request.target, packetDigest: request.migration.packetDigest };
+  const selection = { version: 1, context, controllerTree: request.controller.tree, producer: request.producer,
+    checksJobId: String(checks.id), artifact: { id: request.artifactId, zipDigest: producerArtifact.digest.slice(7),
+      expiresAt: producerArtifact.expires_at }, selectedAt: new Date().toISOString() };
+  const root = await mkdtemp(join(realpathSync(tmpdir()), 'esty-authorization-proof-'));
+  try {
+    const bundle = await extractRoutineBundle(packaged.archive, request.archiveDigest, join(root, 'bundle'));
+    await verifyRoutineBundle(bundle, packaged.approval, selection, context, undefined);
+  } finally { await removeArtifactTree(root); }
+  const receiptZip = await proofIo.download(receiptArtifact.id);
+  requireProof(receiptZip.length === receiptArtifact.size_in_bytes, 'authorization-receipt-size');
+  const receipts = validateAuthorizationReceiptArchive(receiptZip, receiptArtifact.digest.slice(7), io.diagnostics);
+  const json = (name: string): unknown => {
+    try { return JSON.parse(receipts.files.get(name).bytes.toString('utf8')); }
+    catch { throw new Error('Historical handoff refused: authorization-receipt-json.'); }
+  };
+  requireProof(equal(json('strict/reserving.json'), { requestDigest: p.requestDigest, packetDigest: request.migration.packetDigest })
+    && equal(json('strict/reservation.json'), { version: 1, requestDigest: p.requestDigest, packetDigest: request.migration.packetDigest, journal }),
+  'authorization-local-reservation');
+  let previous: string | null = null;
+  for (const name of receipts.outcomes as string[]) {
+    const event = object(json(name));
+    requireProof(equal(Object.keys(event).sort(), ['previous', 'requestDigest', 'result', 'terminal'])
+      && event.previous === previous && event.requestDigest === p.requestDigest && event.terminal === true, 'authorization-outcome-chain');
+    const result = validateReleaseResult(event.result);
+    requireProof(equal(result.request, request) && result.status === 'refused' && result.stage === 'reserve'
+      && result.category === 'validation' && result.evidence === 'confirmed' && result.nextAction === 'inspect-retained-evidence'
+      && equal(result.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' })
+      && result.deploymentId === null && result.migration === null && result.proof === null && result.receiptDigest === null, 'authorization-no-effects');
+    previous = sha256(receipts.files.get(name).bytes);
+  }
+  const recheck = async () => {
+    await metadataRecheck();
+    requireProof(expirations.every(expires => expires > Date.now()), 'authorization-evidence-expired');
+    signal.throwIfAborted();
+  };
+  await recheck();
+  return { marker: { version: 1, kind: 'failed-authorization-no-effects', journal, requestDigest: String(p.requestDigest),
+    packetDigest: request.migration.packetDigest, recordDigest: sha256(historicalSnapshot([item])),
+    statusesDigest: sha256(canonical(statuses)), sourcePolicy: isCurrent ? 'current' : 'reviewed-legacy',
+    workflowDigest: authorizationWorkflowDigest, producerZipDigest: producerArtifact.digest.slice(7), receiptArtifact: receiptArtifact.id,
+    receiptZipDigest: receiptArtifact.digest.slice(7), receiptArchiveDigest: receipts.archiveDigest,
+    receiptInventoryDigest: receipts.inventoryDigest, outcomeHead: previous!, outcomeCount: receipts.outcomes.length }, recheck };
+}
+
+export async function proveFailedAuthorizations(items: readonly HistoricalItem[], current: VerifiedArtifact,
+  io: HistoricalIo, signal: AbortSignal): Promise<Map<number, FailedAuthorizationAdmission>> {
+  const admissions = new Map<number, FailedAuthorizationAdmission>();
+  const { proofIo, recheck } = historicalMetadataReadback(io, signal);
+  // Only a complete, successful typed handoff may consume a disposition. The immutable
+  // reservation payload binds its proof; the accepted remote outcome consumes that payload.
+  // This is the same durable authority as consumedPredecessor, not an expired-artifact fallback.
+  for (const [index, item] of items.entries()) {
+    if (!item.entry.payload || typeof item.entry.payload !== 'object') continue;
+    const payload = object(item.entry.payload);
+    if (!Object.hasOwn(payload, 'noEffectDispositions')) continue;
+    requireProof(item.status.state === 'success' && Object.hasOwn(payload, 'historicalHandoff')
+      && Array.isArray(payload.noEffectDispositions) && payload.noEffectDispositions.length > 0
+      && payload.noEffectDispositions.length <= items.length, 'authorization-consumed-carrier');
+    const successor = validateReleaseRequest(payload.releaseRequest, { version: 1, requestDigest: payload.requestDigest });
+    for (const value of payload.noEffectDispositions) {
+      const marker = object(value);
+      requireProof(equal(Object.keys(marker).sort(), ['version', 'kind', 'journal', 'requestDigest', 'packetDigest',
+        'recordDigest', 'statusesDigest', 'sourcePolicy', 'workflowDigest', 'producerZipDigest', 'receiptArtifact',
+        'receiptZipDigest', 'receiptArchiveDigest', 'receiptInventoryDigest', 'outcomeHead', 'outcomeCount'].sort())
+        && marker.version === 1 && marker.kind === 'failed-authorization-no-effects'
+        && positive(marker.journal) && positive(marker.receiptArtifact) && positive(marker.outcomeCount) && marker.outcomeCount <= 256
+        && ['current', 'reviewed-legacy'].includes(String(marker.sourcePolicy))
+        && marker.workflowDigest === authorizationWorkflowDigest
+        && ['requestDigest', 'packetDigest', 'recordDigest', 'statusesDigest', 'producerZipDigest',
+          'receiptZipDigest', 'receiptArchiveDigest', 'receiptInventoryDigest', 'outcomeHead'].every(key =>
+          typeof marker[key] === 'string' && /^[a-f0-9]{64}$/.test(marker[key] as string)), 'authorization-consumed-marker');
+      const failedIndex = items.findIndex(row => row.entry.id === marker.journal), failed = items[failedIndex];
+      requireProof(failed !== undefined && failedIndex > index && !historicalRecordId(marker.journal)
+        && !admissions.has(marker.journal) && failed.status.state === 'error'
+        && marker.recordDigest === sha256(historicalSnapshot([failed])), 'authorization-consumed-record');
+      const failedPayload = object(failed.entry.payload);
+      const request = validateReleaseRequest(failedPayload.releaseRequest, { version: 1, requestDigest: failedPayload.requestDigest });
+      requireProof(request.mode === 'etsy-strict-cutover' && request.migration !== null
+        && marker.requestDigest === failedPayload.requestDigest && marker.packetDigest === request.migration.packetDigest
+        && marker.requestDigest !== payload.requestDigest && marker.packetDigest !== successor.migration?.packetDigest
+        && equal(object(failedPayload.historicalHandoff), object(payload.historicalHandoff))
+        && equal(request.schema.before, successor.schema.before), 'authorization-consumed-request');
+      const remote = await proofIo.read(`/deployments/${marker.journal}`);
+      const statuses = await proofIo.read(`/deployments/${marker.journal}/statuses?per_page=100`);
+      requireProof(equal(remote, failed.entry) && Array.isArray(statuses) && statuses.length === 2
+        && equal(statuses[0], failed.status) && sha256(canonical(statuses)) === marker.statusesDigest,
+      'authorization-consumed-statuses');
+      admissions.set(marker.journal, { marker: marker as unknown as FailedAuthorizationAdmission['marker'], consumed: true, recheck });
+    }
+  }
+  for (const item of items) {
+    if (item.status.state === 'success' || historicalRecordId(item.entry.id)) continue;
+    requireProof(positive(item.entry.id) && item.status.state === 'error', 'authorization-unresolved-prior');
+    if (!admissions.has(item.entry.id)) admissions.set(item.entry.id, await proveFailedAuthorization(item, current, proofIo, signal));
+  }
+  if (admissions.size) {
+    // Validate all carriers, refused origins and subsequent accepted predecessor links
+    // together before returning any exception capability to the provider.
+    await consumedPredecessor(items, proofIo, admissions);
+    await recheck();
+  }
+  return admissions;
 }

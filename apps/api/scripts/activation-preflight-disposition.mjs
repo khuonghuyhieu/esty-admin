@@ -90,17 +90,23 @@ export function validateRetainedArtifactArchive(bytes, diagnostics) {
   if (!digestMatches) refuse();
   return archive;
 }
-export function validatePreflightReceiptArchive(zip, approvedZip, expected, diagnostics) {
-  const { runId, packetDigest } = expected;
-  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(runId) || !hex.test(packetDigest)) refuse();
+export function validateAuthorizationProducerArchive(bytes, approvedZip, diagnostics) {
+  const members = zipMembers(bytes, approvedZip, ['be-release.tar.gz', 'be-release-approval.json'], 64 * 1024 * 1024, diagnostics);
+  const approvalBytes = members.get('be-release-approval.json');
+  if (approvalBytes.length > 65536) refuse();
+  let approval;
+  try { approval = JSON.parse(approvalBytes.toString('utf8')); } catch { refuse(); }
+  if (canonical(approval) + '\n' !== approvalBytes.toString('utf8')) refuse();
+  return { archive: members.get('be-release.tar.gz'), approval, approvalDigest: hash(approvalBytes) };
+}
+function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diagnostics) {
   const members = zipMembers(zip, approvedZip, undefined, 65536, diagnostics), compressed = members.get('be-delivery-receipts.tar.gz');
   const archiveLine = members.get('be-delivery-receipts.archive-sha256').toString('utf8');
   const inventoryLine = members.get('be-delivery-receipts.inventory-sha256').toString('utf8');
   if (!/^[a-f0-9]{64}  [^\r\n]*\/be-delivery-receipts\.tar\.gz\n$/.test(archiveLine)
     || archiveLine.slice(0, 64) !== hash(compressed) || !/^[a-f0-9]{64}\n$/.test(inventoryLine)) refuse();
   const tar = gunzipSync(compressed, { maxOutputLength: 65536 });
-  const base = `activation/${runId}`, expectedFiles = [`${base}/lock.json`, `${base}/packet.json`, `${base}/reservation.json`, 'operator.lock', 'packet-input.json'];
-  const expectedDirectories = ['', 'activation', base], files = new Map(), directories = new Map();
+  const files = new Map(), directories = new Map();
   const octal = bytes => { const text = bytes.toString('ascii').replace(/\0.*$/, '').trim(); if (!/^[0-7]+$/.test(text)) refuse(); return Number.parseInt(text, 8); };
   let cursor = 0;
   while (cursor + 512 <= tar.length && tar[cursor] !== 0) {
@@ -115,16 +121,33 @@ export function validatePreflightReceiptArchive(zip, approvedZip, expected, diag
       if (!expectedDirectories.includes(relative) || directories.has(relative) || mode !== 0o700 || size !== 0) refuse();
       directories.set(relative, { path: relative, mode });
     } else {
-      if (![0, 48].includes(type) || !expectedFiles.includes(relative) || files.has(relative) || mode !== 0o600) refuse();
+      if (![0, 48].includes(type) || !acceptsFile(relative) || files.has(relative) || mode !== 0o600) refuse();
       files.set(relative, { bytes: tar.subarray(cursor + 512, cursor + 512 + size), mode });
     }
     cursor += 512 + Math.ceil(size / 512) * 512;
   }
-  if (files.size !== 5 || directories.size !== 3 || tar.length - cursor < 1024 || tar.subarray(cursor).some(byte => byte !== 0)) refuse();
+  if (directories.size !== expectedDirectories.length || tar.length - cursor < 1024 || tar.subarray(cursor).some(byte => byte !== 0)) refuse();
   const inventory = { files: [...files].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([path, file]) => ({ path, mode: file.mode, size: file.bytes.length,
     sha256: hash(file.bytes), sha1: createHash('sha1').update(file.bytes).digest('hex') })), directories: [...directories.values()]
     .filter(directory => directory.path !== '').sort((a, b) => a.path.localeCompare(b.path, 'en')) };
   if (hash(canonical(inventory)) !== inventoryLine.trim()) refuse();
+  return { files, archiveDigest: hash(compressed), inventoryDigest: inventoryLine.trim() };
+}
+export function validateAuthorizationReceiptArchive(zip, approvedZip, diagnostics) {
+  const result = receiptMembers(zip, approvedZip, ['', 'strict'], name =>
+    ['strict/reserving.json', 'strict/reservation.json'].includes(name) || /^release-outcome-\d{4}\.json$/.test(name), diagnostics);
+  const outcomes = [...result.files.keys()].filter(name => name.startsWith('release-outcome-')).sort();
+  if (outcomes.length < 1 || outcomes.length > 256 || result.files.size !== outcomes.length + 2
+    || outcomes.some((name, index) => name !== `release-outcome-${String(index).padStart(4, '0')}.json`)
+    || !result.files.has('strict/reserving.json') || !result.files.has('strict/reservation.json')) refuse();
+  return { ...result, outcomes };
+}
+export function validatePreflightReceiptArchive(zip, approvedZip, expected, diagnostics) {
+  const { runId, packetDigest } = expected;
+  if (!/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(runId) || !hex.test(packetDigest)) refuse();
+  const base = `activation/${runId}`, expectedFiles = [`${base}/lock.json`, `${base}/packet.json`, `${base}/reservation.json`, 'operator.lock', 'packet-input.json'];
+  const { files, archiveDigest, inventoryDigest } = receiptMembers(zip, approvedZip, ['', 'activation', base], name => expectedFiles.includes(name), diagnostics);
+  if (files.size !== expectedFiles.length) refuse();
   const json = name => JSON.parse(files.get(name).bytes.toString('utf8'));
   const packet = json(`${base}/packet.json`), lock = json('operator.lock'), binding = json(`${base}/lock.json`), reservation = json(`${base}/reservation.json`);
   if (hash(canonical(packet)) !== packetDigest || packet.runId !== runId || !equal(json('packet-input.json'), packet)
@@ -134,7 +157,7 @@ export function validatePreflightReceiptArchive(zip, approvedZip, expected, diag
     || !['dev', 'ino', 'mtime_ns', 'ctime_ns'].every(key => /^\d{1,30}$/.test(binding.identity[key]))
     || binding.identity.sha256 !== hash(files.get('operator.lock').bytes) || binding.identity.size !== files.get('operator.lock').bytes.length
     || !exact(reservation, ['packetDigest', 'journal']) || reservation.packetDigest !== packetDigest || !positive(reservation.journal)) refuse();
-  return { packet, journal: reservation.journal, archiveDigest: hash(compressed), inventoryDigest: inventoryLine.trim() };
+  return { packet, journal: reservation.journal, archiveDigest, inventoryDigest };
 }
 function assertIntent(entry, packet) {
   const payload = object(entry.payload);

@@ -10,8 +10,8 @@ import { verifyRoutineArtifact } from './ci-migrations.js';
 import type { RoutineSchema } from './ci-migrations.js';
 import { validateReleaseRequest } from './ci-delivery.js';
 import type { ReleaseDiagnostics, ReleaseRequest } from './ci-delivery.js';
-import { historicalHandoffDigest, historicalRecordId, historicalSnapshot, proveHistoricalHandoff } from './historical-release.js';
-import type { HistoricalAdmission, HistoricalItem } from './historical-release.js';
+import { historicalHandoffDigest, historicalRecordId, historicalSnapshot, proveHistoricalHandoff, proveFailedAuthorizations } from './historical-release.js';
+import type { FailedAuthorizationAdmission, HistoricalAdmission, HistoricalItem } from './historical-release.js';
 import { manualGithubIo } from './activation-preflight-disposition.mjs';
 import { normalizeManualArchive } from './activation-archive-transport.mjs';
 
@@ -280,21 +280,36 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
             const status = Array.isArray(statuses) && statuses.length === 1 ? object(statuses[0]) : {};
             const state = ['success', 'error', 'in_progress'].includes(status.state) ? status.state as string : 'unknown';
             diagnostics?.trace?.event('reservation.prior-record', 'started', `prior-${state}`, { actualId: String(entry.id) });
-            predicate('reservation.previous-outcome', status.state === 'success' || (!activation && historicalRecordId(entry.id)),
-              'A previous delivery outcome is unresolved; owner reconciliation is required.');
             history.push({ entry, status });
           }
           if (entries.length < 100) return history;
         }
       };
       const before = await scan();
+      const historical = !activation && before.some(item => historicalRecordId(item.entry.id));
+      for (const { entry, status } of before) {
+        predicate('reservation.previous-outcome', status.state === 'success' || (!activation && historicalRecordId(entry.id))
+          || (historical && approvedRequest !== undefined && status.state === 'error' && entry.payload !== null
+            && typeof entry.payload === 'object' && Object.hasOwn(entry.payload, 'historicalHandoff')),
+        'A previous delivery outcome is unresolved; owner reconciliation is required.');
+      }
+      const proofIo = manualGithubIo(credentials.github, signal, transport, diagnostics?.trace);
+      const refused = historical && approvedRequest
+        ? await proveFailedAuthorizations(before, artifact, proofIo, signal) : new Map<number, FailedAuthorizationAdmission>();
+      const noEffectDispositions = [...refused.values()].filter(proof => !proof.consumed).map(proof => proof.marker);
       let admission: HistoricalAdmission | undefined, disposed = false, failed = false;
       try {
-        if (!activation && before.some(item => historicalRecordId(item.entry.id))) {
+        if (historical) {
           predicate('reservation.historical-request', approvedRequest?.historicalHandoffDigest === historicalHandoffDigest,
             'A bound historical handoff request is required.');
-          const prove = () => proveHistoricalHandoff(before, approvedRequest!, manualGithubIo(credentials.github, signal, transport, diagnostics?.trace), signal);
+          const prove = () => proveHistoricalHandoff(before, approvedRequest!, proofIo, signal, refused);
           admission = diagnostics?.trace ? await diagnostics.trace.boundary('reservation.historical-proof', prove) : await prove();
+          for (const marker of noEffectDispositions) {
+            const prior = object(before.find(item => item.entry.id === marker.journal)!.entry.payload);
+            predicate('reservation.no-effect-lineage', canonical(prior.historicalHandoff) === canonical(admission.marker)
+              && canonical(object(prior.releaseRequest).schema.before) === canonical(approvedRequest!.schema.before),
+            'The new approved request does not succeed the verified failed authorization.');
+          }
           await historicalPredecessor(admission);
           await admission.dispose(); disposed = true;
           await operations.currentMain();
@@ -302,6 +317,7 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
           predicate('reservation.history-stable', historicalSnapshot(before) === historicalSnapshot(after), 'Durable history changed during handoff verification.');
           predicate('reservation.predecessor-final-alias', await alias() === admission.marker.predecessor.id, 'Historical handoff predecessor changed.');
           await admission.recheck();
+          for (const proof of refused.values()) await proof.recheck();
           for (const item of before.filter(item => historicalRecordId(item.entry.id))) {
             diagnostics?.trace?.event('reservation.prior-record', 'passed', 'verified-historical-handoff', { actualId: String(item.entry.id) });
           }
@@ -318,6 +334,7 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
                 : { configDigest: expectedConfigDigest, requestDigest: schema!.requestDigest }),
               ...(approvedRequest ? { releaseRequest: approvedRequest } : {}),
               ...(admission ? { historicalHandoff: admission.marker } : {}),
+              ...(noEffectDispositions.length ? { noEffectDispositions } : {}),
               ...(schema?.strictPacketDigest ? { migrationPacket: schema.strictPacketDigest }
                 : schema?.migration ? { migrationPacket: schema.migration.digest } : {}) } }) }, 201));
           predicate('reservation.create-acknowledgement', numeric(result.id) && result.sha === run.revision && result.task === task && result.environment === 'be-production',

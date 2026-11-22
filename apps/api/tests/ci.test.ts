@@ -59,7 +59,8 @@ import { heldPostRepair } from '../scripts/activation-journal.js';
 import { verifyHeldAppAcceptance, heldRetainedCandidate, verifyHistoricalFinalAcceptance } from '../scripts/activation-held-proof.js';
 import { heldAppPolicy, heldD2, heldD2Sources } from '../scripts/activation-held-contract.mjs';
 import { runtimeConfigDigest } from '../src/config/activation-config.js';
-import { historicalHandoffDigest, historicalMetadataReadback, proveHistoricalHandoff } from '../scripts/historical-release.js';
+import { historicalHandoffDigest, historicalMetadataReadback, historicalSnapshot, proveHistoricalHandoff,
+  proveFailedAuthorization } from '../scripts/historical-release.js';
 import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
 const oldSchema: RoutineDeliveryApproval = { digest: activationSchema.oldDigest,
   configDigest: runtimeConfigDigest(routineRuntime), requestDigest: sha256('independently-approved-synthetic-request') };
@@ -1022,6 +1023,371 @@ test('archive bytes, identities and modes must match; links, traversal, duplicat
   }
   const bytes = tar([good]); assert.throws(() => verifyUploadedArchive(bytes, expected, '0'.repeat(40)));
   assert.throws(() => verify(Buffer.from('not gzip')));
+});
+
+interface AuthorizationFixtureInput {
+  artifact: VerifiedArtifact; sourceRoot: string; archive: Buffer;
+  approval: { producer: RunIdentity; archiveDigest: string; operatorDigest: string };
+}
+function authorizationFailureFixture(f: AuthorizationFixtureInput) {
+  const h = historicalProviderFixture(f.artifact), now = Date.now();
+  const time = (seconds: number) => new Date(now + seconds * 1000).toISOString();
+  const request = { ...h.prior, controller: { ...f.approval.producer, run: '121' }, producer: f.approval.producer,
+    artifactId: '456', artifactDigest: f.artifact.digest, sourceDigest: f.artifact.manifest.source.digest,
+    archiveDigest: f.approval.archiveDigest, operatorDigest: f.approval.operatorDigest,
+    migration: { ...h.prior.migration!, packetDigest: 'a'.repeat(64) } };
+  const requestDigest = sha256(canonical(request)), packetDigest = request.migration.packetDigest;
+  const entry = { id: 899, sha: request.controller.revision, task: 'deploy:esty-be-ci', environment: 'be-production',
+    production_environment: true, payload: { version: 1, ...request.controller, artifact: request.artifactDigest,
+      sourceDigest: request.sourceDigest, migrationDigest: request.schema.targetDigest, project: artifactTarget.project,
+      configDigest: request.configDigest, requestDigest, migrationPacket: packetDigest,
+      releaseRequest: request, historicalHandoff: h.marker } };
+  const status = (id: number, state: string, description: string, seconds: number) => ({ id, state, description,
+    created_at: time(seconds), log_url: `https://github.com/${repository}/actions/runs/121`, environment_url: 'https://api.lovora.us' });
+  const statuses = [status(898, 'error', 'strict:unresolved', -190), status(897, 'in_progress', `strict:reserved:${requestDigest}`, -200)];
+  const outcome = { requestDigest, previous: null, result: { version: 1, request, status: 'refused', stage: 'reserve',
+    category: 'validation', nextAction: 'inspect-retained-evidence', effects: { create: 'not-started', migration: 'not-started', promotion: 'not-started' },
+    deploymentId: null, migration: null, receiptDigest: null, proof: null, evidence: 'confirmed' }, terminal: true };
+  const files = new Map<string, Buffer>([
+    ['strict/reserving.json', Buffer.from(JSON.stringify({ requestDigest, packetDigest }) + '\n')],
+    ['strict/reservation.json', Buffer.from(JSON.stringify({ version: 1, requestDigest, packetDigest, journal: entry.id }) + '\n')],
+    ['release-outcome-0000.json', Buffer.from(JSON.stringify(outcome) + '\n')],
+  ]);
+  files.set('release-outcome-0001.json', Buffer.from(JSON.stringify({ ...outcome, previous: sha256(files.get('release-outcome-0000.json')!) }) + '\n'));
+  const producerZip = receiptZip([['be-release.tar.gz', f.archive], ['be-release-approval.json', Buffer.from(canonical(f.approval) + '\n')]]);
+  const runValue = (failed: boolean) => ({ id: failed ? 121 : 122, run_attempt: 1, workflow_id: 12,
+    status: 'completed', conclusion: failed ? 'failure' : 'success', event: failed ? 'workflow_dispatch' : 'push',
+    head_sha: request.controller.revision, head_branch: 'main', path: '.github/workflows/be-delivery.yml',
+    repository: { full_name: repository, id: 1 }, head_repository: { full_name: repository, id: 1 },
+    created_at: time(failed ? -300 : -600), updated_at: time(failed ? -150 : -400) });
+  const jobNames = ['BE required checks', 'BE completion', 'BE production delivery', 'Select an approved checked routine bundle',
+    'Activate the owner-approved retained bundle', 'Select the owner-approved retained activation bundle'];
+  const successfulSteps = (names: string[]) => names.map((name, index) => ({ name, number: index + 1, status: 'completed', conclusion: 'success' }));
+  const jobsValue = (failed: boolean) => ({ total_count: 6, jobs: jobNames.map((name, index) => ({
+    id: (failed ? 100 : 200) + index, name, run_id: failed ? 121 : 122, run_attempt: 1,
+    head_sha: request.controller.revision, status: 'completed',
+    conclusion: name === 'BE required checks' ? failed ? 'skipped' : 'success' : name === 'BE completion' ? failed ? 'failure' : 'success'
+      : name === 'BE production delivery' ? failed ? 'failure' : 'skipped' : name === 'Select an approved checked routine bundle' && failed ? 'success' : 'skipped',
+    started_at: time(failed ? -280 : -580), completed_at: time(failed ? -170 : -410),
+    steps: [] as Array<{ name: string; number: number; status: string; conclusion: string }>,
+  })) });
+  const failedJobs = jobsValue(true), producerJobs = jobsValue(false);
+  const production = failedJobs.jobs.find(job => job.name === 'BE production delivery')!;
+  production.steps = successfulSteps([
+    'Set up job', 'Check out the same published controller without persisted credentials',
+    'Set exact delivery runtime without application installation', "Download only this run's verified immutable relay",
+    'Reverify approved relay and exact controller/operator before executing bundle code',
+    'Bootstrap independently verified public CLI before provider secrets',
+    'Reserve the common durable exclusion and authorize the explicit migration mode',
+    'Inspect exactly strict three-entry history in the SQL-only worker',
+    'Create held strict4 once and authorize SQL only after exact pending readiness',
+    'Apply only the approved new suffix in the SQL-only worker',
+    'Confirm durable SQL outcome when selected and accept the same exact deployment',
+    'Preserve private receipt modes and record the exact transferable inventory',
+    'Retain sanitized receipts without secret-bearing subprocess logs',
+    'Summarize production boundaries without private output', 'Retain public production diagnostics on every outcome',
+    'Disclose production diagnostic upload loss', 'Post Set exact delivery runtime without application installation',
+    'Post Check out the same published controller without persisted credentials', 'Complete job',
+  ]);
+  production.steps[6]!.conclusion = 'failure';
+  for (const index of [7, 8, 9, 10, 16]) production.steps[index]!.conclusion = 'skipped';
+  failedJobs.jobs.find(job => job.name === 'Select an approved checked routine bundle')!.steps = successfulSteps([
+    'Authenticate consumer and successful producer before retrieval',
+    'Check independent approval and archive before safe extraction and full closure verification',
+    'Relay unchanged approved bytes and bounded request receipts',
+  ]);
+  producerJobs.jobs[0]!.steps = successfulSteps(['Compile exact API source',
+    'Build native artifact and require functional plus actual HTTP-to-test-DB checks', 'Retain one immutable mode-preserving tested bundle']);
+  const artifactValue = (failed: boolean, bytes: Buffer) => ({ id: failed ? 457 : 456,
+    name: failed ? 'be-delivery-receipts-121-1' : 'be-tested-122-1', size_in_bytes: bytes.length,
+    digest: `sha256:${sha256(bytes)}`, expired: false, created_at: time(failed ? -180 : -420), expires_at: time(86400),
+    workflow_run: { id: failed ? 121 : 122, head_sha: request.controller.revision, head_branch: 'main', repository_id: 1, head_repository_id: 1 } });
+  const workflow = readFileSync(join(f.sourceRoot, '.github/workflows/be-delivery.yml'));
+  const values: Record<string, any> = {
+    '/deployments/899': entry, '/deployments/899/statuses?per_page=100': statuses,
+    '/actions/runs/121': runValue(true), '/actions/runs/122': runValue(false),
+    '/actions/runs/121/jobs?filter=all&per_page=100': failedJobs,
+    '/actions/runs/122/jobs?filter=all&per_page=100': producerJobs,
+    [`/commits/${request.controller.revision}`]: { sha: request.controller.revision, commit: { tree: { sha: request.controller.tree } } },
+    [`/contents/.github/workflows/be-delivery.yml?ref=${request.controller.revision}`]: {
+      type: 'file', path: '.github/workflows/be-delivery.yml', encoding: 'base64', size: workflow.length, content: workflow.toString('base64') },
+    '/actions/runs/122/artifacts?per_page=100': { total_count: 1, artifacts: [artifactValue(false, producerZip)] },
+  };
+  const archives = new Map<number, Buffer>([[456, producerZip]]);
+  const sealReceipts = (inventoryDigest?: string) => {
+    const directories = [{ path: 'strict', mode: 0o700 }];
+    const entries = [...files].sort(([a], [b]) => a.localeCompare(b, 'en'));
+    const listing = { files: entries.map(([path, bytes]) => ({ path, mode: 0o600, size: bytes.length,
+      sha256: sha256(bytes), sha1: createHash('sha1').update(bytes).digest('hex') })), directories };
+    const compressed = tar([
+      { path: 'be-receipts/', content: Buffer.alloc(0), mode: 0o700, type: '5' },
+      { path: 'be-receipts/strict/', content: Buffer.alloc(0), mode: 0o700, type: '5' },
+      ...entries.map(([path, content]) => ({ path: `be-receipts/${path}`, content, mode: 0o600 })),
+    ]);
+    const zip = receiptZip([['be-delivery-receipts.tar.gz', compressed],
+      ['be-delivery-receipts.archive-sha256', Buffer.from(`${sha256(compressed)}  /synthetic/be-delivery-receipts.tar.gz\n`)],
+      ['be-delivery-receipts.inventory-sha256', Buffer.from(`${inventoryDigest ?? sha256(canonical(listing))}\n`)]]);
+    archives.set(457, zip);
+    values['/actions/runs/121/artifacts?per_page=100'] = { total_count: 1, artifacts: [artifactValue(true, zip)] };
+  };
+  sealReceipts();
+  const reads: string[] = [], downloads: number[] = [];
+  const io = {
+    async read(path: string): Promise<unknown> { reads.push(path); assert.ok(Object.hasOwn(values, path), `Unexpected synthetic read: ${path}`); return structuredClone(values[path]); },
+    async download(id: number): Promise<Buffer> { downloads.push(id); const bytes = archives.get(id); assert.ok(bytes, 'Missing synthetic archive'); return bytes; },
+  };
+  return { h, request, entry, statuses, item: { entry, status: statuses[0]! }, files, values, archives, io,
+    reads, downloads, sealReceipts, production, failedJobs, producerJobs };
+}
+
+test('failed authorization proves the complete raw receipt chain without changing the retained error', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  const p = authorizationFailureFixture(f), before = canonical([p.entry, p.statuses, [...p.files]]);
+  const proof = await proveFailedAuthorization(p.item, f.artifact, p.io, AbortSignal.timeout(30000));
+  assert.equal(proof.marker.kind, 'failed-authorization-no-effects');
+  assert.equal(proof.marker.sourcePolicy, 'current'); assert.equal(proof.marker.journal, 899);
+  assert.equal(proof.marker.outcomeHead, sha256(p.files.get('release-outcome-0001.json')!));
+  assert.equal(proof.marker.outcomeCount, 2);
+  assert.equal(proof.marker.requestDigest, sha256(canonical(p.request)));
+  assert.equal(proof.marker.recordDigest, sha256(historicalSnapshot([p.item])));
+  assert.equal(canonical([p.entry, p.statuses, [...p.files]]), before);
+  p.values['/actions/runs/121'].run_attempt = 2;
+  await assert.rejects(proof.recheck(), /proof-metadata-stable/);
+});
+
+test('failed authorization refuses incomplete, changed, unknown and effect-bearing evidence', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  for (const fault of ['source', 'operator', 'tree', 'workflow', 'run-attempt', 'repository', 'producer-failed', 'jobs-page',
+    'failed-job-substitution', 'producer-job-substitution', 'failed-job-omitted', 'producer-job-omitted',
+    'failed-job-duplicate', 'producer-job-duplicate',
+    'checks-failed', 'retrieval-failed', 'history-started', 'effect-started', 'missing-status', 'extra-status',
+    'status-ack', 'status-run', 'expired', 'receipt-id', 'artifact-page', 'artifact-run', 'missing-archive',
+    'archive-bytes', 'producer-bytes', 'inventory', 'missing-reservation', 'wrong-journal', 'history-authorized', 'outcome-gap',
+    'raw-chain', 'request-binding', 'outcome-unknown', 'outcome-unconfirmed', 'create-acked', 'sql-unknown',
+    'promotion-unknown', 'nonterminal', 'metadata-drift']) await t.test(fault, async () => {
+    const p = authorizationFailureFixture(f);
+    const receipt = p.values['/actions/runs/121/artifacts?per_page=100'].artifacts[0];
+    if (fault === 'source') p.request.sourceDigest = '0'.repeat(64);
+    if (fault === 'operator') p.request.operatorDigest = '0'.repeat(64);
+    if (fault === 'source' || fault === 'operator') {
+      p.entry.payload.sourceDigest = p.request.sourceDigest;
+      p.entry.payload.requestDigest = sha256(canonical(p.request));
+      p.statuses[1]!.description = `strict:reserved:${p.entry.payload.requestDigest}`;
+    }
+    if (fault === 'tree') p.values[`/commits/${p.request.controller.revision}`].commit.tree.sha = '0'.repeat(40);
+    if (fault === 'workflow') p.values[`/contents/.github/workflows/be-delivery.yml?ref=${p.request.controller.revision}`].content = Buffer.from('changed').toString('base64');
+    if (fault === 'run-attempt') p.values['/actions/runs/121'].run_attempt = 2;
+    if (fault === 'repository') p.values['/actions/runs/121'].repository.full_name = 'foreign/repository';
+    if (fault === 'producer-failed') p.values['/actions/runs/122'].conclusion = 'failure';
+    if (fault === 'jobs-page') p.failedJobs.total_count = 101;
+    const jobFault = /^(failed|producer)-job-(substitution|omitted|duplicate)$/.exec(fault);
+    if (jobFault) {
+      const listing = jobFault[1] === 'failed' ? p.failedJobs : p.producerJobs;
+      const index = listing.jobs.findIndex(job => job.name === 'Activate the owner-approved retained bundle');
+      assert.notEqual(index, -1);
+      if (jobFault[2] === 'substitution') {
+        listing.jobs[index]!.name = 'Unrecognized completed job';
+        Reflect.deleteProperty(listing.jobs[index]!, 'conclusion');
+      } else if (jobFault[2] === 'omitted') {
+        listing.jobs.splice(index, 1);
+        listing.total_count = listing.jobs.length;
+      } else {
+        listing.jobs[index]!.name = 'Select the owner-approved retained activation bundle';
+      }
+    }
+    if (fault === 'checks-failed') p.producerJobs.jobs[0]!.steps[1]!.conclusion = 'failure';
+    if (fault === 'retrieval-failed') p.failedJobs.jobs[3]!.conclusion = 'failure';
+    if (fault === 'history-started') p.production.steps[7]!.conclusion = 'success';
+    if (fault === 'effect-started') p.production.steps[8]!.conclusion = 'success';
+    if (fault === 'missing-status') p.statuses.pop();
+    if (fault === 'extra-status') p.statuses.push({ ...p.statuses[1]!, id: 896 });
+    if (fault === 'status-ack') p.statuses[1]!.description = 'ack:dpl_unapproved';
+    if (fault === 'status-run') p.statuses[1]!.log_url += '0';
+    if (fault === 'expired') receipt.expires_at = new Date(0).toISOString();
+    if (fault === 'receipt-id') receipt.name = 'be-delivery-receipts-121-2';
+    if (fault === 'artifact-page') p.values['/actions/runs/121/artifacts?per_page=100'].total_count = 101;
+    if (fault === 'artifact-run') receipt.workflow_run.head_sha = '0'.repeat(40);
+    if (fault === 'missing-archive') p.archives.delete(457);
+    if (fault === 'archive-bytes') p.archives.set(457, Buffer.from('changed'));
+    if (fault === 'producer-bytes') p.archives.set(456, Buffer.from('changed'));
+    if (fault === 'missing-reservation') p.files.delete('strict/reservation.json');
+    if (fault === 'wrong-journal') {
+      const reservation = JSON.parse(p.files.get('strict/reservation.json')!.toString()); reservation.journal++;
+      p.files.set('strict/reservation.json', Buffer.from(JSON.stringify(reservation)));
+    }
+    if (fault === 'history-authorized') p.files.set('strict/history.authorized.json', Buffer.from('{}'));
+    if (fault === 'outcome-gap') { p.files.set('release-outcome-0002.json', p.files.get('release-outcome-0001.json')!); p.files.delete('release-outcome-0001.json'); }
+    if (['raw-chain', 'request-binding', 'outcome-unknown', 'outcome-unconfirmed', 'create-acked', 'sql-unknown', 'promotion-unknown', 'nonterminal'].includes(fault)) {
+      const event = JSON.parse(p.files.get('release-outcome-0001.json')!.toString());
+      if (fault === 'raw-chain') event.previous = sha256(canonical(JSON.parse(p.files.get('release-outcome-0000.json')!.toString())));
+      if (fault === 'request-binding') event.result.request.configDigest = '0'.repeat(64);
+      if (fault === 'outcome-unknown') { event.result.status = 'unknown'; event.result.category = 'outcome-unknown'; }
+      if (fault === 'outcome-unconfirmed') { event.result.status = 'unknown'; event.result.evidence = 'unconfirmed'; }
+      if (fault === 'create-acked') { event.result.status = 'failed'; event.result.effects.create = 'ACKed'; event.result.deploymentId = 'dpl_unapproved'; }
+      if (fault === 'sql-unknown') event.result.effects.migration = 'unknown';
+      if (fault === 'promotion-unknown') event.result.effects.promotion = 'unknown';
+      if (fault === 'nonterminal') event.terminal = false;
+      p.files.set('release-outcome-0001.json', Buffer.from(JSON.stringify(event)));
+    }
+    if (['missing-reservation', 'wrong-journal', 'history-authorized', 'outcome-gap', 'raw-chain', 'request-binding',
+      'outcome-unknown', 'outcome-unconfirmed', 'create-acked', 'sql-unknown', 'promotion-unknown', 'nonterminal'].includes(fault)) p.sealReceipts();
+    if (fault === 'inventory') p.sealReceipts('0'.repeat(64));
+    if (fault === 'metadata-drift') {
+      const read = p.io.read; let calls = 0;
+      p.io.read = async path => { if (path === '/actions/runs/121' && ++calls === 2) p.values[path].run_attempt = 2; return read(path); };
+    }
+    let posts = 0, unrelatedHistoricalReads = 0;
+    const transport: typeof fetch = async (raw: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = new URL(String(raw)), path = url.pathname.replace(`/repos/${repository}`, '') + url.search;
+      if (init?.method === 'POST') { posts++; throw new Error('Unexpected reservation'); }
+      if (url.hostname === 'proof.blob.core.windows.net') {
+        assert.equal(new Headers(init?.headers).has('Authorization'), false);
+        const bytes = await p.io.download(Number(url.pathname.slice(1)));
+        return new Response(new Uint8Array(bytes));
+      }
+      if (url.pathname.endsWith('/deployments')) return Response.json([p.entry, ...p.h.records.slice(1)]);
+      if (path === '/deployments/899/statuses?per_page=1') return Response.json([p.statuses[0]]);
+      const download = /^\/actions\/artifacts\/(\d+)\/zip$/.exec(path);
+      if (download) return new Response(null, { status: 302, headers: { location: `https://proof.blob.core.windows.net/${download[1]}` } });
+      if (Object.hasOwn(p.values, path)) return Response.json(await p.io.read(path));
+      if (path.startsWith('/releases/')) unrelatedHistoricalReads++;
+      return p.h.transport(raw, init);
+    };
+    const provider = createProvider(f.artifact, p.h.run, p.h.schema, p.h.credentials, AbortSignal.timeout(30000), transport);
+    if (fault === 'source' || fault === 'operator') await assert.rejects(provider.reserve(), /authorization-reviewed-source/);
+    else await assert.rejects(provider.reserve());
+    assert.equal(posts, 0); assert.equal(unrelatedHistoricalReads, 0);
+    if (jobFault) assert.deepEqual(p.downloads, []);
+    assert.equal(p.item.status.state, 'error');
+  });
+});
+
+test('failed authorization consumed lineage survives expired Actions artifacts and still fences replay and forks', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  const original = authorizationFailureFixture(f);
+  const verified = await proveFailedAuthorization(original.item, f.artifact, original.io, AbortSignal.timeout(30000));
+  for (const fault of ['none', 'unaccepted', 'missing-ack', 'marker-request', 'marker-record', 'marker-statuses',
+    'marker-packet', 'marker-shape', 'duplicate-claim', 'fork', 'record-drift', 'status-drift', 'concurrent']) await t.test(fault, async st => {
+    const p = authorizationFailureFixture(f), h = p.h, marker = structuredClone(verified.marker);
+    // Bind this fixture's distinct timestamps; the proof bytes/request are otherwise identical.
+    marker.recordDigest = sha256(historicalSnapshot([p.item]));
+    marker.statusesDigest = sha256(canonical(p.statuses));
+    const carrier = h.records[0]!;
+    carrier.payload.noEffectDispositions = [marker];
+    h.records.splice(1, 0, p.entry);
+    if (fault === 'marker-request') marker.requestDigest = '0'.repeat(64);
+    if (fault === 'marker-record') marker.recordDigest = '0'.repeat(64);
+    if (fault === 'marker-statuses') marker.statusesDigest = '0'.repeat(64);
+    if (fault === 'marker-packet') marker.packetDigest = '0'.repeat(64);
+    if (fault === 'marker-shape') Reflect.set(marker, 'ignored', true);
+    if (fault === 'duplicate-claim') carrier.payload.noEffectDispositions = [marker, marker];
+    if (fault === 'fork') carrier.payload.historicalHandoff = { ...h.marker, predecessorRecord: 999 };
+    const before = canonical(p.statuses);
+    let forbiddenArtifacts = 0, posts = 0, scans = 0, oldStatusReads = 0, network = 0;
+    st.mock.method(globalThis, 'fetch', async () => { network++; throw new Error('Real network denied'); });
+    const transport: typeof fetch = async (raw: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = new URL(String(raw)), path = url.pathname.replace(`/repos/${repository}`, '') + url.search;
+      if (url.hostname === 'api.github.com' && /\/(?:actions|contents|releases)\//.test(path)) {
+        forbiddenArtifacts++; throw new Error('Expired historical Actions evidence is unavailable');
+      }
+      if (init?.method === 'POST') posts++;
+      if (path === '/deployments/899') return Response.json(p.entry);
+      if (path.startsWith('/deployments/899/statuses')) {
+        if (url.searchParams.get('per_page') === '100') {
+          oldStatusReads++;
+          if (fault === 'status-drift' && oldStatusReads === 2) return Response.json([p.statuses[0]]);
+          return Response.json(p.statuses);
+        }
+        return Response.json([p.statuses[0]]);
+      }
+      const response = await h.transport(raw, init);
+      if (url.pathname.endsWith('/deployments') && init?.method !== 'POST') {
+        scans++;
+        const rows = await response.json();
+        assert.ok(Array.isArray(rows));
+        if (fault === 'record-drift' && scans === 2) rows[1].payload.configDigest = '0'.repeat(64);
+        if (fault === 'concurrent' && scans === 2) rows.unshift({ ...p.entry, id: 999, payload: {} });
+        return Response.json(rows);
+      }
+      if (url.pathname.endsWith('/deployments/900/statuses')) {
+        const rows = await response.json();
+        assert.ok(Array.isArray(rows));
+        if (fault === 'unaccepted') rows[0].state = 'in_progress';
+        if (fault === 'missing-ack' && rows.length > 1) rows[1].description = 'strict:unresolved';
+        return Response.json(rows);
+      }
+      return response;
+    };
+    const provider = createProvider(f.artifact, h.run, h.schema, h.credentials, AbortSignal.timeout(30000), transport);
+    if (fault === 'none') {
+      assert.equal(await provider.reserve(), 44);
+      const handoff = h.reservation()!.payload.historicalHandoff;
+      assert.ok(handoff && typeof handoff === 'object' && 'predecessorRecord' in handoff);
+      assert.equal(handoff.predecessorRecord, 900);
+      assert.equal(Object.hasOwn(h.reservation()!.payload, 'noEffectDispositions'), false);
+      await assert.rejects(provider.reserve(), /already has a durable reservation/);
+      assert.equal(posts, 1);
+    } else { await assert.rejects(provider.reserve()); assert.equal(posts, 0); }
+    assert.equal(forbiddenArtifacts, 0); assert.equal(network, 0);
+    assert.equal(canonical(p.statuses), before);
+    assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+  });
+});
+
+test('failed authorization request and strict packet replay precede proof reads and reservation writes', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  for (const mode of ['request', 'packet']) await t.test(mode, async () => {
+    const p = authorizationFailureFixture(f), h = p.h;
+    const request = { ...p.request, controller: h.run, migration: { ...p.request.migration,
+      packetDigest: mode === 'packet' ? p.request.migration.packetDigest : 'b'.repeat(64) } };
+    const schema: RoutineDeliveryApproval = { ...h.schema, request, requestDigest: sha256(canonical(request)),
+      strictPacketDigest: request.migration.packetDigest };
+    if (mode === 'request') p.entry.payload.requestDigest = schema.requestDigest;
+    let proofReads = 0, posts = 0;
+    const transport: typeof fetch = async (raw: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      if (init?.method === 'POST') posts++;
+      const url = new URL(String(raw));
+      if (url.pathname.endsWith('/deployments')) return Response.json([p.entry]);
+      proofReads++; throw new Error('Replay must stop before proof');
+    };
+    const provider = createProvider(f.artifact, h.run, schema, h.credentials, AbortSignal.timeout(10000), transport);
+    await assert.rejects(provider.reserve(), /already has a durable reservation/);
+    assert.equal(proofReads, 0); assert.equal(posts, 0);
+  });
+});
+
+test('failed authorization excludes malformed receipt contents and HTTP bodies from public errors and diagnostics', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  const p = authorizationFailureFixture(f), canary = 'privateFailedAuthorizationCanary12345';
+  p.files.set('release-outcome-0001.json', Buffer.from(`{"private":"${canary}`));
+  p.sealReceipts();
+  await assert.rejects(proveFailedAuthorization(p.item, f.artifact, p.io, AbortSignal.timeout(30000)), error => {
+    assert.ok(error instanceof Error);
+    assert.match(error.message, /authorization-receipt-json/);
+    assert.equal(error.message.includes(canary), false);
+    return true;
+  });
+  const lines: string[] = [];
+  for (const method of ['info', 'error'] as const) t.mock.method(console, method, (...args: unknown[]) => lines.push(args.join(' ')));
+  const trace = new ChecksDiagnostics(join(f.root, 'authorization-redaction'), { scope: 'release' });
+  const signal = AbortSignal.timeout(30000);
+  const diagnostics = new ReleaseDiagnostics(p.h.request, join(f.root, 'authorization-outcome'), signal, trace);
+  let posts = 0, failures = 0;
+  const transport: typeof fetch = async (raw: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    if (init?.method === 'POST') { posts++; throw new Error('Unexpected reservation'); }
+    const url = new URL(String(raw)), path = url.pathname.replace(`/repos/${repository}`, '') + url.search;
+    if (url.pathname.endsWith('/deployments')) return Response.json([p.entry, ...p.h.records.slice(1)]);
+    if (path === '/deployments/899/statuses?per_page=1') return Response.json([p.statuses[0]]);
+    if (path === '/actions/runs/121') { failures++; return new Response(canary, { status: 403 }); }
+    if (Object.hasOwn(p.values, path)) return Response.json(await p.io.read(path));
+    return p.h.transport(raw, init);
+  };
+  const provider = createProvider(f.artifact, p.h.run, p.h.schema, p.h.credentials, signal, transport, diagnostics);
+  await assert.rejects(provider.reserve());
+  assert.equal(posts, 0); assert.equal(failures, 1);
+  const text = lines.join('\n');
+  assert.match(text, /github.http-status/);
+  for (const secret of [canary, ...Object.values(p.h.credentials)]) assert.equal(text.includes(secret), false);
 });
 
 test('durable remote history blocks every unresolved outcome, including absent status, before POST', async t => {

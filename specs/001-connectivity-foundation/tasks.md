@@ -1,5 +1,15 @@
 # Tasks: Connectivity foundation
 
+## Verified failed authorization disposition
+
+Actual previous maximum267. [Root-approved trust contract and durable consumption](plan.md#verified-failed-authorization-disposition--plan-first-source-contract); base97830ad9d657bb3d622c3ea0c75d1d1601527eb1. Preserve every historical task and failed/accepted evidence record.
+
+- [x] T268 [US9] Verify the public snapshot/evidence identities and document the exact source/workflow/operator/archive/status/outcome contract before source authoring. Root inspected and accepted the current/legacy source policy and durable accepted-successor boundary.
+- [x] T269 [US9] Authored the exact seven-file snapshot patch in existing provider/proof/archive/test/spec/plan/tasks files: replay-first fresh admission, immutable failed history, bound disposition, metadata/history rechecks and typed durable consumption without future old-artifact downloads. Syntax parsing passed; repository application, compiler and behavior verification remain pending T270.
+- [x] T270 [US9] Root applied the hash-bound patch and test-only narrowing delta. Actual compiler0, focused85/85, emitted retained-public-archive/import/CLI checks and real-archive synthetic first reservation POST1/replay additional POST0 passed. The seven-file suite recorded880 pass/0 fail/2 existing skips. Preserve initial compiler and globalumask077 harness failures; successful execution used umask022 with explicit0700 runtime roots. [Current execution receipt](plan.md#current-root-execution-and-finding-only-closeout); no actual provider/SQL/native-build/reseal/dispatch.
+- [x] T271 [US9] Existing separate reviewer `t1dw` reported ONE P2, then accepted the exact six-job-name/conclusion correction and six regressions in finding-only review. Root verified applied after-hashes/protected paths; compiler0 and affected45/45 passed. P2 RESOLVED, not an original no-findings review. Reviewer verified patch/manifest and previous copies but did not independently hash updated source copies after a nonexistent nested path lookup; root's actual-file verification and this concrete limit are retained in the current receipt. No new reviewer or further review requested.
+- [x] T272 [US9] Recorded root's actual execution, retained failures, resolved ONE P2 and concrete review limit in the existing three feature artifacts; returned ownership at this docs-only handback and stopped writes. SOURCE_LOCAL_ACCEPTED / PUBLICATION_PENDING. Historical author-only NOT RUN blocks remain unchanged and are superseded by the current receipt. No deployment readiness, original403 cause, old reservation success or actual provider/SQL/deployment effect is claimed.
+
 ## Strict Actions GitHub source authentication
 
 Actual previous maximum264. [Bounded source repair and snapshot execution transport](plan.md#strict-actions-github-source-authentication--2026-11-22); base5b038868fb636ad98d2d46a5c1ae3c089510ef4d. Preserve existing task identities and all historical source/evidence/review records.
