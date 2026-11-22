@@ -146,7 +146,7 @@ export async function proveHistoricalHandoff(items: readonly HistoricalItem[], r
   requireProof(typeof release.id === 'number' && Number.isSafeInteger(release.id) && release.id > 0
     && release.url === `${api}/releases/${release.id}` && release.assets_url === `${api}/releases/${release.id}/assets`
     && release.html_url === `https://github.com/${retention.repository}/releases/tag/${retention.tag}`
-    && release.tag_name === retention.tag && release.target_commitish === retention.revision
+    && release.tag_name === retention.tag && release.target_commitish === retention.publicationTarget
     && release.draft === false && release.prerelease === false
     && typeof release.published_at === 'string' && Number.isFinite(Date.parse(release.published_at))
     && Date.parse(release.published_at) <= Date.now(), 'retention-publication');

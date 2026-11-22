@@ -1,5 +1,51 @@
 # Implementation plan: Connectivity foundation
 
+## Release publication target hint correction — 2026-11-21
+
+**Root-authorized narrow continuation, T262–T264.** Root reports the original ONE P2 resolved through the same reviewer's finding-only inspection and the combined source published as `2516faa` on main, starting CI44953864572. The accepted fix manifest `bf0cc22680c65e7f42ff086d5b9809486d036bb4b31aa9a5b5e8d5430ed09af4`, original49 and subsequent11 evidence files remain immutable. This delta starts from those exact accepted hashes; it is not part of the earlier review or already covered by that publication/CI.
+
+**Problem and evidence:** root's new archive-publication attempt returned404 before creating any Release or asset. Public diagnosis `.openai/reports/retained-be-f162-publication/api-contract.json` records differing old/current workflow bytes and existing OAuth scopes without `workflow`. Root separately created/read back the fixed lightweight tag at f162. The current [create](https://docs.github.com/en/rest/releases/releases#create-a-release) and [update](https://docs.github.com/en/rest/releases/releases#update-a-release) API contracts explain the workflow authorization check against resolved `target_commitish`, and explicitly say the field is unused for tag creation when the tag already exists. This new publication constraint does **not** diagnose the UNKNOWN original incident44935580424.
+
+**Solution:** add only code-owned `retainedHistoricalArchive.publicationTarget: 'main'`; the existing publication guard requires exactly that hint, not arbitrary branches, ref aliases or the old SHA. The existing preexisting tag/ref/commit f162/tree181b checks, original ZIP/native/source/run/proof pins, protected-resource rules, current-main fences and complete metadata readback remain authoritative and unchanged. `main` is creation metadata, never an artifact/source relabel. The hint still participates in full metadata stability checks. Adding the field changes the existing handoff digest, so root must publish this new source, use its new checked artifact and bind a fresh packet/approval; neither2516's CI nor prior approvals cover this delta.
+
+**Scope and proof:** only `activation-retained.mjs`, `historical-release.ts`, necessary existing `held-app-fixture.ts`/`ci.test.ts`, this plan and tasks. Reuse the existing retention fault matrix/readback tests with a valid main hint, reject foreign/old-SHA/ref hints and tag/source substitution, and preserve counter-only acceptance. Run compiler, focused retention/readback/native-source/expiry checks, one emitted synthetic guard smoke and the exact seven-file suite once, including staged operator closure. No full-first journey, expired artifact fetch, native build, DB, secret read, new module/framework, workflow/permission change, Git/provider write or new reviewer. Root alone asks existing t1dw to inspect only this delta.
+
+### Current root-only archive publication instructions
+
+**Supersedes the historical `--target f162...` proposal below; do not execute that old command with the current CLI credential.** Creation and upload remain root-owned and separately gated on accepted source delta. First inspect whether the fixed Release already exists; verify it rather than recreating or clobbering it. The fixed lightweight tag **must already exist and pin f162 before creation**. Stop if it is missing or moved; do not create, move or repair a tag from main. Retain exclusive publication ownership and recheck tag/source identity after draft creation and before publishing; these separate API requests are not atomic or an immutability guarantee.
+
+The [CLI `--verify-tag` guard](https://cli.github.com/manual/gh_release_create) aborts when the remote tag is absent. The following corrected draft command uses `--target main` only as the fixed, unused-for-existing-tag creation hint. It does not change workflow files or require increased OAuth/GITHUB_TOKEN authority. Instructions only; this worker does not execute them.
+
+```sh
+# Root only: fail closed unless the existing lightweight tag and old source tree match.
+test "$(gh api repos/khuonghuyhieu/esty-admin/git/ref/tags/retained-be-f162c8db8ec149724c0a25537a4a0674bd012035 --jq '.object.type + ":" + .object.sha')" \
+  = "commit:f162c8db8ec149724c0a25537a4a0674bd012035" || exit 1
+test "$(gh api repos/khuonghuyhieu/esty-admin/commits/f162c8db8ec149724c0a25537a4a0674bd012035 --jq '.commit.tree.sha')" \
+  = "181b2c014f9373e4d6cdf055cba01eac11ed5a5e" || exit 1
+gh release create retained-be-f162c8db8ec149724c0a25537a4a0674bd012035 \
+  --repo khuonghuyhieu/esty-admin --verify-tag --target main --draft --latest=false \
+  --title "Retained BE artifact f162c8db8ec149724c0a25537a4a0674bd012035" \
+  --notes "Exact archival copy of Actions artifact13587251015 from run42404748672 attempt1. Not a rebuild or a new release acceptance. ZIP size13293825; SHA256adf6b726971c34a2086a0d915f09ae91c595fdf6b1e92f95b5c5a939f99f67d2." \
+  /private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-release-gates-rbnvr7we/public-upload/be-tested-42404748672-1.zip
+# Only after rechecking exact tag/source, target_commitish=main, unique uploaded asset and binary digest:
+gh release edit retained-be-f162c8db8ec149724c0a25537a4a0674bd012035 \
+  --repo khuonghuyhieu/esty-admin --draft=false --latest=false
+```
+
+The one upload remains the exact13293825-byte public ZIP, SHA256adf6b726971c34a2086a0d915f09ae91c595fdf6b1e92f95b5c5a939f99f67d2, with original native/source/proof identity f162, not2516 or the future fix commit. Root retains actual Release/tag/asset metadata and binary readback evidence; no renewal, rebuild, replacement upload or new acceptance is implied. Publication remains **PUBLICATION_PENDING** until root supplies actual proof.
+
+### Publication contract local results and review handoff
+
+**READY_FOR_PUBLICATION_CONTRACT_INSPECTION / STOP WRITES / NO_INFLIGHT.** Six existing paths changed; the original review remains ONE P2, resolved through the root-reported accepted fix-only inspection. This new contract delta awaits the same t1dw reviewer's scoped inspection, not another ten-path review or author-claimed acceptance.
+
+- Production changes are one fixed constant field and one guard operand; the fixture uses that field. Existing tests reject foreign/old-SHA/ref hints, a tag pointed at current main, current-source substitution and late hint drift; counter-only stability and all old identity/proof fences remain enforced. No arbitrary hint fallback or historical source relabel.
+- Node24.22.1 compiler exits0. Focused retention/readback/expiry/current-source refusal checks pass **131/131,0 skips**,1109.580958ms. An emitted six-scenario smoke observes the exact publication/tag/source refusal codes with **0 real network attempts**. Its valid-main/old-source control reaches the archive download and real byte-count guard using deliberately invalid synthetic bytes; this is not full archive admission or another first journey.
+- The exact seven-file suite ran **once**, exit1: **822 total/787 pass/33 fail/2 unchanged skips**,29418.328625ms. The author-created isolated TMPDIR had mode0755, so unchanged journal cases correctly refused its parent before reaching their intended durability boundaries. This is retained harness failure evidence, not a green full run or a product regression attributed to this field correction.
+- Corrected **only** this increment's owned HOME/TMPDIR modes to0700; no source, test or private-file guard was changed. Reran exactly the seven affected journal parent tests: **33/33 pass,0 skips**,2320.88ms, exit0. No full-suite rerun. The original suite's staged operator imports/no-input CLIs passed13601.114875ms; its two existing archive/private-dependent skips remain unchanged. Focus/recovery counts overlap the full run and are not summed as independent coverage.
+- All foreground commands exited; owned fixtures were disposed. Removed only the isolated HOME Library and TMPDIR compile cache created here; both temporary runtime directories are empty. No worker Git/provider/private/DB/native-build action, full-first journey, new worker/reviewer/service/container/worktree/scheduler or shared-resource cleanup.
+
+The six-path patch/baselines, actual command outputs (including the failed suite and corrected affected checks), source/evidence hashes, preservation of49+11 earlier evidence files and11 remaining protected paths, timing and limits are indexed by `/private/tmp/esty-release-publication-contract-7ndqearr/publication-contract-delta-manifest.json`. Root-reported published2516/CI44953864572 and the future fix source/CI remain separate from immutable archive source f162. Current emitted handoff digest is `a5df5170b136cb5e38ed8fe77609cde6e6411cb3607d4ac7957cac077aafa0c8`; fresh source/artifact/packet approval is required. **PUBLICATION_PENDING** and original incident route/status **UNKNOWN** are unchanged.
+
 ## Confirmed P2 — maintained historical metadata readback regression
 
 Root t12p forwarded the actual t1dw scoped review finding and confirmed it against `ci.test.ts`: the original review has **ONE P2**, not zero findings. Existing maintained retention tests alter initial metadata; the temporary real-archive readback matrix does not provide maintained regression coverage. The reviewed ten-path manifest4058b4efd2905b93d377545de0710d895430cdad2d5fff50703f6dba8a121113 and all49 evidence files stay immutable.
@@ -40,6 +86,8 @@ Use the existing `manualGithubIo` bounded transport with API binary200 or manual
 **Proof and limits:** retain failing-before evidence for both gates. Extend existing suites with actual selected public receipt preimages and synthetic API responses that deny protected-variable reads; cover missing/draft/wrong/duplicate/foreign/mutable release metadata, tag/source/main/status/schema/alias/archive/redirect failures, default Actions expiry, preimage tampering, unknown/replay/concurrency and first-failure/effect fences. The authorized original13MB public ZIP is used in the emitted full-first strict3→4 journey, not embedded in the repository or fetched from an expired artifact. The journey must observe old schema3, held pending, one SQL suffix, the same ready/promoted ID and final ACK, with synthetic transports and real sockets/DB/provider writes denied. No current-schema-only substitute. Compile, affected checks, exact seven-file functional suite with two existing skips and applicable staged-operator import closure follow; preserve every failure. Freeze per-delta/combined accepted-baseline hashes and exact evidence at READY_FOR_RELEASE_READINESS_REVIEW only after both routes and the full journey pass.
 
 ### Root-only durable archive publication handoff
+
+**Historical proposal dated2026-11-21, superseded:** preserve the following instructions as evidence only; do not run their old `--target f162...` creation command. Use [the current preexisting-tag/main-hint instructions](#current-root-only-archive-publication-instructions).
 
 **PUBLICATION_PENDING; commands below are reviewable instructions, not executed.** Exact public upload copy: `/private/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-release-gates-rbnvr7we/public-upload/be-tested-42404748672-1.zip`. It is copied byte-for-byte from the expressly authorized original `.openai/reports/first-production-f162-h9czirsk/artifact-13587251015.zip`; original untouched, size13293825 and SHA256adf6b726971c34a2086a0d915f09ae91c595fdf6b1e92f95b5c5a939f99f67d2. This is retention of the same old bytes, not a new build, new history or fresh database proof.
 

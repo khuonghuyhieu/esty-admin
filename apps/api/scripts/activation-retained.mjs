@@ -18,6 +18,7 @@ export const retainedActivation = Object.freeze({
 export const retainedHistoricalArchive = Object.freeze({
   version: 1, kind: 'github-release-archive', repository: retainedActivation.repository,
   tag: 'retained-be-f162c8db8ec149724c0a25537a4a0674bd012035', revision: retainedActivation.revision,
+  publicationTarget: 'main', // Creation hint only; the preexisting tag/ref pins the historical source.
   asset: 'be-tested-42404748672-1.zip', size: 13293825, zipDigest: retainedActivation.zipDigest,
 });
 const pin = retainedActivation, hex = /^[a-f0-9]{64}$/, commit = /^[a-f0-9]{40}$/;

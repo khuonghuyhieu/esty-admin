@@ -122,7 +122,7 @@ export function historicalProofFixture(current: { revision: string; tree: string
   const published = new Date(Date.now() - 60000).toISOString();
   const release = { id: 9000, url: `${api}/releases/9000`, assets_url: `${api}/releases/9000/assets`,
     html_url: `https://github.com/${retention.repository}/releases/tag/${retention.tag}`,
-    tag_name: retention.tag, target_commitish: retention.revision, draft: false, prerelease: false,
+    tag_name: retention.tag, target_commitish: retention.publicationTarget, draft: false, prerelease: false,
     published_at: published, created_at: published, updated_at: published,
     assets: [{ id: 9001, url: `${api}/releases/assets/9001`,
       browser_download_url: `https://github.com/${retention.repository}/releases/download/${retention.tag}/${retention.asset}`,

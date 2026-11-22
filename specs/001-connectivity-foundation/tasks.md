@@ -1,5 +1,13 @@
 # Tasks: Connectivity foundation
 
+## Release publication target hint correction
+
+Root authorized this narrow delta from reported published main2516faa after accepting the prior ONE P2 fix-only inspection. Actual previous task maximum261; [API contract, source identity separation and corrected root-only publication instructions](plan.md#release-publication-target-hint-correction--2026-11-21).
+
+- [x] T262 [US9] Preserve the accepted combined hashes and prior evidence; inspect the public404 diagnosis and official create/update/CLI contracts; amend the existing plan before source changes.
+- [x] T263 [US9] Added exact publicationTarget main and aligned existing fixture/hint/source/readback tests. Compiler0, focus131/131, six-scenario emitted smoke0; one full suite822 total/787 pass/33 harness-mode failures/2 unchanged skips. Corrected owned TMPDIR/HOME0755→0700; only the seven affected journal parents reran,33/33 pass. No source guard weakening or second full run.
+- [x] T264 [US9] Freeze the six-path delta from root-reported2516, preserved49+11 evidence files/11 protected paths, exact commands including failure/recovery, corrected root-only publication instructions and owned cleanup at READY_FOR_PUBLICATION_CONTRACT_INSPECTION / STOP WRITES / NO_INFLIGHT. Same-reviewer new-contract-only inspection and actual publication remain pending.
+
 ## Confirmed P2 — fix-only maintained readback coverage
 
 Root's actual t1dw review found **ONE P2**: metadata readback drift/counter acceptance lacked maintained regression tests. [Bounded approach and fixture dependency](plan.md#confirmed-p2--maintained-historical-metadata-readback-regression). Preserve original review history, manifest4058b4… and49 evidence files; actual previous maximum258.

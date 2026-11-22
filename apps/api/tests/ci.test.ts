@@ -1155,9 +1155,9 @@ test('historical Release retention rejects invalid publication source asset and 
   const request = structuredClone(f.request); assert.ok(request.migration);
   request.migration.predecessor = { id: heldD2.candidate, revision: heldAppPolicy.revision,
     artifactDigest: heldAppPolicy.artifactDigest, configDigest: heldD2.configDigest };
-  const faults = ['missing-release', 'draft', 'prerelease', 'unpublished', 'future', 'tag', 'target', 'foreign-release',
+  const faults = ['missing-release', 'draft', 'prerelease', 'unpublished', 'future', 'tag', 'target', 'target-old-sha', 'target-ref', 'foreign-release',
     'missing-asset', 'duplicate-asset', 'asset-name', 'asset-state', 'asset-type', 'asset-size', 'asset-hash', 'foreign-asset', 'browser-url',
-    'tag-target', 'tag-type', 'tag-ref', 'tag-url', 'source', 'producer-id', 'producer-attempt', 'producer-state', 'producer-source',
+    'tag-target', 'tag-type', 'tag-ref', 'tag-url', 'source', 'source-main', 'producer-id', 'producer-attempt', 'producer-state', 'producer-source',
     'producer-repository', 'checks-missing', 'checks-duplicate', 'checks-failed', 'checks-source', 'checks-attempt',
     'missing-bytes', 'short-bytes', 'oversized-bytes', 'wrong-bytes'];
   for (const fault of faults) await t.test(fault, async st => {
@@ -1172,7 +1172,9 @@ test('historical Release retention rejects invalid publication source asset and 
     if (fault === 'unpublished') Reflect.set(p.release, 'published_at', null);
     if (fault === 'future') p.release.published_at = new Date(Date.now() + 60000).toISOString();
     if (fault === 'tag') Reflect.set(p.release, 'tag_name', 'caller-selected-tag');
-    if (fault === 'target') Reflect.set(p.release, 'target_commitish', 'main');
+    if (fault === 'target') Reflect.set(p.release, 'target_commitish', 'foreign-branch');
+    if (fault === 'target-old-sha') Reflect.set(p.release, 'target_commitish', retainedActivation.revision);
+    if (fault === 'target-ref') Reflect.set(p.release, 'target_commitish', 'refs/heads/main');
     if (fault === 'foreign-release') p.release.url = p.release.url.replace(repository, 'foreign/repository');
     if (fault === 'missing-asset') p.release.assets = [];
     if (fault === 'duplicate-asset') p.release.assets.push({ ...asset, id: 9002 });
@@ -1184,11 +1186,12 @@ test('historical Release retention rejects invalid publication source asset and 
     if (fault === 'foreign-asset') asset.url = asset.url.replace(repository, 'foreign/repository');
     if (fault === 'browser-url') asset.browser_download_url += '?caller=untrusted';
     if (fault.startsWith('tag-')) expectedLast = p.tagPath;
-    if (fault === 'tag-target') Reflect.set(p.tag.object, 'sha', '0'.repeat(40));
+    if (fault === 'tag-target') Reflect.set(p.tag.object, 'sha', request.controller.revision);
     if (fault === 'tag-type') p.tag.object.type = 'tag';
     if (fault === 'tag-ref') p.tag.ref = 'refs/tags/caller-selected-tag';
     if (fault === 'tag-url') p.tag.url = p.tag.url.replace(repository, 'foreign/repository');
     if (fault === 'source') { expectedLast = sourcePath; p.values[sourcePath] = { sha: retainedActivation.revision, commit: { tree: { sha: '0'.repeat(40) } } }; }
+    if (fault === 'source-main') { expectedLast = sourcePath; p.values[sourcePath] = { sha: request.controller.revision, commit: { tree: { sha: request.controller.tree } } }; }
     if (fault.startsWith('producer-')) expectedLast = producerPath;
     if (fault === 'producer-id') p.producer.id++;
     if (fault === 'producer-attempt') p.producer.run_attempt = 2;
@@ -1233,7 +1236,7 @@ test('historical Release retention rejects invalid publication source asset and 
 });
 
 test('historical Release readback rejects identity content and descriptive drift but accepts download counters', async t => {
-  for (const fault of ['release-id', 'release-description', 'asset-id', 'asset-digest', 'asset-description', 'download-count']) {
+  for (const fault of ['release-id', 'publication-target', 'release-description', 'asset-id', 'asset-digest', 'asset-description', 'download-count']) {
     await t.test(fault, async () => {
       const p = historicalProofFixture({ revision: 'e'.repeat(40), tree: 'f'.repeat(40) });
       const asset = p.release.assets[0]!;
@@ -1244,6 +1247,7 @@ test('historical Release readback rejects identity content and descriptive drift
       await recheck();
       assert.deepEqual(p.reads, [p.releasePath, '/commits/main', p.releasePath, '/commits/main']);
       if (fault === 'release-id') p.release.id++;
+      if (fault === 'publication-target') Reflect.set(p.release, 'target_commitish', retainedActivation.revision);
       if (fault === 'release-description') Reflect.set(p.release, 'body', 'Changed after admission');
       if (fault === 'asset-id') asset.id++;
       if (fault === 'asset-digest') asset.digest = `sha256:${'0'.repeat(64)}`;
