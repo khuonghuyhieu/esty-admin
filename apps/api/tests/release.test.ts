@@ -1252,10 +1252,24 @@ test('Etsy setup provider checks exact pending503 reason config archive and alia
   packet.metadataDigest = currentAppMetadata({ envs }, Object.fromEntries(packet.runtimeKeys.map(key => [key, '']))).metadataDigest;
   const packetDigest = sha256(canonical(packet));
   let fault = '', sqlDone = false;
+  const githubCanary = 'OpaqueGitHubAuthCanary0123456789', sourceReads: string[] = [];
+  let expectedGithub: string | undefined;
   const transport: typeof fetch = async (input, init) => {
     const url = new URL(String(input)), headers = new Headers(init?.headers);
-    if (url.origin === 'https://api.github.com') return Response.json({ sha: packet.predecessor.revision, commit: { tree: { sha: packet.predecessor.tree } } });
+    if (url.origin === 'https://api.github.com') {
+      assert.equal(headers.get('authorization'), expectedGithub === undefined ? null : `Bearer ${expectedGithub}`);
+      assert.equal(headers.get('accept'), 'application/vnd.github+json');
+      assert.equal(init?.method ?? 'GET', 'GET');
+      const main = url.href === 'https://api.github.com/repos/khuonghuyhieu/esty-admin/commits/main';
+      if (!main) assert.equal(url.href, `https://api.github.com/repos/khuonghuyhieu/esty-admin/commits/${packet.predecessor.revision}`);
+      assert.equal(init?.redirect, main ? 'error' : 'manual');
+      sourceReads.push(url.href);
+      return Response.json({ sha: main ? packet.revision : packet.predecessor.revision,
+        commit: { tree: { sha: main ? packet.tree : packet.predecessor.tree } } });
+    }
+    assert.notEqual(headers.get('authorization'), `Bearer ${githubCanary}`);
     if (url.origin === 'https://api.vercel.com') {
+      assert.equal(headers.get('authorization'), 'Bearer synthetic-provider-token');
       if (url.pathname.endsWith('/domains/api.lovora.us')) return Response.json(domain);
       if (url.pathname === '/v4/aliases/api.lovora.us') return Response.json({ ...alias, deploymentId: fault === 'alias' ? 'dpl_other' : 'dpl_old', deployment: { id: fault === 'alias' ? 'dpl_other' : 'dpl_old' } });
       if (url.pathname === `/v9/projects/${artifactTarget.project}`) return Response.json({ ...project, link: { ...project.link, org: 'khuonghuyhieu', repo: 'esty-admin' } });
@@ -1287,11 +1301,29 @@ test('Etsy setup provider checks exact pending503 reason config archive and alia
   };
   const operations = etsyProviderOperations(packet, packetDigest, artifact,
     { token: 'synthetic-provider-token', bearer: 'c'.repeat(64), predecessorBearer: 'c'.repeat(64), bypass: 'synthetic-bypass-key' }, signal(), transport);
+  assert.deepEqual(await operations.currentMain(), { revision: packet.revision, tree: packet.tree });
   await operations.predecessor(false); await operations.candidate('dpl_new', true, false);
   for (fault of ['unexpected-ready', 'reason', 'config', 'archive']) await assert.rejects(operations.candidate('dpl_new', true, false), Error, fault);
   for (fault of ['alias', 'metadata']) await assert.rejects(operations.predecessor(false), Error, fault);
   fault = ''; sqlDone = true;
   await operations.predecessor(true); await operations.candidate('dpl_new', false, false);
+  expectedGithub = githubCanary;
+  const authenticated = etsyProviderOperations(packet, packetDigest, artifact,
+    { token: 'synthetic-provider-token', bearer: 'c'.repeat(64), predecessorBearer: 'c'.repeat(64),
+      bypass: 'synthetic-bypass-key', github: githubCanary }, signal(), transport);
+  sourceReads.length = 0;
+  assert.deepEqual(await authenticated.currentMain(), { revision: packet.revision, tree: packet.tree });
+  await authenticated.predecessor(true); await authenticated.candidate('dpl_new', false, false);
+  assert.deepEqual(sourceReads, ['https://api.github.com/repos/khuonghuyhieu/esty-admin/commits/main',
+    `https://api.github.com/repos/khuonghuyhieu/esty-admin/commits/${packet.predecessor.revision}`]);
+  const pinnedRevision = packet.predecessor.revision;
+  try {
+    for (const invalid of ['../../foreign/repository/commits/main', `${pinnedRevision}?credential=${githubCanary}`, 'main']) {
+      packet.predecessor.revision = invalid;
+      await assert.rejects(authenticated.predecessor(true));
+      assert.equal(sourceReads.length, 2, 'Invalid refs must stop before any GitHub credential is sent.');
+    }
+  } finally { packet.predecessor.revision = pinnedRevision; }
 });
 
 test('Etsy setup release fsync failures retain a terminal lock even when receipt bytes exist', async t => {

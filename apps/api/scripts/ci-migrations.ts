@@ -315,7 +315,8 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
     return;
   }
   const remote = etsyProviderOperations(packet, packetDigest, artifact, { token: env.VERCEL_TOKEN ?? '', bearer: env.BE_PREVIEW_ACCESS_KEY ?? '',
-    predecessorBearer: env.BE_PREVIEW_ACCESS_KEY ?? '', bypass: env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '' }, signal, fetch, diagnostics);
+    predecessorBearer: env.BE_PREVIEW_ACCESS_KEY ?? '', bypass: env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '',
+    github: env.GITHUB_TOKEN ?? '' }, signal, fetch, diagnostics);
   let journal: number | undefined;
   let cli: EtsyCli | undefined;
   async function record(description: string, state: 'in_progress' | 'success' = 'in_progress') {

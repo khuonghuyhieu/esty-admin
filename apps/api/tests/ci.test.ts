@@ -67,11 +67,27 @@ const oldSchema: RoutineDeliveryApproval = { digest: activationSchema.oldDigest,
 test('L3 canonical strict reservation binds the complete request and survives a fresh runner directory', async t => {
   const f = await strictReleaseFixture(); t.after(f.dispose);
   const h = routineProviderFixture(f.artifact, '', undefined, { packet: f.packet });
-  const original = globalThis.fetch; globalThis.fetch = h.transport; t.after(() => { globalThis.fetch = original; });
+  const sourceReads = new Set<string>(), origins = new Set<string>();
+  t.mock.method(globalThis, 'fetch', async (raw: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+    const url = new URL(String(raw)), auth = new Headers(init?.headers).get('authorization');
+    origins.add(url.origin);
+    if (url.origin === 'https://api.github.com' && url.pathname.includes('/commits/')) {
+      assert.ok([`https://api.github.com/repos/${repository}/commits/main`,
+        `https://api.github.com/repos/${repository}/commits/${f.packet.predecessor.revision}`].includes(url.href));
+      assert.equal(auth, `Bearer ${h.credentials.github}`);
+      assert.ok(init?.redirect === 'error' || init?.redirect === 'manual');
+      sourceReads.add(url.pathname);
+    } else if (url.origin === 'https://api.vercel.com') assert.equal(auth, `Bearer ${h.credentials.vercel}`);
+    else if (url.origin !== 'https://api.github.com') assert.notEqual(auth, `Bearer ${h.credentials.github}`);
+    return h.transport(raw, init);
+  });
   const env = { ...f.env, BE_ROUTINE_ACTION: 'authorize', GITHUB_TOKEN: h.credentials.github,
     VERCEL_TOKEN: h.credentials.vercel, BE_PREVIEW_ACCESS_KEY: h.credentials.bearer, VERCEL_AUTOMATION_BYPASS_SECRET: h.credentials.bypass };
   const reports = join(f.root, 'strict-reports');
   await runRoutinePhase({ artifact: f.artifact, request: f.request, env, cli: f.cli, reports, signal: AbortSignal.timeout(15000) });
+  assert.deepEqual([...sourceReads].sort(), [`/repos/${repository}/commits/main`,
+    `/repos/${repository}/commits/${f.packet.predecessor.revision}`].sort());
+  assert.deepEqual([...origins].sort(), ['https://api.github.com', 'https://api.lovora.us', 'https://api.vercel.com'].sort());
   assert.equal(h.reservation()!.payload.requestDigest, sha256(canonical(f.request)));
   assert.equal(h.reservation()!.payload.migrationPacket, f.packetDigest);
   assert.equal(h.reservation()!.payload.configDigest, f.request.configDigest);
@@ -89,6 +105,75 @@ test('L3 canonical strict reservation binds the complete request and survives a 
   await assert.rejects(runRoutinePhase({ artifact: f.artifact, request: changed, env: { ...env, BE_ROUTINE_ACTION: 'held' },
     cli: f.cli, reports, signal: AbortSignal.timeout(15000) }));
   assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+});
+
+test('L3 strict GitHub source refusal retains reservation and fences mutations without leaking credentials', async t => {
+  for (const status of [403, 302]) await t.test(String(status), async st => {
+    const f = await strictReleaseFixture(); st.after(f.dispose);
+    const h = routineProviderFixture(f.artifact, '', undefined, { packet: f.packet });
+    h.credentials.github = 'OpaqueGitHubAuthCanary0123456789';
+    const bodyCanary = 'OpaqueSourceBodyCanary9876543210', output: string[] = [];
+    st.mock.method(console, 'info', (...args: unknown[]) => output.push(args.join(' ')));
+    st.mock.method(console, 'error', (...args: unknown[]) => output.push(args.join(' ')));
+    let sourceReads = 0, bodyCancelled = 0, reservationPosts = 0, foreignRequests = 0;
+    let cliCalls = 0, sqlCalls = 0;
+    const { default: pg } = await import('pg');
+    st.mock.method(pg.Client.prototype, 'connect', () => { sqlCalls++; throw new Error('SQL forbidden during source refusal.'); });
+    st.mock.method(pg.Pool.prototype, 'connect', () => { sqlCalls++; throw new Error('SQL forbidden during source refusal.'); });
+    st.mock.method(childProcess, 'spawn', () => { cliCalls++; throw new Error('CLI forbidden during source refusal.'); });
+    syncBuiltinESMExports();
+    st.after(() => { st.mock.restoreAll(); syncBuiltinESMExports(); });
+    st.mock.method(globalThis, 'fetch', async (raw: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+      const url = new URL(String(raw)), auth = new Headers(init?.headers).get('authorization');
+      if (!['https://api.github.com', 'https://api.vercel.com', 'https://api.lovora.us'].includes(url.origin)) {
+        foreignRequests++; throw new Error('Unexpected synthetic origin; no network fallback.');
+      }
+      if (url.origin !== 'https://api.github.com') assert.notEqual(auth, `Bearer ${h.credentials.github}`);
+      if (url.origin === 'https://api.vercel.com') assert.equal(auth, `Bearer ${h.credentials.vercel}`);
+      if (url.href === `https://api.github.com/repos/${repository}/deployments` && init?.method === 'POST') reservationPosts++;
+      if (url.href === `https://api.github.com/repos/${repository}/commits/${f.packet.predecessor.revision}`) {
+        sourceReads++;
+        assert.equal(auth, `Bearer ${h.credentials.github}`);
+        assert.equal(init?.redirect, 'manual');
+        return new Response(new ReadableStream({
+          start(controller) { controller.enqueue(new TextEncoder().encode(`${h.credentials.github}:${bodyCanary}`)); },
+          cancel() { bodyCancelled++; },
+        }), { status, headers: { location: `https://foreign.invalid/source?credential=${h.credentials.github}` } });
+      }
+      return h.transport(raw, init);
+    });
+    const env = { ...f.env, BE_ROUTINE_ACTION: 'authorize', GITHUB_TOKEN: h.credentials.github,
+      VERCEL_TOKEN: h.credentials.vercel, BE_PREVIEW_ACCESS_KEY: h.credentials.bearer, VERCEL_AUTOMATION_BYPASS_SECRET: h.credentials.bypass };
+    const reports = join(f.root, 'source-denial'), trace = new ChecksDiagnostics(join(f.root, 'source-diagnostics'), { scope: 'release' });
+    await assert.rejects(runRoutinePhase({ artifact: f.artifact, request: f.request, env, cli: f.cli, reports,
+      signal: AbortSignal.timeout(15000), trace, emit: false }), (cause: unknown) => {
+      assert.ok(cause instanceof Error && 'result' in cause);
+      const result = validateReleaseResult(cause.result);
+      assert.equal(result.stage, 'reserve'); assert.equal(result.evidence, 'confirmed');
+      assert.deepEqual(result.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
+      assert.equal(result.deploymentId, null); assert.equal(result.migration, null);
+      assert.equal(String(cause).includes(h.credentials.github), false);
+      return true;
+    });
+    assert.equal(sourceReads, 1); assert.equal(bodyCancelled, 1); assert.equal(foreignRequests, 0);
+    assert.equal(reservationPosts, 1); assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+    assert.deepEqual(readEvidence(join(reports, 'strict/reservation.json')).value,
+      { version: 1, requestDigest: sha256(canonical(f.request)), packetDigest: f.packetDigest, journal: 44 });
+    assert.equal(fs.existsSync(join(reports, 'strict/history.authorized.json')), false);
+    assert.equal(h.statuses[0]!.state, 'error'); assert.equal(h.statuses[0]!.description, 'strict:unresolved');
+    const failed = output.map(line => JSON.parse(line)).find(row => row.check === 'strict.github-predecessor-http-status' && row.status === 'failed');
+    assert.deepEqual(failed?.values, { actual: status, expected: 200, redirected: false });
+    const persisted = await readFile(join(trace.directory, `${trace.correlation}-events.jsonl`), 'utf8');
+    for (const canary of [h.credentials.github, bodyCanary, 'foreign.invalid']) {
+      assert.equal((output.join('\n') + persisted).includes(canary), false);
+    }
+    const statuses = structuredClone(h.statuses);
+    await assert.rejects(runRoutinePhase({ artifact: f.artifact, request: f.request, env, cli: f.cli,
+      reports: join(f.root, 'replacement-runner'), signal: AbortSignal.timeout(15000), emit: false }));
+    assert.deepEqual(h.statuses, statuses); assert.equal(reservationPosts, 1); assert.equal(sourceReads, 1);
+    assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+    assert.equal(cliCalls, 0); assert.equal(sqlCalls, 0);
+  });
 });
 
 test('L3 ordinary provider refuses missing request approval before transport', async t => {

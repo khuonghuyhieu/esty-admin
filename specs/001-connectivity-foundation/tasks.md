@@ -1,5 +1,13 @@
 # Tasks: Connectivity foundation
 
+## Strict Actions GitHub source authentication
+
+Actual previous maximum264. [Bounded source repair and snapshot execution transport](plan.md#strict-actions-github-source-authentication--2026-11-22); base5b038868fb636ad98d2d46a5c1ae3c089510ef4d. Preserve existing task identities and all historical source/evidence/review records.
+
+- [x] T265 [US9] Verify the18-file public snapshot, read governance and safe403 evidence, confirm missing Actions GitHub source authentication and amend this plan before source authoring; actual403 reason remains UNKNOWN.
+- [x] T266 [US9] Authored the six-file snapshot-derived patch: optional GitHub credential handoff, exact source routes/ref gate, finite source-status diagnostic and existing-suite credential isolation/standalone/403/redirect/reservation/redaction coverage. TypeScript syntax parsing only; compiler and behavior checks remain pending T267.
+- [x] T267 [US9] Hand back the exact hashed patch for root mechanical application; root runs compiler/focus/emitted proof and one justified seven-file suite with0700 runtime directories. Retain actual results/failures, then freeze READY_FOR_GITHUB_AUTH_FIX_REVIEW for the same existing reviewer's narrow inspection. No operational action.
+
 ## Release publication target hint correction
 
 Root authorized this narrow delta from reported published main2516faa after accepting the prior ONE P2 fix-only inspection. Actual previous task maximum261; [API contract, source identity separation and corrected root-only publication instructions](plan.md#release-publication-target-hint-correction--2026-11-21).

@@ -265,23 +265,27 @@ export function verifyEtsyArtifact(packet: EtsyReleasePacket, root: string): Ver
     || !equal(artifact.manifest.migrations, migrationManifest)) stop();
   return artifact;
 }
-async function currentEtsyMain(signal: AbortSignal, transport: typeof fetch = fetch): Promise<{ revision: string; tree: string }> {
+async function currentEtsyMain(signal: AbortSignal, transport: typeof fetch = fetch,
+  headers: Record<string, string> = { Accept: 'application/vnd.github+json' }): Promise<{ revision: string; tree: string }> {
   const response = await bounded(transport(`https://api.github.com/repos/${repository}/commits/main`,
-    { redirect: 'error', signal, headers: { Accept: 'application/vnd.github+json' } }), signal);
+    { redirect: 'error', signal, headers }), signal);
   if (response.status !== 200) { await response.body?.cancel(); stop(); }
   const commit = setupObject(JSON.parse((await bounded(responseBytes(response, 65536), signal)).toString('utf8')));
   return { revision: String(commit.sha), tree: String(setupObject(setupObject(commit.commit).tree).sha) };
 }
 export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact,
-  credentials: { token: string; bearer: string; predecessorBearer: string; bypass: string }, signal: AbortSignal,
+  credentials: { token: string; bearer: string; predecessorBearer: string; bypass: string; github?: string }, signal: AbortSignal,
   transport: typeof fetch = fetch, diagnostics?: ReleaseDiagnostics) {
-  diagnostics?.trace?.registerSecrets([credentials.token, credentials.bearer, credentials.predecessorBearer, credentials.bypass]);
+  diagnostics?.trace?.registerSecrets([credentials.token, credentials.bearer, credentials.predecessorBearer, credentials.bypass, credentials.github ?? '']);
   const predicate = (name: string, condition: boolean) => {
     diagnostics?.trace?.check(name, condition, 'approved-strict-contract-mismatch');
     if (!condition) stop();
   };
   predicate('strict.provider-credentials', /^[\x21-\x7e]{16,512}$/.test(credentials.token) && hex.test(credentials.bearer) && hex.test(credentials.predecessorBearer)
-    && /^[\x21-\x7e]{16,512}$/.test(credentials.bypass));
+    && /^[\x21-\x7e]{16,512}$/.test(credentials.bypass)
+    && (credentials.github === undefined || /^[\x21-\x7e]{16,512}$/.test(credentials.github)));
+  const githubHeaders: Record<string, string> = { Accept: 'application/vnd.github+json' };
+  if (credentials.github !== undefined) githubHeaders.Authorization = `Bearer ${credentials.github}`;
   const request = async (url: string, init: RequestInit = {}) => {
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(15000)]);
     const work = async () => {
@@ -297,10 +301,11 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
     };
     return diagnostics ? diagnostics.guard('transport', work) : work();
   };
-  async function json(url: string, headers: Record<string, string>, maximum = 8 * 1024 * 1024): Promise<Record<string, any>> {
+  async function json(url: string, headers: Record<string, string>, maximum = 8 * 1024 * 1024,
+    statusCheck: 'strict.http-status' | 'strict.github-predecessor-http-status' = 'strict.http-status'): Promise<Record<string, any>> {
     const response = await request(url, { headers });
     const parse = async () => {
-      diagnostics?.trace?.check('strict.http-status', response.status === 200 && !response.redirected, 'unexpected-status-or-redirect',
+      diagnostics?.trace?.check(statusCheck, response.status === 200 && !response.redirected, 'unexpected-status-or-redirect',
         { actual: response.status, expected: 200, redirected: response.redirected });
       if (response.status !== 200 || response.redirected) { await response.body?.cancel(); stop(); }
       const bytes = await bounded(responseBytes(response, maximum, diagnostics?.trace), signal);
@@ -338,7 +343,7 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
     await checkHostedHttp(origin, packet.browserOrigin, key, http, pending ? 'migrations_pending' : 'current', diagnostics?.trace);
   }
   const operations = {
-    currentMain: () => currentEtsyMain(signal, transport),
+    currentMain: () => currentEtsyMain(signal, transport, githubHeaders),
     alias,
     async predecessor(pending: boolean) {
       await alias(packet.predecessor.id);
@@ -352,7 +357,9 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
       const metadata = currentAppMetadata(await provider(`/v10/projects/${artifactTarget.project}/env?decrypt=false&target=production`),
         Object.fromEntries(packet.runtimeKeys.map(key => [key, ''])));
       predicate('strict.predecessor-production-metadata', metadata.metadataDigest === packet.metadataDigest);
-      const source = await json(`https://api.github.com/repos/${repository}/commits/${packet.predecessor.revision}`, { Accept: 'application/vnd.github+json' });
+      predicate('strict.predecessor-source-ref', revision.test(packet.predecessor.revision));
+      const source = await json(`https://api.github.com/repos/${repository}/commits/${packet.predecessor.revision}`,
+        githubHeaders, undefined, 'strict.github-predecessor-http-status');
       predicate('strict.predecessor-source', source.sha === packet.predecessor.revision && source.commit?.tree?.sha === packet.predecessor.tree);
       const old = await provider(`/v13/deployments/${packet.predecessor.id}`), meta = setupObject(old.meta);
       predicate('strict.predecessor-identity', old.id === packet.predecessor.id && old.projectId === artifactTarget.project && old.ownerId === artifactTarget.owner
