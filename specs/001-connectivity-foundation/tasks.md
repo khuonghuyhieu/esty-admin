@@ -1,5 +1,15 @@
 # Tasks: Connectivity foundation
 
+## SQL history diagnostics — bounded repair
+
+Actual previous maximum272. [Bounded repair and separate admission proposal](plan.md#sql-history-cause-preservation--bounded-repair), base633e9d788722e6a8b7843cb6ac46d62e8dcb7690. Preserve all earlier tasks and failure/review evidence.
+
+- [x] T273 [US9] Verify the20-file public snapshot and actual history failure, trace cause loss and record the minimal repair before code; separately expose the in_progress/unaccepted-carrier continuation blocker without editing admission guards.
+- [x] T274 [US9] Authored the bounded11-file patch: original migration-status causes and finite redacted SQL stage/code/category projection, history-mismatch only after observed history, separately typed read-only-history proof and exact10-file archive variant, fresh carried-marker reproof and successful dual consumption. Extended existing release/CI suites for SQL substages/canaries/logger failure and admission/marker/expiry/drift/replay. Separate emitted SQL-history and real-archive reservation recipes are authored, NOT RUN by the writer. No timeout/DB/TLS/history/replay weakening or broad recovery path.
+- [x] T275 [US9] Root applied the exact patch and correction deltas; compiler0, focused178/178, affected suites851 pass/0 fail/2 existing skips, emitted SQL worker and7-real-archive synthetic fresh-reservation/replay smokes passed. Preserve165/170 and174/178 failing runs and their narrow corrections. No real provider/database effect.
+- [x] T276 [US9] Existing separate Company Codex gpt-6-luna medium reviewer t1dw verified all12 frozen source hashes and reported no confirmed actionable findings in one scoped read-only review; reviewer ran no checks. Earlier review histories remain separate.
+- [x] T277 [US9] Root recorded actual checks, failure history, reviewed identities and hosted limitations after ownership returned. Only3 existing feature documents changed during closeout;9 reviewed implementation/test files remain identical. Publication and new checked artifact/packet/dispatch remain separately recorded operational steps.
+
 ## Verified failed authorization disposition
 
 Actual previous maximum267. [Root-approved trust contract and durable consumption](plan.md#verified-failed-authorization-disposition--plan-first-source-contract); base97830ad9d657bb3d622c3ea0c75d1d1601527eb1. Preserve every historical task and failed/accepted evidence record.

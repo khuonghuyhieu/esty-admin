@@ -48,6 +48,21 @@ export function safeChecksError(error: unknown, secrets: readonly string[] = [])
   return parts.join('\nCaused by: ');
 }
 
+const releaseErrorCategories: Readonly<Record<string, string>> = {
+  EACCES: 'permission', EPERM: 'permission', ENOENT: 'io', ELOOP: 'io', ENOSPC: 'io', EIO: 'io',
+  ECONNRESET: 'connection', ECONNREFUSED: 'connection', EPIPE: 'connection', ENOTFOUND: 'connection',
+  EAI_AGAIN: 'connection', EHOSTUNREACH: 'connection', ENETUNREACH: 'connection',
+  ETIMEDOUT: 'timeout', ABORT_ERR: 'cancelled', ERR_ASSERTION: 'validation', ERR_OUT_OF_RANGE: 'validation',
+  '28P01': 'authentication', '28000': 'authentication', '42501': 'permission',
+  '08000': 'connection', '08001': 'connection', '08003': 'connection', '08004': 'connection',
+  '08006': 'connection', '08007': 'connection', '08P01': 'connection',
+  '3D000': 'sql', '42P01': 'sql', '42703': 'sql', '53300': 'sql', '53400': 'sql',
+  '57P01': 'connection', '57P02': 'connection', '57P03': 'connection',
+  '57014': 'cancelled', '55P03': 'sql', '40001': 'sql', '40P01': 'sql',
+  CERT_HAS_EXPIRED: 'tls', DEPTH_ZERO_SELF_SIGNED_CERT: 'tls', SELF_SIGNED_CERT_IN_CHAIN: 'tls',
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'tls', UNABLE_TO_GET_ISSUER_CERT_LOCALLY: 'tls', ERR_TLS_CERT_ALTNAME_INVALID: 'tls',
+};
+
 /** Private errors retain stack locations/cause topology, never arbitrary messages or payloads. */
 export function safeReleaseError(error: unknown): string {
   const parts: string[] = [], seen = new Set<unknown>();
@@ -55,13 +70,20 @@ export function safeReleaseError(error: unknown): string {
     if (seen.has(error)) { parts.push('[OMITTED circular cause]'); return parts.join('\nCaused by: '); }
     seen.add(error);
     if (!(error instanceof Error)) { parts.push('[REDACTED non-Error payload]'); return parts.join('\nCaused by: '); }
-    const code = (error as NodeJS.ErrnoException).code;
-    const safeCode = typeof code === 'string' && /^(?:EACCES|EPERM|ENOENT|ELOOP|ENOSPC|EIO|ECONNRESET|ECONNREFUSED|ETIMEDOUT|ABORT_ERR|ERR_ASSERTION|ERR_OUT_OF_RANGE|28P01|57014|40001)$/.test(code) ? code : 'omitted';
+    const stage = (error as Error & { sqlStage?: unknown }).sqlStage;
+    const sqlStage = typeof stage === 'string' && /^(?:assets|connect|begin|history-query|commit)$/.test(stage) ? stage : 'omitted';
+    const detail = sqlStage !== 'omitted' && error.cause instanceof Error ? error.cause : error;
+    const code = (detail as NodeJS.ErrnoException).code;
+    const safeCode = typeof code === 'string' && Object.hasOwn(releaseErrorCategories, code) ? code : 'omitted';
+    // Code-less driver timeout messages are compared exactly, never printed or inferred from elapsed time.
+    const category = safeCode !== 'omitted' ? releaseErrorCategories[safeCode]!
+      : detail.name === 'TimeoutError' || detail.message === 'timeout expired'
+        || detail.message === 'Connection terminated due to connection timeout' ? 'timeout' : 'unknown';
     const locations = (error.stack ?? '').slice(0, 65536).split('\n').slice(1, 33).flatMap(line => {
       const match = line.match(/(?:\/|\\)((?:ci-delivery|ci-provider|ci-tools|ci-migrations|checks-diagnostics|routine-retained|activation-retained|activation-preflight-disposition|activation-held-proof|historical-release|etsy-release|hosted-acceptance|vercel-deploy|artifact|ci|release-journal|private-files|migrations|bounded|ci\.test|etsy\.test|integration\.test|release\.test)\.(?:m?js|ts)):(\d{1,8}):(\d{1,8})\)?$/);
       return match ? [`    at ${match[1]}:${match[2]}:${match[3]}`] : [];
     });
-    parts.push(`[REDACTED error message; untrusted provider/SQL payload; code=${safeCode}]\n${locations.join('\n')}`);
+    parts.push(`[REDACTED error message; untrusted provider/SQL payload; code=${safeCode}; category=${category}; sqlStage=${sqlStage}]\n${locations.join('\n')}`);
     error = error.cause;
   }
   if (error !== undefined) parts.push('[OMITTED cause depth exceeds8]');

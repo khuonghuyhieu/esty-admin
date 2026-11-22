@@ -140,9 +140,10 @@ export async function executeRoutineMigration(input: {
   signal.throwIfAborted();
   // Never remove this marker, including on preflight failure or loss of the commit acknowledgement.
   writeObserved(diagnostics, join(directory, 'migration-started.json'), { authorization: sha256(canonical(auth)), outcome: 'unknown' });
-  diagnostics?.at('history', 'history-mismatch');
+  diagnostics?.at('history', 'validation');
   const before = diagnostics?.trace
     ? await diagnostics.trace.boundary('sql.history-before', () => migrationStatus(database, migrations)) : await migrationStatus(database, migrations);
+  diagnostics?.at('history', 'history-mismatch');
   const beforeMatches = before.initialized && before.ordered && !before.unexpected.length
     && canonical(before.applied) === canonical(packet.previous.map(item => item.name))
     && canonical(before.pending) === canonical(packet.migrations.slice(packet.previous.length).map(item => item.name));
@@ -164,9 +165,10 @@ export async function executeRoutineMigration(input: {
   const confirmed = confirmedMigration(report, packet);
   diagnostics?.trace?.check('sql.confirmed-report', confirmed, 'commit-or-report-binding-unconfirmed');
   if (!confirmed) refuse();
-  diagnostics?.at('history', 'history-mismatch');
+  diagnostics?.at('history', 'validation');
   const after = diagnostics?.trace
     ? await diagnostics.trace.boundary('sql.history-after', () => migrationStatus(database, migrations)) : await migrationStatus(database, migrations);
+  diagnostics?.at('history', 'history-mismatch');
   const afterMatches = after.initialized && after.ordered && !after.unexpected.length && !after.pending.length
     && canonical(after.applied) === canonical(packet.migrations.map(item => item.name));
   diagnostics?.trace?.check('sql.expected-history-after', afterMatches, 'committed-history-differs',
@@ -276,6 +278,7 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
         const status = diagnostics?.trace ? await diagnostics.trace.boundary('sql.strict-history', () => migrationStatus(database, migrations))
           : await migrationStatus(database, migrations);
         const valid = status.initialized && status.ordered && !status.unexpected.length;
+        if (!valid) diagnostics?.at('history', 'history-mismatch');
         diagnostics?.trace?.check('sql.strict-history-valid', valid, 'uninitialized-unordered-or-unexpected-history',
           { appliedCount: status.applied.length, pendingCount: status.pending.length, unexpectedCount: status.unexpected.length });
         if (!valid) refuse();

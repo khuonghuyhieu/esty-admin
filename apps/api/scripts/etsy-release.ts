@@ -160,7 +160,7 @@ export async function runEtsyReleasePhase(input: {
     persist(join(run, `${phase}.intent.json`), intent);
     await input.durability?.intent(phase, intent);
     signal.throwIfAborted();
-    diagnostics?.at(stage, phase === 'history' ? 'history-mismatch' : 'validation');
+    diagnostics?.at(stage, 'validation');
     const main = async () => {
       signal.throwIfAborted(); validateEtsyReleasePacket(packet, packetDigest); op.verify();
       const observed = await bounded(op.currentMain(), signal);
@@ -170,7 +170,9 @@ export async function runEtsyReleasePhase(input: {
     if (phase === 'history') {
       // SQL-only read credentials; no provider token is needed for this phase.
       await main();
-      predicate('initial-history', equal(await bounded(op.history(), signal), before));
+      const observed = await bounded(op.history(), signal);
+      diagnostics?.at(stage, 'history-mismatch');
+      predicate('initial-history', equal(observed, before));
     } else if (phase === 'sql-apply') {
       // The fresh prior provider check is bound to this packet; SQL process never receives provider credentials.
       await main();

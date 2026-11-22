@@ -60,16 +60,23 @@ function connection(database: ClientConfig): Client {
   return client;
 }
 export async function migrationStatus(database: ClientConfig, directory = migrationsDirectory): Promise<MigrationStatus> {
-  const manifest = manifestFor(directory);
-  const client = connection(database);
+  let client: Client | undefined;
+  let sqlStage = 'assets';
   try {
+    const manifest = manifestFor(directory);
+    sqlStage = 'connect';
+    client = connection(database);
     await client.connect();
+    sqlStage = 'begin';
     await client.query('BEGIN READ ONLY');
+    sqlStage = 'history-query';
     const status = await history(client, manifest);
+    sqlStage = 'commit';
     await client.query('COMMIT');
     return status;
-  } catch { throw new Error('Migration status failed; check approved assets, target and history.'); }
-  finally { await client.end().catch(() => {}); }
+  } catch (cause) {
+    throw Object.assign(new Error('Migration status failed; check approved assets, target and history.', { cause }), { sqlStage });
+  } finally { await client?.end().catch(() => {}); }
 }
 export async function runMigrations(database: ClientConfig, options: {
   directory?: string; sourceRevision?: string; target?: string; signal?: AbortSignal; expectedBefore?: readonly string[];

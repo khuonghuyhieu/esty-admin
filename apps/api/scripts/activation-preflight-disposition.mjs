@@ -118,7 +118,8 @@ function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diag
     if (!name.startsWith('be-receipts/')) refuse();
     const relative = name.slice('be-receipts/'.length).replace(/\/$/, ''), type = header[156];
     if (type === 53) {
-      if (!expectedDirectories.includes(relative) || directories.has(relative) || mode !== 0o700 || size !== 0) refuse();
+      if (!expectedDirectories.some(expected => typeof expected === 'string' ? expected === relative : expected.test(relative))
+        || directories.has(relative) || mode !== 0o700 || size !== 0) refuse();
       directories.set(relative, { path: relative, mode });
     } else {
       if (![0, 48].includes(type) || !acceptsFile(relative) || files.has(relative) || mode !== 0o600) refuse();
@@ -126,21 +127,37 @@ function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diag
     }
     cursor += 512 + Math.ceil(size / 512) * 512;
   }
-  if (directories.size !== expectedDirectories.length || tar.length - cursor < 1024 || tar.subarray(cursor).some(byte => byte !== 0)) refuse();
+  if (directories.size !== expectedDirectories.length || expectedDirectories.some(expected =>
+    typeof expected === 'string' ? !directories.has(expected) : ![...directories.keys()].some(name => expected.test(name)))
+    || tar.length - cursor < 1024 || tar.subarray(cursor).some(byte => byte !== 0)) refuse();
   const inventory = { files: [...files].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([path, file]) => ({ path, mode: file.mode, size: file.bytes.length,
     sha256: hash(file.bytes), sha1: createHash('sha1').update(file.bytes).digest('hex') })), directories: [...directories.values()]
     .filter(directory => directory.path !== '').sort((a, b) => a.path.localeCompare(b.path, 'en')) };
   if (hash(canonical(inventory)) !== inventoryLine.trim()) refuse();
-  return { files, archiveDigest: hash(compressed), inventoryDigest: inventoryLine.trim() };
+  return { files, directories, archiveDigest: hash(compressed), inventoryDigest: inventoryLine.trim() };
 }
-export function validateAuthorizationReceiptArchive(zip, approvedZip, diagnostics) {
-  const result = receiptMembers(zip, approvedZip, ['', 'strict'], name =>
-    ['strict/reserving.json', 'strict/reservation.json'].includes(name) || /^release-outcome-\d{4}\.json$/.test(name), diagnostics);
+export function validateAuthorizationReceiptArchive(zip, approvedZip, diagnostics, readOnlyHistory = false) {
+  const historyDirectory = /^strict\/[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
+  const fixed = ['strict/reserving.json', 'strict/reservation.json',
+    ...(readOnlyHistory ? ['strict/history.authorized.json', 'strict/operator.lock', 'strict/active.lock'] : [])];
+  const result = receiptMembers(zip, approvedZip, readOnlyHistory ? ['', 'strict', historyDirectory] : ['', 'strict'], name =>
+    fixed.includes(name) || /^release-outcome-\d{4}\.json$/.test(name)
+    || (readOnlyHistory && /\/(?:history\.intent|STOP)\.json$/.test(name) && historyDirectory.test(name.slice(0, name.lastIndexOf('/')))), diagnostics);
   const outcomes = [...result.files.keys()].filter(name => name.startsWith('release-outcome-')).sort();
-  if (outcomes.length < 1 || outcomes.length > 256 || result.files.size !== outcomes.length + 2
+  let runId = null;
+  if (readOnlyHistory) {
+    const intent = [...result.files.keys()].find(name => name.endsWith('/history.intent.json'));
+    if (!intent) refuse();
+    const base = intent.slice(0, intent.lastIndexOf('/'));
+    if (!result.directories.has(base)) refuse();
+    runId = base.slice('strict/'.length);
+    fixed.push(`${base}/history.intent.json`, `${base}/STOP.json`);
+  }
+  if (outcomes.length < 1 || outcomes.length > 256 || (readOnlyHistory && outcomes.length !== 3)
+    || result.files.size !== outcomes.length + fixed.length
     || outcomes.some((name, index) => name !== `release-outcome-${String(index).padStart(4, '0')}.json`)
-    || !result.files.has('strict/reserving.json') || !result.files.has('strict/reservation.json')) refuse();
-  return { ...result, outcomes };
+    || fixed.some(name => !result.files.has(name))) refuse();
+  return { ...result, outcomes, runId };
 }
 export function validatePreflightReceiptArchive(zip, approvedZip, expected, diagnostics) {
   const { runId, packetDigest } = expected;

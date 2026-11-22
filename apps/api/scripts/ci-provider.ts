@@ -289,8 +289,8 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       const historical = !activation && before.some(item => historicalRecordId(item.entry.id));
       for (const { entry, status } of before) {
         predicate('reservation.previous-outcome', status.state === 'success' || (!activation && historicalRecordId(entry.id))
-          || (historical && approvedRequest !== undefined && status.state === 'error' && entry.payload !== null
-            && typeof entry.payload === 'object' && Object.hasOwn(entry.payload, 'historicalHandoff')),
+          || (historical && approvedRequest !== undefined && (status.state === 'error' || status.state === 'in_progress')
+            && entry.payload !== null && typeof entry.payload === 'object' && Object.hasOwn(entry.payload, 'historicalHandoff')),
         'A previous delivery outcome is unresolved; owner reconciliation is required.');
       }
       const proofIo = manualGithubIo(credentials.github, signal, transport, diagnostics?.trace);

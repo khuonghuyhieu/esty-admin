@@ -19,7 +19,8 @@ import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validat
 import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase } from '../scripts/etsy-release.js';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { currentAppMetadata } from '../scripts/activation-configuration.js';
-import { manifestDigest } from '../scripts/migrations.js';
+import { manifestDigest, migrationStatus } from '../scripts/migrations.js';
+import { safeReleaseError } from '../scripts/checks-diagnostics.js';
 import type { MigrationReport } from '../scripts/migrations.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { readEvidence } from '../scripts/release-journal.js';
@@ -27,6 +28,68 @@ import { ReleaseOutcome, approvedRoutineRequest, validateReleaseResult } from '.
 import { historicalHandoffDigest } from '../scripts/historical-release.js';
 import { rootCertificates } from 'node:tls';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
+
+test('SQL history diagnostics preserve causes, finite projections and read-only boundaries', async t => {
+  const { Client } = await import('pg');
+  const canary = 'OpaqueSqlHostUserPasswordQueryCertCanary';
+  const cases = [
+    ['connect', 'ECONNREFUSED', 'connection', canary],
+    ['connect', 'ETIMEDOUT', 'timeout', canary],
+    ['connect', '', 'timeout', 'timeout expired'],
+    ['connect', '', 'timeout', 'Connection terminated due to connection timeout'],
+    ['connect', 'CERT_HAS_EXPIRED', 'tls', canary],
+    ['connect', canary, 'unknown', canary],
+    ['begin', '28P01', 'authentication', canary],
+    ['presence', '42501', 'permission', canary],
+    ['rows', '42P01', 'sql', canary],
+    ['rows', '57014', 'cancelled', canary],
+    ['commit', '08006', 'connection', canary],
+    ['commit', '40001', 'sql', canary],
+    ['initialized', '', '', ''],
+    ['uninitialized', '', '', ''],
+  ] as const;
+  for (const [fault, code, category, message] of cases) await t.test(`${fault}:${code || message || 'success'}`, async st => {
+    const cause = Object.assign(new Error(message), { code, host: canary, user: canary, query: canary, certificate: canary });
+    const calls: string[] = [];
+    let ended = 0;
+    st.mock.method(Client.prototype, 'connect', async () => {
+      calls.push('connect');
+      if (fault === 'connect') throw cause;
+    });
+    st.mock.method(Client.prototype, 'query', async (sql: string) => {
+      calls.push(sql);
+      if ((fault === 'begin' && sql === 'BEGIN READ ONLY') || (fault === 'commit' && sql === 'COMMIT')
+        || (fault === 'presence' && sql.startsWith('SELECT to_regclass'))
+        || (fault === 'rows' && sql === 'SELECT name FROM public.foundation_migrations ORDER BY id')) throw cause;
+      if (sql.startsWith('SELECT to_regclass')) return { rows: [{ present: fault !== 'uninitialized' }] };
+      if (sql.startsWith('SELECT name')) return { rows: migrationManifest.slice(0, 3).map(row => ({ name: row.name })) };
+      assert.ok(sql === 'BEGIN READ ONLY' || sql === 'COMMIT');
+      return { rows: [] };
+    });
+    st.mock.method(Client.prototype, 'end', async () => { ended++; });
+    const invoke = () => migrationStatus({ host: canary, user: canary, password: canary, ssl: { rejectUnauthorized: true } });
+    if (fault === 'initialized' || fault === 'uninitialized') {
+      const result = await invoke(), count = fault === 'initialized' ? 3 : 0;
+      assert.deepEqual(result, { initialized: count > 0, applied: migrationManifest.slice(0, count).map(row => row.name),
+        pending: migrationManifest.slice(count).map(row => row.name), unexpected: [], ordered: true });
+      assert.equal(calls.at(-1), 'COMMIT');
+    } else await assert.rejects(invoke, error => {
+      assert.ok(error instanceof Error);
+      assert.equal(error.cause, cause);
+      const stage = fault === 'presence' || fault === 'rows' ? 'history-query' : fault;
+      assert.equal((error as Error & { sqlStage: string }).sqlStage, stage);
+      const publicError = safeReleaseError(new Error(canary, { cause: error }));
+      assert.ok(publicError.includes(`sqlStage=${stage}`));
+      assert.ok(publicError.includes(`code=${code && code !== canary ? code : 'omitted'}; category=${category}`));
+      assert.doesNotMatch(publicError, /OpaqueSqlHostUserPasswordQueryCertCanary|postgresql:|SELECT |BEGIN |timeout expired/);
+      return true;
+    });
+    assert.equal(ended, 1);
+    if (fault === 'connect') assert.deepEqual(calls, ['connect']);
+    else assert.equal(calls[1], 'BEGIN READ ONLY');
+    if (!['initialized', 'uninitialized', 'commit'].includes(fault)) assert.ok(!calls.includes('COMMIT'));
+  });
+});
 
 test('L4 emitted routine result preserves effects and safe terminal output', { timeout: 90000 }, async t => {
   const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime)); t.after(f.dispose);
@@ -196,7 +259,7 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
   await writeFile(inputPath, JSON.stringify({ request: f.request, env: f.env, packet: f.packet, values }), { mode: 0o600 });
   await writeFile(script, `
     import assert from 'node:assert/strict'; import {mock} from 'node:test'; import fs from 'node:fs';
-    import childProcess from 'node:child_process'; import {syncBuiltinESMExports} from 'node:module';
+    import childProcess from 'node:child_process'; import {createRequire,syncBuiltinESMExports} from 'node:module';
     import {EventEmitter} from 'node:events'; import {PassThrough} from 'node:stream';
     import net from 'node:net'; import tls from 'node:tls'; import dgram from 'node:dgram'; import {randomUUID} from 'node:crypto';
     import {verifyArtifact} from ${JSON.stringify(new URL('../scripts/artifact.js', import.meta.url).href)};
@@ -211,9 +274,31 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
     const migrations=await import(${JSON.stringify(new URL('../scripts/migrations.js', import.meta.url).href)});
     const target=input.request.schema.target,previous=input.request.schema.before;
     let names=previous.map(row=>row.name);
+    const historyFailure=fault==='history-connect'||fault==='history-connect-logger';
+    let loggerFaultInjected=false;
+    if(historyFailure){
+      const {Client}=createRequire(${JSON.stringify(new URL('../scripts/ci-migrations.js', import.meta.url).href)})('pg');
+      Client.prototype.connect=async()=>{throw Object.assign(Error('OpaqueSqlTransportCanary'),{code:'ECONNREFUSED'});};
+      Client.prototype.end=async()=>{};
+      if(fault==='history-connect-logger'){
+        const originalConsoleError=console.error.bind(console);
+        console.error=(...args)=>{
+          let record;
+          if(args.length===1&&typeof args[0]==='string'){
+            try{record=JSON.parse(args[0]);}catch{}
+          }
+          if(record?.version===1&&record.correlation===trace.correlation
+            &&record.check==='sql.strict-history'&&record.status==='failed'){
+            loggerFaultInjected=true;throw Error('OpaqueLoggerCanary');
+          }
+          originalConsoleError(...args);
+        };
+      }
+    }
     mock.module(${JSON.stringify(new URL('../scripts/migrations.js', import.meta.url).href)},{exports:{...migrations,
-      migrationStatus:async()=>{historyCalls++;return {initialized:true,ordered:true,unexpected:[],
-        applied:[...names],pending:target.slice(names.length).map(row=>row.name)};},
+      migrationStatus:async(...args)=>{historyCalls++;if(historyFailure)return migrations.migrationStatus(...args);
+        return {initialized:true,ordered:true,unexpected:[],
+          applied:[...names],pending:target.slice(names.length).map(row=>row.name)};},
       runMigrations:async(_database,options)=>{
         runnerCalls++;assert.deepEqual(options.expectedBefore,previous.map(row=>row.name));
         const before=[...names],unknown=fault==='sql-unknown',rolledBack=fault==='sql-rollback';
@@ -275,6 +360,7 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
       }
       accepted=true;
     }catch(cause){error=cause.message;}
+    if(fault==='history-connect-logger')assert.equal(loggerFaultInjected,true,'SQL diagnostic logger fault must be exercised');
     const effects=h.counts(),statuses=structuredClone(h.statuses);
     const diagnostics=fs.readFileSync(trace.directory+'/'+trace.correlation+'-events.jsonl','utf8').trim().split('\\n').map(JSON.parse);
     if(!restart){
@@ -295,6 +381,7 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
     ['remote-intent', 0, 0, 0], ['remote-create-ack', 1, 0, 0], ['remote-sql-intent', 1, 0, 0],
     ['create-unknown', 1, 0, 0], ['create-known-nonzero', 1, 0, 0], ['sql-cross-authority', 0, 0, 0],
     ['sql-auth-authority', 0, 0, 0], ['sql-role-authority', 0, 0, 0],
+    ['history-connect', 0, 0, 0], ['history-connect-logger', 0, 0, 0],
     ['request-drift', 1, 0, 0], ['stale-pre-sql', 1, 0, 0], ['sql-rollback', 1, 1, 0], ['sql-unknown', 1, 1, 0],
     ['report-failure', 1, 1, 0], ['changed-report', 1, 1, 0], ['remote-sql-receipt', 1, 1, 0],
     ['promote-unknown', 1, 1, 1], ['remote-promote-ack', 1, 1, 1], ['remote-final-ack', 1, 1, 1], ['final-wrong', 1, 1, 1],
@@ -319,6 +406,16 @@ test('L3 emitted strict controller fences failed phases and lost remote evidence
     assert.ok(terminals.length >= 2, 'Original attempt and refused replacement each expose their own bounded result');
     const terminal = validateReleaseResult(terminals[0]);
     assert.equal(terminal.status === 'accepted', fault === '');
+    if (fault.startsWith('history-connect')) {
+      assert.equal(terminal.status, 'refused'); assert.equal(terminal.stage, 'history'); assert.equal(terminal.category, 'validation');
+      assert.deepEqual(terminal.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
+      const first = result.diagnostics.find((row: { check: string; status: string }) => row.check === 'sql.strict-history' && row.status === 'failed');
+      assert.equal(first.firstFailure, 'sql.strict-history');
+      assert.match(first.error, /code=ECONNREFUSED; category=connection; sqlStage=connect/);
+      const outer = result.diagnostics.find((row: { check: string; status: string }) => row.check === 'routine.execute-phase' && row.status === 'failed');
+      assert.match(outer.error, /code=ECONNREFUSED; category=connection; sqlStage=connect/);
+      assert.doesNotMatch(JSON.stringify(result) + child.stdout + child.stderr, /OpaqueSqlTransportCanary|OpaqueLoggerCanary/);
+    }
     if (creates && fault !== 'create-unknown') assert.equal(terminal.deploymentId, 'dpl_candidate');
     if (migrations) {
       assert.equal(terminal.effects.migration, fault === 'sql-unknown' ? 'unknown' : 'ACKed');
