@@ -12,6 +12,7 @@ import { command, isolatedEnvironment, responseBytes } from './ci-tools.js';
 import type { CommandResult } from './ci-tools.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
 import { privateDirectory } from './private-files.mjs';
+import { normalizeManualArchive } from './activation-archive-transport.mjs';
 import { migrationInputs } from './activation-inputs.js';
 import { parseMigrationConfig } from '../src/config/config.js';
 import { migrationManifest } from '../src/generated/migrations.js';
@@ -381,7 +382,11 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
       predicate('strict.candidate-declaration', candidate.ready && deployed.meta.etsySetupRun === packet.runId && deployed.meta.etsySetupPacket === packetDigest
         && deployed.meta.etsyRuntimeDigest === packet.runtimeDigest);
       const files = await provider(`/v6/deployments/${id}/files`);
-      const uid = diagnostics?.trace ? diagnostics.trace.sync('strict.uploaded-partition', () => uploadedCandidatePartition(files)) : uploadedCandidatePartition(files);
+      const partition = () => {
+        const source = Array.isArray(files) ? files.find(entry => entry?.name === 'src') : undefined;
+        return uploadedCandidatePartition(source?.children?.[0]?.name === 'project.tgz' ? files : normalizeManualArchive(files));
+      };
+      const uid = diagnostics?.trace ? diagnostics.trace.sync('strict.uploaded-partition', partition) : partition();
       const archive = await provider(`/v8/deployments/${id}/files/${uid}`, 350 * 1024 * 1024);
       if (diagnostics?.trace) diagnostics.trace.sync('strict.uploaded-archive', () => verifyCandidateArchive(archive, uid, artifact));
       else verifyCandidateArchive(archive, uid, artifact);

@@ -8,8 +8,8 @@ import type { Socket } from 'node:net';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
-import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture } from './artifact-fixture.js';
-import { artifactTarget, canonical, sha256 } from '../scripts/artifact.js';
+import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, tar } from './artifact-fixture.js';
+import { artifactTarget, canonical, readArtifactFile, sha256 } from '../scripts/artifact.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { chmod, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -1423,10 +1423,16 @@ test('Etsy setup provider checks exact pending503 reason config archive and alia
   execFileSync('/usr/bin/tar', ['--format=ustar', '-czf', archivePath, '-C', artifact.root, '.vercel/output'],
     { env: { PATH: '/usr/bin:/bin', COPYFILE_DISABLE: '1' }, timeout: 10000 });
   const archive = fs.readFileSync(archivePath), uid = createHash('sha1').update(archive).digest('hex');
+  const runtimeEntries = artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/'))
+    .map(file => ({ path: file.path, mode: file.mode, content: readArtifactFile(artifact.root, file.path, file) }));
+  const wrongModeArchive = tar(runtimeEntries.map((entry, index) => index ? entry
+    : { ...entry, mode: entry.mode === 0o444 ? 0o555 : 0o444 }));
+  const wrongModeUid = createHash('sha1').update(wrongModeArchive).digest('hex');
   const envs = packet.runtimeKeys.map(key => ({ id: `env_${key}`, key, type: 'sensitive', target: ['production'] }));
   packet.metadataDigest = currentAppMetadata({ envs }, Object.fromEntries(packet.runtimeKeys.map(key => [key, '']))).metadataDigest;
   const packetDigest = sha256(canonical(packet));
   let fault = '', sqlDone = false;
+  let manualArchive = false, archiveFault = '', contentReads = 0, candidateHttpReads = 0;
   const githubCanary = 'OpaqueGitHubAuthCanary0123456789', sourceReads: string[] = [];
   let expectedGithub: string | undefined;
   const transport: typeof fetch = async (input, init) => {
@@ -1454,14 +1460,32 @@ test('Etsy setup provider checks exact pending503 reason config archive and alia
       if (url.pathname === '/v13/deployments/dpl_new') return Response.json({ ...deployment, id: 'dpl_new', regions: ['icn1'], url: 'synthetic.vercel.app',
         meta: { sourceCommit: packet.revision, artifactSha256: packet.artifactDigest, sourceDigest: packet.sourceDigest,
           etsySetupRun: packet.runId, etsySetupPacket: packetDigest, etsyRuntimeDigest: packet.runtimeDigest } });
-      if (url.pathname === '/v6/deployments/dpl_new/files') return Response.json([
-        { name: 'src', type: 'directory', mode: 0o40555, children: [{ name: 'project.tgz', type: 'file', uid }] },
-        { name: 'out', type: 'directory', mode: 0o40555, children: [{ name: 'index', type: 'lambda', mode: 0o140666 }] },
-      ]);
-      if (url.pathname.startsWith('/v8/')) return Response.json({ data: (fault === 'archive' ? Buffer.from('changed') : archive).toString('base64') });
+      const advertisedUid = archiveFault === 'wrong-uid' ? '0'.repeat(40) : archiveFault === 'runtime-mode' ? wrongModeUid : uid;
+      if (url.pathname === '/v6/deployments/dpl_new/files') {
+        const part = { name: archiveFault === 'part-name' ? 'source.tgz.part2' : 'source.tgz.part1',
+          type: archiveFault === 'part-type' ? 'file' : 'invalid',
+          mode: archiveFault === 'part-mode' ? 0o644 : 0o666, uid: advertisedUid };
+        return Response.json([
+          { name: 'src', type: 'directory', mode: archiveFault === 'root-mode' ? 0o40777 : 0o40555,
+            children: manualArchive ? [{ name: archiveFault === 'namespace' ? 'other' : '.vercel', type: 'directory',
+              mode: archiveFault === 'directory-mode' ? 0o40777 : 0o40555,
+              children: [part, ...(archiveFault === 'multipart' ? [{ ...part, name: 'source.tgz.part2' }] : [])] }]
+              : [{ name: 'project.tgz', type: 'file', uid: advertisedUid }] },
+          { name: 'out', type: 'directory', mode: 0o40555, children: [
+            { name: 'index', type: 'lambda', mode: archiveFault === 'function-mode' ? 0o140777 : 0o140666, uid: 'f'.repeat(40) },
+          ] },
+        ]);
+      }
+      if (url.pathname.startsWith('/v8/')) {
+        assert.equal(url.pathname, `/v8/deployments/dpl_new/files/${advertisedUid}`);
+        contentReads++;
+        return Response.json({ data: (fault === 'archive' || archiveFault === 'changed-compressed' ? Buffer.from('changed')
+          : archiveFault === 'runtime-mode' ? wrongModeArchive : archive).toString('base64') });
+      }
       throw new Error('Unapproved synthetic provider route');
     }
     assert.ok(['https://synthetic.vercel.app', 'https://api.lovora.us'].includes(url.origin));
+    if (url.origin === 'https://synthetic.vercel.app') candidateHttpReads++;
     const old = url.origin === 'https://api.lovora.us', digest = old ? packet.predecessor.configDigest : packet.runtimeDigest;
     if (init?.method === 'OPTIONS') return headers.get('origin') === packet.browserOrigin
       ? new Response(null, { status: 204, headers: { 'access-control-allow-origin': packet.browserOrigin } }) : new Response(null, { status: 401 });
@@ -1478,6 +1502,19 @@ test('Etsy setup provider checks exact pending503 reason config archive and alia
     { token: 'synthetic-provider-token', bearer: 'c'.repeat(64), predecessorBearer: 'c'.repeat(64), bypass: 'synthetic-bypass-key' }, signal(), transport);
   assert.deepEqual(await operations.currentMain(), { revision: packet.revision, tree: packet.tree });
   await operations.predecessor(false); await operations.candidate('dpl_new', true, false);
+  manualArchive = true;
+  for (archiveFault of ['', 'multipart', 'part-name', 'part-type', 'part-mode', 'directory-mode', 'root-mode',
+    'namespace', 'function-mode', 'wrong-uid', 'changed-compressed', 'runtime-mode']) {
+    contentReads = 0; candidateHttpReads = 0;
+    if (archiveFault === '') {
+      await operations.candidate('dpl_new', true, false);
+    } else {
+      await assert.rejects(operations.candidate('dpl_new', true, false), Error, archiveFault);
+      assert.equal(candidateHttpReads, 0, 'Archive rejection must precede candidate HTTP.');
+    }
+    assert.equal(contentReads, ['', 'wrong-uid', 'changed-compressed', 'runtime-mode'].includes(archiveFault) ? 1 : 0);
+  }
+  archiveFault = ''; manualArchive = false;
   for (fault of ['unexpected-ready', 'reason', 'config', 'archive']) await assert.rejects(operations.candidate('dpl_new', true, false), Error, fault);
   for (fault of ['alias', 'metadata']) await assert.rejects(operations.predecessor(false), Error, fault);
   fault = ''; sqlDone = true;

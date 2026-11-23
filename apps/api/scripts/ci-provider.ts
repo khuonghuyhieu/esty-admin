@@ -428,7 +428,11 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
     async attest(id) {
       verify(); if (!deploymentId.test(id)) throw new Error('Invalid deployment ID.');
       const files = await provider(`/v6/deployments/${id}/files`);
-      const uid = diagnostics?.trace ? diagnostics.trace.sync('artifact.uploaded-partition', () => uploadedCandidatePartition(files)) : uploadedCandidatePartition(files);
+      const partition = () => {
+        const source = Array.isArray(files) ? files.find(entry => entry?.name === 'src') : undefined;
+        return uploadedCandidatePartition(source?.children?.[0]?.name === 'project.tgz' ? files : normalizeManualArchive(files));
+      };
+      const uid = diagnostics?.trace ? diagnostics.trace.sync('artifact.uploaded-partition', partition) : partition();
       const archive = await provider(`/v8/deployments/${id}/files/${uid}`, 350 * 1024 * 1024);
       if (diagnostics?.trace) diagnostics.trace.sync('artifact.uploaded-archive', () => verifyCandidateArchive(archive, uid, artifact));
       else verifyCandidateArchive(archive, uid, artifact);

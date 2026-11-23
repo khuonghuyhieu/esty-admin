@@ -2204,24 +2204,46 @@ test('provider archive attestation requires every exact file and canonical names
   const f = await fixture(); t.after(f.dispose);
   const records = f.artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/'));
   const entries = records.map(file => ({ path: file.path, mode: file.mode, content: readArtifactFile(f.artifact.root, file.path, file) }));
-  for (const scenario of ['exact', 'missing', 'changed', 'coerced-mode', 'extra-function', 'wrong-uid', 'bad-base64']) {
-    const uploaded = scenario === 'missing' ? entries.slice(1) : entries.map((entry, index) =>
-      scenario === 'changed' && index === 0 ? { ...entry, content: Buffer.from('different') } : entry);
+  const cases = ['exact', 'missing', 'changed', 'coerced-mode', 'extra-function', 'wrong-uid', 'bad-base64',
+    'raw-exact', 'raw-multipart', 'raw-part-name', 'raw-part-type', 'raw-part-mode', 'raw-directory-mode',
+    'raw-root-mode', 'raw-namespace', 'raw-function-mode', 'raw-wrong-uid', 'raw-changed-compressed',
+    'raw-runtime-mode', 'raw-changed'];
+  for (const scenario of cases) await t.test(scenario, async () => {
+    const manual = scenario.startsWith('raw-'), fault = scenario.replace(/^raw-/, '');
+    const uploaded = fault === 'missing' ? entries.slice(1) : entries.map((entry, index) =>
+      index ? entry : fault === 'changed' ? { ...entry, content: Buffer.from('different') }
+        : fault === 'runtime-mode' ? { ...entry, mode: entry.mode === 0o444 ? 0o555 : 0o444 } : entry);
     const bytes = tar(uploaded), uid = createHash('sha1').update(bytes).digest('hex');
+    const advertisedUid = fault === 'wrong-uid' ? '0'.repeat(40) : uid;
+    const part = { name: fault === 'part-name' ? 'source.tgz.part2' : 'source.tgz.part1',
+      type: fault === 'part-type' ? 'file' : 'invalid', mode: fault === 'part-mode' ? 0o644 : 0o666, uid: advertisedUid };
     const roots = [
-      { name: 'src', type: 'directory', mode: scenario === 'coerced-mode' ? '0x416d' : 0o40555,
-        children: [{ name: 'project.tgz', type: 'file', uid: scenario === 'wrong-uid' ? '0'.repeat(40) : uid }] },
+      { name: 'src', type: 'directory', mode: fault === 'coerced-mode' ? '0x416d' : fault === 'root-mode' ? 0o40777 : 0o40555,
+        children: manual ? [{ name: fault === 'namespace' ? 'other' : '.vercel', type: 'directory',
+          mode: fault === 'directory-mode' ? 0o40777 : 0o40555,
+          children: [part, ...(fault === 'multipart' ? [{ ...part, name: 'source.tgz.part2' }] : [])] }]
+          : [{ name: 'project.tgz', type: 'file', uid: advertisedUid }] },
       { name: 'out', type: 'directory', mode: 0o40555, children: [
-        { name: 'index', type: 'lambda', mode: 0o140666 },
-        ...(scenario === 'extra-function' ? [{ name: 'extra', type: 'lambda', mode: 0o140666 }] : []),
+        { name: 'index', type: 'lambda', mode: fault === 'function-mode' ? 0o140777 : 0o140666, uid: 'f'.repeat(40) },
+        ...(fault === 'extra-function' ? [{ name: 'extra', type: 'lambda', mode: 0o140666 }] : []),
       ] },
     ];
-    const transport: typeof fetch = async raw => String(raw).includes('/v6/')
-      ? Response.json(roots) : Response.json({ data: scenario === 'bad-base64' ? '!!' : bytes.toString('base64') });
+    let contentReads = 0;
+    const transport: typeof fetch = async (raw, init) => {
+      const url = new URL(String(raw));
+      assert.equal(url.origin, 'https://api.vercel.com');
+      assert.equal(init?.method ?? 'GET', 'GET');
+      if (url.pathname === '/v6/deployments/dpl_candidate/files') return Response.json(roots);
+      assert.equal(url.pathname, `/v8/deployments/dpl_candidate/files/${advertisedUid}`);
+      contentReads++;
+      return Response.json({ data: fault === 'bad-base64' ? '!!'
+        : (fault === 'changed-compressed' ? Buffer.from('changed archive') : bytes).toString('base64') });
+    };
     const provider = createProvider(f.artifact, run, oldSchema, credentials, AbortSignal.timeout(10000), transport);
-    if (scenario === 'exact') await provider.attest('dpl_candidate');
+    if (fault === 'exact') await provider.attest('dpl_candidate');
     else await assert.rejects(provider.attest('dpl_candidate'));
-  }
+    assert.equal(contentReads, ['exact', 'missing', 'changed', 'wrong-uid', 'bad-base64', 'changed-compressed', 'runtime-mode'].includes(fault) ? 1 : 0);
+  });
 });
 
 test('manual CLI partition attestation preserves exact runtime bytes and rejects unsupported transport evidence', async t => {

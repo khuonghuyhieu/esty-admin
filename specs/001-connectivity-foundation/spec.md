@@ -1,5 +1,13 @@
 # Feature specification: Connectivity foundation
 
+## Held candidate archive transport — source-only repair
+
+Actual45106877912/job137470929512 on b12a8fb31b2fa017ac87d191aa5cc2652a5691d3 passed DB history and ACKed dpl_9gJ1zDbbbbPtac2FUqHrNReyLck4, then stopped at `strict.uploaded-partition` before SQL/promotion. Root verified the downloaded archive against the original b12 artifact after the existing envelope adapter. This is not a failed CREATE or a no-effect authorization/history origin. Old STOP/receipts/window and the old D2 api.lovora.us alias remain unchanged. [Bounded implementation and separate continuation assessment](plan.md#held-archive-transport--bounded-source-repair).
+
+- **FR-064:** The existing Etsy candidate and ordinary CI attestation entry points must accept the observed single-part `src/.vercel/source.tgz.part1` envelope through the existing strict adapter before the unchanged partition/archive verifiers. Preserve the existing canonical `src/project.tgz` contract through an explicit namespace discriminator, not catch-and-retry. Preserve UID, compressed/archive bytes, exact inventory/content/modes, namespace/function restrictions and failure trace boundaries. No upstream adapter/verifier weakening, synthesized identity, content normalization, new CREATE or recovery guard change.
+- **SC-036:** Extend existing release/CI suites to exercise both real production entry points with synthetic actual-shaped provider responses and real archive verification: exact raw and canonical success; malformed/multipart/mode/namespace rejection before archive reads; UID/content/runtime-mode failures before candidate HTTP. Root owns compiler, focused checks and an emitted synthetic smoke; author runtime checks are NOT RUN.
+- **Separate static assessment only:** No current contract authorizes resuming this held ID with a newer controller/operator. A proposed fresh continuation approval and durable one-shot claim must distinguish current controller/operator from original application/artifact/ACK/packet, derive the ID only from original authoritative ACK evidence, preserve terminal history, and forbid CREATE. Root must accept the bounded contract before implementation; the hook repair alone cannot reopen the stopped run.
+
 ## Confirmed migration connect timeout and bounded continuation
 
 **Current source/local acceptance:** T278–T282 complete: compiler0,201/201 affected tests and the9-real-archive synthetic proof passed; one separate scoped review reported no confirmed actionable findings. [Root verification and hosted limits](plan.md#root-verification-and-scoped-review-accepted). Cloud connection/deployment acceptance remains pending.

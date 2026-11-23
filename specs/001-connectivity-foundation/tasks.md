@@ -1,5 +1,15 @@
 # Tasks: Connectivity foundation
 
+## Held archive transport — missing adapter hook
+
+Actual previous maximum282. [Bounded repair and separate static continuation proposal](plan.md#held-archive-transport--bounded-source-repair), baseb12a8fb31b2fa017ac87d191aa5cc2652a5691d3. Preserve every earlier task/checkmark/failure/review and the ACKed held deployment's immutable STOP/packet/window.
+
+- [x] T283 [US9] Verify the29-file public baseline,13 public evidence files and5 producer pins; inspect corrected rawTree separately from normalized observations and original ACK/STOP receipts; record the minimal plan before code.
+- [x] T284 [US9] Authored the existing Etsy/ordinary provider adapter hooks with explicit canonical namespace selection and unchanged strict verifiers; extended existing release/CI fixtures for actual-shaped envelopes, exact UID/content/runtime modes and rejection before content/HTTP. The root-only emitted smoke is authored. Sparse authoring only; compiler/tests/smoke are NOT RUN BY AUTHOR and remain T286.
+- [x] T285 [US9] Completed the static same-ID continuation assessment: identified current identity/STOP/replay fences, distinguished original application from current operator, rejected full-output equality, and proposed only a fresh approval/one-shot linked claim with no CREATE. No recovery implementation; root acceptance of the separate bounded contract remains required.
+- [x] T286 [US9] Root applies the exact patch/hashes, compiles, runs affected provider/archive/strict-release checks and an emitted synthetic production-entry smoke with real effects denied; preserve outcomes/failures and do not infer live candidate HTTP/SQL/promotion acceptance.
+- [x] T287 [US9] Root requests the existing t1dw scoped review, resolves confirmed findings through the source owner, and records actual checks/limitations after ownership return. Same-ID continuation design acceptance and later publication/operations are separate authority, not automatic next steps.
+
 ## Confirmed connect timeout — bounded continuation
 
 Actual previous maximum277. [Root-approved5000ms repair and three-origin proof](plan.md#confirmed-connect-timeout--bounded5000-repair), base818c9f01dac34879cb2363b7c0eade58b7233ae7. Preserve all earlier task IDs, checkmarks, failure/review records and original artifacts.
