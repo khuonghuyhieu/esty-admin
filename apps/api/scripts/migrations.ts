@@ -54,7 +54,7 @@ async function history(client: Client, manifest: Manifest): Promise<MigrationSta
     ordered: applied.every((name, index) => names[index] === name) };
 }
 function connection(database: ClientConfig): Client {
-  const client = new Client({ ...database, connectionTimeoutMillis: 1000, statement_timeout: 10000,
+  const client = new Client({ ...database, connectionTimeoutMillis: 5000, statement_timeout: 10000,
     query_timeout: 12000, lock_timeout: 5000 });
   client.on('error', () => {});
   return client;

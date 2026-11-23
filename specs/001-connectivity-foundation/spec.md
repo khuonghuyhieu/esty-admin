@@ -1,5 +1,15 @@
 # Feature specification: Connectivity foundation
 
+## Confirmed migration connect timeout and bounded continuation
+
+**Current source/local acceptance:** T278–T282 complete: compiler0,201/201 affected tests and the9-real-archive synthetic proof passed; one separate scoped review reported no confirmed actionable findings. [Root verification and hosted limits](plan.md#root-verification-and-scoped-review-accepted). Cloud connection/deployment acceptance remains pending.
+
+Run45051305496/job137297065029 on published818c9f01dac34879cb2363b7c0eade58b7233ae7 confirms `category=timeout; sqlStage=connect` from the preserved pg cause;1002ms is corroborating timing, not the classification source. CREATE/SQL apply/promotion were not-started. The underlying WAN/DNS/server reason remains unknown. This increment supersedes only the earlier prohibition on changing the migration connection timeout; earlier incident45043518859 remains UNKNOWN. [Bounded design and verification ownership](plan.md#confirmed-connect-timeout--bounded5000-repair).
+
+- **FR-062:** Both migration status and apply use the existing shared Client connection helper with fixed5000ms connection timeout, no retry. Statement10000/query12000/lock5000, global deadlines, TLS/target/role/history/mutation/replay checks and native API pool/runtime timeouts remain unchanged. Five seconds is a bounded allowance, not a cloud-success guarantee.
+- **FR-063:** Extend only the existing exact reviewed read-only source profiles with818, alongside633. Re-prove both known prior disposition kinds against complete immutable evidence. Every carried dependency has a unique journal and strictly older position; no self/future/cyclic edges, missing transitive commitments or unbounded counts. Failed carriers consume nothing. A successful typed successor must bind and consume every dependency with exact marker, chronological record/status and lineage checks. Preserve6 jobs/2 statuses/10 files/3 outcomes and all-zero effects, replay-first and final rechecks; no generic in_progress exception, unlock, status rewrite or new mode.
+- **SC-035:** Existing release/CI suites cover installed-pg status/apply connection budgets, a synthetic loopback handshake delayed beyond1s and a stalled handshake bounded at5s, original timeout projection/redaction, three failed origins with both marker kinds, dependency closure/chronology/tampering/expiry and accepted consumption. Root alone runs these checks and a source-closed9-real-archive synthetic fresh-reservation/replay proof. Authored checks are NOT RUN until root supplies evidence; actual provider/SQL acceptance remains separate.
+
 ## SQL history failure diagnostics
 
 **Current acceptance:** T273–T277 source/local work and one scoped review are complete. Compiler0, focused178/178, affected suites851 pass/0 fail/2 existing skips and both emitted synthetic smokes passed. [Root execution and scope limits](plan.md#root-execution-and-scoped-review-accepted); hosted SQL cause and deployment acceptance remain unproved.

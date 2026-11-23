@@ -3,6 +3,8 @@ import test, { before, after } from 'node:test';
 import type { TestContext } from 'node:test';
 import fs from 'node:fs';
 import { tmpdir } from 'node:os';
+import { createServer } from 'node:net';
+import type { Socket } from 'node:net';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
@@ -19,7 +21,7 @@ import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validat
 import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase } from '../scripts/etsy-release.js';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { currentAppMetadata } from '../scripts/activation-configuration.js';
-import { manifestDigest, migrationStatus } from '../scripts/migrations.js';
+import { manifestDigest, migrationStatus, runMigrations } from '../scripts/migrations.js';
 import { safeReleaseError } from '../scripts/checks-diagnostics.js';
 import type { MigrationReport } from '../scripts/migrations.js';
 import { migrationManifest } from '../src/generated/migrations.js';
@@ -89,6 +91,82 @@ test('SQL history diagnostics preserve causes, finite projections and read-only 
     else assert.equal(calls[1], 'BEGIN READ ONLY');
     if (!['initialized', 'uninitialized', 'commit'].includes(fault)) assert.ok(!calls.includes('COMMIT'));
   });
+});
+
+test('SQL migration connection budget permits delayed startup and bounds stalled status and apply', { timeout: 30000 }, async t => {
+  const { Client } = await import('pg');
+  for (const caller of ['status', 'apply'] as const) for (const stalled of [false, true]) {
+    await t.test(`${caller}:${stalled ? 'stalled' : 'delayed'}`, { timeout: 12000 }, async st => {
+      const sockets = new Set<Socket>(), timers = new Set<ReturnType<typeof setTimeout>>();
+      const canary = 'SyntheticStartupUserDatabaseCanary';
+      let connections = 0, startups = 0, wireQueries = 0, authenticated = false, connectCalls = 0;
+      const server = createServer(socket => {
+        connections++; sockets.add(socket); socket.on('error', () => {}); socket.on('close', () => sockets.delete(socket));
+        let startup = Buffer.alloc(0), receivedStartup = false;
+        socket.on('data', chunk => {
+          if (receivedStartup) { if (chunk[0] === 81) wireQueries++; return; }
+          startup = Buffer.concat([startup, chunk]);
+          if (startup.length < 4 || startup.length < startup.readUInt32BE(0)) return;
+          assert.equal(startup.readUInt32BE(4), 196608);
+          assert.ok(startup.includes(Buffer.from(canary))); receivedStartup = true; startups++;
+          if (!stalled) timers.add(setTimeout(() => {
+            authenticated = true;
+            // PostgreSQL AuthenticationOk followed by ReadyForQuery; no database or SQL engine.
+            socket.write(Buffer.from([82, 0, 0, 0, 8, 0, 0, 0, 0, 90, 0, 0, 0, 5, 73]));
+          }, 1200));
+        });
+      });
+      st.after(async () => {
+        for (const timer of timers) clearTimeout(timer);
+        for (const socket of sockets) socket.destroy();
+        if (server.listening) await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
+      });
+      await new Promise<void>((resolve, reject) => {
+        server.once('error', reject); server.listen(0, '127.0.0.1', resolve);
+      });
+      const address = server.address(); assert.ok(address && typeof address === 'object');
+      const installedConnect = Client.prototype.connect;
+      st.mock.method(Client.prototype, 'connect', function (this: InstanceType<typeof Client>) {
+        connectCalls++;
+        // Verify the installed driver's consumed budget, then execute its real socket/timer implementation.
+        assert.equal(Reflect.get(this, '_connectionTimeoutMillis'), 5000);
+        return Reflect.apply(installedConnect, this, []) as Promise<void>;
+      });
+      const queries: string[] = [];
+      st.mock.method(Client.prototype, 'query', async (sql: string) => {
+        queries.push(sql);
+        if (!authenticated || caller === 'apply') throw new Error('Synthetic query fence; no SQL execution');
+        if (sql.startsWith('SELECT to_regclass')) return { rows: [{ present: false }] };
+        assert.ok(sql === 'BEGIN READ ONLY' || sql === 'COMMIT'); return { rows: [] };
+      });
+      const database = { host: '127.0.0.1', port: address.port, user: canary, password: canary, database: canary,
+        ssl: false as const, connectionTimeoutMillis: 1 };
+      const started = performance.now();
+      if (caller === 'status') {
+        if (stalled) await assert.rejects(migrationStatus(database), error => {
+          assert.ok(error instanceof Error && error.cause instanceof Error);
+          assert.match(safeReleaseError(error), /category=timeout; sqlStage=connect/);
+          assert.doesNotMatch(safeReleaseError(error), /SyntheticStartupUserDatabaseCanary|127\.0\.0\.1/);
+          return true;
+        });
+        else {
+          const status = await migrationStatus(database);
+          assert.deepEqual(status, { initialized: false, applied: [], pending: migrationManifest.map(row => row.name),
+            unexpected: [], ordered: true });
+          assert.equal(queries.at(-1), 'COMMIT');
+        }
+      } else {
+        const report = await runMigrations(database);
+        assert.equal(report.result, 'failed'); assert.equal(report.stage, stalled ? 'connect' : 'lock/order');
+        assert.equal(report.database_outcome, 'not_started'); assert.deepEqual(report.attempted, []);
+        assert.equal(report.failed_version, null);
+      }
+      const elapsed = performance.now() - started;
+      assert.ok(elapsed >= (stalled ? 4500 : 1100) && elapsed < (stalled ? 10000 : 5000), `Unexpected startup duration ${elapsed}`);
+      assert.equal(connectCalls, 1); assert.equal(connections, 1); assert.equal(startups, 1); assert.equal(wireQueries, 0);
+      assert.equal(authenticated, !stalled);
+    });
+  }
 });
 
 test('L4 emitted routine result preserves effects and safe terminal output', { timeout: 90000 }, async t => {

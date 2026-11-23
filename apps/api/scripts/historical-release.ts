@@ -226,14 +226,22 @@ const authorizationLegacy = Object.freeze({
   artifact: '259cc1cdafca81b51534f5164d1fbe51664638346e2b6602672932c029c9031d',
   operator: '3d2c5c3ea3d0a3f7b032f1de6c59639333b45050d5416337b3c8a922add0020d',
 });
-// This reviewed operator's history route only connects, BEGIN READ ONLY, reads history and COMMITs.
-// Its complete producer closure is verified below as data; no archived code is executed.
-const readOnlyHistoryLegacy = Object.freeze({
-  revision: '633e9d788722e6a8b7843cb6ac46d62e8dcb7690', tree: '0f4e03fe46d10309f873678115abfc5a7624b8e1',
-  source: 'd9ef11eeb2de8ea5581834b98f5825613c024f6d40349fbb1a211b6951b68448',
-  artifact: '17e8777c8428f3c4496bed6e9b26617d342af0a2ed1f20a37103ceb537170356',
-  operator: 'a91a4248726fc179e7605b9ba0e7f1b0e768e6b0d68b8daec890fc352cda0732',
-});
+// These reviewed operators only connect, BEGIN READ ONLY, read history and COMMIT on the history route.
+// Their complete producer closures are verified below as data; no archived code is executed.
+const readOnlyHistoryLegacy = Object.freeze([
+  Object.freeze({
+    revision: '633e9d788722e6a8b7843cb6ac46d62e8dcb7690', tree: '0f4e03fe46d10309f873678115abfc5a7624b8e1',
+    source: 'd9ef11eeb2de8ea5581834b98f5825613c024f6d40349fbb1a211b6951b68448',
+    artifact: '17e8777c8428f3c4496bed6e9b26617d342af0a2ed1f20a37103ceb537170356',
+    operator: 'a91a4248726fc179e7605b9ba0e7f1b0e768e6b0d68b8daec890fc352cda0732',
+  }),
+  Object.freeze({
+    revision: '818c9f01dac34879cb2363b7c0eade58b7233ae7', tree: 'f8d6a8906a35d0cf50abb6e04bd534b758099ec5',
+    source: '9cb46fae95823accad521a16f30051b2b60d6dcbc93c1e0e83b924ab9a4838e6',
+    artifact: 'e3c550b52707afe53de36b961ea1a3a31bd89c358b11faa8ae52951ed04bd2c0',
+    operator: 'cabdb9e96a1180a5296138d578e0f79344e4500255f810cac71a3580320ab62f',
+  }),
+]);
 function operatorDigest(artifact: VerifiedArtifact): string {
   return sha256(canonical({
     files: artifact.manifest.files.filter(file => file.path.startsWith('operator/')).map(file => ({ ...file, path: file.path.slice(9) })),
@@ -288,8 +296,9 @@ export async function proveFailedAuthorization(item: HistoricalItem, current: Ve
   const isCurrent = request.artifactDigest === current.digest && request.sourceDigest === source.digest
     && request.controller.revision === source.revision && request.controller.tree === source.tree
     && request.operatorDigest === operatorDigest(current);
-  const reviewed = readOnlyHistory ? readOnlyHistoryLegacy : authorizationLegacy;
-  const isLegacy = request.artifactDigest === reviewed.artifact && request.sourceDigest === reviewed.source
+  const reviewed = readOnlyHistory
+    ? readOnlyHistoryLegacy.find(profile => profile.revision === request.controller.revision) : authorizationLegacy;
+  const isLegacy = reviewed !== undefined && request.artifactDigest === reviewed.artifact && request.sourceDigest === reviewed.source
     && request.controller.revision === reviewed.revision && request.controller.tree === reviewed.tree
     && request.operatorDigest === reviewed.operator;
   requireProof(isCurrent || isLegacy, 'authorization-reviewed-source');
@@ -458,6 +467,11 @@ export async function proveFailedAuthorization(item: HistoricalItem, current: Ve
 
 export async function proveFailedAuthorizations(items: readonly HistoricalItem[], current: VerifiedArtifact,
   io: HistoricalIo, signal: AbortSignal): Promise<Map<number, FailedAuthorizationAdmission>> {
+  const journals = new Set<unknown>();
+  for (const item of items) {
+    requireProof(!journals.has(item.entry.id), 'authorization-unique-records');
+    journals.add(item.entry.id);
+  }
   const admissions = new Map<number, FailedAuthorizationAdmission>();
   const { proofIo, recheck } = historicalMetadataReadback(io, signal);
   // Only a complete, successful typed handoff may consume a disposition. The immutable
@@ -501,8 +515,11 @@ export async function proveFailedAuthorizations(items: readonly HistoricalItem[]
       if (Object.hasOwn(failedPayload, 'noEffectDispositions')) {
         requireProof(marker.kind === 'failed-read-only-history-no-effects' && Array.isArray(failedPayload.noEffectDispositions)
           && failedPayload.noEffectDispositions.length > 0 && failedPayload.noEffectDispositions.length <= items.length
-          && failedPayload.noEffectDispositions.every(prior => object(prior).kind === 'failed-authorization-no-effects'
-            && consumedMarkers.some(carried => equal(carried, prior))), 'history-consumed-prior-commitments');
+          && failedPayload.noEffectDispositions.every(prior => {
+            const kind = object(prior).kind;
+            return (kind === 'failed-authorization-no-effects' || kind === 'failed-read-only-history-no-effects')
+              && consumedMarkers.some(carried => equal(carried, prior));
+          }), 'history-consumed-prior-commitments');
       }
       const remote = await proofIo.read(`/deployments/${marker.journal}`);
       const statuses = await proofIo.read(`/deployments/${marker.journal}/statuses?per_page=100`);
@@ -528,13 +545,20 @@ export async function proveFailedAuthorizations(items: readonly HistoricalItem[]
     for (const value of carried) {
       const marker = object(value), priorIndex = items.findIndex(row => row.entry.id === marker.journal);
       const prior = priorIndex > index ? admissions.get(Number(marker.journal)) : undefined;
-      requireProof(prior !== undefined && prior.marker.kind === 'failed-authorization-no-effects'
+      requireProof(prior !== undefined
+        && (prior.marker.kind === 'failed-authorization-no-effects' || prior.marker.kind === 'failed-read-only-history-no-effects')
         && equal(marker, prior.marker), 'history-prior-proof');
       const priorPayload = object(items[priorIndex]!.entry.payload);
       requireProof(equal(priorPayload.historicalHandoff, payload.historicalHandoff)
         && equal(object(priorPayload.releaseRequest).schema, object(payload.releaseRequest).schema)
         && priorPayload.requestDigest !== payload.requestDigest && priorPayload.migrationPacket !== payload.migrationPacket,
       'history-prior-lineage');
+      if (Object.hasOwn(priorPayload, 'noEffectDispositions')) {
+        requireProof(Array.isArray(priorPayload.noEffectDispositions)
+          && priorPayload.noEffectDispositions.length > 0 && priorPayload.noEffectDispositions.length <= items.length
+          && priorPayload.noEffectDispositions.every(dependency => carried.some(value => equal(value, dependency))),
+        'history-prior-closure');
+      }
     }
   }
   if (admissions.size) {

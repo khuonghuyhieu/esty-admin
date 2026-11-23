@@ -1,5 +1,15 @@
 # Tasks: Connectivity foundation
 
+## Confirmed connect timeout — bounded continuation
+
+Actual previous maximum277. [Root-approved5000ms repair and three-origin proof](plan.md#confirmed-connect-timeout--bounded5000-repair), base818c9f01dac34879cb2363b7c0eade58b7233ae7. Preserve all earlier task IDs, checkmarks, failure/review records and original artifacts.
+
+- [x] T278 [US9] Verify the24-file public snapshot, preserved pg timeout/connect diagnosis, exact reviewed818 approval/source/operator provenance and immutable carried dependencies; record this bounded plan before source edits.
+- [x] T279 [US9] Authored the shared fixed5000ms migration connection budget and exact reviewed818 profile; extended existing proof validation for both known prior kinds with unique, strictly older, closed dependencies and complete accepted consumption. Existing suites now include installed-pg delayed/stalled startup and three-origin proof/provider cases; the source-closed9-archive synthetic reservation/replay recipe is authored. NOT RUN by the writer; T280/T281 remain pending.
+- [x] T280 [US9] Root applied exact hashes; compiler0 and affected201/201 tests passed, including installed-pg delayed1200ms/stalled5000ms loopback status/apply handshakes and cleanup. Source-closed9-archive synthetic proof passed POST1/replay0/network0/commands0/database-connect0. No actual cloud connection or full-suite rerun claimed.
+- [x] T281 [US9] Existing separate Company Codex gpt-6-luna medium reviewer t1dw completed one scoped read-only review with no confirmed actionable findings and no checks. Manifest/patch/7 authored-copy hashes matched; root verified actual applied after-hashes/model, preserving the reviewer nested-path access limit and all earlier review histories.
+- [x] T282 [US9] Root recorded actual local verification, scoped review and hosted limits after source ownership handback. Only3 existing feature documents changed in closeout;4 reviewed implementation/test files remained identical. Publication/new checked artifact/fresh approval/one dispatch remain separately recorded operational actions; no real provider or SQL effect inferred.
+
 ## SQL history diagnostics — bounded repair
 
 Actual previous maximum272. [Bounded repair and separate admission proposal](plan.md#sql-history-cause-preservation--bounded-repair), base633e9d788722e6a8b7843cb6ac46d62e8dcb7690. Preserve all earlier tasks and failure/review evidence.

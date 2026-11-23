@@ -1029,15 +1029,17 @@ interface AuthorizationFixtureInput {
   artifact: VerifiedArtifact; sourceRoot: string; archive: Buffer;
   approval: { producer: RunIdentity; archiveDigest: string; operatorDigest: string };
 }
-function authorizationFailureFixture(f: AuthorizationFixtureInput, readOnlyHistory = false) {
-  const controllerRun = readOnlyHistory ? 123 : 121, journal = readOnlyHistory ? 898 : 899, receiptId = readOnlyHistory ? 458 : 457;
+function authorizationFailureFixture(f: AuthorizationFixtureInput, readOnlyHistory: boolean | 'later' = false) {
+  const controllerRun = readOnlyHistory === 'later' ? 124 : readOnlyHistory ? 123 : 121;
+  const journal = readOnlyHistory === 'later' ? 897 : readOnlyHistory ? 898 : 899;
+  const receiptId = readOnlyHistory === 'later' ? 459 : readOnlyHistory ? 458 : 457;
   const runId = '00000000-0000-4000-8000-000000000001';
   const h = historicalProviderFixture(f.artifact), now = Date.now();
   const time = (seconds: number) => new Date(now + seconds * 1000).toISOString();
   const request = { ...h.prior, controller: { ...f.approval.producer, run: String(controllerRun) }, producer: f.approval.producer,
     artifactId: '456', artifactDigest: f.artifact.digest, sourceDigest: f.artifact.manifest.source.digest,
     archiveDigest: f.approval.archiveDigest, operatorDigest: f.approval.operatorDigest,
-    migration: { ...h.prior.migration!, packetDigest: (readOnlyHistory ? 'b' : 'a').repeat(64) } };
+    migration: { ...h.prior.migration!, packetDigest: (readOnlyHistory === 'later' ? 'd' : readOnlyHistory ? 'b' : 'a').repeat(64) } };
   const requestDigest = sha256(canonical(request)), packetDigest = request.migration.packetDigest;
   const entry = { id: journal, sha: request.controller.revision, task: 'deploy:esty-be-ci', environment: 'be-production',
     production_environment: true, payload: { version: 1, ...request.controller, artifact: request.artifactDigest,
@@ -1344,6 +1346,113 @@ test('failed read-only history reproves carried markers and consumes both only t
     assert.equal(forbidden, 0); assert.equal(p.statuses[0]!.state, 'in_progress'); assert.equal(origin.statuses[0]!.state, 'error');
     assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
   });
+});
+
+test('failed read-only history three-origin dependencies require closed older proofs and complete accepted consumption', async t => {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(f.dispose);
+  for (const fault of ['fresh', 'missing-history', 'missing-authorization', 'missing-transitive', 'marker-drift',
+    'duplicate-dependency', 'duplicate-record', 'unknown-kind', 'self', 'future-edge', 'expired-history', 'late-status',
+    'consumed', 'consumed-missing-authorization', 'consumed-missing-history', 'consumed-duplicate', 'consumed-status-drift']) {
+    await t.test(fault, async st => {
+      const origin = authorizationFailureFixture(f), earlier = authorizationFailureFixture(f, true);
+      const latest = authorizationFailureFixture(f, 'later'), h = latest.h;
+      const originProof = await proveFailedAuthorization(origin.item, f.artifact, origin.io, AbortSignal.timeout(30000));
+      Object.assign(earlier.entry.payload, { noEffectDispositions: [originProof.marker] });
+      const earlierProof = await proveFailedAuthorization(earlier.item, f.artifact, earlier.io, AbortSignal.timeout(30000));
+      const carried = [structuredClone(earlierProof.marker), structuredClone(originProof.marker)];
+      Object.assign(latest.entry.payload, { noEffectDispositions: carried });
+      const items = [latest.item, earlier.item, origin.item];
+      const values = { ...origin.values, ...earlier.values, ...latest.values };
+      const archives = new Map([...origin.archives, ...earlier.archives, ...latest.archives]);
+      const downloads: number[] = [];
+      let posts = 0, forbidden = 0, retentionReads = 0, statusReads = 0, consumed = false, realNetwork = 0;
+      st.mock.method(globalThis, 'fetch', async () => { realNetwork++; throw new Error('Real network denied'); });
+      const io = {
+        async read(path: string): Promise<unknown> {
+          if (Object.hasOwn(values, path)) {
+            const value = structuredClone(values[path]);
+            if (path === '/deployments/897/statuses?per_page=100'
+              && ((fault === 'late-status' && ++statusReads === 2) || (consumed && fault === 'consumed-status-drift'))) value[0].description = 'changed';
+            return value;
+          }
+          return (await h.transport(`https://api.github.com/repos/${repository}${path}`)).json();
+        },
+        async download(id: number): Promise<Buffer> {
+          downloads.push(id); const bytes = archives.get(id); assert.ok(bytes); return bytes;
+        },
+      };
+      if (fault.startsWith('consumed')) {
+        // The accepted successor alone consumes all three exact independently verified commitments.
+        const proofs = await proveFailedAuthorizations(items, f.artifact, io, AbortSignal.timeout(30000));
+        assert.deepEqual([...proofs.keys()].sort(), [897, 898, 899]);
+        assert.ok([...proofs.values()].every(proof => proof.consumed === undefined));
+        assert.deepEqual([...new Set(downloads)].sort(), [456, 457, 458, 459]);
+        const committed = [...proofs.values()].map(proof => proof.marker);
+        if (fault === 'consumed-missing-authorization') committed.splice(committed.findIndex(marker => marker.journal === 899), 1);
+        if (fault === 'consumed-missing-history') committed.splice(committed.findIndex(marker => marker.journal === 898), 1);
+        if (fault === 'consumed-duplicate') committed.push(committed[0]!);
+        h.records[0]!.payload.noEffectDispositions = committed;
+        h.records.splice(1, 0, ...items.map(item => item.entry)); consumed = true; downloads.length = 0;
+      } else {
+        if (fault === 'missing-history') items.splice(1, 1);
+        if (fault === 'missing-authorization') items.splice(2, 1);
+        if (fault === 'missing-transitive') carried.pop();
+        if (fault === 'marker-drift') carried[0]!.outcomeHead = '0'.repeat(64);
+        if (fault === 'duplicate-dependency') carried.push(carried[0]!);
+        if (fault === 'duplicate-record') items.push(earlier.item);
+        if (fault === 'unknown-kind') Object.assign(carried[0]!, { kind: 'unrecognized-no-effects' });
+        if (fault === 'self') {
+          const own = await proveFailedAuthorization(latest.item, f.artifact, latest.io, AbortSignal.timeout(30000));
+          carried.push(own.marker);
+        }
+        if (fault === 'future-edge') {
+          Reflect.deleteProperty(latest.entry.payload, 'noEffectDispositions');
+          const newer = await proveFailedAuthorization(latest.item, f.artifact, latest.io, AbortSignal.timeout(30000));
+          Object.assign(earlier.entry.payload, { noEffectDispositions: [newer.marker, originProof.marker] });
+        }
+        if (fault === 'expired-history') values['/actions/runs/123/artifacts?per_page=100'].artifacts[0].expires_at = new Date(0).toISOString();
+      }
+      const before = canonical(items);
+      const request = { ...latest.request, controller: h.run, migration: { ...latest.request.migration, packetDigest: 'e'.repeat(64) } };
+      const schema: RoutineDeliveryApproval = consumed ? h.schema : { ...h.schema, request,
+        requestDigest: sha256(canonical(request)), strictPacketDigest: request.migration.packetDigest };
+      const transport: typeof fetch = async (raw, init) => {
+        const url = new URL(String(raw)), path = url.pathname.replace(`/repos/${repository}`, '') + url.search;
+        if (init?.method === 'POST') posts++;
+        if (consumed && /^\/(?:actions|contents|releases)\//.test(path)) {
+          forbidden++; throw new Error('Old Actions artifacts unavailable after accepted consumption');
+        }
+        if (url.hostname === 'proof.blob.core.windows.net') {
+          assert.equal(new Headers(init?.headers).has('Authorization'), false);
+          return new Response(new Uint8Array(await io.download(Number(url.pathname.slice(1)))));
+        }
+        if (!consumed && url.pathname.endsWith('/deployments')) return Response.json([...items.map(item => item.entry), ...h.records.slice(1)]);
+        for (const item of items) if (path === `/deployments/${item.entry.id}/statuses?per_page=1`) return Response.json([item.status]);
+        const download = /^\/actions\/artifacts\/(\d+)\/zip$/.exec(path);
+        if (download) return new Response(null, { status: 302, headers: { location: `https://proof.blob.core.windows.net/${download[1]}` } });
+        if (Object.hasOwn(values, path)) return Response.json(await io.read(path));
+        if (path === `/releases/tags/${retainedHistoricalArchive.tag}`) { retentionReads++; return Response.json({}); }
+        return h.transport(raw, init);
+      };
+      const provider = createProvider(f.artifact, h.run, schema, h.credentials, AbortSignal.timeout(30000), transport);
+      if (fault === 'consumed') {
+        assert.equal(await provider.reserve(), 44); assert.equal(posts, 1);
+        assert.equal(Object.hasOwn(h.reservation()!.payload, 'noEffectDispositions'), false);
+        await assert.rejects(provider.reserve(), /already has a durable reservation/);
+        assert.equal(posts, 1); assert.deepEqual(downloads, []);
+      } else {
+        if (fault === 'fresh') {
+          await assert.rejects(provider.reserve(), /retention-unique-asset/);
+          assert.equal(retentionReads, 1);
+          assert.deepEqual([...new Set(downloads)].sort(), [456, 457, 458, 459]);
+        } else { await assert.rejects(provider.reserve()); assert.equal(retentionReads, 0); }
+        assert.equal(posts, 0); assert.equal(h.reservation(), undefined);
+      }
+      assert.equal(forbidden, 0); assert.equal(realNetwork, 0); assert.equal(canonical(items), before);
+      assert.equal(latest.statuses[0]!.state, 'in_progress'); assert.equal(earlier.statuses[0]!.state, 'in_progress');
+      assert.equal(origin.statuses[0]!.state, 'error'); assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+    });
+  }
 });
 
 test('failed authorization proves the complete raw receipt chain without changing the retained error', async t => {
