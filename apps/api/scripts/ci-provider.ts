@@ -13,9 +13,9 @@ import type { ReleaseDiagnostics, ReleaseRequest } from './ci-delivery.js';
 import { historicalHandoffDigest, historicalRecordId, historicalSnapshot, proveHistoricalHandoff, proveFailedAuthorizations,
   historicalMetadataReadback } from './historical-release.js';
 import type { FailedAuthorizationAdmission, HistoricalAdmission, HistoricalItem, HistoricalIo } from './historical-release.js';
-import { stoppedEtsyContinuation, isFailedReplacementReservation, manualGithubIo, validateAuthorizationProducerArchive } from './activation-preflight-disposition.mjs';
+import { stoppedEtsyContinuation, stoppedReadinessContinuation, isFailedReplacementReservation, manualGithubIo, validateAuthorizationProducerArchive } from './activation-preflight-disposition.mjs';
 import { heldEtsyIncident, verifyHeldEtsyReceipts, verifyEtsyArtifact, continuationApplication,
-  etsyReplacement, verifyStoppedEtsyContinuation, continuationClaimKey } from './etsy-release.js';
+  continuationReplacement, etsyProviderOperations, verifyStoppedEtsyContinuation, verifyStoppedReadinessContinuation, continuationClaimKey } from './etsy-release.js';
 import type { EtsyContinuationApproval } from './etsy-release.js';
 import { extractRoutineBundle } from './routine-retained.mjs';
 import { join } from 'node:path';
@@ -103,6 +103,7 @@ export interface HeldEtsyAdmission {
   origin: ReturnType<typeof verifyHeldEtsyReceipts>; application: VerifiedArtifact; receiptZip: Buffer;
   record: Record<string, any>; statuses: Record<string, any>[]; recheck(): Promise<void>;
   stopped?: { receiptZip: Buffer; record: Record<string, unknown>; statuses: Record<string, unknown>[] };
+  readinessStopped?: { receiptZip: Buffer; record: Record<string, unknown>; statuses: Record<string, unknown>[] };
 }
 const heldJournalDigest = '04ddcd749898e66e53d2140a7e43933c4787d2ea88a4f7c949b0d1e9a60757e0';
 const heldStatusesDigest = '863e91807013518be4cdffc995a4b9d6d1f21cc0e26f5ea26b702e7eceb718b9';
@@ -204,8 +205,9 @@ export async function proveHeldEtsyIncident(approval: EtsyContinuationApproval, 
   return { origin, application, receiptZip, record, statuses: statuses as Record<string, any>[], recheck: stable };
 }
 
-export async function confirmStoppedEtsyContinuation(io: Pick<HistoricalIo, 'read'>): Promise<void> {
-  const pin = stoppedEtsyContinuation;
+export async function confirmStoppedEtsyContinuation(io: Pick<HistoricalIo, 'read'>, readiness = false): Promise<void> {
+  if (readiness) await confirmStoppedEtsyContinuation(io);
+  const pin = readiness ? stoppedReadinessContinuation : stoppedEtsyContinuation;
   const record = await io.read(`/deployments/${pin.journal}`);
   const statuses = await io.read(`/deployments/${pin.journal}/statuses?per_page=100`);
   if (sha256(canonical(record)) !== pin.journalDigest || sha256(canonical(statuses)) !== pin.statusesDigest) {
@@ -218,15 +220,11 @@ export async function proveEtsyReplacement(approval: EtsyContinuationApproval, h
     diagnostics?.trace?.check(`replacement.${name}`, Boolean(condition), 'replacement-evidence-mismatch');
     if (!condition) throw new Error(`Replacement refused: ${name}.`);
   };
-  require(approval.kind === 'replacement-etsy-continuation', 'explicit-approval');
-  const { proofIo, recheck } = historicalMetadataReadback(io, signal), pin = stoppedEtsyContinuation, candidate = etsyReplacement;
-  const run = object(await proofIo.read(`/actions/runs/${pin.run}`));
-  const jobs = object(await proofIo.read(`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`));
-  const record = object(await proofIo.read(`/deployments/${pin.journal}`));
-  const statuses = await proofIo.read(`/deployments/${pin.journal}/statuses?per_page=100`);
-  if (!Array.isArray(statuses)) throw new Error('Replacement refused: stopped statuses are absent.');
-  require(sha256(canonical(run)) === pin.runDigest && sha256(canonical(jobs)) === pin.jobsDigest
-    && sha256(canonical(record)) === pin.journalDigest && sha256(canonical(statuses)) === pin.statusesDigest, 'exact-stopped-history');
+  const candidate = continuationReplacement(approval), readiness = approval.kind === 'readiness-etsy-continuation';
+  require(candidate !== undefined, 'explicit-approval');
+  if (!candidate) throw new Error('Replacement approval is absent.');
+  const { proofIo, recheck } = historicalMetadataReadback(io, signal);
+  const stops: NonNullable<HeldEtsyAdmission['stopped']>[] = [];
   const expirations: number[] = [];
   const archived = async (runId: string, id: number, name: string, revision: string, job: Record<string, unknown>, digest: string, maximum: number) => {
     const list = object(await proofIo.read(`/actions/runs/${runId}/artifacts?per_page=100`));
@@ -247,19 +245,30 @@ export async function proveEtsyReplacement(approval: EtsyContinuationApproval, h
     require(zip.length === item.size_in_bytes && sha256(zip) === digest, 'artifact-bytes');
     return zip;
   };
-  const production = jobs.jobs.find((job: unknown) => object(job).id === pin.job);
-  const receiptZip = await archived(pin.run, pin.receiptArtifact, `be-delivery-receipts-${pin.run}-1`,
-    run.head_sha, production, pin.receiptZipDigest, 65536);
-  const proof = verifyStoppedEtsyContinuation(receiptZip, diagnostics);
-  require(canonical(proof.origin) === canonical(held.origin) && canonical(record.payload.releaseRequest) === canonical(proof.request)
-    && canonical(statuses.map(status => object(status).description)) === canonical([...proof.descriptions].reverse()),
-  'stopped-local-remote-no-write-proof');
+  for (const pin of readiness ? [stoppedEtsyContinuation, stoppedReadinessContinuation] : [stoppedEtsyContinuation]) {
+    const run = object(await proofIo.read(`/actions/runs/${pin.run}`));
+    const jobs = object(await proofIo.read(`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`));
+    const record = object(await proofIo.read(`/deployments/${pin.journal}`));
+    const statuses = await proofIo.read(`/deployments/${pin.journal}/statuses?per_page=100`);
+    if (!Array.isArray(statuses)) throw new Error('Replacement refused: stopped statuses are absent.');
+    require(sha256(canonical(run)) === pin.runDigest && sha256(canonical(jobs)) === pin.jobsDigest
+      && sha256(canonical(record)) === pin.journalDigest && sha256(canonical(statuses)) === pin.statusesDigest, 'exact-stopped-history');
+    const production = jobs.jobs.find((job: unknown) => object(job).id === pin.job);
+    const receiptZip = await archived(pin.run, pin.receiptArtifact, `be-delivery-receipts-${pin.run}-1`,
+      run.head_sha, production, pin.receiptZipDigest, 65536);
+    const proof = pin === stoppedReadinessContinuation ? verifyStoppedReadinessContinuation(receiptZip, diagnostics)
+      : verifyStoppedEtsyContinuation(receiptZip, diagnostics);
+    require(canonical(proof.origin) === canonical(held.origin) && canonical(record.payload.releaseRequest) === canonical(proof.request)
+      && canonical(statuses.map(status => object(status).description)) === canonical([...proof.descriptions].reverse()),
+    'stopped-local-remote-no-write-proof');
+    stops.push({ receiptZip, record, statuses: statuses.map(object) });
+  }
   const source = object(await proofIo.read(`/commits/${candidate.revision}`));
   require(source.sha === candidate.revision && object(object(source.commit).tree).sha === candidate.tree, 'replacement-source-tree');
   const producer = object(await proofIo.read(`/actions/runs/${candidate.producer}`));
   require(String(producer.id) === candidate.producer && producer.run_attempt === 1 && producer.status === 'completed'
     && producer.conclusion === 'success' && producer.head_sha === candidate.revision && producer.head_branch === 'main'
-    && producer.path === '.github/workflows/be-delivery.yml' && producer.workflow_id === run.workflow_id
+    && producer.path === '.github/workflows/be-delivery.yml' && producer.workflow_id === 404086547
     && ['push', 'workflow_dispatch'].includes(producer.event)
     && object(producer.repository).id === 1430691691 && object(producer.head_repository).id === 1430691691
     && object(producer.repository).full_name === repository && object(producer.head_repository).full_name === repository,
@@ -291,7 +300,7 @@ export async function proveEtsyReplacement(approval: EtsyContinuationApproval, h
     signal.throwIfAborted();
   };
   await stable();
-  return { ...held, application, recheck: stable, stopped: { receiptZip, record, statuses: statuses.map(object) } };
+  return { ...held, application, recheck: stable, stopped: stops[0], ...(readiness ? { readinessStopped: stops[1] } : {}) };
 }
 
 export function createProvider(artifact: VerifiedArtifact, run: RunIdentity, schema: RoutineDeliveryApproval,
@@ -414,8 +423,9 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       key: continuationClaimKey(approval), originalJournal: heldEtsyIncident.journal, originalPacket: heldEtsyIncident.packetDigest,
       ackDigest: heldEtsyIncident.ackDigest, receiptZipDigest: heldEtsyIncident.receiptZipDigest,
       approvalDigest: schema!.strictPacketDigest, execution: schema!.heldExecution,
-      ...(approval.kind === 'replacement-etsy-continuation' ? { stoppedDisposition: stoppedEtsyContinuation,
-        replacement: etsyReplacement } : {}) };
+      ...(continuationReplacement(approval) ? { stoppedDisposition: stoppedEtsyContinuation,
+        replacement: continuationReplacement(approval) } : {}),
+      ...(approval.kind === 'readiness-etsy-continuation' ? { readinessDisposition: stoppedReadinessContinuation } : {}) };
   }
   async function historicalPredecessor(admission: HistoricalAdmission): Promise<void> {
     const expected = admission.marker.predecessor;
@@ -472,13 +482,14 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
             const entry = object(raw);
             if (!numeric(entry.id) || ids.has(entry.id) || entry.task !== task || entry.environment !== 'be-production') throw new Error('Journal identity differs.');
             ids.add(entry.id);
-            if (approvedRequest?.continuation?.kind === 'replacement-etsy-continuation' && isFailedReplacementReservation(entry)) {
+            if (approvedRequest?.continuation && continuationReplacement(approvedRequest.continuation) && isFailedReplacementReservation(entry)) {
               throw new Error('Failed replacement dispatch has a durable reservation; no replay.');
             }
             if (approvedRequest?.continuation && entry.payload && Object.hasOwn(entry.payload, 'heldContinuation')
-              && !(approvedRequest.continuation.kind === 'replacement-etsy-continuation' && schema?.held?.stopped
-                && entry.id === stoppedEtsyContinuation.journal
-                && canonical(entry) === canonical(schema.held.stopped.record))) {
+              && !(continuationReplacement(approvedRequest.continuation) && schema?.held?.stopped
+                && entry.id === stoppedEtsyContinuation.journal && canonical(entry) === canonical(schema.held.stopped.record))
+              && !(approvedRequest.continuation.kind === 'readiness-etsy-continuation' && schema?.held?.readinessStopped
+                && entry.id === stoppedReadinessContinuation.journal && canonical(entry) === canonical(schema.held.readinessStopped.record))) {
               throw new Error('Held continuation already has a durable or uncertain claim; no replay.');
             }
             if (schema && (entry.payload?.requestDigest === schema.requestDigest
@@ -519,15 +530,22 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
         predicate('held.original-history-binding', original !== undefined && held !== undefined
           && canonical(original.entry) === canonical(held.record) && canonical(original.status) === canonical(held.statuses[0]),
         'Held original journal is absent or changed.');
-        if (approvedRequest.continuation.kind === 'replacement-etsy-continuation') {
+        if (continuationReplacement(approvedRequest.continuation)) {
           const stopped = before.find(item => item.entry.id === stoppedEtsyContinuation.journal);
           predicate('replacement.stopped-history-binding', held?.stopped !== undefined && stopped !== undefined
             && canonical(stopped.entry) === canonical(held.stopped.record)
             && canonical(stopped.status) === canonical(held.stopped.statuses[0]), 'Stopped continuation is absent or changed.');
         } else if (held?.stopped) throw new Error('Replacement disposition cannot authorize the original continuation route.');
+        if (approvedRequest.continuation.kind === 'readiness-etsy-continuation') {
+          const stopped = before.find(item => item.entry.id === stoppedReadinessContinuation.journal);
+          predicate('readiness.stopped-history-binding', held?.readinessStopped !== undefined && stopped !== undefined
+            && canonical(stopped.entry) === canonical(held.readinessStopped.record)
+            && canonical(stopped.status) === canonical(held.readinessStopped.statuses[0]), 'Readiness refusal is absent or changed.');
+        } else if (held?.readinessStopped) throw new Error('Readiness disposition requires its exact successor route.');
       } else if (held) throw new Error('Held admission requires its separately typed continuation request.');
       const remaining = held ? before.filter(item => item.entry.id !== heldEtsyIncident.journal
-        && (!held.stopped || item.entry.id !== stoppedEtsyContinuation.journal)) : before;
+        && (!held.stopped || item.entry.id !== stoppedEtsyContinuation.journal)
+        && (!held.readinessStopped || item.entry.id !== stoppedReadinessContinuation.journal)) : before;
       const historical = !activation && before.some(item => historicalRecordId(item.entry.id));
       predicate('held.complete-historical-lineage', !held || historical, 'Held continuation requires the complete original historical lineage.');
       for (const { entry, status } of before) {
@@ -571,6 +589,19 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
           }
         }
         if (held) await held.recheck();
+        if (approvedRequest?.continuation?.kind === 'readiness-etsy-continuation') {
+          if (!held?.readinessStopped) throw new Error('Readiness successor requires the complete stopped proof.');
+          const packet = continuationApplication(approvedRequest.continuation);
+          const probe = etsyProviderOperations(packet, heldEtsyIncident.packetDigest, held.application,
+            { token: credentials.vercel, bearer: credentials.bearer, predecessorBearer: credentials.bearer,
+              bypass: credentials.bypass, github: credentials.github }, signal, transport, diagnostics, approvedRequest.continuation);
+          await probe.predecessor(false);
+          await probe.candidate(continuationReplacement(approvedRequest.continuation)!.id, true, false);
+          await held.recheck();
+          predicate('readiness.final-history-stable', historicalSnapshot(before) === historicalSnapshot(await scan()),
+            'History changed during preclaim candidate verification.');
+          await operations.currentMain();
+        }
         diagnostics?.trace?.event('reservation.prior-intents', 'passed', 'bounded-history-has-no-unresolved-or-reused-intent');
         signal.throwIfAborted();
         diagnostics?.at('reserve', 'outcome-unknown');

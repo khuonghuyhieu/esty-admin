@@ -8,7 +8,7 @@ import type { Socket } from 'node:net';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
-import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, tar } from './artifact-fixture.js';
+import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, readinessContinuationFixture, tar } from './artifact-fixture.js';
 import { artifactTarget, canonical, readArtifactFile, sha256 } from '../scripts/artifact.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { chmod, writeFile } from 'node:fs/promises';
@@ -18,10 +18,10 @@ import { createReleaseJournal, describeRetainedRun, readReleaseJournal, writeRel
 import type { ReleaseBinding, SupersessionApproval } from '../scripts/release-journal.js';
 import { bounded } from '../scripts/bounded.js';
 import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validateEtsyReleasePacket, heldContinuationPhases,
-  heldEtsyIncident, etsyReplacement, continuationCandidate, continuationClaimKey,
-  validateEtsyContinuationApproval, verifyHeldEtsyReceipts, verifyStoppedEtsyContinuation } from '../scripts/etsy-release.js';
+  heldEtsyIncident, etsyReplacement, etsyReadinessReplacement, continuationCandidate, continuationClaimKey,
+  validateEtsyContinuationApproval, verifyHeldEtsyReceipts, verifyStoppedEtsyContinuation, verifyStoppedReadinessContinuation } from '../scripts/etsy-release.js';
 import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase, HeldContinuationPhase } from '../scripts/etsy-release.js';
-import { stoppedEtsyContinuation } from '../scripts/activation-preflight-disposition.mjs';
+import { stoppedEtsyContinuation, stoppedReadinessContinuation } from '../scripts/activation-preflight-disposition.mjs';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { currentAppMetadata } from '../scripts/activation-configuration.js';
 import { manifestDigest, migrationStatus, runMigrations } from '../scripts/migrations.js';
@@ -77,8 +77,9 @@ test('held continuation rejects stale grants, application relabeling and CREATE-
   assert.throws(() => validateReleaseResult({ ...result, deploymentId: 'dpl_wrong' }));
 });
 
-function heldPhaseFixture(t: TestContext, replacement = false) {
-  const replaced = replacement ? replacementContinuationFixture() : undefined, f = replaced ?? heldContinuationFixture();
+function heldPhaseFixture(t: TestContext, replacement: boolean | 'readiness' = false) {
+  const readiness = replacement === 'readiness' ? readinessContinuationFixture() : undefined;
+  const replaced = readiness ?? (replacement ? replacementContinuationFixture() : undefined), f = replaced ?? heldContinuationFixture();
   const root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-held-phase-')), candidate = continuationCandidate(f.approval);
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   let now = f.now;
@@ -88,7 +89,7 @@ function heldPhaseFixture(t: TestContext, replacement = false) {
   writeReleaseEvidence(join(root, 'claim.json'), { kind: 'synthetic-serialized-claim', key: continuationClaimKey(f.approval), request: sha256(canonical(f.request)) });
   const continuation: HeldContinuationPhase = { approval: f.approval, origin: f.origin,
     claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256,
-    ...(replaced ? { stoppedReceipt: replaced.stoppedZip } : {}) };
+    ...(replaced ? { stoppedReceipt: replaced.stoppedZip } : {}), ...(readiness ? { readinessReceipt: readiness.readinessZip } : {}) };
   let names = migrationManifest.slice(0, 3).map(entry => entry.name), alias = f.packet.predecessor.id;
   let sql = 0, promotions = 0, remote = continuation.claimDigest;
   const operations: Omit<EtsyReleaseOperations, 'create'> = {
@@ -196,6 +197,65 @@ test('held continuation fences wrong main, late SQL, altered receipts and unknow
       if (fault === 'receipt-loss') assert.equal(result.effects.promotion, 'ACKed');
     });
   }
+});
+
+test('readiness successor proves both stopped ancestors and rejects changed incident authority', () => {
+  const f = readinessContinuationFixture(), proof = verifyStoppedReadinessContinuation(f.readinessZip);
+  assert.equal(proof.outcomeHead, stoppedReadinessContinuation.outcomeHead);
+  assert.equal(proof.request.controller.run, stoppedReadinessContinuation.run);
+  assert.equal(proof.request.continuation!.kind, 'replacement-etsy-continuation');
+  assert.deepEqual(proof.origin, f.origin);
+  assert.equal(validateEtsyContinuationApproval(f.approval, f.digest, f.now).replacement!.id, etsyReadinessReplacement.id);
+  assert.notEqual(continuationClaimKey(f.approval), continuationClaimKey(replacementContinuationFixture().approval));
+  const damaged = Buffer.from(f.readinessZip); damaged[100] = damaged[100]! ^ 1;
+  assert.throws(() => verifyStoppedReadinessContinuation(damaged));
+  assert.throws(() => verifyStoppedReadinessContinuation(f.stoppedZip));
+  for (const change of [
+    (a: typeof f.approval) => { delete a.priorReplacement; },
+    (a: typeof f.approval) => { Object.assign(a.priorReplacement!, { journal: 1 }); },
+    (a: typeof f.approval) => { a.runId = stoppedReadinessContinuation.runId; },
+    (a: typeof f.approval) => { a.replacement = etsyReplacement; },
+    (a: typeof f.approval) => { a.operator.revision = etsyReadinessReplacement.revision; },
+    (a: typeof f.approval) => { a.operator.artifactId = String(etsyReadinessReplacement.artifactId); },
+    (a: typeof f.approval) => { a.operator.artifactDigest = etsyReadinessReplacement.artifactDigest; },
+  ]) {
+    const approval = structuredClone(f.approval); change(approval);
+    assert.throws(() => validateEtsyContinuationApproval(approval, sha256(canonical(approval)), f.now));
+  }
+  const original = heldContinuationFixture(), arrayKind = { ...original.approval, kind: ['held-etsy-continuation'] };
+  assert.throws(() => validateEtsyContinuationApproval(arrayKind, sha256(canonical(arrayKind)), original.now));
+});
+
+test('readiness successor accepts only its new application source and same final ID without CREATE or retry', async t => {
+  const f = heldPhaseFixture(t, 'readiness');
+  for (const phase of heldContinuationPhases) await f.run(phase);
+  f.diagnostics.verified();
+  const result = f.diagnostics.complete()!;
+  assert.equal(result.status, 'accepted');
+  assert.equal(result.proof!.deploymentId, etsyReadinessReplacement.id);
+  assert.equal(result.proof!.artifactDigest, etsyReadinessReplacement.artifactDigest);
+  const report = readEvidence(join(f.root, f.approval.runId, 'migration-report.json')).value as MigrationReport;
+  assert.equal(report.source_revision, etsyReadinessReplacement.revision);
+  assert.deepEqual(report.attempted.map(row => row.name), [migrationManifest[3]!.name]);
+  assert.deepEqual(result.effects, { create: 'not-started', migration: 'ACKed', promotion: 'ACKed' });
+  await assert.rejects(f.run('sql-apply'));
+  assert.deepEqual(f.counts(), { sql: 1, promotions: 1 });
+  assert.equal(fs.existsSync(join(f.root, f.approval.runId, 'held-create.intent.json')), false);
+});
+
+test('readiness successor cannot lose the stopped proof or report migration against the previous candidate', async t => {
+  await t.test('missing readiness refusal', async st => {
+    const f = heldPhaseFixture(st, 'readiness'); delete f.continuation.readinessReceipt;
+    await assert.rejects(f.run('history'));
+    assert.deepEqual(f.counts(), { sql: 0, promotions: 0 });
+  });
+  await t.test('old source report', async st => {
+    const f = heldPhaseFixture(st, 'readiness'), migrate = f.operations.migrate;
+    f.operations.migrate = async () => ({ ...await migrate(), source_revision: etsyReplacement.revision });
+    await f.run('history'); await f.run('pre-sql-check'); await assert.rejects(f.run('sql-apply'));
+    assert.deepEqual(f.counts(), { sql: 1, promotions: 0 });
+    assert.equal(fs.existsSync(join(f.root, f.approval.runId, 'promote-only.intent.json')), false);
+  });
 });
 
 test('replacement proves the authentic terminal pre-SQL no-write disposition without forgiving status', () => {

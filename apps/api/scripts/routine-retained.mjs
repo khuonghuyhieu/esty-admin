@@ -7,7 +7,7 @@ import { gunzipSync } from 'node:zlib';
 import { canonical, githubReader } from './activation-retained.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { tmpdir, userInfo } from 'node:os';
-import { stoppedEtsyContinuation as stopped, failedReplacementDispatch as failedReplacement,
+import { stoppedEtsyContinuation as stopped, stoppedReadinessContinuation as readinessStopped, failedReplacementDispatch as failedReplacement,
   validateFailedReplacementReceiptArchive, isFailedReplacementReservation } from './activation-preflight-disposition.mjs';
 
 const diagnosticContext = new AsyncLocalStorage();
@@ -86,7 +86,7 @@ function contextShape(value) {
   const continuation = value && Object.hasOwn(value, 'heldIncident');
   const context = object(value, ['version', 'controller', 'producerRun', 'artifactId', 'mode', 'approvalDigest', 'configDigest', 'schemaDigest', 'target', 'packetDigest',
     ...(continuation ? ['heldIncident'] : [])]);
-  check('context.held-incident', !continuation || (['45106877912', '45539045779'].includes(value.heldIncident) && value.mode === 'etsy-strict-cutover'));
+  check('context.held-incident', !continuation || (['45106877912', '45539045779', '45578212592'].includes(value.heldIncident) && value.mode === 'etsy-strict-cutover'));
   const controller = object(context.controller, ['revision', 'run']);
   check('context.version', context.version === 1);
   check('context.controller-revision', revision.test(controller.revision ?? ''));
@@ -118,7 +118,7 @@ export function routineContext(env, event) {
   check('context.activation-input-absent', (activationInput ?? '') === '',
     { present: activationInput !== undefined, empty: activationInput === '', [`${activationKind}Value`]: true });
   const heldIncident = inputs.held_incident ?? '';
-  check('context.held-selector', ['', '45106877912', '45539045779'].includes(heldIncident)
+  check('context.held-selector', ['', '45106877912', '45539045779', '45578212592'].includes(heldIncident)
     && heldIncident === (env.BE_HELD_INCIDENT ?? '') && (heldIncident === '' || inputs.mode === 'etsy-strict-cutover'));
   return contextShape({ version: 1, controller: { revision: env.GITHUB_SHA, run: env.GITHUB_RUN_ID },
     producerRun: inputs.release_run_id, artifactId: inputs.release_artifact_id, mode: inputs.mode,
@@ -149,6 +149,7 @@ function runIdentity(value, run, sha, consumer) {
 }
 export const heldClaimStep = 'Claim held Etsy incident 45106877912 once';
 export const replacementClaimStep = 'Claim replacement Etsy candidate after 45539045779 once';
+export const readinessClaimStep = 'Claim readiness-fixed Etsy candidate after 45578212592 once';
 export function heldRunnerPaths(env) {
   check('held.hosted-runtime', process.platform === 'linux' && process.arch === 'x64'
     && env.GITHUB_ACTIONS === 'true' && env.GITHUB_JOB === 'production' && env.RUNNER_ENVIRONMENT === 'github-hosted');
@@ -163,10 +164,11 @@ export function heldRunnerPaths(env) {
 /** @param {((id: number, maximum: number) => Promise<Buffer>) | undefined} [download] */
 export async function admitHeldProduction(request, env, read, sourceBytes, auditClaims = false, download = undefined) {
   const approval = request.continuation;
-  const replacement = approval?.kind === 'replacement-etsy-continuation';
-  const claimStep = replacement ? replacementClaimStep : heldClaimStep;
+  const readiness = approval?.kind === 'readiness-etsy-continuation';
+  const replacement = approval?.kind === 'replacement-etsy-continuation' || readiness;
+  const claimStep = readiness ? readinessClaimStep : replacement ? replacementClaimStep : heldClaimStep;
   check('held.production-context', (replacement || approval?.kind === 'held-etsy-continuation')
-    && env.BE_HELD_INCIDENT === (replacement ? '45539045779' : '45106877912')
+    && env.BE_HELD_INCIDENT === (readiness ? readinessStopped.run : replacement ? '45539045779' : '45106877912')
     && env.GITHUB_JOB === 'production' && env.GITHUB_RUN_ID === request.controller.run && env.GITHUB_RUN_ATTEMPT === '1'
     && env.GITHUB_SHA === request.controller.revision && env.GITHUB_REPOSITORY === repository
     && env.GITHUB_WORKFLOW_REF === `${repository}/${workflow}@refs/heads/main` && env.GITHUB_EVENT_NAME === 'workflow_dispatch'
@@ -214,6 +216,7 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
     : claim[0].status === 'completed' && claim[0].conclusion === 'success'));
   if (auditClaims) {
     if (replacement) check('replacement.pinned-prior', canonical(approval.priorContinuation) === canonical(stopped));
+    if (readiness) check('readiness.pinned-prior', canonical(approval.priorReplacement) === canonical(readinessStopped));
     const seen = new Set();
     let total;
     for (let page = 1; ; page++) {
@@ -229,12 +232,15 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
           && prior.repository?.id === 1430691691 && prior.head_repository?.id === 1430691691);
         seen.add(prior.id);
         if (prior.id === run.id) continue;
-        if (replacement && String(prior.id) === stopped.run) {
-          const stoppedRun = await read(`/actions/runs/${stopped.run}`);
-          const stoppedJobs = await read(`/actions/runs/${stopped.run}/jobs?filter=all&per_page=100`);
-          check('replacement.stopped-run-proof', hash(canonical(stoppedRun)) === stopped.runDigest
-            && hash(canonical(stoppedJobs)) === stopped.jobsDigest && prior.run_attempt === 1
-            && prior.head_sha === stoppedRun.head_sha && prior.status === stoppedRun.status && prior.conclusion === stoppedRun.conclusion);
+        const pin = String(prior.id) === stopped.run ? stopped
+          : readiness && String(prior.id) === readinessStopped.run ? readinessStopped : undefined;
+        if (replacement && pin) {
+          const stoppedRun = await read(`/actions/runs/${pin.run}`);
+          const stoppedJobs = await read(`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`);
+          check('replacement.stopped-run-proof', hash(canonical(stoppedRun)) === pin.runDigest
+            && hash(canonical(stoppedJobs)) === pin.jobsDigest
+            && ['id', 'run_attempt', 'head_sha', 'status', 'conclusion', 'workflow_id', 'path', 'event', 'head_branch']
+              .every(key => prior[key] === stoppedRun[key]));
           continue;
         }
         if (replacement && String(prior.id) === failedReplacement.run) {
@@ -290,7 +296,7 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
         if (prior.status === 'completed' && timestamp(prior.updated_at) < 1795405274350) continue;
         const priorSource = await workflowAt(prior.head_sha);
         const priorText = priorSource.toString('utf8');
-        const claimNames = [heldClaimStep, replacementClaimStep].filter(name => priorText.includes(`\n      - name: ${name}\n`));
+        const claimNames = [heldClaimStep, replacementClaimStep, readinessClaimStep].filter(name => priorText.includes(`\n      - name: ${name}\n`));
         if (claimNames.length === 0) {
           check('held.reviewed-no-continuation-workflow', hash(priorSource) === 'c9cd73e744ff32998b9874d0782480bc2c2eff1c92d1ec00f1be5d189ef89a53');
           continue;
@@ -308,6 +314,7 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
       if (listing.workflow_runs.length < 100) {
         check('held.run-audit-complete', seen.size === total && seen.has(run.id));
         if (replacement) check('replacement.failed-dispatch-present', seen.has(Number(failedReplacement.run)));
+        if (readiness) check('readiness.stopped-dispatches-present', seen.has(Number(stopped.run)) && seen.has(Number(readinessStopped.run)));
         break;
       }
     }

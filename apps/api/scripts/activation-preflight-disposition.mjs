@@ -16,6 +16,20 @@ export const stoppedEtsyContinuation = Object.freeze({
   journalDigest: 'e85895772dbc86ff270eb27bf1ceec83e2744b1268d99ff67f01d45541ae37ce',
   statusesDigest: 'a5cca767f5c1e88c79e3158fb93c262626ca6552d8a5c66270fc921771224236',
 });
+export const stoppedReadinessContinuation = Object.freeze({
+  run: '45578212592', job: 139083630289, journal: 8052686808, receiptArtifact: 15005622501,
+  runId: 'fe682b20-fd2c-40bc-b3e4-ca30bd40bc23',
+  requestDigest: '8ab6a021bef012cb6f1161cbc09b0230949993cc0e98405abf633420e02e101f',
+  approvalDigest: 'a7db1004fadc54090286e7987bd788650e2f19813e3cc2a33de2d83c7ab9f739',
+  receiptZipDigest: '4f1496fb7a2c0fb490cc37d016c82a2b7fbe183492dab0919bc98a0b8794cbdf',
+  archiveDigest: '08340ee6281728a61bd8553c7ad23278b6a014f266c272ba0a0e5d40218a2f81',
+  inventoryDigest: 'ba01f58ac2df67c5cbaacd9b62d27c27c667abfeb42ba2f6c8aaf326cc65b0ba',
+  outcomeHead: '162d1b7678908c6d8211f8cc9a5796ebd3fc8dd34320151ff10f860f2cf94015',
+  runDigest: 'cbba436de599615796f804d9e5bb20727ca150f4b26f50745cfe0e32e1f81340',
+  jobsDigest: 'a0c2708b0f9de08cb44af83f38f007fafbfa9130153817c4932e9a3ca71e9b8d',
+  journalDigest: 'aac14a3378462adb88f255a6bbe6838f944ed0185946c2caf1e824d2e609e26d',
+  statusesDigest: 'f4134c6a71d75c10136605a2afd5435049be145dbddea3f0ff42573ddbddbd5a',
+});
 // Owner-approved disposition of the one cold-entry failure before reservation.
 // Full snapshots bind its failed claim and skipped downstream mutation steps.
 export const failedReplacementDispatch = Object.freeze({
@@ -191,16 +205,24 @@ export function validateHeldContinuationReceiptArchive(zip, diagnostics) {
   return { ...result, outcomes, runId };
 }
 export function validateStoppedContinuationReceiptArchive(zip, diagnostics) {
-  const runId = stoppedEtsyContinuation.runId, base = `continuation/${runId}`;
+  return stoppedReceiptArchive(zip, stoppedEtsyContinuation, diagnostics);
+}
+export function validateReadinessContinuationReceiptArchive(zip, diagnostics) {
+  const result = stoppedReceiptArchive(zip, stoppedReadinessContinuation, diagnostics);
+  if (result.archiveDigest !== stoppedReadinessContinuation.archiveDigest
+    || result.inventoryDigest !== stoppedReadinessContinuation.inventoryDigest) refuse();
+  return result;
+}
+function stoppedReceiptArchive(zip, stopped, diagnostics) {
+  const runId = stopped.runId, base = `continuation/${runId}`;
   const outcomes = Array.from({ length: 5 }, (_, index) => `release-outcome-${String(index).padStart(4, '0')}.json`);
   const fixed = ['continuation/reserving.json', 'continuation/reservation.json', 'continuation/origin.json',
     'continuation/claim.json', 'continuation/history.authorized.json', 'continuation/history.remote.json',
     'continuation/operator.lock', 'continuation/active.lock',
     ...['history.intent', 'history.receipt', 'pre-sql-check.intent', 'STOP'].map(name => `${base}/${name}.json`)];
   const expected = new Set([...outcomes, ...fixed]);
-  // This exact receipt's five full requests occupy an 81920-byte tar. Older
-  // receipt formats retain their original 65536-byte decompression bound.
-  const result = receiptMembers(zip, stoppedEtsyContinuation.receiptZipDigest,
+  // Both pinned five-outcome archives fit this bound; older formats keep theirs.
+  const result = receiptMembers(zip, stopped.receiptZipDigest,
     ['', 'continuation', base], name => expected.has(name), diagnostics, 131072);
   if (result.files.size !== 17 || [...expected].some(name => !result.files.has(name))) refuse();
   return { ...result, outcomes, runId };

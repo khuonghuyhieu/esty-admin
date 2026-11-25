@@ -20,8 +20,7 @@ import { activationSchema } from '../src/config/schema-transition.js';
 import { confirmRoutineSelection, loadRoutineContext, readRoutineRequest, readRoutineSelection, routineApproval,
   validateRoutineSelection, verifyRoutineBundle, verifyRoutineTransfer } from './routine-retained.mjs';
 import { githubReader } from './activation-retained.mjs';
-import { stoppedEtsyContinuation } from './activation-preflight-disposition.mjs';
-import { heldEtsyIncident, continuationCandidate, continuationApplication,
+import { heldEtsyIncident, continuationCandidate, continuationApplication, continuationIncident,
   validateEtsyContinuationApproval, validateEtsyReleasePacket } from './etsy-release.js';
 import type { EtsyContinuationApproval } from './etsy-release.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
@@ -548,7 +547,7 @@ export async function approvedRoutineRequest(artifact: VerifiedArtifact, selecti
     const packet = continuation?.originalPacket ?? validateEtsyReleasePacket(packetValue, controls.packetDigest);
     if (continuation) {
       request.continuation = continuation;
-      if (controls.heldIncident !== (continuation.kind === 'replacement-etsy-continuation' ? stoppedEtsyContinuation.run : heldEtsyIncident.run)) releaseRefusal();
+      if (controls.heldIncident !== continuationIncident(continuation)) releaseRefusal();
     } else if (packet.revision !== selected.producer.revision || packet.tree !== selected.producer.tree
       || packet.artifactDigest !== artifact.digest || packet.sourceDigest !== approved.sourceDigest) releaseRefusal();
     if (packet.runtimeDigest !== controls.configDigest || packet.target !== controls.target || packet.targetDigest !== controls.schemaDigest) releaseRefusal();
@@ -838,8 +837,7 @@ async function executeRoutinePhase(input: RoutinePhaseInput, diagnostics: Releas
   diagnostics.at('request', 'unauthorized-context');
   const { artifact, request, env, cli, reports, signal } = input, { mode, action } = routinePhaseContext(env);
   releaseRequestShape(request);
-  if ((env.BE_HELD_INCIDENT ?? '') !== (request.continuation
-    ? request.continuation.kind === 'replacement-etsy-continuation' ? stoppedEtsyContinuation.run : heldEtsyIncident.run : '')) releaseRefusal();
+  if ((env.BE_HELD_INCIDENT ?? '') !== (request.continuation ? continuationIncident(request.continuation) : '')) releaseRefusal();
   diagnostics.at('artifact', 'identity-mismatch');
   if (request.mode !== mode || request.artifactDigest !== artifact.digest || request.sourceDigest !== artifact.manifest.source.digest
     || request.schema.targetDigest !== artifact.manifest.migrationDigest

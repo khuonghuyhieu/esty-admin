@@ -14,8 +14,8 @@ import type { HeldEtsyAdmission, RoutineDeliveryApproval, RoutineProvider, RunId
 import type { ReleaseDiagnostics, ReleaseRequest } from './ci-delivery.js';
 import { decodePhaseInput } from './activation-inputs.js';
 import { etsyProviderOperations, etsyReleasePhases, isolatedEtsyCli, runEtsyReleasePhase, heldContinuationPhases,
-  heldEtsyIncident, continuationApplication, continuationCandidate, continuationClaimKey, validateEtsyContinuationApproval,
-  verifyStoppedEtsyContinuation, verifyHeldEtsyReceipts, verifyEtsyArtifact, validateEtsyReleasePacket } from './etsy-release.js';
+  heldEtsyIncident, continuationApplication, continuationCandidate, continuationReplacement, continuationClaimKey, validateEtsyContinuationApproval,
+  verifyStoppedEtsyContinuation, verifyStoppedReadinessContinuation, verifyHeldEtsyReceipts, verifyEtsyArtifact, validateEtsyReleasePacket } from './etsy-release.js';
 import type { HeldContinuationPhase, EtsyCli, EtsyReleaseDurability, EtsyReleaseIntent, EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase } from './etsy-release.js';
 import { admitHeldProduction, heldRunnerPaths } from './routine-retained.mjs';
 import { githubReader } from './activation-retained.mjs';
@@ -258,7 +258,8 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
   diagnostics?.trace?.check('strict.packet-input-digest', env.BE_MIGRATION_PACKET_SHA256 === packetDigest, 'packet-digest-differs-from-approved-request');
   if (env.BE_MIGRATION_PACKET_SHA256 !== packetDigest) refuse();
   const approval = request.continuation, paths = approval ? heldRunnerPaths(env) : undefined;
-  const replacement = approval?.kind === 'replacement-etsy-continuation';
+  const replacement = approval ? continuationReplacement(approval) : undefined;
+  const readiness = approval?.kind === 'readiness-etsy-continuation';
   if (paths && (input.directory !== paths.receipts || action === 'reconcile'
     || sha256(paths.workflow) !== approval!.operator.workflowDigest)) refuse();
   const root = privateDirectory(join(input.directory, approval ? 'continuation' : 'strict'));
@@ -284,12 +285,14 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
       if (replacement) held = await proveEtsyReplacement(approval, held,
         manualGithubIo(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace), paths.replacement, signal, diagnostics);
       writeObserved(diagnostics, join(root, 'origin.json'), { zip: held.receiptZip.toString('base64'), origin: held.origin, execution,
-        ...(held.stopped ? { stoppedZip: held.stopped.receiptZip.toString('base64') } : {}) });
+        ...(held.stopped ? { stoppedZip: held.stopped.receiptZip.toString('base64') } : {}),
+        ...(held.readinessStopped ? { readinessZip: held.readinessStopped.receiptZip.toString('base64') } : {}) });
       application = held.application;
       schema.held = held;
       diagnostics?.inheritedHeld(continuationCandidate(approval));
     } else {
-      const saved = object(readEvidence(join(root, 'origin.json')).value, ['zip', 'origin', 'execution', ...(replacement ? ['stoppedZip'] : [])]);
+      const saved = object(readEvidence(join(root, 'origin.json')).value,
+        ['zip', 'origin', 'execution', ...(replacement ? ['stoppedZip'] : []), ...(readiness ? ['readinessZip'] : [])]);
       if (typeof saved.zip !== 'string' || saved.zip.length > 10000) refuse();
       const zip = Buffer.from(saved.zip, 'base64');
       if (zip.toString('base64') !== saved.zip) refuse();
@@ -302,6 +305,13 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
         if (stoppedReceipt.toString('base64') !== saved.stoppedZip
           || canonical(verifyStoppedEtsyContinuation(stoppedReceipt, diagnostics).origin) !== canonical(origin)) refuse();
       }
+      let readinessReceipt: Buffer | undefined;
+      if (readiness) {
+        if (typeof saved.readinessZip !== 'string' || saved.readinessZip.length > 40000) refuse();
+        readinessReceipt = Buffer.from(saved.readinessZip, 'base64');
+        if (readinessReceipt.toString('base64') !== saved.readinessZip
+          || canonical(verifyStoppedReadinessContinuation(readinessReceipt, diagnostics).origin) !== canonical(origin)) refuse();
+      }
       const ownExecution = saved.execution as NonNullable<typeof execution>;
       if (ownExecution.run !== request.controller.run || ownExecution.runner !== env.RUNNER_NAME
         || (execution && canonical(execution) !== canonical(ownExecution))) refuse();
@@ -312,7 +322,8 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
         || canonical(value.execution) !== canonical(ownExecution) || value.originDigest !== readEvidence(join(root, 'origin.json')).identity.sha256
         || !Number.isSafeInteger(value.journal) || Number(value.journal) <= 0 || value.journal !== reservation().journal) refuse();
       application = verifyEtsyArtifact(packet, join(replacement ? paths.replacement : paths.application, 'artifact'));
-      continuation = { approval, origin, claimDigest: claim.identity.sha256, ...(stoppedReceipt ? { stoppedReceipt } : {}) };
+      continuation = { approval, origin, claimDigest: claim.identity.sha256,
+        ...(stoppedReceipt ? { stoppedReceipt } : {}), ...(readinessReceipt ? { readinessReceipt } : {}) };
     }
     schema.heldExecution = execution;
   }
@@ -471,7 +482,8 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
         writeObserved(diagnostics, join(root, 'claim.json'), { version: 1, key, requestDigest, packetDigest, journal, execution,
           originDigest: readEvidence(join(root, 'origin.json')).identity.sha256 });
         continuation = { approval, origin: held.origin, claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256,
-          ...(held.stopped ? { stoppedReceipt: held.stopped.receiptZip } : {}) };
+          ...(held.stopped ? { stoppedReceipt: held.stopped.receiptZip } : {}),
+          ...(held.readinessStopped ? { readinessReceipt: held.readinessStopped.receiptZip } : {}) };
       }
       await remote.predecessor(false);
       await authorize('history', { packetDigest, phase: 'history', previous: continuation?.claimDigest ?? null,
@@ -491,7 +503,7 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
         if (approval) {
           const io = { read: githubReader(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace) };
           await confirmHeldEtsyIncident(io);
-          if (replacement) await confirmStoppedEtsyContinuation(io);
+          if (replacement) await confirmStoppedEtsyContinuation(io, readiness);
         }
         return { revision: request.controller.revision, tree: request.controller.tree };
       },

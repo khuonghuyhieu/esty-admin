@@ -16,9 +16,10 @@ import { gunzipSync } from 'node:zlib';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
 import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture,
-  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture,
+  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, readinessContinuationFixture,
   failedReplacementFixture, historicalProviderFixture } from './artifact-fixture.js';
 import { historicalActivationChild } from './historical-activation-fixture.js';
+import { readinessSuccessorSmoke } from './readiness-successor-fixture.js';
 import { checksContext, runChecks } from '../scripts/ci.js';
 import { ChecksDiagnostics } from '../scripts/checks-diagnostics.js';
 import { checked, command, responseBytes } from '../scripts/ci-tools.js';
@@ -30,7 +31,7 @@ import { verifyUploadedArchive } from '../scripts/ci-archive.js';
 import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
 import type { CommandResult } from '../scripts/ci-tools.js';
 import { routineContext, loadRoutineContext, withRoutineDiagnostics, selectRoutine, validateRoutineSelection, confirmRoutineSelection,
-  extractRoutineBundle, admitHeldProduction, heldClaimStep, replacementClaimStep, heldRunnerPaths } from '../scripts/routine-retained.mjs';
+  extractRoutineBundle, admitHeldProduction, heldClaimStep, replacementClaimStep, readinessClaimStep, heldRunnerPaths } from '../scripts/routine-retained.mjs';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { activationPhases, appendActivationEvent, createActivationJournal, finishActivationJournal, importFrontendJournal,
   readActivationJournal, reserveActivationJournal, saveActivationConfigurationReceipt } from '../scripts/activation-journal.js';
@@ -66,19 +67,21 @@ import { historicalHandoffDigest, historicalMetadataReadback, historicalSnapshot
   proveFailedAuthorization, proveFailedAuthorizations } from '../scripts/historical-release.js';
 import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
 
-function heldProductionFixture(replacement = false) {
-  const replaced = replacement ? replacementContinuationFixture() : undefined, f = replaced ?? heldContinuationFixture();
+function heldProductionFixture(replacement: boolean | 'readiness' = false) {
+  const readiness = replacement === 'readiness' ? readinessContinuationFixture() : undefined;
+  const replaced = readiness ?? (replacement ? replacementContinuationFixture() : undefined), f = replaced ?? heldContinuationFixture();
   const source = readFileSync(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url));
   const env: NodeJS.ProcessEnv = { GITHUB_ACTIONS: 'true', GITHUB_JOB: 'production', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1',
     GITHUB_SHA: f.request.controller.revision, GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch',
     GITHUB_REF: 'refs/heads/main', GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/be-delivery.yml@refs/heads/main`,
-    RUNNER_ENVIRONMENT: 'github-hosted', RUNNER_NAME: 'synthetic-serialized-runner', BE_HELD_INCIDENT: replacement ? '45539045779' : '45106877912' };
+    RUNNER_ENVIRONMENT: 'github-hosted', RUNNER_NAME: 'synthetic-serialized-runner',
+    BE_HELD_INCIDENT: readiness ? '45578212592' : replacement ? '45539045779' : '45106877912' };
   const run = { id: 123, workflow_id: 404086547, run_attempt: 1, head_sha: f.request.controller.revision, head_branch: 'main',
     path: '.github/workflows/be-delivery.yml', event: 'workflow_dispatch', status: 'in_progress', conclusion: null,
     repository: { id: 1430691691, full_name: repository }, head_repository: { id: 1430691691, full_name: repository } };
   const job = { id: 456, run_id: 123, run_attempt: 1, head_sha: run.head_sha, name: 'BE production delivery',
     status: 'in_progress', conclusion: null, runner_id: 789, runner_name: env.RUNNER_NAME,
-    steps: [{ name: replacement ? replacementClaimStep : heldClaimStep, status: 'in_progress', conclusion: null as string | null }] };
+    steps: [{ name: readiness ? readinessClaimStep : replacement ? replacementClaimStep : heldClaimStep, status: 'in_progress', conclusion: null as string | null }] };
   const records: Record<string, any> = {
     '/actions/runs/123': run,
     '/commits/main': { sha: run.head_sha, commit: { tree: { sha: f.request.controller.tree } } },
@@ -105,6 +108,13 @@ function heldProductionFixture(replacement = false) {
       type: 'file', path: '.github/workflows/be-delivery.yml', encoding: 'base64', size: failed.workflow.length, content: failed.workflow.toString('base64') };
     records['/deployments?task=deploy%3Aesty-be-ci&environment=be-production&per_page=100&page=1'] = failed.journal;
   }
+  if (readiness) {
+    const prior = readiness.readinessSnapshots;
+    records[`/actions/runs/${prior.run.id}`] = prior.run;
+    records[`/actions/runs/${prior.run.id}/jobs?filter=all&per_page=100`] = prior.jobs;
+    const list = records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'];
+    list.workflow_runs.push(prior.run); list.total_count++;
+  }
   const read = async (path: string) => {
     assert.ok(Object.hasOwn(records, path), `Unexpected synthetic metadata path: ${path}`);
     return structuredClone(records[path]);
@@ -112,6 +122,38 @@ function heldProductionFixture(replacement = false) {
   return { ...f, source, env, records, run, job, read, failed, downloads, download,
     admit: (audit = true) => admitHeldProduction(f.request, env, read, source, audit, download) };
 }
+
+test('readiness successor emits full fresh admission through same-ID acceptance from genuine public evidence',
+  { skip: !process.env.BE_SUCCESSOR_EVIDENCE || !process.env.BE_SUCCESSOR_RELEASE, timeout: 240000 },
+  async t => readinessSuccessorSmoke(t, process.env.BE_SUCCESSOR_EVIDENCE!, process.env.BE_SUCCESSOR_RELEASE!));
+
+test('readiness successor audit admits only exact stopped runs and fences any reached successor', async t => {
+  assert.equal((await heldProductionFixture('readiness').admit()).job, 456);
+  const listPath = '/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1';
+  for (const fault of ['changed-stopped-run', 'changed-stopped-jobs', 'omitted-stopped', 'omitted-first-stop', 'unsupported-run', 'reached-successor', 'wrong-selector']) {
+    await t.test(fault, async () => {
+      const f = heldProductionFixture('readiness');
+      const list = f.records[listPath];
+      if (fault === 'changed-stopped-run') f.records['/actions/runs/45578212592'].run_attempt = 2;
+      if (fault === 'changed-stopped-jobs') f.records['/actions/runs/45578212592/jobs?filter=all&per_page=100'].jobs[0].run_attempt = 2;
+      if (fault.startsWith('omitted-')) {
+        list.workflow_runs = list.workflow_runs.filter((r: any) => r.id !== (fault === 'omitted-stopped' ? 45578212592 : 45539045779));
+        list.total_count--;
+      }
+      if (fault === 'unsupported-run' || fault === 'reached-successor') {
+        const prior = { ...f.run, id: 124, status: 'completed', conclusion: 'failure' };
+        list.workflow_runs.push(prior); list.total_count++;
+        if (fault === 'reached-successor') f.records['/actions/runs/124/jobs?filter=all&per_page=100'] = {
+          total_count: 1, jobs: [{ ...f.job, id: 457, run_id: 124, status: 'completed', conclusion: 'failure',
+            steps: [heldClaimStep, replacementClaimStep, readinessClaimStep].map(name => ({
+              name, status: 'completed', conclusion: name === readinessClaimStep ? 'failure' : 'skipped',
+            })) }] };
+      }
+      if (fault === 'wrong-selector') f.env.BE_HELD_INCIDENT = '45539045779';
+      await assert.rejects(f.admit());
+    });
+  }
+});
 
 test('replacement failed-dispatch disposition requires the exact closed history and fresh absence of reservation', async t => {
   const listPath = '/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1';
@@ -365,7 +407,8 @@ test('held continuation retains lost-claim fences across approvals runs director
     f.records['/actions/runs/120/jobs?filter=all&per_page=100'] = { total_count: 1, jobs: [{
       ...f.job, id: 450, run_id: 120, status: 'completed', conclusion: 'failure',
       steps: state === 'missing' ? [] : [{ name: heldClaimStep, status: state === 'in_progress' ? state : 'completed',
-        conclusion: state === 'in_progress' ? null : state }, { name: replacementClaimStep, status: 'completed', conclusion: 'skipped' }],
+        conclusion: state === 'in_progress' ? null : state }, { name: replacementClaimStep, status: 'completed', conclusion: 'skipped' },
+      { name: readinessClaimStep, status: 'completed', conclusion: 'skipped' }],
     }] };
     f.request.continuation!.runId = randomUUID();
     f.request.continuation!.window = { start: f.now - 500, end: f.now + 300000 };
@@ -410,6 +453,7 @@ test('replacement ingress authenticates the exact stopped attempt and refuses ev
         f.records['/actions/runs/120/jobs?filter=all&per_page=100'] = { total_count: 1, jobs: [{
           ...f.job, id: 450, run_id: 120, status: 'completed', conclusion: 'failure',
           steps: [{ name: heldClaimStep, status: 'completed', conclusion: 'skipped' },
+            { name: readinessClaimStep, status: 'completed', conclusion: 'skipped' },
             ...(fault === 'successor-unknown' ? [] : [{ name: replacementClaimStep,
               status: fault === 'successor-started' ? 'in_progress' : 'completed',
               conclusion: fault === 'successor-started' ? null : fault === 'successor-success' ? 'success' : 'skipped' }])],
@@ -452,38 +496,62 @@ test('replacement refuses journal or status drift and incomplete stopped proof b
   }
 });
 
+test('readiness successor rechecks the complete status chains of both immutable stopped journals', async t => {
+  for (const fault of ['first-stop', 'changed-journal', 'missing-terminal', 'extra-status']) {
+    await t.test(fault, async () => {
+      const f = readinessContinuationFixture();
+      const records: Record<string, any> = {
+        '/deployments/8047533931': structuredClone(f.snapshots.journal),
+        '/deployments/8047533931/statuses?per_page=100': structuredClone(f.snapshots.statuses),
+        '/deployments/8052686808': structuredClone(f.readinessSnapshots.record),
+        '/deployments/8052686808/statuses?per_page=100': structuredClone(f.readinessSnapshots.statuses),
+      };
+      if (fault === 'first-stop') records['/deployments/8047533931/statuses?per_page=100'][0].state = 'success';
+      if (fault === 'changed-journal') records['/deployments/8052686808'].payload.heldContinuation.approvalDigest = '0'.repeat(64);
+      if (fault === 'missing-terminal') records['/deployments/8052686808/statuses?per_page=100'].shift();
+      if (fault === 'extra-status') records['/deployments/8052686808/statuses?per_page=100'].push(records['/deployments/8052686808/statuses?per_page=100'][0]);
+      await assert.rejects(confirmStoppedEtsyContinuation({ read: async path => {
+        assert.ok(Object.hasOwn(records, path)); return records[path];
+      } }, true), /statuses changed/);
+    });
+  }
+});
+
 test('replacement never launders an existing or unknown durable successor with a fresh approval', async t => {
   const base = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(base.dispose);
-  const f = replacementContinuationFixture(), h = routineProviderFixture(base.artifact);
-  Object.assign(f.approval.operator, { artifactDigest: base.artifact.digest, sourceDigest: base.approval.sourceDigest,
-    archiveDigest: base.approval.archiveDigest, operatorDigest: base.approval.operatorDigest });
-  const digest = sha256(canonical(f.approval)), request = { ...f.request, artifactDigest: base.artifact.digest,
-    sourceDigest: base.approval.sourceDigest, archiveDigest: base.approval.archiveDigest, operatorDigest: base.approval.operatorDigest,
-    migration: { ...f.request.migration!, packetDigest: digest,
-      recoveryApproval: sha256(canonical({ packet: digest, recovery: f.packet.grants.recovery })),
-      maintenanceApproval: sha256(canonical({ packet: digest, window: f.approval.window, maintenance: f.packet.grants.maintenance })) } };
-  const schema: RoutineDeliveryApproval = { digest: request.schema.targetDigest, configDigest: request.configDigest,
-    request, requestDigest: sha256(canonical(request)), strictPacketDigest: digest };
-  for (const prior of [
-    { id: 999, task: 'deploy:esty-be-ci', environment: 'be-production', payload: { heldContinuation: { unknown: true } } },
-    f.snapshots.journal,
-    ...[
-      { run: failedReplacementDispatch.run },
-      { releaseRequest: { controller: { run: failedReplacementDispatch.run } } },
-      { heldContinuation: { execution: { run: failedReplacementDispatch.run } } },
-    ].map(payload => ({ id: 999, task: 'deploy:esty-be-ci', environment: 'be-production', payload })),
-  ]) {
-    let posts = 0;
-    const transport: typeof fetch = async (raw, init) => {
-      if (init?.method === 'POST') { posts++; assert.fail('A prior claim must never create a successor journal'); }
-      const url = new URL(String(raw));
-      assert.equal(url.hostname, 'api.github.com');
-      assert.equal(url.pathname, `/repos/${repository}/deployments`);
-      return Response.json([prior]);
-    };
-    await assert.rejects(createProvider(base.artifact, request.controller, schema, h.credentials,
-      AbortSignal.timeout(10000), transport).reserve(), /durable or uncertain claim|Failed replacement dispatch has a durable reservation/);
-    assert.equal(posts, 0);
+  const h = routineProviderFixture(base.artifact), readiness = readinessContinuationFixture();
+  for (const f of [replacementContinuationFixture(), readiness]) {
+    Object.assign(f.approval.operator, { artifactDigest: base.artifact.digest, sourceDigest: base.approval.sourceDigest,
+      archiveDigest: base.approval.archiveDigest, operatorDigest: base.approval.operatorDigest });
+    const digest = sha256(canonical(f.approval)), request = { ...f.request, artifactDigest: base.artifact.digest,
+      sourceDigest: base.approval.sourceDigest, archiveDigest: base.approval.archiveDigest, operatorDigest: base.approval.operatorDigest,
+      migration: { ...f.request.migration!, packetDigest: digest,
+        recoveryApproval: sha256(canonical({ packet: digest, recovery: f.packet.grants.recovery })),
+        maintenanceApproval: sha256(canonical({ packet: digest, window: f.approval.window, maintenance: f.packet.grants.maintenance })) } };
+    const schema: RoutineDeliveryApproval = { digest: request.schema.targetDigest, configDigest: request.configDigest,
+      request, requestDigest: sha256(canonical(request)), strictPacketDigest: digest };
+    for (const prior of [
+      { id: 999, task: 'deploy:esty-be-ci', environment: 'be-production', payload: { heldContinuation: { unknown: true } } },
+      f.snapshots.journal,
+      ...(f === readiness ? [readiness.readinessSnapshots.record] : []),
+      ...[
+        { run: failedReplacementDispatch.run },
+        { releaseRequest: { controller: { run: failedReplacementDispatch.run } } },
+        { heldContinuation: { execution: { run: failedReplacementDispatch.run } } },
+      ].map(payload => ({ id: 999, task: 'deploy:esty-be-ci', environment: 'be-production', payload })),
+    ]) {
+      let posts = 0;
+      const transport: typeof fetch = async (raw, init) => {
+        if (init?.method === 'POST') { posts++; assert.fail('A prior claim must never create a successor journal'); }
+        const url = new URL(String(raw));
+        assert.equal(url.hostname, 'api.github.com');
+        assert.equal(url.pathname, `/repos/${repository}/deployments`);
+        return Response.json([prior]);
+      };
+      await assert.rejects(createProvider(base.artifact, request.controller, schema, h.credentials,
+        AbortSignal.timeout(10000), transport).reserve(), /durable or uncertain claim|Failed replacement dispatch has a durable reservation/);
+      assert.equal(posts, 0);
+    }
   }
 });
 

@@ -23,7 +23,8 @@ import { readHiddenPassword } from './hidden-input.mjs';
 import { prepareEtsyConfiguration, setupObject } from './etsy-setup.js';
 import { bounded } from './bounded.js';
 import { activationRuntimeKeys, etsyRuntimeKeys } from '../src/config/activation-config.js';
-import { stoppedEtsyContinuation, validateHeldContinuationReceiptArchive, validateStoppedContinuationReceiptArchive } from './activation-preflight-disposition.mjs';
+import { stoppedEtsyContinuation, stoppedReadinessContinuation, validateHeldContinuationReceiptArchive,
+  validateStoppedContinuationReceiptArchive, validateReadinessContinuationReceiptArchive } from './activation-preflight-disposition.mjs';
 import { validateReleaseResult } from './ci-delivery.js';
 import { currentAppMetadata } from './activation-configuration.js';
 
@@ -64,9 +65,21 @@ export const etsyReplacement = Object.freeze({
   operatorDigest: 'e589691ac319df64b2ca6ba47b6c909d4a92e6a7f6cacc31ec3a53854562c1d3',
   uploadedArchiveDigest: '15f4669257897f2338625f29c6a7a9052b3ba12f16213b6be64d47b350aa4d64',
 });
+export const etsyReadinessReplacement = Object.freeze({
+  id: 'dpl_HN71E4bJ9KbuinYSdH5wzuXPi95s', tag: 'etsy-readiness-verification-be78791-45589220086-modes022',
+  revision: 'be7879169f0b61850ef309dc8684abe96f8016e8', tree: '1c845cffe27a20ffd5e1fdfb157153870484325f',
+  producer: '45589220086', artifactId: 15009093972,
+  zipDigest: '6ea63d8f7864329d89cbbb3a8c453b3b31ce496529631de0e388120a3d77bdf0',
+  archiveDigest: 'd164fabc0b5447764581b07a75717a27fc6f89f9e8cf769d3c25714276fa418b',
+  artifactDigest: '722ce8befe9ef7c83713bfdfa0d1062f87a327c757549d4b930a619259dd170a',
+  sourceDigest: '2cffabb460e77c2d767a682d383fa00ae75805c3774c94708ee5849e8bb08019',
+  operatorDigest: '42b497b45395103fe62646b03a6f263bb7f50661063261f1a64fe47654cea33a',
+  uploadedArchiveDigest: 'aad1447de74b85a8dd701e7993671c6e367f93a648191884f94c3022faf0075a',
+});
 export interface EtsyContinuationApproval {
-  version: 1; kind: 'held-etsy-continuation' | 'replacement-etsy-continuation'; incident: typeof heldEtsyIncident;
-  priorContinuation?: typeof stoppedEtsyContinuation; replacement?: typeof etsyReplacement;
+  version: 1; kind: 'held-etsy-continuation' | 'replacement-etsy-continuation' | 'readiness-etsy-continuation'; incident: typeof heldEtsyIncident;
+  priorContinuation?: typeof stoppedEtsyContinuation; priorReplacement?: typeof stoppedReadinessContinuation;
+  replacement?: typeof etsyReplacement | typeof etsyReadinessReplacement;
   runId: string; lease: string; window: { start: number; end: number }; originalPacket: EtsyReleasePacket;
   operator: { revision: string; tree: string; producerRun: string; artifactId: string; artifactDigest: string;
     sourceDigest: string; archiveDigest: string; operatorDigest: string; workflowDigest: string;
@@ -76,21 +89,26 @@ function heldRequire(condition: unknown, check: string): asserts condition {
   if (!condition) throw new Error(`Held continuation refused: ${check}.`);
 }
 export function validateEtsyContinuationApproval(value: unknown, digest: string, now = Date.now()): EtsyContinuationApproval {
-  const replacement = setupObject(value).kind === 'replacement-etsy-continuation';
+  const kind = setupObject(value).kind, readiness = kind === 'readiness-etsy-continuation';
+  const replacement = kind === 'replacement-etsy-continuation' || readiness;
+  const candidate = readiness ? etsyReadinessReplacement : etsyReplacement;
   const data = exactObject(value, ['version', 'kind', 'incident', 'runId', 'lease', 'window', 'originalPacket', 'operator',
-    ...(replacement ? ['priorContinuation', 'replacement'] : [])]);
+    ...(replacement ? ['priorContinuation', 'replacement'] : []), ...(readiness ? ['priorReplacement'] : [])]);
   heldRequire(hex.test(digest) && sha256(canonical(data)) === digest && data.version === 1
-    && data.kind === (replacement ? 'replacement-etsy-continuation' : 'held-etsy-continuation')
+    && typeof kind === 'string' && ['held-etsy-continuation', 'replacement-etsy-continuation', 'readiness-etsy-continuation'].includes(kind)
     && equal(data.incident, heldEtsyIncident), 'typed-incident-approval');
   if (replacement) heldRequire(equal(data.priorContinuation, stoppedEtsyContinuation)
-    && equal(data.replacement, etsyReplacement) && data.runId !== stoppedEtsyContinuation.runId, 'exact-replacement-approval');
+    && equal(data.replacement, candidate) && data.runId !== stoppedEtsyContinuation.runId, 'exact-replacement-approval');
+  if (readiness) heldRequire(equal(data.priorReplacement, stoppedReadinessContinuation)
+    && data.runId !== stoppedReadinessContinuation.runId, 'exact-readiness-successor');
   heldRequire(typeof data.runId === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(data.runId)
     && data.runId !== heldEtsyIncident.packetRun && typeof data.lease === 'string'
     && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$/.test(data.lease), 'fresh-owner-lease');
   const window = exactObject(data.window, ['start', 'end']);
   heldRequire(Number.isSafeInteger(window.start) && Number.isSafeInteger(window.end) && Number(window.start) <= now
     && Number(window.end) > now && Number(window.end) - Number(window.start) <= 86400000
-    && Number(window.start) > (replacement ? Date.parse('2026-11-25T03:31:01Z') : 1795412007767), 'fresh-execution-window');
+    && Number(window.start) > (readiness ? Date.parse('2026-11-25T10:08:03.184Z')
+      : replacement ? Date.parse('2026-11-25T03:31:01Z') : 1795412007767), 'fresh-execution-window');
   // Historical validation does not grant present execution authority.
   const packet = validateEtsyReleasePacket(data.originalPacket, heldEtsyIncident.packetDigest, 1795405255467);
   heldRequire(packet.runId === heldEtsyIncident.packetRun && packet.revision === heldEtsyIncident.revision
@@ -104,27 +122,34 @@ export function validateEtsyContinuationApproval(value: unknown, digest: string,
     && ['artifactDigest', 'sourceDigest', 'archiveDigest', 'operatorDigest', 'workflowDigest', 'driverDigest',
       'nodeDigest', 'cliDigest', 'cliOwnFilesDigest'].every(key => typeof operator[key] === 'string' && hex.test(operator[key] as string)),
   'independent-current-operator');
-  if (replacement) heldRequire(operator.revision !== etsyReplacement.revision
-    && String(operator.artifactId) !== String(etsyReplacement.artifactId)
-    && operator.artifactDigest !== etsyReplacement.artifactDigest, 'independent-replacement-operator');
+  if (replacement) heldRequire(operator.revision !== candidate.revision
+    && String(operator.artifactId) !== String(candidate.artifactId)
+    && operator.artifactDigest !== candidate.artifactDigest, 'independent-replacement-operator');
   return JSON.parse(canonical(data)) as EtsyContinuationApproval;
 }
 
+export function continuationReplacement(approval: EtsyContinuationApproval) {
+  return approval.kind === 'readiness-etsy-continuation' ? etsyReadinessReplacement
+    : approval.kind === 'replacement-etsy-continuation' ? etsyReplacement : undefined;
+}
+export function continuationIncident(approval: EtsyContinuationApproval): string {
+  return approval.kind === 'readiness-etsy-continuation' ? stoppedReadinessContinuation.run
+    : approval.kind === 'replacement-etsy-continuation' ? stoppedEtsyContinuation.run : heldEtsyIncident.run;
+}
 // Derive execution identity without altering either immutable original packet or
 // artifact. All non-source controls remain bound to the independently approved incident.
 export function continuationApplication(approval: EtsyContinuationApproval): EtsyReleasePacket {
-  const original = approval.originalPacket;
-  return approval.kind === 'replacement-etsy-continuation'
-    ? { ...original, revision: etsyReplacement.revision, tree: etsyReplacement.tree,
-      artifactDigest: etsyReplacement.artifactDigest, sourceDigest: etsyReplacement.sourceDigest }
-    : original;
+  const original = approval.originalPacket, replacement = continuationReplacement(approval);
+  return replacement ? { ...original, revision: replacement.revision, tree: replacement.tree,
+    artifactDigest: replacement.artifactDigest, sourceDigest: replacement.sourceDigest } : original;
 }
 export function continuationCandidate(approval: EtsyContinuationApproval): string {
-  return approval.kind === 'replacement-etsy-continuation' ? etsyReplacement.id : 'dpl_9gJ1zDbbbbPtac2FUqHrNReyLck4';
+  return continuationReplacement(approval)?.id ?? 'dpl_9gJ1zDbbbbPtac2FUqHrNReyLck4';
 }
 export function continuationClaimKey(approval: EtsyContinuationApproval): string {
   return sha256(canonical({ incident: heldEtsyIncident.run, journal: heldEtsyIncident.journal, ackDigest: heldEtsyIncident.ackDigest,
-    ...(approval.kind === 'replacement-etsy-continuation' ? { stopped: stoppedEtsyContinuation, replacement: etsyReplacement } : {}) }));
+    ...(continuationReplacement(approval) ? { stopped: stoppedEtsyContinuation, replacement: continuationReplacement(approval) } : {}),
+    ...(approval.kind === 'readiness-etsy-continuation' ? { readinessStopped: stoppedReadinessContinuation } : {}) }));
 }
 
 export function verifyHeldEtsyReceipts(zip: Buffer, packet: EtsyReleasePacket, diagnostics?: ReleaseDiagnostics) {
@@ -203,7 +228,15 @@ export function verifyHeldEtsyReceipts(zip: Buffer, packet: EtsyReleasePacket, d
 }
 
 export function verifyStoppedEtsyContinuation(zip: Buffer, diagnostics?: ReleaseDiagnostics) {
-  const archive = validateStoppedContinuationReceiptArchive(zip, diagnostics?.trace), pin = stoppedEtsyContinuation;
+  return verifyStoppedContinuation(zip, false, diagnostics);
+}
+export function verifyStoppedReadinessContinuation(zip: Buffer, diagnostics?: ReleaseDiagnostics) {
+  return verifyStoppedContinuation(zip, true, diagnostics);
+}
+function verifyStoppedContinuation(zip: Buffer, readiness: boolean, diagnostics?: ReleaseDiagnostics) {
+  const archive = readiness ? validateReadinessContinuationReceiptArchive(zip, diagnostics?.trace)
+    : validateStoppedContinuationReceiptArchive(zip, diagnostics?.trace);
+  const pin = readiness ? stoppedReadinessContinuation : stoppedEtsyContinuation;
   const bytes = (name: string): Buffer => {
     const member = archive.files.get(name);
     heldRequire(member !== undefined, 'required-stopped-member');
@@ -221,28 +254,34 @@ export function verifyStoppedEtsyContinuation(zip: Buffer, diagnostics?: Release
     request ??= result.request;
     heldRequire(sha256(canonical(result.request)) === pin.requestDigest && equal(result.request, request)
       && result.stage === stages[index] && result.status === (index >= 3 ? 'refused' : 'unknown')
-      && result.category === (index >= 3 ? 'configuration-mismatch' : 'outcome-unknown')
+      && result.category === (index >= 3 ? readiness ? 'validation' : 'configuration-mismatch' : 'outcome-unknown')
       && result.evidence === 'confirmed' && result.migration === null && result.proof === null
-      && result.deploymentId === 'dpl_9gJ1zDbbbbPtac2FUqHrNReyLck4'
+      && result.deploymentId === (readiness ? etsyReplacement.id : 'dpl_9gJ1zDbbbbPtac2FUqHrNReyLck4')
       && equal(result.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' })
       && result.nextAction === (index >= 3 ? 'inspect-known-deployment' : 'inspect-retained-evidence')
       && result.receiptDigest === (index === 4 ? terminalPrior : previous), 'stopped-confirmed-no-writes');
     if (index === 3) terminalPrior = previous;
     previous = sha256(bytes(name));
   }
-  heldRequire(request?.continuation?.kind === 'held-etsy-continuation' && previous === pin.outcomeHead
+  heldRequire(request?.continuation?.kind === (readiness ? 'replacement-etsy-continuation' : 'held-etsy-continuation') && previous === pin.outcomeHead
     && request.controller.run === pin.run && request.migration?.packetDigest === pin.approvalDigest, 'stopped-request-binding');
   const approval = validateEtsyContinuationApproval(request.continuation, pin.approvalDigest, request.continuation.window.start);
-  const saved = exactObject(json('continuation/origin.json'), ['zip', 'origin', 'execution']);
+  const saved = exactObject(json('continuation/origin.json'), ['zip', 'origin', 'execution', ...(readiness ? ['stoppedZip'] : [])]);
   heldRequire(typeof saved.zip === 'string' && saved.zip.length < 10000, 'stopped-origin-zip');
   const originalZip = Buffer.from(saved.zip, 'base64');
   heldRequire(originalZip.toString('base64') === saved.zip, 'stopped-origin-encoding');
   const origin = verifyHeldEtsyReceipts(originalZip, approval.originalPacket, diagnostics);
   heldRequire(equal(origin, saved.origin), 'stopped-original-proof');
+  if (readiness) {
+    heldRequire(typeof saved.stoppedZip === 'string' && saved.stoppedZip.length < 20000, 'readiness-prior-archive');
+    const prior = Buffer.from(saved.stoppedZip, 'base64');
+    heldRequire(prior.toString('base64') === saved.stoppedZip
+      && equal(verifyStoppedEtsyContinuation(prior, diagnostics).origin, origin), 'readiness-prior-proof');
+  }
   const claim = exactObject(json('continuation/claim.json'),
     ['version', 'key', 'requestDigest', 'packetDigest', 'journal', 'execution', 'originDigest']);
   const reservation = { version: 1, requestDigest: pin.requestDigest, packetDigest: pin.approvalDigest, journal: pin.journal };
-  heldRequire(equal(claim, { version: 1, key: origin.key, requestDigest: pin.requestDigest,
+  heldRequire(equal(claim, { version: 1, key: continuationClaimKey(approval), requestDigest: pin.requestDigest,
     packetDigest: pin.approvalDigest, journal: pin.journal, execution: saved.execution,
     originDigest: sha256(bytes('continuation/origin.json')) }), 'stopped-linked-claim');
   const execution = setupObject(saved.execution);
@@ -251,7 +290,7 @@ export function verifyStoppedEtsyContinuation(zip: Buffer, diagnostics?: Release
     && execution.environment === 'be-production' && execution.concurrency === 'esty-admin-be-production'
     && execution.cancelInProgress === false, 'stopped-execution');
   const base = `continuation/${pin.runId}`, claimDigest = sha256(bytes('continuation/claim.json'));
-  const intent = { packetDigest: pin.approvalDigest, phase: 'history', previous: claimDigest, deploymentId: origin.id };
+  const intent = { packetDigest: pin.approvalDigest, phase: 'history', previous: claimDigest, deploymentId: continuationCandidate(approval) };
   const receipt = json(`${base}/history.receipt.json`), completed = receipt.completed;
   heldRequire(equal(receipt, { ...intent, completed, reportDigest: null })
     && Number.isSafeInteger(completed) && Number(completed) >= approval.window.start
@@ -265,7 +304,7 @@ export function verifyStoppedEtsyContinuation(zip: Buffer, diagnostics?: Release
     && Number.isSafeInteger(authorization.confirmedAt) && Number(authorization.confirmedAt) >= approval.window.start
     && Number(authorization.confirmedAt) <= Number(completed)
     && Number(completed) - Number(authorization.confirmedAt) <= 60000, 'stopped-history-authorization');
-  const preSql = { packetDigest: pin.approvalDigest, phase: 'pre-sql-check', previous: historyDigest, deploymentId: origin.id };
+  const preSql = { packetDigest: pin.approvalDigest, phase: 'pre-sql-check', previous: historyDigest, deploymentId: continuationCandidate(approval) };
   heldRequire(equal(json('continuation/reserving.json'), { requestDigest: pin.requestDigest, packetDigest: pin.approvalDigest })
     && equal(json('continuation/reservation.json'), reservation)
     && equal(json(`${base}/history.intent.json`), intent)
@@ -349,7 +388,7 @@ export interface EtsyReleaseDurability {
 export const heldContinuationPhases: readonly EtsyReleasePhase[] = etsyReleasePhases.filter(phase => phase !== 'held-create');
 export interface HeldContinuationPhase {
   approval: EtsyContinuationApproval; origin: ReturnType<typeof verifyHeldEtsyReceipts>; claimDigest: string;
-  stoppedReceipt?: Buffer;
+  stoppedReceipt?: Buffer; readinessReceipt?: Buffer;
 }
 export async function runEtsyReleasePhase(input: {
   packet: EtsyReleasePacket; packetDigest: string; phase: EtsyReleasePhase; signal: AbortSignal;
@@ -372,10 +411,14 @@ export async function runEtsyReleasePhase(input: {
     heldRequire(equal(input.packet, application) && continuation.origin.ackDigest === heldEtsyIncident.ackDigest
       && continuation.origin.outcomeHead === heldEtsyIncident.outcomeHead && hex.test(continuation.claimDigest)
       && input.durability !== undefined && input.operations.create === undefined, 'continuation-phase-authority');
-    if (approval.kind === 'replacement-etsy-continuation') {
+    if (continuationReplacement(approval)) {
       heldRequire(continuation.stoppedReceipt !== undefined
         && equal(verifyStoppedEtsyContinuation(continuation.stoppedReceipt, diagnostics).origin, continuation.origin), 'stopped-phase-proof');
     } else heldRequire(continuation.stoppedReceipt === undefined, 'original-phase-without-replacement');
+    if (approval.kind === 'readiness-etsy-continuation') {
+      heldRequire(continuation.readinessReceipt !== undefined
+        && equal(verifyStoppedReadinessContinuation(continuation.readinessReceipt, diagnostics).origin, continuation.origin), 'readiness-stopped-phase-proof');
+    } else heldRequire(continuation.readinessReceipt === undefined, 'non-readiness-phase-without-successor');
     return application;
   };
   const packet = trace ? trace.sync('strict.packet', authority) : authority();
@@ -567,9 +610,9 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
     diagnostics?.trace?.check(name, condition, 'approved-strict-contract-mismatch');
     if (!condition) stop();
   };
-  const replacement = continuation?.kind === 'replacement-etsy-continuation';
-  if (replacement) predicate('replacement.application-binding', equal(packet, continuationApplication(continuation))
-    && artifact.digest === etsyReplacement.artifactDigest);
+  const replacement = continuation ? continuationReplacement(continuation) : undefined;
+  if (replacement) predicate('replacement.application-binding', equal(packet, continuationApplication(continuation!))
+    && artifact.digest === replacement.artifactDigest);
   predicate('strict.provider-credentials', /^[\x21-\x7e]{16,512}$/.test(credentials.token) && hex.test(credentials.bearer) && hex.test(credentials.predecessorBearer)
     && /^[\x21-\x7e]{16,512}$/.test(credentials.bypass)
     && (credentials.github === undefined || /^[\x21-\x7e]{16,512}$/.test(credentials.github)));
@@ -672,9 +715,12 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
       const inspect = () => inspectCandidate(deployed, id, artifact, { revision: packet.revision, tree: packet.tree, run: packet.runId });
       const candidate = diagnostics?.trace ? diagnostics.trace.sync('strict.candidate-identity', inspect) : inspect();
       predicate('strict.candidate-declaration', candidate.ready && (replacement
-        ? id === etsyReplacement.id && deployed.meta.runtimeDiagnostic === etsyReplacement.tag
+        ? id === replacement.id && deployed.meta.runtimeDiagnostic === replacement.tag
         : deployed.meta.etsySetupRun === packet.runId && deployed.meta.etsySetupPacket === packetDigest
           && deployed.meta.etsyRuntimeDigest === packet.runtimeDigest));
+      if (continuation?.kind === 'readiness-etsy-continuation' && pending && !final) {
+        predicate('readiness.unaliased-candidate', equal(deployed.alias, []));
+      }
       const files = await provider(`/v6/deployments/${id}/files`);
       const partition = () => {
         const source = Array.isArray(files) ? files.find(entry => entry?.name === 'src') : undefined;
@@ -684,7 +730,7 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
       const archive = await provider(`/v8/deployments/${id}/files/${uid}`, 350 * 1024 * 1024);
       const verify = () => verifyCandidateArchive(archive, uid, artifact);
       const uploadedDigest = diagnostics?.trace ? diagnostics.trace.sync('strict.uploaded-archive', verify) : verify();
-      if (replacement) predicate('replacement.uploaded-archive', uploadedDigest === etsyReplacement.uploadedArchiveDigest);
+      if (replacement) predicate('replacement.uploaded-archive', uploadedDigest === replacement.uploadedArchiveDigest);
       await health(final ? 'https://api.lovora.us' : candidate.origin, packet.runtimeDigest, credentials.bearer, pending, !final);
     },
   };
