@@ -17,7 +17,8 @@ const hosted = {
   BROWSER_ORIGIN: 'https://app.lovora.us',
 };
 
-async function runStartup(mode: 'managed' | 'import' | 'initializer' | 'hang' | 'bind' | 'config') {
+async function runStartup(mode: 'managed' | 'import' | 'initializer' | 'hang' | 'bind' | 'config' | 'unknown-config',
+  overrides: NodeJS.ProcessEnv = {}) {
   const directory = await mkdtemp(join(tmpdir(), 'esty-startup-test-'));
   const fixture = join(directory, 'invoke.mjs');
   // The permanent regression models the public import/capture/bind contract.
@@ -49,6 +50,13 @@ registerHooks({
     return next(specifier, context);
   },
   load(url, context, next) {
+    if (mode === 'unknown-config' && url === ${JSON.stringify(config)}) {
+      return { format: 'module', shortCircuit: true, source: \`
+        import { ConfigurationError } from ${JSON.stringify(config + '?original')};
+        export { ConfigurationError };
+        export function loadConfig() { throw new ConfigurationError(${JSON.stringify(canary)}, ${JSON.stringify(canary)}); }
+      \` };
+    }
     if (mode === 'bind' && url === ${JSON.stringify(config)}) {
       return { format: 'module', shortCircuit: true, source: \`
         export { ConfigurationError } from ${JSON.stringify(config + '?original')};
@@ -124,7 +132,7 @@ if (mode === 'managed') {
     const began = performance.now();
     const { promise, resolve, reject } = Promise.withResolvers<{ code: number | null; signal: string | null; text: string; killed: boolean }>();
     const child = spawn(process.execPath, [fixture], {
-      cwd: directory, env: { ...hosted, ...(mode === 'config' ? { DATABASE_URL: canary } : {}) },
+      cwd: directory, env: { ...hosted, ...(mode === 'config' ? { DATABASE_URL: canary } : {}), ...overrides },
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let text = '', killed = false;
@@ -167,3 +175,47 @@ for (const [mode, stage, errorClass, code] of [
     assert.ok(!result.events.some(event => event.stage === 'listening'), 'Failed startup must not claim serving');
   });
 }
+
+test('startup config rejects identify only fixed app and Etsy fields without values', async t => {
+  const enabled: NodeJS.ProcessEnv = {
+    API_RUNTIME: 'local', VERCEL: undefined,
+    APP_FOUNDATION_ENABLED: 'true', APP_WORKSPACE_ID: '11111111-1111-4111-8111-111111111111',
+    APP_AUTH_URL: 'http://127.0.0.1:54321', APP_AUTH_API_KEY: canary, APP_EMAIL_ENABLED: 'false',
+    APP_RETENTION_POLICY_ID: 'synthetic-policy',
+    DATABASE_URL: `postgresql://app_runtime:${canary}@127.0.0.1:55432/postgres`,
+    ETSY_ENABLED: 'true', ETSY_CLIENT_ID: canary, ETSY_SHARED_SECRET: canary,
+    ETSY_CALLBACK_URL: 'https://api.lovora.us/integrations/etsy/callback',
+    ETSY_RETURN_ORIGIN: 'https://app.lovora.us', ETSY_INVITATION_ORIGIN: 'https://app.lovora.us',
+    ETSY_INVITATION_TTL_SECONDS: '300', ETSY_RETENTION_SECONDS: '300',
+    ETSY_TOKEN_ACTIVE_KEY_ID: 'synthetic', ETSY_TOKEN_KEYRING: JSON.stringify({ synthetic: Buffer.alloc(32, 1).toString('base64url') }),
+  };
+  for (const [field, value] of [
+    ['APP_SCHEMA_MODE', canary], ['APP_FOUNDATION_ENABLED', canary], ['APP_WORKSPACE_ID', canary],
+    ['APP_AUTH_URL', canary], ['APP_AUTH_API_KEY', `${canary} `], ['APP_EMAIL_ENABLED', canary],
+    ['APP_AUTH_ADMIN_KEY', canary], ['APP_RETENTION_POLICY_ID', `${canary} `],
+    ['APP_ACTIVATION_CONFIG_DIGEST', '0'.repeat(64)],
+    ['ETSY_ENABLED', canary], ['ETSY_CLIENT_ID', `${canary} `], ['ETSY_SHARED_SECRET', `${canary} `],
+    ['ETSY_CALLBACK_URL', canary], ['ETSY_RETURN_ORIGIN', canary], ['ETSY_INVITATION_ORIGIN', canary],
+    ['ETSY_INVITATION_TTL_SECONDS', canary], ['ETSY_RETENTION_SECONDS', canary],
+    ['ETSY_TOKEN_ACTIVE_KEY_ID', `${canary} `], ['ETSY_TOKEN_KEYRING', canary],
+  ] as const) await t.test(field, async () => {
+    const result = await runStartup('config', { ...enabled, [field]: value,
+      ...(field === 'APP_FOUNDATION_ENABLED' ? { PREVIEW_ACCESS_KEY: undefined } : {}) });
+    assert.equal(result.code, 1);
+    const failure = result.events.find(event => event.event === 'startup_failure');
+    assert.equal(failure?.stage, 'config');
+    assert.equal(failure?.errorClass, 'ConfigurationError');
+    assert.equal(failure?.field, field);
+    assert.ok(!result.text.includes('0'.repeat(64)), 'Runtime digest values must not leave startup diagnostics');
+    assert.deepEqual(result.events.filter(event => event.event === 'startup_stage').map(event => event.stage), ['entry', 'config']);
+  });
+  await t.test('unknown field and remedy stay omitted', async () => {
+    const result = await runStartup('unknown-config');
+    assert.equal(result.code, 1);
+    const failure = result.events.find(event => event.event === 'startup_failure');
+    assert.equal(failure?.errorClass, 'ConfigurationError');
+    assert.equal(failure?.field, undefined);
+    assert.equal(failure?.message, undefined);
+    assert.equal(failure?.stack, undefined);
+  });
+});

@@ -23,7 +23,7 @@ import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase, HeldCo
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { currentAppMetadata } from '../scripts/activation-configuration.js';
 import { manifestDigest, migrationStatus, runMigrations } from '../scripts/migrations.js';
-import { safeReleaseError } from '../scripts/checks-diagnostics.js';
+import { ChecksDiagnostics, safeReleaseError } from '../scripts/checks-diagnostics.js';
 import type { MigrationReport } from '../scripts/migrations.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { readEvidence } from '../scripts/release-journal.js';
@@ -1597,8 +1597,11 @@ test('Etsy setup provider checks exact pending503 reason config archive and alia
   let manualArchive = false, archiveFault = '', contentReads = 0, candidateHttpReads = 0;
   const githubCanary = 'OpaqueGitHubAuthCanary0123456789', sourceReads: string[] = [];
   let expectedGithub: string | undefined;
+  let healthFault: { route: string; status: number; authorized: boolean; digest?: string; redirected?: boolean } | undefined;
+  let rejectedBodyCancelled = false;
   const transport: typeof fetch = async (input, init) => {
     const url = new URL(String(input)), headers = new Headers(init?.headers);
+    assert.ok(['GET', 'OPTIONS'].includes(init?.method ?? 'GET'), 'Health acceptance must never mutate provider state.');
     if (url.origin === 'https://api.github.com') {
       assert.equal(headers.get('authorization'), expectedGithub === undefined ? null : `Bearer ${expectedGithub}`);
       assert.equal(headers.get('accept'), 'application/vnd.github+json');
@@ -1649,6 +1652,15 @@ test('Etsy setup provider checks exact pending503 reason config archive and alia
     assert.ok(['https://synthetic.vercel.app', 'https://api.lovora.us'].includes(url.origin));
     if (url.origin === 'https://synthetic.vercel.app') candidateHttpReads++;
     const old = url.origin === 'https://api.lovora.us', digest = old ? packet.predecessor.configDigest : packet.runtimeDigest;
+    if (healthFault && url.pathname === healthFault.route && init?.method !== 'OPTIONS'
+      && (headers.get('authorization') === `Bearer ${'c'.repeat(64)}`) === healthFault.authorized) {
+      const response = new Response(new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode('synthetic-health-body-secret')); },
+        cancel() { rejectedBodyCancelled = true; },
+      }), { status: healthFault.status, headers: healthFault.digest ? { 'x-activation-config-digest': healthFault.digest } : {} });
+      if (healthFault.redirected) Object.defineProperty(response, 'redirected', { value: true });
+      return response;
+    }
     if (init?.method === 'OPTIONS') return headers.get('origin') === packet.browserOrigin
       ? new Response(null, { status: 204, headers: { 'access-control-allow-origin': packet.browserOrigin } }) : new Response(null, { status: 401 });
     if (headers.get('authorization') !== `Bearer ${'c'.repeat(64)}`) return Response.json({ status: 'unauthorized' }, { status: 401 });
@@ -1677,6 +1689,46 @@ test('Etsy setup provider checks exact pending503 reason config archive and alia
     assert.equal(contentReads, ['', 'wrong-uid', 'changed-compressed', 'runtime-mode'].includes(archiveFault) ? 1 : 0);
   }
   archiveFault = ''; manualArchive = false;
+  const diagnosticRequest = heldContinuationFixture().request;
+  for (const [name, route, status, authorized, responseDigest, pending, expectedCheck, redirected] of [
+    ['live500', '/health/live', 500, true, undefined, true, 'health.live.status', false],
+    ['live503', '/health/live', 503, true, undefined, true, 'health.live.status', false],
+    ['live401', '/health/live', 401, true, undefined, true, 'health.live.status', false],
+    ['live500-wrong-digest', '/health/live', 500, true, '0'.repeat(64), true, 'health.live.status', false],
+    ['live-redirect', '/health/live', 200, true, undefined, true, 'health.live.status', true],
+    ['ready500', '/health/ready', 500, true, undefined, true, 'health.ready.status', false],
+    ['ready-unexpected200', '/health/ready', 200, true, undefined, true, 'health.ready.status', false],
+    ['ready-unexpected503', '/health/ready', 503, true, undefined, false, 'health.ready.status', false],
+    ['live200-missing-digest', '/health/live', 200, true, undefined, true, 'strict.runtime-config', false],
+    ['live200-wrong-digest', '/health/live', 200, true, '0'.repeat(64), true, 'strict.runtime-config', false],
+    ['pending503-missing-digest', '/health/ready', 503, true, undefined, true, 'strict.runtime-config', false],
+    ['ready200-wrong-digest', '/health/ready', 200, true, '0'.repeat(64), false, 'strict.runtime-config', false],
+    ['unauthorized-digest-leak', '/health/ready', 401, false, packet.runtimeDigest, true, 'strict.runtime-config', false],
+    ['unauthorized500-digest-leak', '/health/ready', 500, false, packet.runtimeDigest, true, 'strict.runtime-config', false],
+  ] as const) await t.test(name, async () => {
+    healthFault = { route, status, authorized, digest: responseDigest, redirected };
+    rejectedBodyCancelled = false; sqlDone = !pending;
+    const trace = new ChecksDiagnostics(join(root, name), { scope: 'release' });
+    const diagnostics = new ReleaseDiagnostics(diagnosticRequest, root, signal(), trace);
+    diagnostics.at('pre-sql');
+    const observed = etsyProviderOperations(packet, packetDigest, artifact,
+      { token: 'synthetic-provider-token', bearer: 'c'.repeat(64), predecessorBearer: 'c'.repeat(64), bypass: 'synthetic-bypass-key' },
+      signal(), transport, diagnostics);
+    await assert.rejects(diagnostics.guard('validation', () => observed.candidate('dpl_new', pending, false)));
+    const failure = JSON.parse(fs.readFileSync(join(trace.directory, `${trace.correlation}-failure.json`), 'utf8'));
+    assert.equal(failure.check, expectedCheck);
+    if (expectedCheck !== 'strict.runtime-config') {
+      assert.equal(failure.values.actual, status);
+      assert.equal(failure.values.expected, route === '/health/live' || !pending ? 200 : 503);
+    }
+    const outcome = diagnostics.failure();
+    assert.equal(outcome.category, expectedCheck === 'strict.runtime-config' ? 'configuration-mismatch' : 'validation');
+    assert.deepEqual(outcome.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
+    assert.equal(rejectedBodyCancelled, true, 'Rejected health responses must release their body.');
+    const events = fs.readFileSync(join(trace.directory, `${trace.correlation}-events.jsonl`), 'utf8');
+    assert.doesNotMatch(events, /synthetic-health-body-secret/);
+  });
+  healthFault = undefined; sqlDone = false;
   for (fault of ['unexpected-ready', 'reason', 'config', 'archive']) await assert.rejects(operations.candidate('dpl_new', true, false), Error, fault);
   for (fault of ['alias', 'metadata']) await assert.rejects(operations.predecessor(false), Error, fault);
   fault = ''; sqlDone = true;

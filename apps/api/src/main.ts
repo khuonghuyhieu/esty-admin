@@ -27,6 +27,11 @@ function failure(error?: unknown, timeout?: 'STARTUP_TIMEOUT'): void {
     'API_RUNTIME', 'VERCEL', 'PREVIEW_ACCESS_KEY', 'operator/deploy context', 'API_HOST/API_PORT', 'PORT', 'API_PORT',
     'API_HOST', 'BROWSER_ORIGIN', 'DATABASE_URL', 'DATABASE_CA_PEM', 'SUPABASE_PROJECT_REF',
     'SUPABASE_SESSION_HOST', 'SUPABASE_DATABASE_NAME', 'SUPABASE_DATABASE_USER', 'package.json', '.env',
+    'APP_SCHEMA_MODE', 'APP_FOUNDATION_ENABLED', 'APP_WORKSPACE_ID', 'APP_AUTH_URL', 'APP_AUTH_API_KEY',
+    'APP_EMAIL_ENABLED', 'APP_AUTH_ADMIN_KEY', 'APP_RETENTION_POLICY_ID', 'APP_ACTIVATION_CONFIG_DIGEST',
+    'ETSY_ENABLED', 'ETSY_CLIENT_ID', 'ETSY_SHARED_SECRET', 'ETSY_CALLBACK_URL', 'ETSY_RETURN_ORIGIN',
+    'ETSY_INVITATION_ORIGIN', 'ETSY_INVITATION_TTL_SECONDS', 'ETSY_RETENTION_SECONDS',
+    'ETSY_TOKEN_ACTIVE_KEY_ID', 'ETSY_TOKEN_KEYRING',
   ].includes(candidateField) ? candidateField : undefined;
   // Only a known application filename and bounded line/column may leave a stack.
   const frame = error instanceof Error ? error.stack?.match(/\/src\/(main|app|config\/config|platform\/vercel|connectivity\/adapters\/postgres)\.js:(\d{1,6}):(\d{1,6})\)?(?:\n|$)/) : undefined;

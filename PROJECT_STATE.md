@@ -1,5 +1,17 @@
 # Current handoff
 
+## Held Etsy continuation diagnostics — local review accepted
+
+Actions run `45539045779` verified the artifact and the three-entry database history, recorded continuation claim `8047533931`, and stopped before migration. The authorized candidate `/health/live` request returned HTTP 500 after artifact verification. Filtered Vercel logs for `dpl_9gJ1zDbbbbPtac2FUqHrNReyLck4` recorded `ConfigurationError` at startup stage `config`. The rejected field remains unknown. The continuation journal ends at `strict:unresolved`. CREATE, migration and promotion were not started.
+
+On base `1bfcc27c602ba53a60cd3117c456fbd6e553bc8f`, OMP updated four API source and test files. Startup logs now allowlist 19 additional configuration field names and the release probe classifies unexpected health status before digest validation. The expected pending readiness 503 still requires the digest. Unauthorized digest disclosure is still rejected.
+
+Node 24.22.1 TypeScript compilation exited 0. Startup/config/HTTP passed 63/63 and affected release tests passed 70/70, both with zero skips. The emitted startup and health smokes passed. The handoff preserves the failing-before counts, initial fixture failures, commands and source hashes at `/var/folders/4h/l740s8vn7j543mbxnnjwnw200000gn/T/esty-be-diagnostics-pzybmbqx/handoff.json` (SHA-256 `086db0df5335102c88d0d2bc9041bfb662d50b5823ccc9616d7761ca98865d5d`).
+
+Separate reviewer `t1gp` completed one read-only Company Codex gpt-6-luna medium pass with no confirmed actionable findings. The coordinator verified availability from the company model catalog, checked the running session footer and matched all four reviewed hashes. The reviewer inspected the direct Git diff and did not rerun tests.
+
+The owner approved publication for CI. Read-only Vercel inspection confirmed that the original candidate has all 27 required runtime variable names and that `api.lovora.us` still points to its predecessor. The saved original configuration matched the packet's bundle digest, key set and runtime digest and passed the deployed artifact's configuration parser offline. Live runtime values and the exact startup failure remain unresolved. Disposition of the production claim requires separate authorization.
+
 ## Current BE diagnostic increment — review accepted
 
 **READY_FOR_BE_END_TO_END_LOGGING_ACCEPTED / STOP WRITES / NO_INFLIGHT.** T223–T230 are complete. Root `t12p` verified and accepted ONE Company Codex `gpt-6-luna` medium read-only review by `t1dw`, with no confirmed actionable findings. Tooling-only hc-sandbox/xcrun-cache failures did not imply model unavailability or substitution; the same original pass completed missing source/base comparisons using root's patch and15 base snapshots. No comparison limitation remains. No reviewer tests/builds/provider operations/edits or finding-driven rerun occurred. [Accepted review and docs-only closeout](specs/001-connectivity-foundation/plan.md#t230-accepted-diagnostic-review-and-docs-only-closeout).

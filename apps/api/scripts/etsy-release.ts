@@ -494,8 +494,14 @@ export function etsyProviderOperations(packet: EtsyReleasePacket, packetDigest: 
     const http = async (url: string, init: RequestInit = {}) => {
       const response = await request(url, { ...init, headers: { ...init.headers,
         ...(candidate ? { 'x-vercel-protection-bypass': credentials.bypass } : {}) } });
-      const authorized = init.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(new URL(url).pathname)
+      const path = new URL(url).pathname;
+      const authorized = init.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(path)
         && new Headers(init.headers).get('authorization') === `Bearer ${key}` && ![401, 403].includes(response.status);
+      // Let shared HTTP acceptance report unexpected status/redirect/body first.
+      // Only expected authorized health responses attest configuration; every
+      // unauthorized response still forbids digest disclosure, regardless of status.
+      const expectedStatus = path === '/health/ready' && pending ? 503 : 200;
+      if (authorized && (response.status !== expectedStatus || response.redirected || response.body === null)) return response;
       diagnostics?.trace?.check('strict.runtime-config', response.headers.get('x-activation-config-digest') === (authorized ? digest : null),
         'runtime-digest-missing-mismatched-or-exposed-to-unauthorized-request', { authorized, pending, candidate });
       if (response.headers.get('x-activation-config-digest') !== (authorized ? digest : null)) {
