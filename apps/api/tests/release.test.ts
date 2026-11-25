@@ -8,7 +8,7 @@ import type { Socket } from 'node:net';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
-import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, readinessContinuationFixture, tar } from './artifact-fixture.js';
+import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, readinessContinuationFixture, promoteRecoveryFixture, tar } from './artifact-fixture.js';
 import { artifactTarget, canonical, readArtifactFile, sha256 } from '../scripts/artifact.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { chmod, writeFile } from 'node:fs/promises';
@@ -19,9 +19,10 @@ import type { ReleaseBinding, SupersessionApproval } from '../scripts/release-jo
 import { bounded } from '../scripts/bounded.js';
 import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validateEtsyReleasePacket, heldContinuationPhases,
   heldEtsyIncident, etsyReplacement, etsyReadinessReplacement, continuationCandidate, continuationClaimKey,
-  validateEtsyContinuationApproval, verifyHeldEtsyReceipts, verifyStoppedEtsyContinuation, verifyStoppedReadinessContinuation } from '../scripts/etsy-release.js';
+  validateEtsyContinuationApproval, verifyHeldEtsyReceipts, verifyStoppedEtsyContinuation, verifyStoppedReadinessContinuation,
+  verifyCommittedEtsyContinuation, promoteRecoveryPhases } from '../scripts/etsy-release.js';
 import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase, HeldContinuationPhase } from '../scripts/etsy-release.js';
-import { stoppedEtsyContinuation, stoppedReadinessContinuation } from '../scripts/activation-preflight-disposition.mjs';
+import { stoppedEtsyContinuation, stoppedReadinessContinuation, committedEtsyContinuation } from '../scripts/activation-preflight-disposition.mjs';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { currentAppMetadata } from '../scripts/activation-configuration.js';
 import { manifestDigest, migrationStatus, runMigrations } from '../scripts/migrations.js';
@@ -77,8 +78,9 @@ test('held continuation rejects stale grants, application relabeling and CREATE-
   assert.throws(() => validateReleaseResult({ ...result, deploymentId: 'dpl_wrong' }));
 });
 
-function heldPhaseFixture(t: TestContext, replacement: boolean | 'readiness' = false) {
-  const readiness = replacement === 'readiness' ? readinessContinuationFixture() : undefined;
+function heldPhaseFixture(t: TestContext, replacement: boolean | 'readiness' | 'recovery' = false) {
+  const recovery = replacement === 'recovery' ? promoteRecoveryFixture() : undefined;
+  const readiness = recovery ?? (replacement === 'readiness' ? readinessContinuationFixture() : undefined);
   const replaced = readiness ?? (replacement ? replacementContinuationFixture() : undefined), f = replaced ?? heldContinuationFixture();
   const root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-held-phase-')), candidate = continuationCandidate(f.approval);
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
@@ -86,31 +88,38 @@ function heldPhaseFixture(t: TestContext, replacement: boolean | 'readiness' = f
   t.mock.method(Date, 'now', () => now);
   const diagnostics = new ReleaseDiagnostics(f.request, root, AbortSignal.timeout(30000));
   diagnostics.load(); diagnostics.inheritedHeld(candidate);
+  if (recovery) diagnostics.inheritedCommitted(verifyCommittedEtsyContinuation(recovery.committedZip).report);
   writeReleaseEvidence(join(root, 'claim.json'), { kind: 'synthetic-serialized-claim', key: continuationClaimKey(f.approval), request: sha256(canonical(f.request)) });
   const continuation: HeldContinuationPhase = { approval: f.approval, origin: f.origin,
     claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256,
-    ...(replaced ? { stoppedReceipt: replaced.stoppedZip } : {}), ...(readiness ? { readinessReceipt: readiness.readinessZip } : {}) };
-  let names = migrationManifest.slice(0, 3).map(entry => entry.name), alias = f.packet.predecessor.id;
+    ...(replaced ? { stoppedReceipt: replaced.stoppedZip } : {}), ...(readiness ? { readinessReceipt: readiness.readinessZip } : {}),
+    ...(recovery ? { committedReceipt: recovery.committedZip, aliasAtClaim: f.packet.predecessor.id } : {}) };
+  let names: string[] = migrationManifest.slice(0, recovery ? 4 : 3).map(entry => entry.name);
+  let alias = f.packet.predecessor.id;
   let sql = 0, promotions = 0, remote = continuation.claimDigest;
-  const operations: Omit<EtsyReleaseOperations, 'create'> = {
+  const operations: Parameters<typeof runEtsyReleasePhase>[0]['operations'] = {
     verify() { validateEtsyContinuationApproval(f.approval, f.digest); },
     async currentMain() { return { revision: f.approval.operator.revision, tree: f.approval.operator.tree }; },
     async history() { return [...names]; },
-    async predecessor(pending) { assert.equal(alias, f.packet.predecessor.id); assert.equal(names.length, pending ? 4 : 3); },
+    async predecessor(pending) {
+      assert.ok(alias === f.packet.predecessor.id || (recovery && alias === candidate));
+      assert.equal(names.length, recovery || pending ? 4 : 3);
+    },
     async candidate(id, pending, final) {
       assert.equal(id, candidate); assert.equal(names.length, pending ? 3 : 4);
       if (final) assert.equal(alias, id);
     },
-    async migrate() {
+    ...(recovery ? {} : { async migrate() {
       sql++;
       const before = [...names]; names = migrationManifest.map(entry => entry.name);
       return { run_id: randomUUID(), source_revision: f.packet.revision, target: f.packet.target,
         manifest_digest: f.packet.targetDigest, started_at: new Date(now).toISOString(), ended_at: new Date(now).toISOString(),
         duration_ms: 0, result: 'success', stage: 'verification', failed_version: null, database_outcome: 'committed',
         before, after: [...names], attempted: [{ ...migrationManifest[3]!, outcome: 'applied_committed' }], reporting: 'written' };
-    },
+    } }),
     async promote(id) { assert.equal(id, candidate); promotions++; alias = id; return { code: 0, aborted: false, stdout: '' }; },
     async alias(id) { assert.equal(alias, id); },
+    ...(recovery ? { async recoveryAlias() { return alias; } } : {}),
   };
   const durability = {
     directory: root,
@@ -124,8 +133,124 @@ function heldPhaseFixture(t: TestContext, replacement: boolean | 'readiness' = f
   const run = (phase: EtsyReleasePhase) => runEtsyReleasePhase({ packet: f.packet, packetDigest: f.digest, phase,
     operations, signal: diagnostics.signal, diagnostics, durability, continuation });
   return { ...f, root, diagnostics, continuation, operations, durability, run,
-    advance: (milliseconds: number) => { now += milliseconds; }, counts: () => ({ sql, promotions }) };
+    advance: (milliseconds: number) => { now += milliseconds; }, counts: () => ({ sql, promotions }),
+    setAlias: (id: string) => { alias = id; }, setHistory: (value: string[]) => { names = value; } };
 }
+
+test('promotion recovery proves the genuine committed report and refuses substituted authority', () => {
+  const f = promoteRecoveryFixture(), proof = verifyCommittedEtsyContinuation(f.committedZip);
+  assert.equal(proof.outcomeHead, committedEtsyContinuation.outcomeHead);
+  assert.equal(proof.request.controller.run, committedEtsyContinuation.run);
+  assert.equal(proof.report.database_outcome, 'committed');
+  assert.equal(proof.report.reporting, 'written');
+  assert.equal(proof.report.source_revision, etsyReadinessReplacement.revision);
+  assert.deepEqual(proof.report.after, migrationManifest.map(row => row.name));
+  assert.deepEqual(proof.descriptions.slice().reverse(), f.committedSnapshots.statuses.map((s: any) => s.description));
+  assert.deepEqual(proof.origin, f.origin);
+  const damaged = Buffer.from(f.committedZip); damaged[100] = damaged[100]! ^ 1;
+  assert.throws(() => verifyCommittedEtsyContinuation(damaged));
+  assert.throws(() => verifyCommittedEtsyContinuation(f.readinessZip));
+  for (const change of [
+    (a: typeof f.approval) => { Object.assign(a.committedContinuation!, { journal: 1 }); },
+    (a: typeof f.approval) => { delete a.committedContinuation; },
+    (a: typeof f.approval) => { a.runId = committedEtsyContinuation.runId; },
+    (a: typeof f.approval) => { a.replacement = etsyReplacement; },
+    (a: typeof f.approval) => { a.window.start = Date.parse('2026-11-25T15:42:56Z'); },
+  ]) {
+    const approval = structuredClone(f.approval); change(approval);
+    assert.throws(() => validateEtsyContinuationApproval(approval, sha256(canonical(approval)), f.now));
+  }
+  const state = new ReleaseOutcome(f.request, { version: 1, requestDigest: sha256(canonical(f.request)) });
+  state.inheritHeld(etsyReadinessReplacement.id);
+  assert.throws(() => state.submitted('create'));
+  assert.throws(() => state.submitted('migration'));
+  assert.throws(() => state.acknowledgeMigration({ ...proof.report, reporting: 'not_requested' }));
+  state.acknowledgeMigration(proof.report);
+  assert.throws(() => state.submitted('migration'));
+});
+
+test('promotion recovery accepts the same ID without SQL or CREATE, including already-promoted and uncertain responses', async t => {
+  for (const scenario of ['same-id', 'already-candidate', 'lost-response', 'nonzero-response']) await t.test(scenario, async st => {
+    const f = heldPhaseFixture(st, 'recovery'), id = etsyReadinessReplacement.id;
+    assert.equal(Object.hasOwn(f.operations, 'create'), false);
+    assert.equal(Object.hasOwn(f.operations, 'migrate'), false);
+    if (scenario === 'already-candidate') { f.setAlias(id); f.continuation.aliasAtClaim = id; }
+    const promote = f.operations.promote;
+    if (scenario === 'lost-response' || scenario === 'nonzero-response') f.operations.promote = async value => {
+      await promote(value);
+      if (scenario === 'lost-response') throw new Error('Synthetic response lost after exact alias transition');
+      return { code: 1, aborted: false, stdout: '' };
+    };
+    for (const phase of promoteRecoveryPhases) await f.run(phase);
+    f.diagnostics.verified();
+    const result = f.diagnostics.complete()!;
+    assert.equal(result.status, 'accepted');
+    assert.equal(result.proof!.deploymentId, id);
+    assert.equal(result.proof!.artifactDigest, etsyReadinessReplacement.artifactDigest);
+    assert.deepEqual(result.effects, { create: 'not-started', migration: 'ACKed', promotion: 'ACKed' });
+    assert.equal(result.migration!.database_outcome, 'committed');
+    assert.deepEqual(f.counts(), { sql: 0, promotions: scenario === 'already-candidate' ? 0 : 1 });
+    assert.equal(fs.existsSync(join(f.root, f.approval.runId, 'sql-apply.intent.json')), false);
+    assert.equal(fs.existsSync(join(f.root, f.approval.runId, 'promote-intent.json')), scenario !== 'already-candidate');
+    await assert.rejects(f.run('promote-only'));
+    assert.deepEqual(f.counts(), { sql: 0, promotions: scenario === 'already-candidate' ? 0 : 1 });
+  });
+});
+
+test('promotion recovery refuses missing proof, forbidden capabilities, drift and stale history before promotion', async t => {
+  for (const fault of ['missing-proof', 'changed-proof', 'sql-phase', 'create-phase', 'sql-capability',
+    'three-entry-history', 'unexpected-history', 'stale-history', 'alias-drift', 'alias-regression',
+    'candidate-refusal', 'main-drift', 'report-tamper']) await t.test(fault, async st => {
+    const f = heldPhaseFixture(st, 'recovery');
+    if (fault === 'missing-proof') delete f.continuation.committedReceipt;
+    if (fault === 'changed-proof') f.continuation.committedReceipt = Buffer.from('substituted receipt');
+    if (fault === 'sql-capability') f.operations.migrate = async () => { assert.fail('SQL mutation cannot be exposed'); };
+    if (fault === 'three-entry-history') f.setHistory(migrationManifest.slice(0, 3).map(row => row.name));
+    if (fault === 'unexpected-history') f.setHistory([...migrationManifest.map(row => row.name), 'unapproved']);
+    if (['missing-proof', 'changed-proof', 'sql-capability', 'three-entry-history', 'unexpected-history', 'sql-phase', 'create-phase'].includes(fault)) {
+      await assert.rejects(f.run(fault === 'sql-phase' ? 'sql-apply' : fault === 'create-phase' ? 'held-create' : 'history'));
+    } else {
+      await f.run('history');
+      if (fault === 'stale-history') f.advance(60001);
+      if (fault === 'alias-drift') f.setAlias('dpl_unapproved');
+      if (fault === 'alias-regression') f.continuation.aliasAtClaim = etsyReadinessReplacement.id;
+      if (fault === 'candidate-refusal') f.operations.candidate = async () => { throw new Error('Candidate identity/runtime/readiness is unproven'); };
+      if (fault === 'main-drift') f.operations.currentMain = async () => ({ revision: '0'.repeat(40), tree: f.approval.operator.tree });
+      if (fault === 'report-tamper') {
+        const path = join(f.root, f.approval.runId, 'migration-report.json');
+        const value = readEvidence(path).value as MigrationReport;
+        fs.writeFileSync(path, JSON.stringify({ ...value, database_outcome: 'unknown' }));
+      }
+      await assert.rejects(f.run('promote-only'));
+    }
+    assert.deepEqual(f.counts(), { sql: 0, promotions: 0 });
+  });
+});
+
+test('uncertain promotion without final proof stays fenced and never submits again', async t => {
+  for (const fault of ['old-alias', 'unexpected-alias', 'final-runtime', 'final-alias-drift']) await t.test(fault, async st => {
+    const f = heldPhaseFixture(st, 'recovery'), promote = f.operations.promote, candidate = f.operations.candidate;
+    f.operations.promote = async id => {
+      await promote(id);
+      if (fault === 'old-alias') f.setAlias(f.packet.predecessor.id);
+      if (fault === 'unexpected-alias') f.setAlias('dpl_unapproved');
+      throw new Error('Synthetic uncertain promotion response');
+    };
+    f.operations.candidate = async (id, pending, final) => {
+      await candidate(id, pending, final);
+      if (final && fault === 'final-runtime') throw new Error('Final-domain runtime mismatch');
+      if (final && fault === 'final-alias-drift') f.setAlias(f.packet.predecessor.id);
+    };
+    await f.run('history'); await assert.rejects(f.run('promote-only'));
+    const result = f.diagnostics.failure();
+    assert.equal(result.status, 'unknown');
+    assert.equal(result.effects.promotion, 'unknown');
+    assert.equal(result.migration!.database_outcome, 'committed');
+    assert.equal(result.nextAction, 'reconcile-promotion');
+    await assert.rejects(f.run('promote-only'));
+    assert.deepEqual(f.counts(), { sql: 0, promotions: 1 });
+  });
+});
 
 test('held continuation completes the suffix once with dual identities and zero CREATE', async t => {
   const f = heldPhaseFixture(t), original = Buffer.from(f.zip);
@@ -167,7 +292,7 @@ test('held continuation fences wrong main, late SQL, altered receipts and unknow
           fs.writeFileSync(path, JSON.stringify({ ...value, deploymentId: 'dpl_wrong' }));
         }
         if (fault === 'sql-unknown') {
-          const migrate = f.operations.migrate;
+          const migrate = f.operations.migrate!;
           f.operations.migrate = async () => { await migrate(); throw new Error('Synthetic SQL acknowledgement loss'); };
         }
         if (['late-sql', 'receipt', 'sql-unknown'].includes(fault)) await assert.rejects(f.run('sql-apply'));
@@ -250,7 +375,7 @@ test('readiness successor cannot lose the stopped proof or report migration agai
     assert.deepEqual(f.counts(), { sql: 0, promotions: 0 });
   });
   await t.test('old source report', async st => {
-    const f = heldPhaseFixture(st, 'readiness'), migrate = f.operations.migrate;
+    const f = heldPhaseFixture(st, 'readiness'), migrate = f.operations.migrate!;
     f.operations.migrate = async () => ({ ...await migrate(), source_revision: etsyReplacement.revision });
     await f.run('history'); await f.run('pre-sql-check'); await assert.rejects(f.run('sql-apply'));
     assert.deepEqual(f.counts(), { sql: 1, promotions: 0 });
@@ -357,7 +482,7 @@ test('replacement preserves proof, history, source-report, deadline and unknown-
           await f.run('pre-sql-check');
           if (fault === 'deadline') f.advance(60001);
           if (fault === 'report-source' || fault === 'sql-unknown') {
-            const migrate = f.operations.migrate;
+            const migrate = f.operations.migrate!;
             f.operations.migrate = async () => {
               const report = await migrate();
               if (fault === 'sql-unknown') throw new Error('Synthetic SQL acknowledgement loss');

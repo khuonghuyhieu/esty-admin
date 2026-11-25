@@ -29,7 +29,7 @@ on:
         required: false
         type: string
       held_incident:
-        description: Empty for ordinary delivery; 45106877912 original, 45539045779 first replacement, or 45578212592 exact readiness-fixed successor
+        description: Empty for ordinary delivery; 45106877912 original, 45539045779 replacement, 45578212592 readiness successor, or 45646286338 committed-SQL promotion recovery
         required: false
         default: ''
         type: string
@@ -361,14 +361,24 @@ jobs:
         if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT == '45578212592'
         env: *replacement-claim-env
         run: *routine-command
+      - name: Claim committed Etsy promotion recovery after 45646286338 once
+        id: recovery_claim
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT == '45646286338'
+        env: *replacement-claim-env
+        run: *routine-command
       - name: Inspect exactly strict three-entry history in the SQL-only worker
         id: history
-        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
-        env:
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT != '45646286338'
+        env: &strict-history-env
           BE_ROUTINE_ACTION: history
           BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
           BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
           BE_MIGRATION_INPUTS: ${{ secrets.BE_MIGRATION_INPUTS }}
+        run: *routine-command
+      - name: Inspect exact committed four-entry history in the read-only SQL worker
+        id: recovery_history
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT == '45646286338'
+        env: *strict-history-env
         run: *routine-command
       - name: Create held strict4 once and authorize SQL only after exact pending readiness
         id: held
@@ -408,7 +418,7 @@ jobs:
         run: *routine-command
       - name: Apply only the approved new suffix in the SQL-only worker
         id: migrate
-        if: env.BE_DELIVERY_MODE == 'versioned-migration' || env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
+        if: env.BE_DELIVERY_MODE == 'versioned-migration' || (env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT != '45646286338')
         env:
           BE_ROUTINE_ACTION: migrate
           BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
@@ -461,6 +471,8 @@ jobs:
           TOOLS: ${{ steps.tools.outcome }}
           AUTHORIZE: ${{ steps.authorize.outcome }}
           HISTORY: ${{ steps.history.outcome }}
+          RECOVERY_CLAIM: ${{ steps.recovery_claim.outcome }}
+          RECOVERY_HISTORY: ${{ steps.recovery_history.outcome }}
           HELD: ${{ steps.held.outcome }}
           MIGRATE: ${{ steps.migrate.outcome }}
           DELIVERY: ${{ steps.routine_delivery.outcome }}
@@ -470,6 +482,7 @@ jobs:
           node apps/api/scripts/checks-diagnostics.ts summary "$RUNNER_TEMP/be-release-diagnostics" production
           "download=${DOWNLOAD:-unknown}" "ingress=${CONSUME:-unknown}" "public-tools=${TOOLS:-unknown}"
           "authorize=${AUTHORIZE:-unknown}" "history=${HISTORY:-unknown}" "held=${HELD:-unknown}"
+          "recovery-claim=${RECOVERY_CLAIM:-unknown}" "recovery-history=${RECOVERY_HISTORY:-unknown}"
           "sql=${MIGRATE:-unknown}" "same-id-delivery=${DELIVERY:-unknown}"
           "receipt-archive=${RECEIPTS:-unknown}" "receipt-upload=${RECEIPT_UPLOAD:-unknown}"
       - name: Retain public production diagnostics on every outcome

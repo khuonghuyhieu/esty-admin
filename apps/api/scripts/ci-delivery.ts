@@ -23,6 +23,7 @@ import { githubReader } from './activation-retained.mjs';
 import { heldEtsyIncident, continuationCandidate, continuationApplication, continuationIncident,
   validateEtsyContinuationApproval, validateEtsyReleasePacket } from './etsy-release.js';
 import type { EtsyContinuationApproval } from './etsy-release.js';
+import { committedEtsyContinuation } from './activation-preflight-disposition.mjs';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
 import { privateDirectory } from './private-files.mjs';
 import { emitRoutineResult, routineFailureResult } from './routine-retained.mjs';
@@ -297,7 +298,7 @@ export class ReleaseOutcome {
       || (operation === 'create' && this.request.continuation !== undefined)
       || (operation === 'create' && this.request.mode === 'versioned-migration'
         && (this.#migration?.database_outcome !== 'committed' || this.#migration.result !== 'success' || this.#migration.reporting !== 'written'))
-      || (operation === 'migration' && (!this.request.migration
+      || (operation === 'migration' && (!this.request.migration || this.request.continuation?.kind === 'promote-etsy-recovery'
         || (this.request.mode === 'etsy-strict-cutover' && this.#id === null)))
       || (operation === 'promotion' && (this.#id === null
         || (this.request.migration && (this.#migration?.database_outcome !== 'committed'
@@ -309,7 +310,10 @@ export class ReleaseOutcome {
     this.#id = id; this.#effects.create = 'ACKed';
   }
   acknowledgeMigration(report: MigrationReport): void {
-    if (!report || typeof report !== 'object' || this.#effects.migration !== 'unknown'
+    const inherited = this.request.continuation?.kind === 'promote-etsy-recovery'
+      && this.#effects.migration === 'not-started' && this.#id !== null
+      && sha256(canonical(report)) === committedEtsyContinuation.reportDigest;
+    if (!report || typeof report !== 'object' || (this.#effects.migration !== 'unknown' && !inherited)
       || report.source_revision !== (this.request.continuation ? continuationApplication(this.request.continuation).revision : this.request.producer.revision) || report.target !== this.request.target
       || report.manifest_digest !== manifestDigest(this.request.schema.target)) releaseRefusal();
     const safe = { result: report.result, database_outcome: report.database_outcome, before: report.before, after: report.after,
@@ -320,6 +324,12 @@ export class ReleaseOutcome {
   }
   acknowledgePromotion(): void {
     if (this.#effects.promotion !== 'unknown') releaseRefusal();
+    this.#effects.promotion = 'ACKed';
+  }
+  observePromotion(): void {
+    if (this.request.continuation?.kind !== 'promote-etsy-recovery' || this.#effects.promotion !== 'not-started'
+      || this.#id !== continuationCandidate(this.request.continuation) || this.#effects.migration !== 'ACKed'
+      || this.#migration?.database_outcome !== 'committed' || this.#migration.reporting !== 'written') releaseRefusal();
     this.#effects.promotion = 'ACKed';
   }
   finish(input: { stage: ReleaseStage; category: ReleaseCategory | null; nextAction: ReleaseNextAction;
@@ -444,6 +454,17 @@ export class ReleaseDiagnostics {
   inheritedHeld(id: string): void {
     this.#outcome.inheritHeld(id);
     this.trace?.event('effect.create', 'not-run', 'inherited-original-ack-zero-create', { actualId: id });
+    this.persist();
+  }
+  inheritedCommitted(report: MigrationReport): void {
+    if (this.#outcome.request.continuation?.kind !== 'promote-etsy-recovery') releaseRefusal();
+    this.#outcome.acknowledgeMigration(report);
+    this.trace?.event('effect.migration', 'not-run', 'inherited-written-committed-report-zero-sql');
+    this.persist();
+  }
+  observedPromotion(): void {
+    this.#outcome.observePromotion();
+    this.trace?.event('effect.promotion', 'not-run', 'exact-alias-and-final-domain-already-confirmed');
     this.persist();
   }
   migrated(report: MigrationReport): void {

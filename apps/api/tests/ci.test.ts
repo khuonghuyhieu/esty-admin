@@ -16,7 +16,7 @@ import { gunzipSync } from 'node:zlib';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
 import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture,
-  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, readinessContinuationFixture,
+  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, readinessContinuationFixture, promoteRecoveryFixture,
   failedReplacementFixture, historicalProviderFixture } from './artifact-fixture.js';
 import { historicalActivationChild } from './historical-activation-fixture.js';
 import { readinessSuccessorSmoke } from './readiness-successor-fixture.js';
@@ -31,7 +31,7 @@ import { verifyUploadedArchive } from '../scripts/ci-archive.js';
 import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
 import type { CommandResult } from '../scripts/ci-tools.js';
 import { routineContext, loadRoutineContext, withRoutineDiagnostics, selectRoutine, validateRoutineSelection, confirmRoutineSelection,
-  extractRoutineBundle, admitHeldProduction, heldClaimStep, replacementClaimStep, readinessClaimStep, heldRunnerPaths } from '../scripts/routine-retained.mjs';
+  extractRoutineBundle, admitHeldProduction, heldClaimStep, replacementClaimStep, readinessClaimStep, recoveryClaimStep, heldRunnerPaths } from '../scripts/routine-retained.mjs';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { activationPhases, appendActivationEvent, createActivationJournal, finishActivationJournal, importFrontendJournal,
   readActivationJournal, reserveActivationJournal, saveActivationConfigurationReceipt } from '../scripts/activation-journal.js';
@@ -67,21 +67,22 @@ import { historicalHandoffDigest, historicalMetadataReadback, historicalSnapshot
   proveFailedAuthorization, proveFailedAuthorizations } from '../scripts/historical-release.js';
 import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
 
-function heldProductionFixture(replacement: boolean | 'readiness' = false) {
-  const readiness = replacement === 'readiness' ? readinessContinuationFixture() : undefined;
+function heldProductionFixture(replacement: boolean | 'readiness' | 'recovery' = false) {
+  const recovery = replacement === 'recovery' ? promoteRecoveryFixture() : undefined;
+  const readiness = recovery ?? (replacement === 'readiness' ? readinessContinuationFixture() : undefined);
   const replaced = readiness ?? (replacement ? replacementContinuationFixture() : undefined), f = replaced ?? heldContinuationFixture();
   const source = readFileSync(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url));
   const env: NodeJS.ProcessEnv = { GITHUB_ACTIONS: 'true', GITHUB_JOB: 'production', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1',
     GITHUB_SHA: f.request.controller.revision, GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch',
     GITHUB_REF: 'refs/heads/main', GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/be-delivery.yml@refs/heads/main`,
     RUNNER_ENVIRONMENT: 'github-hosted', RUNNER_NAME: 'synthetic-serialized-runner',
-    BE_HELD_INCIDENT: readiness ? '45578212592' : replacement ? '45539045779' : '45106877912' };
+    BE_HELD_INCIDENT: recovery ? '45646286338' : readiness ? '45578212592' : replacement ? '45539045779' : '45106877912' };
   const run = { id: 123, workflow_id: 404086547, run_attempt: 1, head_sha: f.request.controller.revision, head_branch: 'main',
     path: '.github/workflows/be-delivery.yml', event: 'workflow_dispatch', status: 'in_progress', conclusion: null,
     repository: { id: 1430691691, full_name: repository }, head_repository: { id: 1430691691, full_name: repository } };
   const job = { id: 456, run_id: 123, run_attempt: 1, head_sha: run.head_sha, name: 'BE production delivery',
     status: 'in_progress', conclusion: null, runner_id: 789, runner_name: env.RUNNER_NAME,
-    steps: [{ name: readiness ? readinessClaimStep : replacement ? replacementClaimStep : heldClaimStep, status: 'in_progress', conclusion: null as string | null }] };
+    steps: [{ name: recovery ? recoveryClaimStep : readiness ? readinessClaimStep : replacement ? replacementClaimStep : heldClaimStep, status: 'in_progress', conclusion: null as string | null }] };
   const records: Record<string, any> = {
     '/actions/runs/123': run,
     '/commits/main': { sha: run.head_sha, commit: { tree: { sha: f.request.controller.tree } } },
@@ -115,6 +116,13 @@ function heldProductionFixture(replacement: boolean | 'readiness' = false) {
     const list = records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'];
     list.workflow_runs.push(prior.run); list.total_count++;
   }
+  if (recovery) {
+    const prior = recovery.committedSnapshots;
+    records[`/actions/runs/${prior.run.id}`] = prior.run;
+    records[`/actions/runs/${prior.run.id}/jobs?filter=all&per_page=100`] = prior.jobs;
+    const list = records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'];
+    list.workflow_runs.push(prior.run); list.total_count++;
+  }
   const read = async (path: string) => {
     assert.ok(Object.hasOwn(records, path), `Unexpected synthetic metadata path: ${path}`);
     return structuredClone(records[path]);
@@ -126,6 +134,55 @@ function heldProductionFixture(replacement: boolean | 'readiness' = false) {
 test('readiness successor emits full fresh admission through same-ID acceptance from genuine public evidence',
   { skip: !process.env.BE_SUCCESSOR_EVIDENCE || !process.env.BE_SUCCESSOR_RELEASE, timeout: 240000 },
   async t => readinessSuccessorSmoke(t, process.env.BE_SUCCESSOR_EVIDENCE!, process.env.BE_SUCCESSOR_RELEASE!));
+
+test('promotion recovery emits genuine committed-incident admission through same-ID acceptance with zero SQL',
+  { skip: !process.env.BE_SUCCESSOR_EVIDENCE || !process.env.BE_SUCCESSOR_RELEASE || !process.env.BE_RECOVERY_EVIDENCE, timeout: 300000 },
+  async t => readinessSuccessorSmoke(t, process.env.BE_SUCCESSOR_EVIDENCE!, process.env.BE_SUCCESSOR_RELEASE!, process.env.BE_RECOVERY_EVIDENCE!));
+
+test('promotion recovery audit requires the exact committed run and refuses every reached recovery attempt', async t => {
+  assert.equal((await heldProductionFixture('recovery').admit()).job, 456);
+  for (const fault of ['changed-run', 'changed-jobs', 'omitted-committed', 'wrong-selector', 'wrong-pin', 'reached-recovery']) await t.test(fault, async () => {
+    const f = heldProductionFixture('recovery');
+    const list = f.records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'];
+    if (fault === 'changed-run') f.records['/actions/runs/45646286338'].run_attempt = 2;
+    if (fault === 'changed-jobs') f.records['/actions/runs/45646286338/jobs?filter=all&per_page=100'].jobs[0].run_attempt = 2;
+    if (fault === 'omitted-committed') { list.workflow_runs = list.workflow_runs.filter((r: any) => r.id !== 45646286338); list.total_count--; }
+    if (fault === 'wrong-selector') f.env.BE_HELD_INCIDENT = '45578212592';
+    if (fault === 'wrong-pin') f.approval.committedContinuation = Object.assign({}, f.approval.committedContinuation!, { journal: 1 });
+    if (fault === 'reached-recovery') {
+      const prior = { ...f.run, id: 124, status: 'completed', conclusion: 'failure', updated_at: new Date(f.now).toISOString() };
+      list.workflow_runs.push(prior); list.total_count++;
+      f.records['/actions/runs/124/jobs?filter=all&per_page=100'] = { total_count: 1, jobs: [{
+        ...f.job, id: 457, run_id: 124, status: 'completed', conclusion: 'failure',
+        steps: [heldClaimStep, replacementClaimStep, readinessClaimStep, recoveryClaimStep].map(name => ({
+          name, status: 'completed', conclusion: name === recoveryClaimStep ? 'failure' : 'skipped',
+        })),
+      }] };
+    }
+    await assert.rejects(f.admit());
+  });
+});
+
+test('promotion recovery rechecks all three stopped journals and the exact durable SQL status', async t => {
+  for (const fault of ['valid', 'journal', 'sql-status', 'missing-terminal', 'extra-status', 'earlier-stop']) await t.test(fault, async () => {
+    const f = promoteRecoveryFixture(), records: Record<string, any> = {
+      '/deployments/8047533931': structuredClone(f.snapshots.journal),
+      '/deployments/8047533931/statuses?per_page=100': structuredClone(f.snapshots.statuses),
+      '/deployments/8052686808': structuredClone(f.readinessSnapshots.record),
+      '/deployments/8052686808/statuses?per_page=100': structuredClone(f.readinessSnapshots.statuses),
+      '/deployments/8062283972': structuredClone(f.committedSnapshots.journal),
+      '/deployments/8062283972/statuses?per_page=100': structuredClone(f.committedSnapshots.statuses),
+    };
+    if (fault === 'journal') records['/deployments/8062283972'].payload.releaseRequest.target = 'local';
+    if (fault === 'sql-status') records['/deployments/8062283972/statuses?per_page=100'][2].id = 1;
+    if (fault === 'missing-terminal') records['/deployments/8062283972/statuses?per_page=100'].shift();
+    if (fault === 'extra-status') records['/deployments/8062283972/statuses?per_page=100'].push(records['/deployments/8062283972/statuses?per_page=100'][0]);
+    if (fault === 'earlier-stop') records['/deployments/8052686808/statuses?per_page=100'][0].state = 'success';
+    const read = async (path: string) => { assert.ok(Object.hasOwn(records, path)); return records[path]; };
+    if (fault === 'valid') await confirmStoppedEtsyContinuation({ read }, true, true);
+    else await assert.rejects(confirmStoppedEtsyContinuation({ read }, true, true), /statuses changed/);
+  });
+});
 
 test('readiness successor audit admits only exact stopped runs and fences any reached successor', async t => {
   assert.equal((await heldProductionFixture('readiness').admit()).job, 456);
@@ -145,7 +202,7 @@ test('readiness successor audit admits only exact stopped runs and fences any re
         list.workflow_runs.push(prior); list.total_count++;
         if (fault === 'reached-successor') f.records['/actions/runs/124/jobs?filter=all&per_page=100'] = {
           total_count: 1, jobs: [{ ...f.job, id: 457, run_id: 124, status: 'completed', conclusion: 'failure',
-            steps: [heldClaimStep, replacementClaimStep, readinessClaimStep].map(name => ({
+            steps: [heldClaimStep, replacementClaimStep, readinessClaimStep, recoveryClaimStep].map(name => ({
               name, status: 'completed', conclusion: name === readinessClaimStep ? 'failure' : 'skipped',
             })) }] };
       }
@@ -318,8 +375,8 @@ test('replacement audit completes from the cold delivery ESM graph without bypas
     };
     await import(fixture.delivery);
   `;
-  for (const scenario of ['compiled', 'source-native', 'wrong-pin', 'reached-claim']) await t.test(scenario, async () => {
-    const f = heldProductionFixture(true);
+  for (const scenario of ['compiled', 'source-native', 'wrong-pin', 'reached-claim', 'recovery-compiled', 'recovery-source-native']) await t.test(scenario, async () => {
+    const f = heldProductionFixture(scenario.startsWith('recovery-') ? 'recovery' : true);
     if (scenario === 'wrong-pin') {
       f.request.continuation!.priorContinuation = structuredClone(stoppedEtsyContinuation);
       Object.assign(f.request.continuation!.priorContinuation, { journal: 1 });
@@ -334,7 +391,7 @@ test('replacement audit completes from the cold delivery ESM graph without bypas
           { name: replacementClaimStep, status: 'completed', conclusion: 'failure' }],
       }] };
     }
-    const runtime = new URL(scenario === 'source-native' ? '../../scripts/routine-retained.mjs' : '../scripts/routine-retained.mjs', import.meta.url).href;
+    const runtime = new URL(scenario.endsWith('source-native') ? '../../scripts/routine-retained.mjs' : '../scripts/routine-retained.mjs', import.meta.url).href;
     const input = join(root, `${scenario}.json`);
     await writeFile(input, JSON.stringify({ delivery, runtime, request: f.request, env: f.env, records: f.records,
       source: f.source.toString('base64'), failedArtifact: f.failed.artifact.id, failedZip: f.failed.zip.toString('base64') }));
@@ -343,7 +400,7 @@ test('replacement audit completes from the cold delivery ESM graph without bypas
     });
     assert.equal(child.error, undefined);
     assert.equal(child.signal, null);
-    assert.equal(child.status, ['compiled', 'source-native'].includes(scenario) ? 0 : 1, child.stderr);
+    assert.equal(child.status, ['wrong-pin', 'reached-claim'].includes(scenario) ? 1 : 0, child.stderr);
     const result = JSON.parse(child.stdout);
     assert.equal(result.network, 0);
     assert.ok(result.loaded.includes(delivery));
@@ -408,7 +465,8 @@ test('held continuation retains lost-claim fences across approvals runs director
       ...f.job, id: 450, run_id: 120, status: 'completed', conclusion: 'failure',
       steps: state === 'missing' ? [] : [{ name: heldClaimStep, status: state === 'in_progress' ? state : 'completed',
         conclusion: state === 'in_progress' ? null : state }, { name: replacementClaimStep, status: 'completed', conclusion: 'skipped' },
-      { name: readinessClaimStep, status: 'completed', conclusion: 'skipped' }],
+      { name: readinessClaimStep, status: 'completed', conclusion: 'skipped' },
+      { name: recoveryClaimStep, status: 'completed', conclusion: 'skipped' }],
     }] };
     f.request.continuation!.runId = randomUUID();
     f.request.continuation!.window = { start: f.now - 500, end: f.now + 300000 };
@@ -454,6 +512,7 @@ test('replacement ingress authenticates the exact stopped attempt and refuses ev
           ...f.job, id: 450, run_id: 120, status: 'completed', conclusion: 'failure',
           steps: [{ name: heldClaimStep, status: 'completed', conclusion: 'skipped' },
             { name: readinessClaimStep, status: 'completed', conclusion: 'skipped' },
+            { name: recoveryClaimStep, status: 'completed', conclusion: 'skipped' },
             ...(fault === 'successor-unknown' ? [] : [{ name: replacementClaimStep,
               status: fault === 'successor-started' ? 'in_progress' : 'completed',
               conclusion: fault === 'successor-started' ? null : fault === 'successor-success' ? 'success' : 'skipped' }])],
@@ -519,8 +578,8 @@ test('readiness successor rechecks the complete status chains of both immutable 
 
 test('replacement never launders an existing or unknown durable successor with a fresh approval', async t => {
   const base = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(base.dispose);
-  const h = routineProviderFixture(base.artifact), readiness = readinessContinuationFixture();
-  for (const f of [replacementContinuationFixture(), readiness]) {
+  const h = routineProviderFixture(base.artifact), readiness = readinessContinuationFixture(), recovery = promoteRecoveryFixture();
+  for (const f of [replacementContinuationFixture(), readiness, recovery]) {
     Object.assign(f.approval.operator, { artifactDigest: base.artifact.digest, sourceDigest: base.approval.sourceDigest,
       archiveDigest: base.approval.archiveDigest, operatorDigest: base.approval.operatorDigest });
     const digest = sha256(canonical(f.approval)), request = { ...f.request, artifactDigest: base.artifact.digest,
@@ -534,6 +593,7 @@ test('replacement never launders an existing or unknown durable successor with a
       { id: 999, task: 'deploy:esty-be-ci', environment: 'be-production', payload: { heldContinuation: { unknown: true } } },
       f.snapshots.journal,
       ...(f === readiness ? [readiness.readinessSnapshots.record] : []),
+      ...(f === recovery ? [recovery.readinessSnapshots.record, recovery.committedSnapshots.journal] : []),
       ...[
         { run: failedReplacementDispatch.run },
         { releaseRequest: { controller: { run: failedReplacementDispatch.run } } },

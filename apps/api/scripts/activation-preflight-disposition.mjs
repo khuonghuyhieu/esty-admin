@@ -30,6 +30,23 @@ export const stoppedReadinessContinuation = Object.freeze({
   journalDigest: 'aac14a3378462adb88f255a6bbe6838f944ed0185946c2caf1e824d2e609e26d',
   statusesDigest: 'f4134c6a71d75c10136605a2afd5435049be145dbddea3f0ff42573ddbddbd5a',
 });
+export const committedEtsyContinuation = Object.freeze({
+  run: '45646286338', job: 139318855711, journal: 8062283972, receiptArtifact: 15037059022,
+  runId: 'e3ad9cca-b798-4807-84b2-f85692ef870b',
+  requestDigest: 'e5f1c9bdab175a80b1edc6a386ab58960379c3c10c80c7e78e06e03a3c7b79c3',
+  approvalDigest: '54ec1e42daa022d7ed04fb357b243f0670641545d2f6148d36e4436c65c18e67',
+  receiptZipDigest: '075e53413d128a306d95505ecbd7dea0ff959d0dc476276bbcf3190b6e6eb9f6',
+  archiveDigest: '83f02ab81517176b982ab4d931a3b82dc042adfc5f776505e4ad80364a313cdc',
+  inventoryDigest: '50129f0c620c76512a3d1419b9f11bc8b26dde38f3bf22dca769fc4179737bd4',
+  outcomeHead: '848dfc5260b8abbef6ccbe1b4d96f20071087c892c1a018b19f91ae0e0e1656f',
+  runDigest: '46df040e59111abc791968bceb01e23e0d7b1469c8685c9fde43fea30bc4006a',
+  jobsDigest: '142b8d5501b36522a596d1e87be6285f6cc0c72f47ef79ad2569d87604219a78',
+  journalDigest: 'af17631d080bf7157e2eeceba5986fdf0d21854818263ce6594e4d62cb3e3018',
+  statusesDigest: '9bfa8124953c52c24892290b84abd5a4ef672b3259cd21e7e44237fc46ca7542',
+  workflowDigest: 'dd53c02d120e0fd118f6da6a8821be0affaf6b1c2103f865974609bb69d2887b',
+  reportDigest: '92c4981bc5fa007cd622565def122498ee23dfe59d38c9075292a0d3b137784f',
+  sqlReceiptStatus: 23145193462,
+});
 // Owner-approved disposition of the one cold-entry failure before reservation.
 // Full snapshots bind its failed claim and skipped downstream mutation steps.
 export const failedReplacementDispatch = Object.freeze({
@@ -146,7 +163,7 @@ export function validateAuthorizationProducerArchive(bytes, approvedZip, diagnos
   if (canonical(approval) + '\n' !== approvalBytes.toString('utf8')) refuse();
   return { archive: members.get('be-release.tar.gz'), approval, approvalDigest: hash(approvalBytes) };
 }
-function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diagnostics, maximumTar = 65536) {
+function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diagnostics, maximumTar = 65536, longNames = []) {
   const members = zipMembers(zip, approvedZip, undefined, 65536, diagnostics), compressed = members.get('be-delivery-receipts.tar.gz');
   const archiveLine = members.get('be-delivery-receipts.archive-sha256').toString('utf8');
   const inventoryLine = members.get('be-delivery-receipts.inventory-sha256').toString('utf8');
@@ -155,13 +172,25 @@ function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diag
   const tar = gunzipSync(compressed, { maxOutputLength: maximumTar });
   const files = new Map(), directories = new Map();
   const octal = bytes => { const text = bytes.toString('ascii').replace(/\0.*$/, '').trim(); if (!/^[0-7]+$/.test(text)) refuse(); return Number.parseInt(text, 8); };
-  let cursor = 0;
+  let cursor = 0, longName;
   while (cursor + 512 <= tar.length && tar[cursor] !== 0) {
     const header = tar.subarray(cursor, cursor + 512), size = octal(header.subarray(124, 136)), mode = octal(header.subarray(100, 108));
     const checksum = header.reduce((sum, byte, index) => sum + (index >= 148 && index < 156 ? 32 : byte), 0);
     if (checksum !== octal(header.subarray(148, 156)) || size > 65536 || cursor + 512 + size > tar.length
       || header.subarray(157, 257).some(byte => byte !== 0) || header.subarray(345, 500).some(byte => byte !== 0)) refuse();
-    const name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
+    let name = header.subarray(0, 100).toString('utf8').replace(/\0.*$/, '');
+    if (header[156] === 76) {
+      const value = tar.subarray(cursor + 512, cursor + 512 + size), expanded = value.toString('utf8').replace(/\0$/, '');
+      if (longName !== undefined || name !== '././@LongLink' || mode !== 0o644
+        || !longNames.includes(expanded) || !value.equals(Buffer.from(`${expanded}\0`))) refuse();
+      longName = expanded;
+      cursor += 512 + Math.ceil(size / 512) * 512;
+      continue;
+    }
+    if (longName !== undefined) {
+      if (name !== longName.slice(0, 100) || ![0, 48].includes(header[156])) refuse();
+      name = longName; longName = undefined;
+    }
     if (!name.startsWith('be-receipts/')) refuse();
     const relative = name.slice('be-receipts/'.length).replace(/\/$/, ''), type = header[156];
     if (type === 53) {
@@ -174,7 +203,7 @@ function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diag
     }
     cursor += 512 + Math.ceil(size / 512) * 512;
   }
-  if (directories.size !== expectedDirectories.length || expectedDirectories.some(expected =>
+  if (longName !== undefined || directories.size !== expectedDirectories.length || expectedDirectories.some(expected =>
     typeof expected === 'string' ? !directories.has(expected) : ![...directories.keys()].some(name => expected.test(name)))
     || tar.length - cursor < 1024 || tar.subarray(cursor).some(byte => byte !== 0)) refuse();
   const inventory = { files: [...files].sort(([a], [b]) => a.localeCompare(b, 'en')).map(([path, file]) => ({ path, mode: file.mode, size: file.bytes.length,
@@ -212,6 +241,23 @@ export function validateReadinessContinuationReceiptArchive(zip, diagnostics) {
   if (result.archiveDigest !== stoppedReadinessContinuation.archiveDigest
     || result.inventoryDigest !== stoppedReadinessContinuation.inventoryDigest) refuse();
   return result;
+}
+export function validateCommittedContinuationReceiptArchive(zip, diagnostics) {
+  const pin = committedEtsyContinuation, base = `continuation/${pin.runId}`;
+  const outcomes = Array.from({ length: 9 }, (_, index) => `release-outcome-${String(index).padStart(4, '0')}.json`);
+  const fixed = ['reserving', 'reservation', 'origin', 'claim', 'history.authorized', 'history.remote',
+    'pre-sql-check.remote', 'sql-apply.authorized', 'sql-apply.remote'].map(name => `continuation/${name}.json`);
+  fixed.push('continuation/operator.lock', 'continuation/active.lock',
+    ...['history.intent', 'history.receipt', 'pre-sql-check.intent', 'pre-sql-check.receipt',
+      'sql-apply.intent', 'sql-apply.receipt', 'post-sql-check.intent', 'migration-report', 'STOP'].map(name => `${base}/${name}.json`),
+    `${base}/migration-reports/c38fd912-e22f-4b8f-84fb-16036988a354.json`);
+  const expected = new Set([...outcomes, ...fixed]);
+  const result = receiptMembers(zip, pin.receiptZipDigest,
+    ['', 'continuation', base, `${base}/migration-reports`], name => expected.has(name), diagnostics, 262144,
+    [`be-receipts/${base}/migration-reports/c38fd912-e22f-4b8f-84fb-16036988a354.json`]);
+  if (result.files.size !== 30 || [...expected].some(name => !result.files.has(name))
+    || result.archiveDigest !== pin.archiveDigest || result.inventoryDigest !== pin.inventoryDigest) refuse();
+  return { ...result, outcomes, runId: pin.runId };
 }
 function stoppedReceiptArchive(zip, stopped, diagnostics) {
   const runId = stopped.runId, base = `continuation/${runId}`;

@@ -5,19 +5,19 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { randomUUID } from 'node:crypto';
 import { artifactTarget, canonical, removeArtifactTree, sha256 } from '../scripts/artifact.js';
-import { readinessContinuationFixture, failedReplacementFixture, routineIngressFixture } from './artifact-fixture.js';
-import { admitHeldProduction, readinessClaimStep } from '../scripts/routine-retained.mjs';
+import { readinessContinuationFixture, promoteRecoveryFixture, failedReplacementFixture, routineIngressFixture } from './artifact-fixture.js';
+import { admitHeldProduction, readinessClaimStep, recoveryClaimStep } from '../scripts/routine-retained.mjs';
 import { createProvider, proveHeldEtsyIncident, proveEtsyReplacement, repository } from '../scripts/ci-provider.js';
 import { manualGithubIo } from '../scripts/activation-preflight-disposition.mjs';
 import { etsyProviderOperations, etsyReadinessReplacement, heldEtsyIncident, heldContinuationPhases,
-  runEtsyReleasePhase, validateEtsyContinuationApproval, continuationClaimKey } from '../scripts/etsy-release.js';
+  runEtsyReleasePhase, validateEtsyContinuationApproval, continuationClaimKey, promoteRecoveryPhases, verifyCommittedEtsyContinuation } from '../scripts/etsy-release.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
 import { ReleaseDiagnostics } from '../scripts/ci-delivery.js';
 
 // Opt-in public evidence, never a history fallback. Every unrecorded route fails.
 // The controller, HTTP outcomes, reservation transport and SQL/promotion are synthetic.
-export async function readinessSuccessorSmoke(t: TestContext, evidence: string, verifiedRelease: string) {
+export async function readinessSuccessorSmoke(t: TestContext, evidence: string, verifiedRelease: string, recoveryEvidence?: string) {
   const json = (path: string): any => JSON.parse(fs.readFileSync(path, 'utf8'));
   const history = join(evidence, 'successor-history-readback');
   const candidateFiles = join(evidence, 'readiness-verification-be78791-modes022');
@@ -44,8 +44,28 @@ export async function readinessSuccessorSmoke(t: TestContext, evidence: string, 
     metadata.set(`/contents/.github/workflows/be-delivery.yml?ref=${revision}`,
       { type: 'file', path: '.github/workflows/be-delivery.yml', encoding: 'base64', content: bytes.toString('base64'), size: bytes.length });
   }
-  const f = readinessContinuationFixture(), failed = failedReplacementFixture();
-  t.mock.method(Date, 'now', () => f.now);
+  const recovery = recoveryEvidence ? promoteRecoveryFixture() : undefined;
+  const f = recovery ?? readinessContinuationFixture(), failed = failedReplacementFixture();
+  if (recovery && recoveryEvidence) {
+    const prior = recovery.committedSnapshots, audit = join(recoveryEvidence, 'audit');
+    metadata.set(`/actions/runs/${prior.run.id}`, json(join(recoveryEvidence, 'run.json')));
+    metadata.set(`/actions/runs/${prior.run.id}/jobs?filter=all&per_page=100`, json(join(recoveryEvidence, 'jobs.json')));
+    metadata.set(`/actions/runs/${prior.run.id}/artifacts?per_page=100`, json(join(recoveryEvidence, 'artifacts.json')));
+    metadata.set(`/deployments/${prior.journal.id}`, json(join(recoveryEvidence, 'journal.json')));
+    const bytes = fs.readFileSync(join(recoveryEvidence, 'workflow.yml'));
+    assert.equal(sha256(bytes), f.approval.committedContinuation!.workflowDigest);
+    metadata.set(`/contents/.github/workflows/be-delivery.yml?ref=${prior.run.head_sha}`,
+      { type: 'file', path: '.github/workflows/be-delivery.yml', encoding: 'base64', content: bytes.toString('base64'), size: bytes.length });
+    for (const name of fs.readdirSync(audit)) {
+      const jobs = /^(\d+)-jobs\.json$/.exec(name), statuses = /^(\d+)-statuses-pages\.json$/.exec(name);
+      if (jobs) metadata.set(`/actions/runs/${jobs[1]}/jobs?filter=all&per_page=100`, json(join(audit, name)));
+      if (statuses) {
+        const pages = json(join(audit, name)); assert.equal(pages.length, 1);
+        metadata.set(`/deployments/${statuses[1]}/statuses?per_page=100`, pages[0]);
+      }
+    }
+  }
+  t.mock.timers.enable({ apis: ['Date'], now: f.now });
   const base = await routineIngressFixture(f.packet.runtimeDigest, true); t.after(base.dispose);
   const root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-readiness-successor-'));
   t.after(() => removeArtifactTree(root));
@@ -64,15 +84,17 @@ export async function readinessSuccessorSmoke(t: TestContext, evidence: string, 
   const env = { GITHUB_JOB: 'production', GITHUB_RUN_ID: request.controller.run, GITHUB_RUN_ATTEMPT: '1', GITHUB_SHA: run.head_sha,
     GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_REF: 'refs/heads/main',
     GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/be-delivery.yml@refs/heads/main`, RUNNER_ENVIRONMENT: 'github-hosted',
-    RUNNER_NAME: 'synthetic-successor-runner', BE_HELD_INCIDENT: '45578212592' };
+    RUNNER_NAME: 'synthetic-successor-runner', BE_HELD_INCIDENT: recovery ? '45646286338' : '45578212592' };
   metadata.set(`/actions/runs/${run.id}`, run);
   metadata.set('/commits/main', { sha: run.head_sha, commit: { tree: { sha: request.controller.tree } } });
   metadata.set(`/actions/runs/${run.id}/jobs?filter=all&per_page=100`, { total_count: 1, jobs: [{ id: 456, run_id: run.id,
     run_attempt: 1, head_sha: run.head_sha, name: 'BE production delivery', status: 'in_progress', conclusion: null,
-    runner_id: 789, runner_name: env.RUNNER_NAME, steps: [{ name: readinessClaimStep, status: 'in_progress', conclusion: null }] }] });
+    runner_id: 789, runner_name: env.RUNNER_NAME, steps: [{ name: recovery ? recoveryClaimStep : readinessClaimStep, status: 'in_progress', conclusion: null }] }] });
   metadata.set(`/contents/.github/workflows/be-delivery.yml?ref=${run.head_sha}`,
     { type: 'file', path: '.github/workflows/be-delivery.yml', encoding: 'base64', content: source.toString('base64'), size: source.length });
-  const dispatches = json(join(history, 'dispatch-list.json'));
+  const dispatchPages = recoveryEvidence ? json(join(recoveryEvidence, 'audit/dispatch-pages.json')) : [json(join(history, 'dispatch-list.json'))];
+  assert.equal(dispatchPages.length, 1);
+  const dispatches = dispatchPages[0];
   assert.equal(dispatches.total_count, dispatches.workflow_runs.length);
   assert.equal(dispatches.workflow_runs.some((entry: any) => entry.id === run.id), false);
   metadata.set('/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1',
@@ -89,13 +111,22 @@ export async function readinessSuccessorSmoke(t: TestContext, evidence: string, 
   assert.equal(sha256(newZip), etsyReadinessReplacement.zipDigest);
   archives.set(etsyReadinessReplacement.artifactId, newZip);
   archives.set(15005622501, f.readinessZip); archives.set(15000196718, failed.zip);
+  if (recovery && recoveryEvidence) {
+    const bytes = fs.readFileSync(join(recoveryEvidence, 'receipt.zip'));
+    assert.equal(sha256(bytes), f.approval.committedContinuation!.receiptZipDigest);
+    assert.deepEqual(bytes, recovery.committedZip);
+    archives.set(f.approval.committedContinuation!.receiptArtifact, bytes);
+  }
   const retainedRelease = json(join(history, 'retained-release.json'));
   const retainedAsset = retainedRelease.assets.find((entry: any) => entry.name === 'be-tested-42404748672-1.zip');
   assert.ok(retainedAsset);
-  const originalRows = json(join(history, 'journal-page-1.json')), originalDigest = sha256(canonical(originalRows));
-  let rows = structuredClone(originalRows), alias = f.packet.predecessor.id, fault = '', migrations = 3;
+  const journalPages = recoveryEvidence ? json(join(recoveryEvidence, 'audit/journal-pages.json')) : [json(join(history, 'journal-page-1.json'))];
+  assert.equal(journalPages.length, 1);
+  const originalRows = journalPages[0], originalDigest = sha256(canonical(originalRows));
+  let rows = structuredClone(originalRows), alias = f.packet.predecessor.id, fault = '', migrations = recovery ? 4 : 3;
+  let observedFault = false;
   const statuses = new Map<number, any[]>();
-  const count = { metadata: 0, downloads: 0, posts: 0, sql: 0, promotions: 0, create: 0, external: 0 };
+  const count = { metadata: 0, downloads: 0, posts: 0, sql: 0, promotions: 0, create: 0, external: 0, predecessorHttp: 0 };
   t.mock.method(globalThis, 'fetch', async () => { count.external++; throw new Error('Live transport is forbidden'); });
   const read = async (path: string) => {
     count.metadata++;
@@ -108,7 +139,12 @@ export async function readinessSuccessorSmoke(t: TestContext, evidence: string, 
     if (current && statuses.has(Number(current[1]))) return structuredClone(current[2] ? statuses.get(Number(current[1])) : rows.find((r: any) => r.id === Number(current[1])));
     assert.ok(metadata.has(path), `Missing genuine metadata route: ${path}`);
     const value = structuredClone(metadata.get(path));
-    if (fault === 'changed-status' && path === '/deployments/8052686808/statuses?per_page=100') value[0].state = 'success';
+    if (fault === 'changed-status' && path === `/deployments/${recovery ? '8062283972' : '8052686808'}/statuses?per_page=100`) {
+      value[0].state = 'success'; observedFault = true;
+    }
+    if (fault === 'changed-journal' && path === '/deployments/8062283972') {
+      value.payload.releaseRequest.target = 'local'; observedFault = true;
+    }
     return value;
   };
   const candidate = json(join(candidateFiles, 'candidate.json'));
@@ -160,36 +196,47 @@ export async function readinessSuccessorSmoke(t: TestContext, evidence: string, 
       if (method !== 'GET') count.create++;
       assert.equal(method, 'GET', 'No CREATE or real promotion transport is available');
       if (url.pathname === '/v4/aliases/api.lovora.us') {
-        return Response.json({ ...json(join(history, 'vercel-alias.json')), deploymentId: alias, deployment: { id: alias } });
+        const currentAlias = fault === 'wrong-alias' ? 'dpl_unapproved' : alias;
+        if (fault === 'wrong-alias') observedFault = true;
+        return Response.json({ ...json(join(history, 'vercel-alias.json')), deploymentId: currentAlias, deployment: { id: currentAlias } });
       }
       if (url.pathname.startsWith(`/v8/deployments/${candidate.id}/files/`)) {
-        const bytes = Buffer.from(uploaded); if (fault === 'wrong-bytes') bytes[100] = bytes[100]! ^ 1;
+        const bytes = Buffer.from(uploaded);
+        if (fault === 'wrong-bytes') { bytes[100] = bytes[100]! ^ 1; observedFault = true; }
         return Response.json({ data: bytes.toString('base64') });
       }
       if (url.pathname.startsWith(`/v8/deployments/${f.packet.predecessor.id}/files/`)) return Response.json(json(join(history, 'vercel-predecessor-archive.json')));
       assert.ok(Object.hasOwn(vercel, url.pathname), `Missing genuine provider route: ${url.pathname}`);
       const value = structuredClone(vercel[url.pathname]);
-      if (fault === 'wrong-candidate' && url.pathname === `/v13/deployments/${candidate.id}`) value.id = f.origin.id;
+      if (fault === 'wrong-candidate' && url.pathname === `/v13/deployments/${candidate.id}`) { value.id = f.origin.id; observedFault = true; }
       return Response.json(value);
     }
     if (![candidate.url, 'api.lovora.us'].includes(url.hostname)) { count.external++; assert.fail(`Unrecorded network destination: ${url.hostname}`); }
     const headers = new Headers(init.headers), candidateHttp = url.hostname === candidate.url;
+    if (!candidateHttp && alias !== candidate.id) count.predecessorHttp++;
+    assert.ok(!recovery || candidateHttp || alias === candidate.id, 'Recovery must not query predecessor health');
     if (method === 'OPTIONS') {
       const allowed = headers.get('origin') === f.packet.browserOrigin;
+      if (fault === 'wrong-cors' && candidateHttp) observedFault = true;
       return new Response(null, { status: allowed && !(fault === 'wrong-cors' && candidateHttp) ? 204 : 401,
         headers: allowed ? { 'access-control-allow-origin': f.packet.browserOrigin } : {} });
     }
-    if (headers.get('authorization') !== `Bearer ${credentials.bearer}`) return Response.json({ status: 'unauthorized' }, { status: fault === 'wrong-bearer' && candidateHttp ? 200 : 401 });
+    if (headers.get('authorization') !== `Bearer ${credentials.bearer}`) {
+      if (fault === 'wrong-bearer' && candidateHttp) observedFault = true;
+      return Response.json({ status: 'unauthorized' }, { status: fault === 'wrong-bearer' && candidateHttp ? 200 : 401 });
+    }
     if (url.pathname === '/__release_unknown_route') return Response.json({ code: 'not_found' }, { status: 404 });
-    const pending = migrations === 3 && candidateHttp || migrations === 4 && !candidateHttp && alias !== candidate.id;
+    const pending = migrations === 3 && candidateHttp || migrations === 4 && !candidateHttp && alias !== candidate.id
+      || Boolean(recovery && fault === 'wrong-health' && candidateHttp);
     const digest = fault === 'wrong-config' && candidateHttp ? '0'.repeat(64)
       : candidateHttp || alias === candidate.id ? f.packet.runtimeDigest : f.packet.predecessor.configDigest;
+    if (candidateHttp && (fault === 'wrong-config' || (fault === 'wrong-health' && url.pathname === '/health/ready'))) observedFault = true;
     return Response.json(url.pathname === '/health/live' ? { status: 'ok' } : pending
       ? fault === 'wrong-health' && candidateHttp ? { code: 'dependency_unavailable', requestId: randomUUID() } : { status: 'degraded', reason: 'migrations_pending' }
       : { status: 'ready', database: 'up', migrations: 'current' },
     { status: url.pathname === '/health/ready' && pending ? 503 : 200, headers: { 'x-activation-config-digest': digest } });
   };
-  const signal = AbortSignal.timeout(180000), io = manualGithubIo(credentials.github, signal, transport);
+  const signal = AbortSignal.timeout(240000), io = manualGithubIo(credentials.github, signal, transport);
   const execution = await admitHeldProduction(request, env, io.read, source, true, io.download);
   let held = await proveHeldEtsyIncident(f.approval, io, join(root, 'original'), signal);
   held = await proveEtsyReplacement(f.approval, held, io, join(root, 'replacement'), signal);
@@ -197,10 +244,12 @@ export async function readinessSuccessorSmoke(t: TestContext, evidence: string, 
   const schema = { digest: request.schema.targetDigest, configDigest: request.configDigest, request,
     requestDigest: sha256(canonical(request)), strictPacketDigest: digest, held, heldExecution: execution };
   const provider = () => createProvider(base.artifact, request.controller, schema, credentials, signal, transport);
-  for (const problem of ['changed-status', 'wrong-bytes', 'wrong-candidate', 'wrong-config', 'wrong-health', 'wrong-bearer', 'wrong-cors']) {
+  for (const problem of ['changed-status', 'wrong-bytes', 'wrong-candidate', 'wrong-config', 'wrong-health', 'wrong-bearer', 'wrong-cors',
+    ...(recovery ? ['changed-journal', 'wrong-alias'] : [])]) {
     await t.test(problem + ' refuses before durable POST', async () => {
-      fault = problem;
+      fault = problem; observedFault = false;
       await assert.rejects(provider().reserve());
+      assert.equal(observedFault, true, 'The selected failure must be reached, not masked by an unrelated prerequisite');
       assert.deepEqual({ posts: count.posts, sql: count.sql, promotions: count.promotions }, { posts: 0, sql: 0, promotions: 0 });
       assert.equal(sha256(canonical(rows)), originalDigest);
     });
@@ -209,6 +258,7 @@ export async function readinessSuccessorSmoke(t: TestContext, evidence: string, 
   const p = provider(), journal = await p.reserve(); assert.equal(journal, 999123);
   assert.equal(rows[0].payload.heldContinuation.replacement.id, candidate.id);
   assert.equal(rows[0].payload.heldContinuation.readinessDisposition.journal, 8052686808);
+  if (recovery) assert.equal(rows[0].payload.heldContinuation.committedDisposition.journal, 8062283972);
   assert.deepEqual(rows.slice(1), originalRows);
   await p.record(journal, 'in_progress', `strict:reserved:${schema.requestDigest}`);
   await p.confirmRoutineJournal(journal, `strict:reserved:${schema.requestDigest}`);
@@ -217,24 +267,27 @@ export async function readinessSuccessorSmoke(t: TestContext, evidence: string, 
   writeReleaseEvidence(join(receipts, 'claim.json'), { version: 1, key: continuationClaimKey(f.approval), journal, execution });
   const claim = readEvidence(join(receipts, 'claim.json'));
   const continuation = { approval: f.approval, origin: held.origin, claimDigest: claim.identity.sha256,
-    stoppedReceipt: held.stopped!.receiptZip, readinessReceipt: held.readinessStopped!.receiptZip };
+    stoppedReceipt: held.stopped!.receiptZip, readinessReceipt: held.readinessStopped!.receiptZip,
+    ...(recovery ? { committedReceipt: held.committed!.receiptZip, aliasAtClaim: alias } : {}) };
   const remote = etsyProviderOperations(f.packet, heldEtsyIncident.packetDigest, held.application,
     { token: credentials.vercel, bearer: credentials.bearer, predecessorBearer: credentials.bearer,
       bypass: credentials.bypass, github: credentials.github }, signal, transport, undefined, f.approval);
   const diagnostics = new ReleaseDiagnostics(request, receipts, signal); diagnostics.load(); diagnostics.inheritedHeld(candidate.id);
+  if (recovery) diagnostics.inheritedCommitted(verifyCommittedEtsyContinuation(recovery.committedZip).report);
   const operations = { ...remote, verify() { validateEtsyContinuationApproval(f.approval, digest); },
     async history() { return migrationManifest.slice(0, migrations).map(row => row.name); },
-    async migrate() {
+    ...(recovery ? {} : { async migrate() {
       count.sql++; const before = migrationManifest.slice(0, migrations).map(row => row.name); migrations = 4;
       return { run_id: randomUUID(), source_revision: f.packet.revision, target: f.packet.target,
         manifest_digest: f.packet.targetDigest, started_at: new Date(f.now).toISOString(), ended_at: new Date(f.now).toISOString(), duration_ms: 0,
         result: 'success' as const, stage: 'verification' as const, failed_version: null, database_outcome: 'committed' as const,
         before, after: migrationManifest.map(row => row.name), attempted: [{ ...migrationManifest[3]!, outcome: 'applied_committed' as const }], reporting: 'written' as const };
-    },
+    } }),
     async promote(id: string) { assert.equal(id, candidate.id); count.promotions++; alias = id; return { code: 0, aborted: false, stdout: '' }; },
   };
   assert.equal(Object.hasOwn(operations, 'create'), false);
-  for (const phase of heldContinuationPhases) await runEtsyReleasePhase({ packet: f.packet, packetDigest: digest, phase,
+  if (recovery) assert.equal(Object.hasOwn(operations, 'migrate'), false);
+  for (const phase of recovery ? promoteRecoveryPhases : heldContinuationPhases) await runEtsyReleasePhase({ packet: f.packet, packetDigest: digest, phase,
     operations, signal, diagnostics, continuation, durability: { directory: receipts,
       async intent(current, intent) {
         const description = `strict:${current}:intent:${sha256(canonical({ requestDigest: schema.requestDigest, intent }))}`;
@@ -251,8 +304,10 @@ export async function readinessSuccessorSmoke(t: TestContext, evidence: string, 
   assert.equal(result.status, 'accepted'); assert.equal(result.proof!.deploymentId, candidate.id);
   assert.equal(result.proof!.artifactDigest, etsyReadinessReplacement.artifactDigest);
   assert.deepEqual({ create: count.create, sql: count.sql, promotions: count.promotions, external: count.external },
-    { create: 0, sql: 1, promotions: 1, external: 0 });
+    { create: 0, sql: recovery ? 0 : 1, promotions: 1, external: 0 });
+  if (recovery) assert.equal(count.predecessorHttp, 0);
   assert.deepEqual(rows.slice(1), originalRows);
   t.diagnostic(JSON.stringify({ ...count, historicalDispatches: dispatches.total_count, journal, candidate: candidate.id,
-    applicationRevision: f.packet.revision, finalDomain: alias === candidate.id, mode: 'genuine-evidence-synthetic-transport' }));
+    applicationRevision: f.packet.revision, finalDomain: alias === candidate.id,
+    mode: recovery ? 'genuine-committed-recovery-synthetic-transport' : 'genuine-evidence-synthetic-transport' }));
 }
