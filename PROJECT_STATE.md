@@ -1,5 +1,11 @@
 # Current handoff
 
+## Replacement readiness failure and end-to-end verification
+
+BE CI `45576480325` passed on `26b0ddd`. Production run `45578212592` verified the artifacts and release lineage, reserved journal `8052686808`, and confirmed three database migrations. It stopped at the candidate readiness JSON contract before SQL authorization. Vercel logged `migrations_pending` after the history query with verified TLS. The candidate's application-wide error filter converted the degraded readiness payload to a generic 84-byte error. A loopback HTTP reproduction on the exact retained candidate artifact matched the failure. Migration and promotion were skipped, and the domain still resolves to predecessor `dpl_7M1zdXedTx62ch7t5wdEDWXcS1p7`.
+
+The local readiness repair passed compilation, 22 HTTP tests, 49 owned Etsy tests and independent Luna review. The rehearsal used real loopback PostgreSQL and Nest HTTP with simulated provider and domain operations. The coordinator and OMP independently verified the stopped journal's pre-SQL evidence. The proposed disposition still requires a successor proof bound to the corrected candidate. Publication and hosted candidate verification remain pending. [Evidence and combined verification scope](specs/001-connectivity-foundation/plan.md#replacement-readiness-failure-and-end-to-end-verification).
+
 ## Replacement dispatch stopped before reservation
 
 BE CI `45560485470` passed on `aa840e9`. The manual production dispatch `45565670368` then exited at the replacement claim step because of a cold-entry Node module cycle. The retained receipt inventory was empty, the journal scan found no reservation for this run, and history, migration and promotion were skipped. The local module-cycle fix and the owner-approved historical disposition passed compilation, 116 focused tests, isolated operator packaging and independent Luna review. The correction is ready for separately authorized publication and CI. Production still requires a fresh approved controller packet and dispatch. [Failure evidence and local verification](specs/001-connectivity-foundation/plan.md#replacement-dispatch-failure-and-bounded-recovery-proposal).

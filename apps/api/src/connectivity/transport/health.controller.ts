@@ -1,4 +1,4 @@
-import { Controller, Get, HttpException, Inject, Req, Res } from '@nestjs/common';
+import { Controller, Get, Inject, Req, Res } from '@nestjs/common';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { components } from '../../generated/api.js';
 import { ReadinessService } from '../application/readiness.js';
@@ -13,7 +13,7 @@ export class HealthController {
   }
 
   @Get('ready')
-  async ready(@Req() request: IncomingMessage, @Res({ passthrough: true }) response: ServerResponse): Promise<components['schemas']['Ready']> {
+  async ready(@Req() request: IncomingMessage, @Res({ passthrough: true }) response: ServerResponse): Promise<components['schemas']['Ready'] | components['schemas']['Degraded']> {
     const cancellation = new AbortController();
     const cancel = () => cancellation.abort();
     request.once('aborted', cancel);
@@ -21,8 +21,10 @@ export class HealthController {
     try {
       const state = await this.readiness.check(cancellation.signal);
       if (state !== 'current') {
-        const body: components['schemas']['Degraded'] = { status: 'degraded', reason: state };
-        throw new HttpException(body, 503);
+        // Degraded health is a typed response, not an application error.
+        response.statusCode = 503;
+        response.setHeader('Cache-Control', 'private, no-store');
+        return { status: 'degraded', reason: state };
       }
       return { status: 'ready', database: 'up', migrations: 'current' };
     } finally {

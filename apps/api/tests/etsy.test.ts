@@ -19,13 +19,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createApplication } from './helpers.js';
 import { parseConfig } from '../src/config/config.js';
-import { etsyReleasePhases, runEtsyReleasePhase } from '../scripts/etsy-release.js';
-import type { EtsyReleasePacket, EtsyReleaseOperations } from '../scripts/etsy-release.js';
+import { etsyReleasePhases, runEtsyReleasePhase, continuationCandidate, heldContinuationPhases, validateEtsyContinuationApproval } from '../scripts/etsy-release.js';
+import type { EtsyReleasePacket, EtsyReleaseOperations, EtsyReleasePhase } from '../scripts/etsy-release.js';
 import { manifestDigest, migrationStatus, migrationsDirectory, runMigrations } from '../scripts/migrations.js';
-import { migrationManifest } from '../src/generated/migrations.js';
+import { expectedMigrations, migrationManifest } from '../src/generated/migrations.js';
 import { assembleArtifact, canonical, sha256 } from '../scripts/artifact.js';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
-import { artifactFixture, routineProviderFixture, strictReleaseFixture } from './artifact-fixture.js';
+import { artifactFixture, routineProviderFixture, strictReleaseFixture, replacementContinuationFixture } from './artifact-fixture.js';
 import { readEvidence, writeReleaseEvidence } from '../scripts/release-journal.js';
 import childProcess from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
@@ -36,6 +36,133 @@ import { tlsPostgres } from './tls.js';
 import { authenticateRoutineDelivery, runRoutinePhase, validateReleaseResult } from '../scripts/ci-delivery.js';
 import type { ReleaseResult } from '../scripts/ci-delivery.js';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
+import { Client } from 'pg';
+import fs from 'node:fs';
+import type { MigrationReport } from '../scripts/migrations.js';
+import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
+
+test('foundation-enabled held phase rehearsal preserves strict pending HTTP through real suffix SQL and same-ID acceptance',
+  { skip: !process.env.ETSY_TEST_FIXTURE_DIRECTORY, timeout: 120000 }, async t => {
+  for (const scenario of ['exact', 'unsafe-readiness', 'failed-sql']) await t.test(scenario, async t => {
+    let app: Awaited<ReturnType<typeof createApplication>> | undefined;
+    let cleanupRole: (() => Promise<void>) | undefined;
+    // Close runtime connections and revoke this owned role before the fixture
+    // hook drops its database. A role collision is never adopted.
+    t.after(async () => { await app?.close(); await cleanupRole?.(); });
+    const fixture = await strictDatabaseFixture(t);
+    const root = await realpath(await mkdtemp(join(tmpdir(), 'esty-health-phase-'))), beforeDirectory = join(root, 'before');
+    t.after(() => rm(root, { recursive: true, force: true }));
+    await mkdir(beforeDirectory);
+    for (const entry of migrationManifest.slice(0, 3)) await cp(join(migrationsDirectory, `${entry.name}.mjs`), join(beforeDirectory, `${entry.name}.mjs`));
+    const initial = await runMigrations(fixture.database, { directory: beforeDirectory });
+    assert.equal(initial.result, 'success');
+    assert.deepEqual(initial.after, expectedMigrations.slice(0, 3));
+    const runtimePassword = randomBytes(24).toString('hex');
+    await fixture.client.query(`CREATE ROLE app_runtime LOGIN PASSWORD '${runtimePassword}' NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS`);
+    cleanupRole = async () => { await fixture.client.query('DROP OWNED BY app_runtime; DROP ROLE app_runtime'); };
+    await fixture.client.query(`GRANT CONNECT ON DATABASE "${fixture.name}" TO app_runtime;
+      GRANT USAGE ON SCHEMA public TO app_runtime;
+      GRANT SELECT ON public.foundation_migrations TO app_runtime`);
+    const f = replacementContinuationFixture(Date.now()), candidate = continuationCandidate(f.approval);
+    const candidateOrigin = `https://${candidate.toLowerCase()}.invalid`;
+    const values = {
+      DATABASE_URL: `postgresql://app_runtime:${runtimePassword}@127.0.0.1:${fixture.owned.port}/${scenario === 'unsafe-readiness' ? `missing_${fixture.name}` : fixture.name}`,
+      APP_SCHEMA_MODE: 'strict', APP_FOUNDATION_ENABLED: 'true', APP_WORKSPACE_ID: randomUUID(),
+      APP_AUTH_URL: `http://127.0.0.1:${fixture.owned.port}`, APP_AUTH_API_KEY: 'synthetic-public-key',
+      PREVIEW_ACCESS_KEY: 'c'.repeat(64), BROWSER_ORIGIN: f.packet.browserOrigin,
+    };
+    const digest = runtimeConfigDigest(values);
+    app = await createApplication(parseConfig({ ...values, APP_ACTIVATION_CONFIG_DIGEST: digest }));
+    await app.listen(0, '127.0.0.1');
+    const local = await app.getUrl(), requests: string[] = [];
+    const http = async (raw: string, init: RequestInit = {}) => {
+      const target = new URL(raw);
+      assert.ok([candidateOrigin, 'https://api.lovora.us'].includes(target.origin));
+      requests.push(target.origin + target.pathname);
+      // Only the synthetic provider/domain mapping is replaced. Nest, bearer,
+      // CORS, config attestation, pg readiness and migration SQL are real.
+      const response = await fetch(local + target.pathname, { ...init, signal: AbortSignal.timeout(4500) });
+      const authorized = init.method !== 'OPTIONS' && ['/health/live', '/health/ready'].includes(target.pathname)
+        && new Headers(init.headers).get('authorization') === `Bearer ${values.PREVIEW_ACCESS_KEY}`;
+      assert.equal(response.headers.get('x-activation-config-digest'), authorized ? digest : null);
+      if (response.status === 503) assert.equal(response.headers.get('cache-control'), 'private, no-store');
+      return response;
+    };
+    const pending = await http(candidateOrigin + '/health/ready', { headers: { Authorization: `Bearer ${values.PREVIEW_ACCESS_KEY}` } });
+    assert.equal(pending.status, 503);
+    assert.deepEqual(await pending.json(), { status: 'degraded',
+      reason: scenario === 'unsafe-readiness' ? 'database_unavailable' : 'migrations_pending' });
+    writeReleaseEvidence(join(root, 'claim.json'), { kind: 'synthetic-serialized-claim', request: sha256(canonical(f.request)) });
+    const continuation = { approval: f.approval, origin: f.origin, stoppedReceipt: f.stoppedZip,
+      claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256 };
+    let alias = f.packet.predecessor.id, sql = 0, promotions = 0, remote = continuation.claimDigest;
+    const operations: Omit<EtsyReleaseOperations, 'create'> = {
+      verify() { validateEtsyContinuationApproval(f.approval, f.digest); },
+      async currentMain() { return { revision: f.approval.operator.revision, tree: f.approval.operator.tree }; },
+      async history() { return (await migrationStatus(fixture.database)).applied; },
+      async predecessor(afterSql) {
+        assert.equal(alias, f.packet.predecessor.id);
+        assert.deepEqual((await migrationStatus(fixture.database)).applied, expectedMigrations.slice(0, afterSql ? 4 : 3));
+      },
+      async candidate(id, pending, final) {
+        assert.equal(id, candidate);
+        if (final) assert.equal(alias, id);
+        await checkHostedHttp(final ? 'https://api.lovora.us' : candidateOrigin,
+          f.packet.browserOrigin, values.PREVIEW_ACCESS_KEY, http, pending ? 'migrations_pending' : 'current');
+      },
+      async migrate() {
+        sql++;
+        const query = Client.prototype.query;
+        const fault = scenario === 'failed-sql' ? t.mock.method(Client.prototype, 'query', function(this: Client, ...args: any[]) {
+          const text = typeof args[0] === 'string' ? args[0] : args[0]?.text;
+          return Reflect.apply(query, this, text?.includes('CREATE TABLE app_private.etsy_connections') ? ['SELECT 1 / 0'] : args);
+        }) : undefined;
+        try {
+          return await runMigrations(fixture.database, { sourceRevision: f.packet.revision, target: f.packet.target,
+            expectedBefore: expectedMigrations.slice(0, 3) });
+        } finally { fault?.mock.restore(); }
+      },
+      async promote(id) { assert.equal(id, candidate); promotions++; alias = id; return { code: 0, aborted: false, stdout: '' }; },
+      async alias(id) { assert.equal(alias, id); },
+    };
+    const durability = {
+      directory: root,
+      async intent(_phase: EtsyReleasePhase, intent: { previous: string | null }) { assert.equal(intent.previous, remote); },
+      async acknowledged() { assert.fail('The held rehearsal must not CREATE'); },
+      async confirmed(phase: EtsyReleasePhase, receipt: unknown) {
+        const entry = readEvidence(join(root, f.approval.runId, `${phase}.receipt.json`));
+        assert.deepEqual(entry.value, receipt); remote = entry.identity.sha256;
+      },
+    };
+    const journey = async () => {
+      for (const phase of heldContinuationPhases) await runEtsyReleasePhase({
+        packet: f.packet, packetDigest: f.digest, phase, operations, durability, continuation, signal: AbortSignal.timeout(30000) });
+    };
+    if (scenario === 'exact') {
+      await journey();
+      assert.equal(sql, 1); assert.equal(promotions, 1); assert.equal(alias, candidate);
+      assert.ok(requests.includes('https://api.lovora.us/health/ready'));
+      const receipt = readEvidence(join(root, f.approval.runId, 'final-domain-ack.receipt.json')).value as { deploymentId: string };
+      assert.equal(receipt.deploymentId, candidate);
+    } else {
+      await assert.rejects(journey());
+      assert.equal(sql, scenario === 'failed-sql' ? 1 : 0);
+      assert.equal(promotions, 0); assert.equal(alias, f.packet.predecessor.id);
+      assert.equal(fs.existsSync(join(root, f.approval.runId, 'promote-only.intent.json')), false);
+      const stop = readEvidence(join(root, f.approval.runId, 'STOP.json')).value as { phase: string };
+      assert.equal(stop.phase, scenario === 'unsafe-readiness' ? 'pre-sql-check' : 'sql-apply');
+    }
+    if (sql) {
+      const report = readEvidence(join(root, f.approval.runId, 'migration-report.json')).value as MigrationReport;
+      assert.equal(report.database_outcome, scenario === 'exact' ? 'committed' : 'rolled_back');
+      assert.deepEqual(report.attempted, [{ ...migrationManifest[3]!, outcome: scenario === 'exact' ? 'applied_committed' : 'rolled_back' }]);
+    }
+    assert.deepEqual((await migrationStatus(fixture.database)).applied, expectedMigrations.slice(0, scenario === 'exact' ? 4 : 3));
+    assert.equal((await fixture.client.query("SELECT to_regclass('app_private.etsy_connections') IS NOT NULL AS present")).rows[0].present, scenario === 'exact');
+    t.diagnostic(JSON.stringify({ scenario, foundation: true, realSql: sql, syntheticPromotions: promotions,
+      realProviderCalls: 0, create: 0, migrations: scenario === 'exact' ? 4 : 3, finalDomain: scenario === 'exact' }));
+  });
+});
 
 test('L3 owned emitted strict journey changes only fourth migration and the same held deployment', {
   skip: !process.env.ETSY_TEST_FIXTURE_DIRECTORY, timeout: 60000,

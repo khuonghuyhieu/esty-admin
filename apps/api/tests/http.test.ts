@@ -432,4 +432,37 @@ test('activation health attests actual bound configuration only after technical 
   assertContract(await live.json(), 'Liveness');
   assert.equal(app.get(PostgresProbe).pool.totalCount, 0);
   assert.equal(peer.sockets.size, 0);
+  for (const state of ['migrations_pending', 'database_timeout', 'database_unavailable', 'current'] as const) {
+    await t.test(`foundation health preserves ${state}`, async child => {
+      const probe = child.mock.method(app.get(PostgresProbe), 'check', async () => state);
+      const denied = await fetch(origin + '/health/ready');
+      assert.equal(denied.status, 401);
+      assert.equal(denied.headers.get('x-activation-config-digest'), null);
+      assertContract(await denied.json(), 'Unauthorized');
+      assert.equal(probe.mock.callCount(), 0);
+      const response = await fetch(origin + '/health/ready', { headers: {
+        Authorization: `Bearer ${values.PREVIEW_ACCESS_KEY}`, Origin: 'http://127.0.0.1:3000' } });
+      assert.equal(response.status, state === 'current' ? 200 : 503);
+      assert.equal(response.headers.get('x-activation-config-digest'), digest);
+      assert.equal(response.headers.get('access-control-allow-origin'), 'http://127.0.0.1:3000');
+      assert.equal(response.headers.get('access-control-allow-credentials'), null);
+      const body = await response.json();
+      if (state === 'current') {
+        assertContract(body, 'Ready');
+      } else {
+        assert.equal(response.headers.get('cache-control'), 'private, no-store');
+        assertContract(body, 'Degraded');
+        assert.equal(body.reason, state);
+      }
+      assert.equal(probe.mock.callCount(), 1);
+    });
+  }
+  const missing = await fetch(origin + '/unknown', { headers: { Authorization: `Bearer ${values.PREVIEW_ACCESS_KEY}` } });
+  assert.equal(missing.status, 404);
+  assert.equal(missing.headers.get('x-activation-config-digest'), null);
+  assert.match(missing.headers.get('cache-control') ?? '', /no-store/);
+  const error = await missing.json() as { code: string; requestId: string };
+  assert.deepEqual(Object.keys(error).sort(), ['code', 'requestId']);
+  assert.equal(error.code, 'not_found');
+  assert.match(error.requestId, /^[a-f0-9-]{36}$/);
 });
