@@ -28,6 +28,11 @@ on:
         description: Immutable be-tested artifact from that producer run
         required: false
         type: string
+      held_incident:
+        description: Empty for ordinary delivery; 45106877912 requires its separately approved one-shot continuation
+        required: false
+        default: ''
+        type: string
 
 permissions:
   contents: read
@@ -179,6 +184,7 @@ jobs:
       BE_DELIVERY_ENABLED: ${{ vars.BE_DELIVERY_ENABLED }}
       BE_DELIVERY_ENVIRONMENT: be-production
       BE_DELIVERY_MODE: ${{ inputs.mode }}
+      BE_HELD_INCIDENT: ${{ inputs.held_incident }}
       BE_RELEASE_CONTROLLER_SHA: ${{ vars.BE_RELEASE_CONTROLLER_SHA }}
       BE_RELEASE_APPROVAL_SHA256: ${{ vars.BE_RELEASE_APPROVAL_SHA256 }}
       BE_RELEASE_TARGET: ${{ vars.BE_RELEASE_TARGET }}
@@ -313,7 +319,7 @@ jobs:
         run: node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-tools.js" "$RUNNER_TEMP/be-tools" "$RUNNER_TEMP/be-tools-diagnostics"
       - name: Reserve the common durable exclusion and authorize the explicit migration mode
         id: authorize
-        if: env.BE_DELIVERY_MODE == 'versioned-migration' || env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
+        if: (env.BE_DELIVERY_MODE == 'versioned-migration' || env.BE_DELIVERY_MODE == 'etsy-strict-cutover') && env.BE_HELD_INCIDENT == ''
         env:
           BE_ROUTINE_ACTION: authorize
           BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
@@ -326,6 +332,18 @@ jobs:
           node "$RUNNER_TEMP/be-consume/runner/apps/api/build/scripts/ci-delivery.js"
           "$RUNNER_TEMP/be-consume" "$RUNNER_TEMP/be-transfer"
           "$RUNNER_TEMP/be-tools/node_modules/vercel/dist/vc.js" "$RUNNER_TEMP/be-receipts"
+      - name: Claim held Etsy incident 45106877912 once
+        id: held_claim
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT == '45106877912'
+        env:
+          BE_ROUTINE_ACTION: authorize
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: *routine-command
       - name: Inspect exactly strict three-entry history in the SQL-only worker
         id: history
         if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
@@ -337,7 +355,19 @@ jobs:
         run: *routine-command
       - name: Create held strict4 once and authorize SQL only after exact pending readiness
         id: held
-        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT == ''
+        env:
+          BE_ROUTINE_ACTION: held
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: *routine-command
+      - name: Reattest the original held ID without CREATE before fresh SQL authorization
+        id: held_continuation
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT == '45106877912'
         env:
           BE_ROUTINE_ACTION: held
           BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
@@ -442,7 +472,7 @@ jobs:
     if: >-
       github.repository == 'khuonghuyhieu/esty-admin' &&
       github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
-      github.event_name == 'workflow_dispatch' && inputs.mode == 'activation'
+      github.event_name == 'workflow_dispatch' && inputs.mode == 'activation' && inputs.held_incident == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: be-production
@@ -511,7 +541,7 @@ jobs:
     if: >-
       github.repository == 'khuonghuyhieu/esty-admin' &&
       github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
-      github.event_name == 'workflow_dispatch' && inputs.mode == 'activation'
+      github.event_name == 'workflow_dispatch' && inputs.mode == 'activation' && inputs.held_incident == ''
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: be-production

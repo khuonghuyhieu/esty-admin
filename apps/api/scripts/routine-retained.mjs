@@ -6,7 +6,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { gunzipSync } from 'node:zlib';
 import { canonical, githubReader } from './activation-retained.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { tmpdir } from 'node:os';
+import { tmpdir, userInfo } from 'node:os';
 
 const diagnosticContext = new AsyncLocalStorage();
 export function withRoutineDiagnostics(diagnostics, body) { return diagnosticContext.run(diagnostics, body); }
@@ -81,7 +81,10 @@ function root(path) {
   return absolute;
 }
 function contextShape(value) {
-  const context = object(value, ['version', 'controller', 'producerRun', 'artifactId', 'mode', 'approvalDigest', 'configDigest', 'schemaDigest', 'target', 'packetDigest']);
+  const continuation = value && Object.hasOwn(value, 'heldIncident');
+  const context = object(value, ['version', 'controller', 'producerRun', 'artifactId', 'mode', 'approvalDigest', 'configDigest', 'schemaDigest', 'target', 'packetDigest',
+    ...(continuation ? ['heldIncident'] : [])]);
+  check('context.held-incident', !continuation || (value.heldIncident === '45106877912' && value.mode === 'etsy-strict-cutover'));
   const controller = object(context.controller, ['revision', 'run']);
   check('context.version', context.version === 1);
   check('context.controller-revision', revision.test(controller.revision ?? ''));
@@ -112,11 +115,15 @@ export function routineContext(env, event) {
   const activationKind = activationInput === null ? 'null' : Array.isArray(activationInput) ? 'array' : typeof activationInput;
   check('context.activation-input-absent', (activationInput ?? '') === '',
     { present: activationInput !== undefined, empty: activationInput === '', [`${activationKind}Value`]: true });
+  const heldIncident = inputs.held_incident ?? '';
+  check('context.held-selector', ['', '45106877912'].includes(heldIncident)
+    && heldIncident === (env.BE_HELD_INCIDENT ?? '') && (heldIncident === '' || inputs.mode === 'etsy-strict-cutover'));
   return contextShape({ version: 1, controller: { revision: env.GITHUB_SHA, run: env.GITHUB_RUN_ID },
     producerRun: inputs.release_run_id, artifactId: inputs.release_artifact_id, mode: inputs.mode,
     approvalDigest: env.BE_RELEASE_APPROVAL_SHA256, configDigest: env.BE_DELIVERY_CONFIG_SHA256,
     schemaDigest: env.BE_DELIVERY_SCHEMA_SHA256, target: env.BE_RELEASE_TARGET,
-    packetDigest: inputs.mode === 'current-schema-only' ? null : env.BE_MIGRATION_PACKET_SHA256 });
+    packetDigest: inputs.mode === 'current-schema-only' ? null : env.BE_MIGRATION_PACKET_SHA256,
+    ...(heldIncident ? { heldIncident } : {}) });
 }
 export function loadRoutineContext(env) {
   const bytes = plainFile(env.GITHUB_EVENT_PATH, 1024 * 1024, 'event-file');
@@ -138,6 +145,107 @@ function runIdentity(value, run, sha, consumer) {
   check(`${prefix}.conclusion`, data.conclusion === (consumer ? null : 'success'));
   return data;
 }
+export const heldClaimStep = 'Claim held Etsy incident 45106877912 once';
+export function heldRunnerPaths(env) {
+  check('held.hosted-runtime', process.platform === 'linux' && process.arch === 'x64'
+    && env.GITHUB_ACTIONS === 'true' && env.GITHUB_JOB === 'production' && env.RUNNER_ENVIRONMENT === 'github-hosted');
+  const home = root(userInfo().homedir), workspace = join(home, 'work', 'esty-admin', 'esty-admin');
+  const temporary = join(home, 'work', '_temp');
+  check('held.canonical-workspace', env.GITHUB_WORKSPACE === workspace && root(workspace) === workspace
+    && env.RUNNER_TEMP === temporary && root(temporary) === temporary);
+  return { workspace, temporary, receipts: join(temporary, 'be-receipts'),
+    application: join(temporary, 'be-held-application'),
+    workflow: plainFile(join(root(join(workspace, '.github/workflows')), 'be-delivery.yml'), 256 * 1024, 'held-workflow') };
+}
+export async function admitHeldProduction(request, env, read, sourceBytes, auditClaims = false) {
+  const approval = request.continuation;
+  check('held.production-context', approval?.kind === 'held-etsy-continuation' && env.BE_HELD_INCIDENT === '45106877912'
+    && env.GITHUB_JOB === 'production' && env.GITHUB_RUN_ID === request.controller.run && env.GITHUB_RUN_ATTEMPT === '1'
+    && env.GITHUB_SHA === request.controller.revision && env.GITHUB_REPOSITORY === repository
+    && env.GITHUB_WORKFLOW_REF === `${repository}/${workflow}@refs/heads/main` && env.GITHUB_EVENT_NAME === 'workflow_dispatch'
+    && env.GITHUB_REF === 'refs/heads/main' && env.RUNNER_ENVIRONMENT === 'github-hosted');
+  const run = runIdentity(await read(`/actions/runs/${request.controller.run}`), request.controller.run, request.controller.revision, true);
+  check('held.repository-workflow', run.repository.id === 1430691691 && run.workflow_id === 404086547);
+  const commit = object(await read('/commits/main'));
+  check('held.current-source', commit.sha === request.controller.revision
+    && object(object(commit.commit).tree).sha === request.controller.tree);
+  const workflowAt = async sha => {
+    check('held.workflow-revision', revision.test(sha ?? ''));
+    const file = object(await read(`/contents/${workflow}?ref=${sha}`));
+    check('held.workflow-encoding', file.type === 'file' && file.path === workflow && file.encoding === 'base64'
+      && typeof file.content === 'string' && file.content.length <= 256 * 1024);
+    const encoded = file.content.replace(/\n/g, ''), bytes = Buffer.from(encoded, 'base64');
+    check('held.workflow-bytes', bytes.toString('base64') === encoded && bytes.length === file.size);
+    return bytes;
+  };
+  const published = await workflowAt(request.controller.revision);
+  check('held.approved-workflow', Buffer.isBuffer(sourceBytes) && published.equals(sourceBytes)
+    && hash(published) === approval.operator.workflowDigest);
+  const text = published.toString('utf8'), production = text.match(/^  production:\n([\s\S]*?)(?=^  [a-zA-Z_][\w-]*:)/m)?.[1];
+  check('held.production-policy', typeof production === 'string'
+    && production.includes('\n    environment: be-production\n')
+    && production.includes('\n    concurrency:\n      group: esty-admin-be-production\n      cancel-in-progress: false\n')
+    && production.includes('\n    permissions:\n      contents: read\n      actions: read\n      deployments: write\n')
+    && production.includes(`\n      - name: ${heldClaimStep}\n`));
+  const jobsFor = async identity => {
+    const list = object(await read(`/actions/runs/${identity.id}/jobs?filter=all&per_page=100`));
+    check('held.complete-production-jobs', Array.isArray(list.jobs) && list.jobs.length > 0 && list.jobs.length < 100
+      && list.total_count === list.jobs.length && new Set(list.jobs.map(job => job.id)).size === list.jobs.length
+      && list.jobs.every(job => Number.isSafeInteger(job.id) && job.id > 0 && job.run_id === identity.id
+        && job.run_attempt === 1 && job.head_sha === identity.head_sha));
+    const found = list.jobs.filter(job => job.name === 'BE production delivery');
+    check('held.unique-production-job', found.length === 1);
+    return object(found[0]);
+  };
+  const job = await jobsFor(run);
+  check('held.active-production-runner', job.status === 'in_progress' && job.conclusion === null
+    && Number.isSafeInteger(job.runner_id) && job.runner_id > 0 && job.runner_name === env.RUNNER_NAME
+    && typeof env.RUNNER_NAME === 'string' && env.RUNNER_NAME.length > 0);
+  const claim = Array.isArray(job.steps) ? job.steps.filter(step => step.name === heldClaimStep) : [];
+  check('held.current-claim-step', claim.length === 1 && (auditClaims
+    ? claim[0].status === 'in_progress' && claim[0].conclusion === null
+    : claim[0].status === 'completed' && claim[0].conclusion === 'success'));
+  if (auditClaims) {
+    const seen = new Set();
+    let total;
+    for (let page = 1; ; page++) {
+      check('held.run-audit-bound', page <= 20);
+      const listing = object(await read(`/actions/workflows/${run.workflow_id}/runs?event=workflow_dispatch&branch=main&per_page=100&page=${page}`));
+      check('held.run-audit-completeness', Array.isArray(listing.workflow_runs) && listing.workflow_runs.length <= 100
+        && Number.isSafeInteger(listing.total_count) && listing.total_count >= 1 && listing.total_count < 1000
+        && (total === undefined || listing.total_count === total));
+      total = listing.total_count;
+      for (const prior of listing.workflow_runs) {
+        check('held.run-audit-identity', Number.isSafeInteger(prior.id) && prior.id > 0 && !seen.has(prior.id)
+          && prior.workflow_id === run.workflow_id && prior.event === 'workflow_dispatch' && prior.head_branch === 'main'
+          && prior.repository?.id === 1430691691 && prior.head_repository?.id === 1430691691);
+        seen.add(prior.id);
+        if (prior.id === run.id) continue;
+        // A completed run cannot have continued an ACK that did not exist yet.
+        if (prior.status === 'completed' && timestamp(prior.updated_at) < 1795405274350) continue;
+        const priorSource = await workflowAt(prior.head_sha);
+        if (!priorSource.toString('utf8').includes(`\n      - name: ${heldClaimStep}\n`)) {
+          check('held.reviewed-no-continuation-workflow', hash(priorSource) === 'c9cd73e744ff32998b9874d0782480bc2c2eff1c92d1ec00f1be5d189ef89a53');
+          continue;
+        }
+        check('held.prior-attempt', prior.run_attempt === 1);
+        const priorJob = await jobsFor(prior);
+        if (priorJob.status === 'completed' && priorJob.conclusion === 'skipped') continue;
+        const steps = Array.isArray(priorJob.steps) ? priorJob.steps.filter(step => step.name === heldClaimStep) : [];
+        // A missing archive/marker never launders a started or unknown attempt.
+        check('held.no-prior-claim-attempt', steps.length === 1 && steps[0].status === 'completed' && steps[0].conclusion === 'skipped');
+      }
+      if (listing.workflow_runs.length < 100) {
+        check('held.run-audit-complete', seen.size === total && seen.has(run.id));
+        break;
+      }
+    }
+  }
+  return { version: 1, run: request.controller.run, job: job.id, runner: job.runner_name, runnerId: job.runner_id,
+    revision: request.controller.revision, tree: request.controller.tree, workflowDigest: hash(published),
+    environment: 'be-production', concurrency: 'esty-admin-be-production', cancelInProgress: false };
+}
+
 export async function selectRoutine(context, read, now = Date.now()) {
   contextShape(context);
   const transport = read;

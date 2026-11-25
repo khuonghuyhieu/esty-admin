@@ -20,7 +20,8 @@ import { activationSchema } from '../src/config/schema-transition.js';
 import { confirmRoutineSelection, loadRoutineContext, readRoutineRequest, readRoutineSelection, routineApproval,
   validateRoutineSelection, verifyRoutineBundle, verifyRoutineTransfer } from './routine-retained.mjs';
 import { githubReader } from './activation-retained.mjs';
-import { validateEtsyReleasePacket } from './etsy-release.js';
+import { heldEtsyIncident, validateEtsyContinuationApproval, validateEtsyReleasePacket } from './etsy-release.js';
+import type { EtsyContinuationApproval } from './etsy-release.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
 import { privateDirectory } from './private-files.mjs';
 import { emitRoutineResult, routineFailureResult } from './routine-retained.mjs';
@@ -42,6 +43,7 @@ export interface ReleaseRequest {
   operatorDigest: string;
   configDigest: string;
   historicalHandoffDigest: string;
+  continuation?: EtsyContinuationApproval;
   schema: { beforeDigest: string; targetDigest: string; before: Manifest; target: Manifest };
   migration: null | {
     packetDigest: string;
@@ -109,8 +111,10 @@ function releaseRun(value: unknown): void {
     || !releaseString(data.run, /^[1-9][0-9]{0,19}$/)) releaseRefusal();
 }
 function releaseRequestShape(value: unknown): asserts value is ReleaseRequest {
+  const continuation = value !== null && typeof value === 'object' && Object.hasOwn(value, 'continuation');
   const data = releaseObject(value, ['version', 'mode', 'repository', 'target', 'controller', 'producer', 'artifactId',
-    'artifactDigest', 'sourceDigest', 'archiveDigest', 'operatorDigest', 'configDigest', 'historicalHandoffDigest', 'schema', 'migration']);
+    'artifactDigest', 'sourceDigest', 'archiveDigest', 'operatorDigest', 'configDigest', 'historicalHandoffDigest', 'schema', 'migration',
+    ...(continuation ? ['continuation'] : [])]);
   if (data.version !== 1 || data.repository !== repository || !releaseString(data.target, /^supabase:[a-z]{20}$/)
     || typeof data.mode !== 'string' || !['current-schema-only', 'versioned-migration', 'etsy-strict-cutover'].includes(data.mode)
     || !releaseString(data.artifactId, /^[1-9][0-9]{0,19}$/) || data.historicalHandoffDigest !== historicalHandoffDigest
@@ -135,6 +139,25 @@ function releaseRequestShape(value: unknown): asserts value is ReleaseRequest {
       if (!releaseString(migration.compatibilityApproval, releaseHex) || migration.maintenanceApproval !== null) releaseRefusal();
     } else if (migration.compatibilityApproval !== null || !releaseString(migration.maintenanceApproval, releaseHex)
       || schema.before.length !== 3 || schema.target.length !== 4 || manifestDigest(schema.before) !== activationSchema.targetDigest) releaseRefusal();
+  }
+  if (continuation) {
+    if (data.mode !== 'etsy-strict-cutover') releaseRefusal();
+    const approval = data.continuation as EtsyContinuationApproval;
+    const approved = validateEtsyContinuationApproval(approval, (data.migration as ReleaseRequest['migration'])!.packetDigest,
+      approval?.window?.start);
+    const operator = approved.operator, controller = data.controller as RunIdentity, producer = data.producer as RunIdentity;
+    if (controller.revision !== operator.revision || controller.tree !== operator.tree
+      || producer.revision !== operator.revision || producer.tree !== operator.tree || producer.run !== operator.producerRun
+      || data.artifactId !== operator.artifactId || data.configDigest !== approved.originalPacket.runtimeDigest
+      || data.target !== approved.originalPacket.target || schema.beforeDigest !== approved.originalPacket.previousDigest
+      || schema.targetDigest !== approved.originalPacket.targetDigest
+      || (['artifactDigest', 'sourceDigest', 'archiveDigest', 'operatorDigest'] as const).some(key => data[key] !== operator[key])) releaseRefusal();
+    const migration = data.migration as NonNullable<ReleaseRequest['migration']>, prior = approved.originalPacket.predecessor;
+    if (canonical(migration.predecessor) !== canonical({ id: prior.id, revision: prior.revision,
+      artifactDigest: prior.artifactDigest, configDigest: prior.configDigest })
+      || migration.recoveryApproval !== sha256(canonical({ packet: migration.packetDigest, recovery: approved.originalPacket.grants.recovery }))
+      || migration.maintenanceApproval !== sha256(canonical({ packet: migration.packetDigest, window: approved.window,
+        maintenance: approved.originalPacket.grants.maintenance }))) releaseRefusal();
   }
 }
 function releaseSnapshot<T>(value: T): T {
@@ -177,6 +200,13 @@ function releaseMigration(value: unknown, request: ReleaseRequest): asserts valu
     || canonical(data.after) !== canonical(after) || data.attempted.length !== pending.length)) releaseRefusal();
   if (data.database_outcome === 'not_started' && data.attempted.length !== 0) releaseRefusal();
 }
+// Serialization checks preserve inherited identity; only raw-origin and production
+// admission grant execution authority. They never count inherited CREATE as ours.
+function heldAcknowledgement(id: unknown): boolean {
+  return releaseString(id, deploymentId) && sha256(`${JSON.stringify({
+    packetDigest: heldEtsyIncident.packetDigest, deploymentId: id,
+  }, null, 2)}\n`) === heldEtsyIncident.ackDigest;
+}
 /** Validates retained/serialized output; never accepts raw provider bodies or exception text. */
 export function validateReleaseResult(value: unknown): ReleaseResult {
   const data = releaseObject(value, ['version', 'request', 'status', 'stage', 'category', 'nextAction', 'effects',
@@ -197,15 +227,18 @@ export function validateReleaseResult(value: unknown): ReleaseResult {
     return releaseSnapshot(value as ReleaseResult);
   }
   releaseRequestShape(data.request);
+  const inherited = data.request.continuation !== undefined;
+  const known = inherited ? data.deploymentId !== null && heldAcknowledgement(data.deploymentId) : effects.create === 'ACKed';
   if (!Object.values(effects).every(effect => releaseChoice(effect, ['not-started', 'ACKed', 'unknown']))
-    || (effects.create === 'ACKed') !== (data.deploymentId !== null)
-    || (effects.promotion !== 'not-started' && effects.create !== 'ACKed')
+    || (inherited ? effects.create !== 'not-started' || (data.deploymentId !== null && !known)
+      : (effects.create === 'ACKed') !== (data.deploymentId !== null))
+    || (effects.promotion !== 'not-started' && !known)
     || (data.request.mode === 'current-schema-only' && effects.migration !== 'not-started')) releaseRefusal();
   if (data.migration !== null) {
     releaseMigration(data.migration, data.request);
     if (effects.migration !== (data.migration.database_outcome === 'unknown' ? 'unknown' : 'ACKed')) releaseRefusal();
   } else if (effects.migration === 'ACKed') releaseRefusal();
-  if (data.request.mode === 'etsy-strict-cutover' && effects.migration !== 'not-started' && effects.create !== 'ACKed') releaseRefusal();
+  if (data.request.mode === 'etsy-strict-cutover' && effects.migration !== 'not-started' && !known) releaseRefusal();
   if (data.request.migration && (effects.promotion !== 'not-started'
     || (data.request.mode === 'versioned-migration' && effects.create !== 'not-started'))
     && !(data.status === 'unknown' && data.evidence === 'unconfirmed')
@@ -216,9 +249,10 @@ export function validateReleaseResult(value: unknown): ReleaseResult {
     || data.category === 'evidence-persistence' || data.evidence === 'unconfirmed';
   if (data.status === 'accepted') {
     const proof = releaseObject(data.proof, ['deploymentId', 'artifactDigest', 'configDigest', 'schemaDigest', 'domain', 'checks']);
-    if (unknown || effects.create !== 'ACKed' || effects.promotion !== 'ACKed' || data.receiptDigest === null
+    if (unknown || !known || effects.promotion !== 'ACKed' || data.receiptDigest === null
       || data.stage !== 'receipt' || data.category !== null || !releaseChoice(data.nextAction, ['run-acceptance', 'none'])
-      || proof.deploymentId !== data.deploymentId || proof.artifactDigest !== data.request.artifactDigest
+      || proof.deploymentId !== data.deploymentId
+      || proof.artifactDigest !== (data.request.continuation?.originalPacket.artifactDigest ?? data.request.artifactDigest)
       || proof.configDigest !== data.request.configDigest || proof.schemaDigest !== manifestDigest(data.request.schema.target)
       || proof.domain !== 'api.lovora.us' || proof.checks !== 'passed'
       || (data.request.migration && (data.migration === null || data.migration.database_outcome !== 'committed'
@@ -257,13 +291,19 @@ export class ReleaseOutcome {
     if (canonical(prior.request) !== canonical(this.request)) releaseRefusal();
     this.#effects = { ...prior.effects }; this.#id = prior.deploymentId; this.#migration = prior.migration;
   }
+  inheritHeld(id: string): void {
+    if (!this.request.continuation || this.#id !== null || !heldAcknowledgement(id)
+      || Object.values(this.#effects).some(effect => effect !== 'not-started')) releaseRefusal();
+    this.#id = id;
+  }
   submitted(operation: ReleaseOperation): void {
     if (!Object.hasOwn(this.#effects, operation) || this.#effects[operation] !== 'not-started'
+      || (operation === 'create' && this.request.continuation !== undefined)
       || (operation === 'create' && this.request.mode === 'versioned-migration'
         && (this.#migration?.database_outcome !== 'committed' || this.#migration.result !== 'success' || this.#migration.reporting !== 'written'))
       || (operation === 'migration' && (!this.request.migration
-        || (this.request.mode === 'etsy-strict-cutover' && this.#effects.create !== 'ACKed')))
-      || (operation === 'promotion' && (this.#effects.create !== 'ACKed'
+        || (this.request.mode === 'etsy-strict-cutover' && this.#id === null)))
+      || (operation === 'promotion' && (this.#id === null
         || (this.request.migration && (this.#migration?.database_outcome !== 'committed'
           || this.#migration.result !== 'success' || this.#migration.reporting !== 'written'))))) releaseRefusal();
     this.#effects[operation] = 'unknown';
@@ -274,7 +314,7 @@ export class ReleaseOutcome {
   }
   acknowledgeMigration(report: MigrationReport): void {
     if (!report || typeof report !== 'object' || this.#effects.migration !== 'unknown'
-      || report.source_revision !== this.request.producer.revision || report.target !== this.request.target
+      || report.source_revision !== (this.request.continuation?.originalPacket.revision ?? this.request.producer.revision) || report.target !== this.request.target
       || report.manifest_digest !== manifestDigest(this.request.schema.target)) releaseRefusal();
     const safe = { result: report.result, database_outcome: report.database_outcome, before: report.before, after: report.after,
       attempted: report.attempted, reporting: report.reporting };
@@ -405,6 +445,11 @@ export class ReleaseDiagnostics {
     this.#outcome.acknowledgeCreate(id);
     this.trace?.event('effect.create', 'passed', 'deployment-id-acknowledged', { actualId: id }); this.persist();
   }
+  inheritedHeld(id: string): void {
+    this.#outcome.inheritHeld(id);
+    this.trace?.event('effect.create', 'not-run', 'inherited-original-ack-zero-create', { actualId: id });
+    this.persist();
+  }
   migrated(report: MigrationReport): void {
     this.#outcome.acknowledgeMigration(report);
     this.trace?.event('effect.migration', report.database_outcome === 'committed' ? 'passed' : 'failed',
@@ -422,7 +467,7 @@ export class ReleaseDiagnostics {
     const ids = [...new Set(descriptions.filter(value => value.startsWith('ack:')).map(value => value.slice(4)))];
     const state = this.snapshot(), id = ids[0] ?? state.deploymentId;
     if (ids.length > 1 || (state.deploymentId && id !== state.deploymentId)) this.reject('identity-mismatch');
-    const create = id ? 'ACKed' : descriptions.includes('create_intent_unknown_until_acknowledged')
+    const create = this.request.continuation ? 'not-started' : id ? 'ACKed' : descriptions.includes('create_intent_unknown_until_acknowledged')
       || descriptions.some(value => value.startsWith('strict:held-create:intent:')) ? 'unknown' : state.effects.create;
     const migration = state.effects.migration === 'not-started' && descriptions.some(value => value.startsWith('strict:sql-apply:intent:')
       || value.startsWith('migration_intent:')) ? 'unknown' : state.effects.migration;
@@ -463,7 +508,7 @@ export class ReleaseDiagnostics {
     const state = this.snapshot();
     return this.#outcome.finish({ stage: 'receipt', category: null, nextAction: 'run-acceptance', receiptDigest: this.#digest,
       evidence: this.#unconfirmed ? 'unconfirmed' : 'confirmed', proof: { deploymentId: state.deploymentId,
-        artifactDigest: this.request.artifactDigest, configDigest: this.request.configDigest,
+        artifactDigest: this.request.continuation?.originalPacket.artifactDigest ?? this.request.artifactDigest, configDigest: this.request.configDigest,
         schemaDigest: this.request.schema.targetDigest, domain: 'api.lovora.us', checks: 'passed' } });
   }
 }
@@ -501,15 +546,20 @@ export async function approvedRoutineRequest(artifact: VerifiedArtifact, selecti
       revision: packet.predecessor.revision, artifactDigest: packet.predecessor.artifact, configDigest: packet.predecessor.configDigest },
       compatibilityApproval: packet.compatibilityApproval, recoveryApproval: packet.recoveryApproval, maintenanceApproval: null };
   } else if (controls.mode === 'etsy-strict-cutover') {
-    const packet = validateEtsyReleasePacket(packetValue, controls.packetDigest);
-    if (packet.revision !== selected.producer.revision || packet.tree !== selected.producer.tree
-      || packet.artifactDigest !== artifact.digest || packet.sourceDigest !== approved.sourceDigest
-      || packet.runtimeDigest !== controls.configDigest || packet.target !== controls.target || packet.targetDigest !== controls.schemaDigest) releaseRefusal();
+    const continuation = controls.heldIncident ? validateEtsyContinuationApproval(packetValue, controls.packetDigest) : undefined;
+    const packet = continuation?.originalPacket ?? validateEtsyReleasePacket(packetValue, controls.packetDigest);
+    if (continuation) {
+      request.continuation = continuation;
+      if (controls.heldIncident !== heldEtsyIncident.run) releaseRefusal();
+    } else if (packet.revision !== selected.producer.revision || packet.tree !== selected.producer.tree
+      || packet.artifactDigest !== artifact.digest || packet.sourceDigest !== approved.sourceDigest) releaseRefusal();
+    if (packet.runtimeDigest !== controls.configDigest || packet.target !== controls.target || packet.targetDigest !== controls.schemaDigest) releaseRefusal();
     request.schema.before = artifact.manifest.migrations.slice(0, 3); request.schema.beforeDigest = packet.previousDigest;
     request.migration = { packetDigest: controls.packetDigest, predecessor: { id: packet.predecessor.id,
       revision: packet.predecessor.revision, artifactDigest: packet.predecessor.artifactDigest, configDigest: packet.predecessor.configDigest },
       compatibilityApproval: null, recoveryApproval: sha256(canonical({ packet: controls.packetDigest, recovery: packet.grants.recovery })),
-      maintenanceApproval: sha256(canonical({ packet: controls.packetDigest, window: packet.window, maintenance: packet.grants.maintenance })) };
+      maintenanceApproval: sha256(canonical({ packet: controls.packetDigest, window: continuation?.window ?? packet.window,
+        maintenance: packet.grants.maintenance })) };
   } else if (packetValue !== undefined) releaseRefusal();
   return validateReleaseRequest(request, { version: 1, requestDigest: sha256(canonical(request)) });
 }
@@ -790,6 +840,7 @@ async function executeRoutinePhase(input: RoutinePhaseInput, diagnostics: Releas
   diagnostics.at('request', 'unauthorized-context');
   const { artifact, request, env, cli, reports, signal } = input, { mode, action } = routinePhaseContext(env);
   releaseRequestShape(request);
+  if ((env.BE_HELD_INCIDENT ?? '') !== (request.continuation ? heldEtsyIncident.run : '')) releaseRefusal();
   diagnostics.at('artifact', 'identity-mismatch');
   if (request.mode !== mode || request.artifactDigest !== artifact.digest || request.sourceDigest !== artifact.manifest.source.digest
     || request.schema.targetDigest !== artifact.manifest.migrationDigest

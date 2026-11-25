@@ -8,7 +8,7 @@ import type { Socket } from 'node:net';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
-import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, tar } from './artifact-fixture.js';
+import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, tar } from './artifact-fixture.js';
 import { artifactTarget, canonical, readArtifactFile, sha256 } from '../scripts/artifact.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { chmod, writeFile } from 'node:fs/promises';
@@ -17,8 +17,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import { createReleaseJournal, describeRetainedRun, readReleaseJournal, writeReleaseEvidence } from '../scripts/release-journal.js';
 import type { ReleaseBinding, SupersessionApproval } from '../scripts/release-journal.js';
 import { bounded } from '../scripts/bounded.js';
-import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validateEtsyReleasePacket } from '../scripts/etsy-release.js';
-import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase } from '../scripts/etsy-release.js';
+import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validateEtsyReleasePacket, heldContinuationPhases,
+  heldEtsyIncident, validateEtsyContinuationApproval, verifyHeldEtsyReceipts } from '../scripts/etsy-release.js';
+import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase, HeldContinuationPhase } from '../scripts/etsy-release.js';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { currentAppMetadata } from '../scripts/activation-configuration.js';
 import { manifestDigest, migrationStatus, runMigrations } from '../scripts/migrations.js';
@@ -26,11 +27,172 @@ import { safeReleaseError } from '../scripts/checks-diagnostics.js';
 import type { MigrationReport } from '../scripts/migrations.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { readEvidence } from '../scripts/release-journal.js';
-import { ReleaseOutcome, approvedRoutineRequest, validateReleaseResult } from '../scripts/ci-delivery.js';
+import { ReleaseDiagnostics, ReleaseOutcome, approvedRoutineRequest, validateReleaseResult } from '../scripts/ci-delivery.js';
 import { historicalHandoffDigest } from '../scripts/historical-release.js';
 import { rootCertificates } from 'node:tls';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
 
+
+test('held continuation verifies the complete authentic origin without reopening its historical window', () => {
+  const f = heldContinuationFixture();
+  assert.equal(f.origin.id, 'dpl_9gJ1zDbbbbPtac2FUqHrNReyLck4');
+  assert.equal(f.origin.ackDigest, heldEtsyIncident.ackDigest);
+  assert.equal(f.origin.request.controller.run, heldEtsyIncident.run);
+  assert.equal(f.origin.outcomeHead, heldEtsyIncident.outcomeHead);
+  assert.equal(f.origin.request.artifactDigest, f.packet.artifactDigest);
+  assert.throws(() => validateEtsyReleasePacket(f.packet, heldEtsyIncident.packetDigest, f.now));
+  assert.deepEqual(validateEtsyContinuationApproval(f.approval, f.digest, f.now), f.approval);
+  const changed = Buffer.from(f.zip); changed[100] = changed[100]! ^ 1;
+  for (const zip of [changed, f.zip.subarray(0, -1), Buffer.concat([f.zip, f.zip]), Buffer.alloc(0)]) {
+    assert.throws(() => verifyHeldEtsyReceipts(zip, f.packet));
+  }
+  const foreign = structuredClone(f.packet); foreign.revision = 'f'.repeat(40);
+  assert.throws(() => verifyHeldEtsyReceipts(f.zip, foreign));
+});
+
+test('held continuation rejects stale grants, application relabeling and CREATE-shaped outcomes', () => {
+  const f = heldContinuationFixture();
+  for (const mutate of [
+    (value: typeof f.approval) => { value.window = { ...f.packet.window }; },
+    (value: typeof f.approval) => { value.operator.revision = f.packet.revision; },
+    (value: typeof f.approval) => { value.originalPacket.artifactDigest = value.operator.artifactDigest; },
+    (value: typeof f.approval) => { value.runId = f.packet.runId; },
+    (value: typeof f.approval) => { (value.incident as { ackDigest: string }).ackDigest = '0'.repeat(64); },
+  ]) {
+    const approval = structuredClone(f.approval); mutate(approval);
+    assert.throws(() => validateEtsyContinuationApproval(approval, sha256(canonical(approval)), f.now));
+  }
+  const outcome = new ReleaseOutcome(f.request, { version: 1, requestDigest: sha256(canonical(f.request)) });
+  assert.throws(() => outcome.submitted('migration'));
+  assert.throws(() => outcome.inheritHeld('dpl_wrong'));
+  outcome.inheritHeld(f.origin.id);
+  assert.throws(() => outcome.submitted('create'));
+  assert.throws(() => outcome.acknowledgeCreate(f.origin.id));
+  const result = outcome.finish({ stage: 'pre-sql', category: 'validation', nextAction: 'inspect-known-deployment', receiptDigest: null });
+  assert.equal(result.deploymentId, f.origin.id);
+  assert.deepEqual(result.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
+  assert.throws(() => validateReleaseResult({ ...result, effects: { ...result.effects, create: 'ACKed' } }));
+  assert.throws(() => validateReleaseResult({ ...result, deploymentId: 'dpl_wrong' }));
+});
+
+function heldPhaseFixture(t: TestContext) {
+  const f = heldContinuationFixture(), root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-held-phase-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  let now = f.now;
+  t.mock.method(Date, 'now', () => now);
+  const diagnostics = new ReleaseDiagnostics(f.request, root, AbortSignal.timeout(30000));
+  diagnostics.load(); diagnostics.inheritedHeld(f.origin.id);
+  writeReleaseEvidence(join(root, 'claim.json'), { kind: 'synthetic-serialized-claim', key: f.origin.key, request: sha256(canonical(f.request)) });
+  const continuation: HeldContinuationPhase = { approval: f.approval, origin: f.origin,
+    claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256 };
+  let names = migrationManifest.slice(0, 3).map(entry => entry.name), alias = f.packet.predecessor.id;
+  let sql = 0, promotions = 0, remote = continuation.claimDigest;
+  const operations: Omit<EtsyReleaseOperations, 'create'> = {
+    verify() { validateEtsyContinuationApproval(f.approval, f.digest); },
+    async currentMain() { return { revision: f.approval.operator.revision, tree: f.approval.operator.tree }; },
+    async history() { return [...names]; },
+    async predecessor(pending) { assert.equal(alias, f.packet.predecessor.id); assert.equal(names.length, pending ? 4 : 3); },
+    async candidate(id, pending, final) {
+      assert.equal(id, f.origin.id); assert.equal(names.length, pending ? 3 : 4);
+      if (final) assert.equal(alias, id);
+    },
+    async migrate() {
+      sql++;
+      const before = [...names]; names = migrationManifest.map(entry => entry.name);
+      return { run_id: randomUUID(), source_revision: f.packet.revision, target: f.packet.target,
+        manifest_digest: f.packet.targetDigest, started_at: new Date(now).toISOString(), ended_at: new Date(now).toISOString(),
+        duration_ms: 0, result: 'success', stage: 'verification', failed_version: null, database_outcome: 'committed',
+        before, after: [...names], attempted: [{ ...migrationManifest[3]!, outcome: 'applied_committed' }], reporting: 'written' };
+    },
+    async promote(id) { assert.equal(id, f.origin.id); promotions++; alias = id; return { code: 0, aborted: false, stdout: '' }; },
+    async alias(id) { assert.equal(alias, id); },
+  };
+  const durability = {
+    directory: root,
+    async intent(_phase: EtsyReleasePhase, intent: { previous: string | null }) { assert.equal(intent.previous, remote); },
+    async acknowledged() { assert.fail('Continuation cannot acknowledge a new CREATE'); },
+    async confirmed(phase: EtsyReleasePhase, receipt: unknown) {
+      const entry = readEvidence(join(root, f.approval.runId, `${phase}.receipt.json`));
+      assert.deepEqual(entry.value, receipt); remote = entry.identity.sha256;
+    },
+  };
+  const run = (phase: EtsyReleasePhase) => runEtsyReleasePhase({ packet: f.packet, packetDigest: f.digest, phase,
+    operations, signal: diagnostics.signal, diagnostics, durability, continuation });
+  return { ...f, root, diagnostics, continuation, operations, durability, run,
+    advance: (milliseconds: number) => { now += milliseconds; }, counts: () => ({ sql, promotions }) };
+}
+
+test('held continuation completes the suffix once with dual identities and zero CREATE', async t => {
+  const f = heldPhaseFixture(t), original = Buffer.from(f.zip);
+  assert.equal(Object.hasOwn(f.operations, 'create'), false);
+  for (const phase of heldContinuationPhases) await f.run(phase);
+  f.diagnostics.verified();
+  const result = f.diagnostics.complete()!;
+  assert.equal(result.status, 'accepted');
+  assert.equal(result.request!.controller.revision, f.approval.operator.revision);
+  assert.equal(result.proof!.artifactDigest, f.packet.artifactDigest);
+  assert.equal(result.proof!.deploymentId, f.origin.id);
+  assert.deepEqual(result.effects, { create: 'not-started', migration: 'ACKed', promotion: 'ACKed' });
+  assert.deepEqual(f.counts(), { sql: 1, promotions: 1 });
+  assert.deepEqual(f.zip, original);
+  assert.equal(fs.existsSync(join(f.root, f.packet.runId)), false);
+  assert.equal(fs.existsSync(join(f.root, f.approval.runId, 'held-create.intent.json')), false);
+  assert.equal(fs.existsSync(join(f.root, f.approval.runId, 'create-ack.json')), false);
+  await assert.rejects(f.run('sql-apply'));
+  assert.deepEqual(f.counts(), { sql: 1, promotions: 1 });
+});
+
+test('held continuation fences wrong main, late SQL, altered receipts and unknown side effects', async t => {
+  for (const fault of ['create-phase', 'main', 'late-sql', 'receipt', 'sql-unknown', 'promotion-unknown', 'receipt-loss']) {
+    await t.test(fault, async st => {
+      const f = heldPhaseFixture(st);
+      if (fault === 'create-phase') {
+        await assert.rejects(f.run('held-create')); assert.deepEqual(f.counts(), { sql: 0, promotions: 0 }); return;
+      }
+      await f.run('history');
+      if (fault === 'main') {
+        f.operations.currentMain = async () => ({ revision: f.packet.revision, tree: f.packet.tree });
+        await assert.rejects(f.run('pre-sql-check'));
+      } else {
+        await f.run('pre-sql-check');
+        if (fault === 'late-sql') f.advance(60001);
+        if (fault === 'receipt') {
+          const path = join(f.root, f.approval.runId, 'pre-sql-check.receipt.json');
+          const value = readEvidence(path).value as Record<string, unknown>;
+          fs.writeFileSync(path, JSON.stringify({ ...value, deploymentId: 'dpl_wrong' }));
+        }
+        if (fault === 'sql-unknown') {
+          const migrate = f.operations.migrate;
+          f.operations.migrate = async () => { await migrate(); throw new Error('Synthetic SQL acknowledgement loss'); };
+        }
+        if (['late-sql', 'receipt', 'sql-unknown'].includes(fault)) await assert.rejects(f.run('sql-apply'));
+        else {
+          await f.run('sql-apply'); await f.run('post-sql-check');
+          if (fault === 'promotion-unknown') {
+            const promote = f.operations.promote;
+            f.operations.promote = async id => { await promote(id); throw new Error('Synthetic promotion acknowledgement loss'); };
+          } else {
+            const confirmed = f.durability.confirmed;
+            f.durability.confirmed = async (phase, receipt) => {
+              await confirmed(phase, receipt);
+              if (phase === 'promote-only') throw new Error('Synthetic remote receipt loss');
+            };
+          }
+          await assert.rejects(f.run('promote-only'));
+        }
+      }
+      const before = f.counts();
+      await assert.rejects(f.run('sql-apply'));
+      assert.deepEqual(f.counts(), before);
+      assert.equal(fs.existsSync(join(f.root, f.approval.runId, 'STOP.json')), true);
+      const result = f.diagnostics.failure();
+      assert.equal(result.effects.create, 'not-started');
+      if (fault === 'sql-unknown') assert.equal(result.effects.migration, 'unknown');
+      if (fault === 'promotion-unknown') assert.equal(result.effects.promotion, 'unknown');
+      if (fault === 'receipt-loss') assert.equal(result.effects.promotion, 'ACKed');
+    });
+  }
+});
 test('SQL history diagnostics preserve causes, finite projections and read-only boundaries', async t => {
   const { Client } = await import('pg');
   const canary = 'OpaqueSqlHostUserPasswordQueryCertCanary';

@@ -136,6 +136,21 @@ function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diag
   if (hash(canonical(inventory)) !== inventoryLine.trim()) refuse();
   return { files, directories, archiveDigest: hash(compressed), inventoryDigest: inventoryLine.trim() };
 }
+// This incident has six outcome records and fourteen strict records, including
+// both terminal snapshots. Never discard the last snapshot to fit a stated count.
+export function validateHeldContinuationReceiptArchive(zip, diagnostics) {
+  const runId = '17900717-24bf-4b64-8c1d-8e6a456412d6', base = `strict/${runId}`;
+  const outcomes = Array.from({ length: 6 }, (_, index) => `release-outcome-${String(index).padStart(4, '0')}.json`);
+  const fixed = ['strict/reserving.json', 'strict/reservation.json', 'strict/history.authorized.json',
+    'strict/operator.lock', 'strict/active.lock', 'strict/history.remote.json', 'strict/held-create.remote.json',
+    ...['history.intent', 'history.receipt', 'held-create.intent', 'held-create.receipt', 'create-ack',
+      'pre-sql-check.intent', 'STOP'].map(name => `${base}/${name}.json`)];
+  const expected = new Set([...outcomes, ...fixed]);
+  const result = receiptMembers(zip, '47fbb0ecc25d77764f11b187d60f7b954b473e15552660886745bbc6f4c1cf64',
+    ['', 'strict', base], name => expected.has(name), diagnostics);
+  if (result.files.size !== 20 || [...expected].some(name => !result.files.has(name))) refuse();
+  return { ...result, outcomes, runId };
+}
 export function validateAuthorizationReceiptArchive(zip, approvedZip, diagnostics, readOnlyHistory = false) {
   const historyDirectory = /^strict\/[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/;
   const fixed = ['strict/reserving.json', 'strict/reservation.json',

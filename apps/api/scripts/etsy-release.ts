@@ -23,6 +23,8 @@ import { readHiddenPassword } from './hidden-input.mjs';
 import { prepareEtsyConfiguration, setupObject } from './etsy-setup.js';
 import { bounded } from './bounded.js';
 import { activationRuntimeKeys, etsyRuntimeKeys } from '../src/config/activation-config.js';
+import { validateHeldContinuationReceiptArchive } from './activation-preflight-disposition.mjs';
+import { validateReleaseResult } from './ci-delivery.js';
 import { currentAppMetadata } from './activation-configuration.js';
 
 export const etsyReleasePhases = ['history', 'held-create', 'pre-sql-check', 'sql-apply', 'post-sql-check', 'promote-only', 'final-domain-ack'] as const;
@@ -36,6 +38,131 @@ export interface EtsyReleasePacket {
   window: { start: number; end: number };
   grants: { exclusiveOwnerLease: string; automatedDelivery: 'disabled'; maintenance: 'approved-readiness-interruption';
     recovery: 'approved-roll-forward-only'; phases: EtsyReleasePhase[] };
+}
+
+export const heldEtsyIncident = Object.freeze({
+  run: '45106877912', job: 137470929512, journal: 7989854763, producer: '45101806838', artifactId: 14786046264,
+  receiptArtifact: 14788062302, packetRun: '17900717-24bf-4b64-8c1d-8e6a456412d6',
+  packetDigest: 'd8228ac9fceb5a18a2b473ca62269466686cb7880c297981dde096cb0ffab1ee',
+  requestDigest: '107dcc5270f43024442b79db59bb70e323ddb85dbb2d65db1475c9269b756528',
+  receiptZipDigest: '47fbb0ecc25d77764f11b187d60f7b954b473e15552660886745bbc6f4c1cf64',
+  ackDigest: 'c1f7eb6d78bc4cc0f09b339a23ff9fdef4cb852684334f3ecd6763b136fa0f9c',
+  outcomeHead: '3bd44dcc31ae315e9eb365ba419779e70efc7a1ff4888a301fa935abd1d40972',
+  revision: 'b12a8fb31b2fa017ac87d191aa5cc2652a5691d3', tree: 'a4175ef8e71afe7a1d45f4b8af54f693be05244c',
+  artifactDigest: '06afb0ae722be3afead286181137fddb1c769f9de6416fe8c71ef8ce4b4c08f1',
+  sourceDigest: '9423a4a1c7d6810807c1afdaef5cd25e2ae4c55dfec796e78732019e5cca8e02',
+  archiveDigest: 'def60b022306a4057c32c8dc22188362123b1ca066db5255bfa0cc4724a8e7a4',
+});
+export interface EtsyContinuationApproval {
+  version: 1; kind: 'held-etsy-continuation'; incident: typeof heldEtsyIncident;
+  runId: string; lease: string; window: { start: number; end: number }; originalPacket: EtsyReleasePacket;
+  operator: { revision: string; tree: string; producerRun: string; artifactId: string; artifactDigest: string;
+    sourceDigest: string; archiveDigest: string; operatorDigest: string; workflowDigest: string;
+    driverDigest: string; nodeDigest: string; cliDigest: string; cliOwnFilesDigest: string };
+}
+function heldRequire(condition: unknown, check: string): asserts condition {
+  if (!condition) throw new Error(`Held continuation refused: ${check}.`);
+}
+export function validateEtsyContinuationApproval(value: unknown, digest: string, now = Date.now()): EtsyContinuationApproval {
+  const data = exactObject(value, ['version', 'kind', 'incident', 'runId', 'lease', 'window', 'originalPacket', 'operator']);
+  heldRequire(hex.test(digest) && sha256(canonical(data)) === digest && data.version === 1
+    && data.kind === 'held-etsy-continuation' && equal(data.incident, heldEtsyIncident), 'typed-incident-approval');
+  heldRequire(typeof data.runId === 'string' && /^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/.test(data.runId)
+    && data.runId !== heldEtsyIncident.packetRun && typeof data.lease === 'string'
+    && /^[A-Za-z0-9][A-Za-z0-9_.-]{0,95}$/.test(data.lease), 'fresh-owner-lease');
+  const window = exactObject(data.window, ['start', 'end']);
+  heldRequire(Number.isSafeInteger(window.start) && Number.isSafeInteger(window.end) && Number(window.start) <= now
+    && Number(window.end) > now && Number(window.end) - Number(window.start) <= 86400000
+    && Number(window.start) > 1795412007767, 'fresh-execution-window');
+  // Historical validation does not grant present execution authority.
+  const packet = validateEtsyReleasePacket(data.originalPacket, heldEtsyIncident.packetDigest, 1795405255467);
+  heldRequire(packet.runId === heldEtsyIncident.packetRun && packet.revision === heldEtsyIncident.revision
+    && packet.tree === heldEtsyIncident.tree && packet.artifactDigest === heldEtsyIncident.artifactDigest
+    && packet.sourceDigest === heldEtsyIncident.sourceDigest && packet.target !== 'local', 'original-application');
+  const operator = exactObject(data.operator, ['revision', 'tree', 'producerRun', 'artifactId', 'artifactDigest',
+    'sourceDigest', 'archiveDigest', 'operatorDigest', 'workflowDigest', 'driverDigest', 'nodeDigest', 'cliDigest', 'cliOwnFilesDigest']);
+  heldRequire(revision.test(String(operator.revision)) && revision.test(String(operator.tree))
+    && operator.revision !== packet.revision && /^[1-9][0-9]{0,14}$/.test(String(operator.producerRun))
+    && /^[1-9][0-9]{0,14}$/.test(String(operator.artifactId))
+    && ['artifactDigest', 'sourceDigest', 'archiveDigest', 'operatorDigest', 'workflowDigest', 'driverDigest',
+      'nodeDigest', 'cliDigest', 'cliOwnFilesDigest'].every(key => typeof operator[key] === 'string' && hex.test(operator[key] as string)),
+  'independent-current-operator');
+  return JSON.parse(canonical(data)) as EtsyContinuationApproval;
+}
+
+export function verifyHeldEtsyReceipts(zip: Buffer, packet: EtsyReleasePacket, diagnostics?: ReleaseDiagnostics) {
+  const archive = validateHeldContinuationReceiptArchive(zip, diagnostics?.trace);
+  const bytes = (name: string): Buffer => {
+    const member = archive.files.get(name);
+    heldRequire(member !== undefined, 'required-original-member');
+    return member.bytes;
+  };
+  const json = (name: string) => setupObject(JSON.parse(bytes(name).toString('utf8')));
+  const strict = `strict/${heldEtsyIncident.packetRun}`, packetDigest = heldEtsyIncident.packetDigest;
+  const original = validateEtsyReleasePacket(packet, packetDigest, 1795405255467);
+  const ack = exactObject(json(`${strict}/create-ack.json`), ['packetDigest', 'deploymentId']);
+  heldRequire(ack.packetDigest === packetDigest && deploymentId.test(String(ack.deploymentId)), 'original-create-ack');
+  const id = String(ack.deploymentId), requestDigest = heldEtsyIncident.requestDigest;
+  let previous: string | null = null, request: NonNullable<ReturnType<typeof validateReleaseResult>['request']> | undefined;
+  const stages = ['reserve', 'history', 'create', 'create', 'pre-sql', 'pre-sql'];
+  const creates = ['not-started', 'not-started', 'unknown', 'ACKed', 'ACKed', 'ACKed'];
+  let authorizedHead: string | null = null;
+  for (const [index, name] of (archive.outcomes as string[]).entries()) {
+    const event = exactObject(json(name), ['requestDigest', 'previous', 'result', 'terminal']);
+    heldRequire(event.requestDigest === requestDigest && event.previous === previous && event.terminal === (index >= 4), 'original-outcome-chain');
+    const result = validateReleaseResult(event.result);
+    heldRequire(result.request !== null, 'original-request-present');
+    request ??= result.request;
+    heldRequire(sha256(canonical(result.request)) === requestDigest && equal(result.request, request)
+      && result.stage === stages[index] && result.status === (index >= 4 ? 'failed' : 'unknown')
+      && result.category === (index >= 4 ? 'validation' : 'outcome-unknown') && result.evidence === 'confirmed'
+      && result.nextAction === (index >= 4 ? 'inspect-known-deployment' : 'inspect-retained-evidence')
+      && result.proof === null && result.migration === null
+      && equal(result.effects, { create: creates[index], migration: 'not-started', promotion: 'not-started' })
+      && result.deploymentId === (index >= 3 ? id : null)
+      && result.receiptDigest === (index === 5 ? authorizedHead : previous), 'original-effects');
+    if (index === 4) authorizedHead = previous;
+    previous = sha256(bytes(name));
+  }
+  heldRequire(previous === heldEtsyIncident.outcomeHead && request !== undefined
+    && request.controller.run === heldEtsyIncident.run && request.producer.run === heldEtsyIncident.producer
+    && request.artifactDigest === original.artifactDigest && request.sourceDigest === original.sourceDigest
+    && request.configDigest === original.runtimeDigest && request.migration?.packetDigest === packetDigest, 'original-request');
+  const reservation = { version: 1, requestDigest, packetDigest, journal: heldEtsyIncident.journal };
+  heldRequire(equal(json('strict/reserving.json'), { requestDigest, packetDigest })
+    && equal(json('strict/reservation.json'), reservation)
+    && equal(json('strict/operator.lock'), { packetDigest, runId: original.runId, lease: original.grants.exclusiveOwnerLease })
+    && equal(json('strict/active.lock'), { packetDigest, runId: original.runId, phase: 'pre-sql-check' })
+    && equal(json(`${strict}/STOP.json`), { packetDigest, phase: 'pre-sql-check', outcome: 'unknown-or-refused' }), 'original-retained-fences');
+  let prior: string | null = null, priorId: string | null = null, historyCompleted = 0;
+  for (const phase of ['history', 'held-create'] as const) {
+    const intent = { packetDigest, phase, previous: prior, deploymentId: priorId };
+    heldRequire(equal(json(`${strict}/${phase}.intent.json`), intent), 'original-phase-intent');
+    const receipt = exactObject(json(`${strict}/${phase}.receipt.json`),
+      ['packetDigest', 'phase', 'previous', 'deploymentId', 'completed', 'reportDigest']);
+    heldRequire(equal(receipt, { ...intent, deploymentId: phase === 'history' ? null : id, completed: receipt.completed, reportDigest: null })
+      && Number.isSafeInteger(receipt.completed) && Number(receipt.completed) >= Math.max(original.window.start, historyCompleted)
+      && Number(receipt.completed) < original.window.end, 'original-phase-receipt');
+    if (phase === 'history') {
+      historyCompleted = Number(receipt.completed);
+      const auth = json('strict/history.authorized.json');
+      heldRequire(equal(auth, { ...reservation, phase, intent,
+        description: `strict:history:intent:${sha256(canonical({ requestDigest, intent }))}`, confirmedAt: auth.confirmedAt })
+        && Number.isSafeInteger(auth.confirmedAt) && Number(auth.confirmedAt) >= original.window.start
+        && Number(auth.confirmedAt) <= historyCompleted && historyCompleted - Number(auth.confirmedAt) <= 60000,
+      'original-history-authorization');
+    }
+    prior = sha256(bytes(`${strict}/${phase}.receipt.json`));
+    heldRequire(equal(json(`strict/${phase}.remote.json`), { requestDigest, journal: heldEtsyIncident.journal,
+      receiptDigest: prior, description: `strict:${phase}:receipt:${sha256(canonical({ requestDigest, receipt: prior }))}` }), 'original-remote-commitment');
+    if (phase === 'held-create') priorId = id;
+  }
+  heldRequire(equal(json(`${strict}/pre-sql-check.intent.json`),
+    { packetDigest, phase: 'pre-sql-check', previous: prior, deploymentId: id }), 'original-pre-sql-stop');
+  const ackDigest = sha256(bytes(`${strict}/create-ack.json`));
+  return { id, request, ackDigest, heldReceiptDigest: prior!, outcomeHead: previous!,
+    key: sha256(canonical({ incident: heldEtsyIncident.run, journal: heldEtsyIncident.journal, ackDigest })),
+    archiveDigest: archive.archiveDigest, inventoryDigest: archive.inventoryDigest };
 }
 export class EtsyReleaseStop extends Error {
   constructor() { super('ETSY_SETUP_STOP: durable intent or outcome requires owner disposition; do not retry mutations.'); }
@@ -103,9 +230,14 @@ export interface EtsyReleaseDurability {
   acknowledged(id: string): Promise<void>;
   confirmed(phase: EtsyReleasePhase, value: Receipt): Promise<void>;
 }
+export const heldContinuationPhases: readonly EtsyReleasePhase[] = etsyReleasePhases.filter(phase => phase !== 'held-create');
+export interface HeldContinuationPhase {
+  approval: EtsyContinuationApproval; origin: ReturnType<typeof verifyHeldEtsyReceipts>; claimDigest: string;
+}
 export async function runEtsyReleasePhase(input: {
-  packet: EtsyReleasePacket; packetDigest: string; phase: EtsyReleasePhase; operations: EtsyReleaseOperations; signal: AbortSignal;
-  durability?: EtsyReleaseDurability; diagnostics?: ReleaseDiagnostics;
+  packet: EtsyReleasePacket; packetDigest: string; phase: EtsyReleasePhase; signal: AbortSignal;
+  operations: Omit<EtsyReleaseOperations, 'create'> & { create?: EtsyReleaseOperations['create'] };
+  durability?: EtsyReleaseDurability; diagnostics?: ReleaseDiagnostics; continuation?: HeldContinuationPhase;
 }): Promise<void> {
   const { packetDigest, phase, signal, diagnostics } = input;
   const trace = diagnostics?.trace;
@@ -115,35 +247,48 @@ export async function runEtsyReleasePhase(input: {
     trace?.check(`strict.${name}`, condition, 'condition-mismatch');
     if (!condition) stop();
   };
-  const packet = trace ? trace.sync('strict.packet', () => validateEtsyReleasePacket(input.packet, packetDigest))
-    : validateEtsyReleasePacket(input.packet, packetDigest);
-  const index = etsyReleasePhases.indexOf(phase);
+  const continuation = input.continuation;
+  const authority = () => {
+    if (!continuation) return validateEtsyReleasePacket(input.packet, packetDigest);
+    const approval = validateEtsyContinuationApproval(continuation.approval, packetDigest);
+    heldRequire(equal(input.packet, approval.originalPacket) && continuation.origin.ackDigest === heldEtsyIncident.ackDigest
+      && continuation.origin.outcomeHead === heldEtsyIncident.outcomeHead && hex.test(continuation.claimDigest)
+      && input.durability !== undefined && input.operations.create === undefined, 'continuation-phase-authority');
+    return approval.originalPacket;
+  };
+  const packet = trace ? trace.sync('strict.packet', authority) : authority();
+  const phases = continuation ? heldContinuationPhases : etsyReleasePhases, index = phases.indexOf(phase);
   predicate('phase-allowed', index >= 0);
+  const identity = continuation?.approval.operator ?? packet;
+  const window = continuation?.approval.window ?? packet.window;
+  const runId = continuation?.approval.runId ?? packet.runId;
+  const lease = continuation?.approval.lease ?? packet.grants.exclusiveOwnerLease;
   const stage = ({ history: 'history', 'held-create': 'create', 'pre-sql-check': 'pre-sql', 'sql-apply': 'sql',
     'post-sql-check': 'candidate', 'promote-only': 'promote', 'final-domain-ack': 'domain' } as const)[phase];
   diagnostics?.at(stage, 'evidence-persistence');
   const persist = (path: string, value: unknown) => diagnostics
     ? diagnostics.observe(() => writeReleaseEvidence(path, value)) : writeReleaseEvidence(path, value);
-  const root = privateDirectory(input.durability?.directory ?? packet.ledgerRoot, false), run = join(root, packet.runId);
+  const root = privateDirectory(input.durability?.directory ?? packet.ledgerRoot, false), run = join(root, runId);
   const lock = join(root, 'active.lock');
   // An exclusive fsynced lock survives process loss. Never automatically steal it.
-  try { persist(lock, { packetDigest, runId: packet.runId, phase }); } catch (cause) { if (diagnostics) throw diagnostics.capture(cause); stop(); }
+  try { persist(lock, { packetDigest, runId, phase }); } catch (cause) { if (diagnostics) throw diagnostics.capture(cause); stop(); }
   let success = false;
   try {
     signal.throwIfAborted(); op.verify();
     const ownerPath = join(root, 'operator.lock');
-    if (!fs.existsSync(ownerPath)) persist(ownerPath, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease });
-    predicate('operator-lock-binding', equal(readEvidence(ownerPath).value, { packetDigest, runId: packet.runId, lease: packet.grants.exclusiveOwnerLease }));
+    if (!fs.existsSync(ownerPath)) persist(ownerPath, { packetDigest, runId, lease });
+    predicate('operator-lock-binding', equal(readEvidence(ownerPath).value, { packetDigest, runId, lease }));
     if (!fs.existsSync(run)) { fs.mkdirSync(run, { mode: 0o700 }); syncDirectory(root); }
     privateDirectory(run, false);
     predicate('no-retained-stop', !fs.existsSync(join(run, 'STOP.json')));
-    let previous: string | null = null, id: string | null = null, reportDigest: string | null = null;
+    let previous: string | null = continuation?.claimDigest ?? null, id: string | null = continuation?.origin.id ?? null;
+    let reportDigest: string | null = null;
     // Validate every durable predecessor, not merely a caller-selected last receipt.
-    for (const earlier of etsyReleasePhases.slice(0, index)) {
+    for (const earlier of phases.slice(0, index)) {
       const entry = readEvidence(join(run, `${earlier}.receipt.json`));
       const value = exactObject(entry.value, ['packetDigest', 'phase', 'previous', 'deploymentId', 'completed', 'reportDigest']) as unknown as Receipt;
       predicate('prior-receipt-chain', value.packetDigest === packetDigest && value.phase === earlier && value.previous === previous
-        && Number.isSafeInteger(value.completed) && value.completed >= packet.window.start && value.completed <= Date.now()
+        && Number.isSafeInteger(value.completed) && value.completed >= window.start && value.completed <= Date.now()
         && (id === null || value.deploymentId === id));
       predicate('prior-intent-binding', equal(readEvidence(join(run, `${earlier}.intent.json`)).value,
         { packetDigest, phase: earlier, previous, deploymentId: id }));
@@ -163,9 +308,9 @@ export async function runEtsyReleasePhase(input: {
     signal.throwIfAborted();
     diagnostics?.at(stage, 'validation');
     const main = async () => {
-      signal.throwIfAborted(); validateEtsyReleasePacket(packet, packetDigest); op.verify();
+      signal.throwIfAborted(); authority(); op.verify();
       const observed = await bounded(op.currentMain(), signal);
-      predicate('current-main-binding', observed.revision === packet.revision && observed.tree === packet.tree);
+      predicate('current-main-binding', observed.revision === identity.revision && observed.tree === identity.tree);
     };
     const before = migrationManifest.slice(0, 3).map(entry => entry.name), after = migrationManifest.map(entry => entry.name);
     if (phase === 'history') {
@@ -197,6 +342,7 @@ export async function runEtsyReleasePhase(input: {
         predicate('held-history-freshness', Date.now() - history.completed <= 60000);
         await bounded(op.predecessor(false), signal);
         diagnostics?.at('create', 'outcome-unknown'); diagnostics?.submitted('create');
+        if (!op.create || continuation) stop();
         const created = await op.create();
         // Never race away an acknowledgement: command transport settles after abort/exit.
         const acknowledged = acknowledgedId(created.stdout);
@@ -210,6 +356,10 @@ export async function runEtsyReleasePhase(input: {
       } else if (phase === 'pre-sql-check') {
         if (!id) { predicate('pre-sql-known-id', false); stop(); }
         predicate('pre-sql-known-id', true);
+        if (continuation) {
+          const history = readEvidence(join(run, 'history.receipt.json')).value as Receipt;
+          predicate('continuation-history-freshness', Date.now() - history.completed <= 60000);
+        }
         await bounded(op.predecessor(false), signal);
         await bounded(op.candidate(id, true, false), signal);
         await bounded(op.alias(packet.predecessor.id), signal);
@@ -231,18 +381,28 @@ export async function runEtsyReleasePhase(input: {
             persist(join(run, 'promote-intent.json'), { packetDigest, deploymentId: id });
             diagnostics?.at('promote', 'outcome-unknown'); diagnostics?.submitted('promotion');
             const promoted = await op.promote(id);
+            if (continuation && promoted.code === 0) {
+              let persistenceFailure: unknown;
+              try { writeReleaseEvidence(join(run, 'promote-ack.json'), { packetDigest, deploymentId: id }); }
+              catch (cause) { persistenceFailure = cause; }
+              try { diagnostics?.promoted(); }
+              finally {
+                if (persistenceFailure) { diagnostics?.evidenceFailed(); throw persistenceFailure; }
+              }
+            }
             predicate('promotion-ack', promoted.code === 0 && !promoted.aborted);
-            diagnostics?.promoted();
+            if (!continuation) diagnostics?.promoted();
             signal.throwIfAborted(); await bounded(op.alias(id), signal);
           }
         } else if (phase === 'final-domain-ack') {
           predicate('final-same-id-intent', equal(readEvidence(join(run, 'promote-intent.json')).value, { packetDigest, deploymentId: id }));
+          if (continuation) predicate('final-same-id-ack', equal(readEvidence(join(run, 'promote-ack.json')).value, { packetDigest, deploymentId: id }));
           await bounded(op.alias(id), signal); await bounded(op.candidate(id, false, true), signal);
           await bounded(op.alias(id), signal); await main();
         } else stop();
       }
     }
-    signal.throwIfAborted(); validateEtsyReleasePacket(packet, packetDigest); op.verify();
+    signal.throwIfAborted(); authority(); op.verify();
     const receipt: Receipt = { packetDigest, phase, previous, deploymentId: id, completed: Date.now(), reportDigest };
     diagnostics?.at(stage, 'evidence-persistence');
     persist(join(run, `${phase}.receipt.json`), receipt);
@@ -401,15 +561,24 @@ export interface EtsyCli {
   promote(id: string): Promise<CommandResult>;
   dispose(): Promise<void>;
 }
-function verifyEtsyCli(packet: EtsyReleasePacket, artifact: VerifiedArtifact, cli: string): void {
+function verifyEtsyCli(packet: Pick<EtsyReleasePacket, 'cliDigest' | 'cliOwnFilesDigest'>, artifact: VerifiedArtifact, cli: string): void {
   if (!cli.endsWith('/vercel/dist/vc.js') || sha256(fs.readFileSync(cli)) !== packet.cliDigest
     || JSON.parse(fs.readFileSync(resolve(cli, '../../package.json'), 'utf8')).version !== '65.4.0'
     || sha256(canonical(inventory(resolve(cli, '../..'), new Set(['node_modules'])).files)) !== packet.cliOwnFilesDigest
     || artifact.manifest.build.tools.find(tool => tool.name === 'vercel')?.filesDigest !== packet.cliOwnFilesDigest) stop();
 }
+export function isolatedEtsyCli(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact, cli: string,
+  token: string, signal: AbortSignal, diagnostics: ReleaseDiagnostics | undefined, promotionOnly: true,
+  tools: EtsyContinuationApproval['operator'], operator: VerifiedArtifact): Promise<Omit<EtsyCli, 'create'>>;
+export function isolatedEtsyCli(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact, cli: string,
+  token: string, signal: AbortSignal, diagnostics?: ReleaseDiagnostics): Promise<EtsyCli>;
 export async function isolatedEtsyCli(packet: EtsyReleasePacket, packetDigest: string, artifact: VerifiedArtifact, cli: string,
-  token: string, signal: AbortSignal, diagnostics?: ReleaseDiagnostics): Promise<EtsyCli> {
-  verifyEtsyCli(packet, artifact, cli);
+  token: string, signal: AbortSignal, diagnostics?: ReleaseDiagnostics, promotionOnly = false,
+  tools?: EtsyContinuationApproval['operator'], operator?: VerifiedArtifact): Promise<EtsyCli | Omit<EtsyCli, 'create'>> {
+  if (promotionOnly) {
+    heldRequire(tools && operator, 'current-promotion-tools');
+    verifyEtsyCli(tools, operator, cli);
+  } else verifyEtsyCli(packet, artifact, cli);
   const root = await mkdtemp(join(fs.realpathSync(tmpdir()), 'esty-etsy-cli-'));
   try {
     const env = await isolatedEnvironment(join(root, 'environment')); env.PATH = `${dirname(process.execPath)}:/usr/bin:/bin`;
@@ -421,13 +590,26 @@ export async function isolatedEtsyCli(packet: EtsyReleasePacket, packetDigest: s
       if (!equal(inventory(join(stage, '.vercel/output')).files.map(file => ({ ...file, path: `.vercel/output/${file.path}` })),
         artifact.manifest.files.filter(file => file.path.startsWith('.vercel/output/')))) stop();
     };
+    const promote = (id: string) => {
+      if (!deploymentId.test(id)) stop();
+      verify();
+      return command(process.execPath, [cli, 'promote', id, '--timeout', '5m', ...common], stage, env, signal, diagnostics?.trace);
+    };
+    if (promotionOnly) return { promote, dispose: () => removeArtifactTree(root) };
     return {
       create() { verify(); return command(process.execPath, [cli, ...prebuiltCreateArguments(artifact, common),
         '--meta', `etsySetupRun=${packet.runId}`, '--meta', `etsySetupPacket=${packetDigest}`, '--meta', `etsyRuntimeDigest=${packet.runtimeDigest}`], stage, env, signal, diagnostics?.trace); },
-      promote(id: string) { if (!deploymentId.test(id)) stop(); verify(); return command(process.execPath, [cli, 'promote', id, '--timeout', '5m', ...common], stage, env, signal, diagnostics?.trace); },
+      promote,
       dispose: () => removeArtifactTree(root),
     };
-  } catch { await removeArtifactTree(root); return stop(); }
+  } catch (cause) {
+    if (promotionOnly) {
+      try { await removeArtifactTree(root); }
+      catch (cleanup) { throw new AggregateError([cause, cleanup], 'Held promotion preparation and cleanup failed.', { cause }); }
+      throw cause;
+    }
+    await removeArtifactTree(root); return stop();
+  }
 }
 function verifyExecuting(packet: EtsyReleasePacket, artifact: VerifiedArtifact): void {
   // One fixed owner/host ledger for this target, independent of source, run or artifact.

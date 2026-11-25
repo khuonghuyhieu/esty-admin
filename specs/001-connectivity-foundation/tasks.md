@@ -1,5 +1,17 @@
 # Tasks: Connectivity foundation
 
+## Exact held Etsy continuation — production-only source increment
+
+Actual previous maximum287. [Concrete pre-code contract](plan.md#exact-held-etsy-continuation--concrete-contract-before-code), base86ac609e6d47d819448f02376a87e463ad693b6c. Root resolved serialized-job authority and approved one additional existing receipt-wrapper file. Preserve all earlier task identities/checkmarks/evidence and original held ACK/STOP/packet/window.
+
+- [x] T288 [US9] Verify the original34-file/13-evidence manifest and separately pinned release-journal supplement; read governance/feature artifacts and audit O_EXCL/fsync, remote append/readback and actual workflow serialization without execution.
+- [x] T289 [US9] Document the concrete production-only dual-identity approval, canonical incident lock, linked append-only claim, cross-run uncertainty fence, complete raw proof, no-CREATE suffix and explicit non-CAS trust limit before code. Record precise workflow ingress necessity and unchanged protected policy. The actual pinned archive/projection contain20 files, correcting the19-file shorthand without dropping any evidence.
+- [x] T290 [US9] Authored the bounded continuation in the existing approved source files and workflow using the verified138-file public closure. Current operator and original application identities remain separate; no archived operator execution or CREATE capability is introduced. Sparse source authoring only; compiler/runtime checks remain T293.
+- [x] T291 [US9] Authored existing-suite extensions for all20 authentic receipt members, dual identities, same-ID no-CREATE phase progression, malformed evidence, execution admission, canonical locking and replay/unknown fences. No tests were run by the author; T293 remains the execution gate.
+- [x] T292 [US9] Proof A passed with all 11 genuine public archives and synthetic metadata transport. Proof B exercised 25 synthetic SQL-worker scenarios. Proof C passed as an emitted phase model. See the [corrected local verification and review](plan.md#corrected-local-verification-and-review) for proof boundaries.
+- [x] T293 [US9] Root verified the corrected patch. Compiler and phase model exited 0, targeted tests passed 157/157, and the two full suites reported 924 passed, 0 failed and 2 existing skips. The first full run's 45 failures and their classification remain in the plan.
+- [x] T294 [US9] Existing Company Codex gpt-6-luna medium reviewer t1dw completed a single read-only review with no confirmed actionable findings. Root verified the base and corrected worktree hashes independently. Publication, BE CI for the new revision, fresh approval and manual production continuation remain separate gates.
+
 ## Held archive transport — missing adapter hook
 
 Actual previous maximum282. [Bounded repair and separate static continuation proposal](plan.md#held-archive-transport--bounded-source-repair), baseb12a8fb31b2fa017ac87d191aa5cc2652a5691d3. Preserve every earlier task/checkmark/failure/review and the ACKed held deployment's immutable STOP/packet/window.

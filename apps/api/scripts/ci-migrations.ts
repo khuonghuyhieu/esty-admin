@@ -9,13 +9,17 @@ import { activationSchema } from '../src/config/schema-transition.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
 import { saveMigrationReport } from './migration-report.js';
 import { privateDirectory } from './private-files.mjs';
-import { createProvider } from './ci-provider.js';
-import type { RoutineDeliveryApproval, RoutineProvider, RunIdentity } from './ci-provider.js';
+import { createProvider, proveHeldEtsyIncident, confirmHeldEtsyIncident } from './ci-provider.js';
+import type { HeldEtsyAdmission, RoutineDeliveryApproval, RoutineProvider, RunIdentity } from './ci-provider.js';
 import type { ReleaseDiagnostics, ReleaseRequest } from './ci-delivery.js';
 import { decodePhaseInput } from './activation-inputs.js';
-import { etsyProviderOperations, etsyReleasePhases, isolatedEtsyCli, runEtsyReleasePhase,
-  validateEtsyReleasePacket } from './etsy-release.js';
-import type { EtsyCli, EtsyReleaseDurability, EtsyReleaseIntent, EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase } from './etsy-release.js';
+import { etsyProviderOperations, etsyReleasePhases, isolatedEtsyCli, runEtsyReleasePhase, heldContinuationPhases,
+  heldEtsyIncident, validateEtsyContinuationApproval, verifyHeldEtsyReceipts, verifyEtsyArtifact, validateEtsyReleasePacket } from './etsy-release.js';
+import type { HeldContinuationPhase, EtsyCli, EtsyReleaseDurability, EtsyReleaseIntent, EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase } from './etsy-release.js';
+import { admitHeldProduction, heldRunnerPaths } from './routine-retained.mjs';
+import { githubReader } from './activation-retained.mjs';
+import { manualGithubIo } from './activation-preflight-disposition.mjs';
+import { readFileSync } from 'node:fs';
 
 function writeObserved(diagnostics: ReleaseDiagnostics | undefined, path: string, value: unknown): void {
   if (diagnostics) diagnostics.observe(() => writeReleaseEvidence(path, value));
@@ -210,6 +214,22 @@ interface StrictAuthorization extends StrictReservation {
 }
 function strictBinding(artifact: VerifiedArtifact, request: ReleaseRequest, value: unknown): EtsyReleasePacket {
   if (request.mode !== 'etsy-strict-cutover' || !request.migration) refuse();
+  if (request.continuation) {
+    const approval = validateEtsyContinuationApproval(value, request.migration.packetDigest), operator = approval.operator;
+    if (canonical(approval) !== canonical(request.continuation)
+      || operator.artifactDigest !== artifact.digest || operator.sourceDigest !== artifact.manifest.source.digest
+      || operator.revision !== request.controller.revision || operator.tree !== request.controller.tree
+      || operator.nodeDigest !== artifact.manifest.build.nodeSha256
+      || operator.nodeDigest !== sha256(readFileSync(process.execPath))
+      || operator.driverDigest !== artifact.manifest.files.find(file => file.path === 'operator/apps/api/build/scripts/etsy-release.js')?.sha256
+      || operator.cliOwnFilesDigest !== artifact.manifest.build.tools.find(tool => tool.name === 'vercel')?.filesDigest
+      || canonical(artifact.manifest.migrations) !== canonical(request.schema.target)
+      || request.migration.recoveryApproval !== sha256(canonical({ packet: request.migration.packetDigest, recovery: approval.originalPacket.grants.recovery }))
+      || request.migration.maintenanceApproval !== sha256(canonical({ packet: request.migration.packetDigest, window: approval.window,
+        maintenance: approval.originalPacket.grants.maintenance }))) refuse();
+    verifyRoutineArtifact(artifact, request.controller, { digest: request.schema.targetDigest });
+    return approval.originalPacket;
+  }
   const digest = request.migration.packetDigest, packet = validateEtsyReleasePacket(value, digest);
   if (packet.target === 'local' || packet.target !== request.target || packet.revision !== request.controller.revision
     || packet.tree !== request.controller.tree || packet.artifactDigest !== artifact.digest || packet.artifactDigest !== request.artifactDigest
@@ -226,8 +246,8 @@ function strictBinding(artifact: VerifiedArtifact, request: ReleaseRequest, valu
   return packet;
 }
 
-// The remote reservation, not this disposable directory, is the production exclusion.
-// Lost local receipts cannot be regenerated into permission to repeat a mutation.
+// Workflow serialization excludes supported production writers. Remote reservations
+// retain one-shot uncertainty after runner loss; they are not an atomic lock.
 export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact; request: ReleaseRequest; env: NodeJS.ProcessEnv;
   action: string; cli: string; directory: string; signal: AbortSignal; diagnostics?: ReleaseDiagnostics }): Promise<void> {
   const { artifact, request, env, action, signal, diagnostics } = input;
@@ -236,11 +256,54 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
   const packetDigest = request.migration!.packetDigest, requestDigest = sha256(canonical(request));
   diagnostics?.trace?.check('strict.packet-input-digest', env.BE_MIGRATION_PACKET_SHA256 === packetDigest, 'packet-digest-differs-from-approved-request');
   if (env.BE_MIGRATION_PACKET_SHA256 !== packetDigest) refuse();
-  const root = privateDirectory(join(input.directory, 'strict')), directory = join(root, packet.runId);
+  const approval = request.continuation, paths = approval ? heldRunnerPaths(env) : undefined;
+  if (paths && (input.directory !== paths.receipts || action === 'reconcile'
+    || sha256(paths.workflow) !== approval!.operator.workflowDigest)) refuse();
+  const root = privateDirectory(join(input.directory, approval ? 'continuation' : 'strict'));
+  const directory = join(root, approval?.runId ?? packet.runId), window = approval?.window ?? packet.window;
+  const phases: readonly EtsyReleasePhase[] = approval ? heldContinuationPhases : etsyReleasePhases;
   const reservationPath = join(root, 'reservation.json');
   const schema: RoutineDeliveryApproval = { digest: request.schema.targetDigest, configDigest: request.configDigest,
     requestDigest, strictPacketDigest: packetDigest, request };
-  const verify = () => { signal.throwIfAborted(); strictBinding(artifact, request, packet); };
+  const verify = () => { signal.throwIfAborted(); strictBinding(artifact, request, approval ?? packet); };
+  let held: HeldEtsyAdmission | undefined, continuation: HeldContinuationPhase | undefined, application = artifact;
+  let execution: Awaited<ReturnType<typeof admitHeldProduction>> | undefined;
+  const key = sha256(canonical({ incident: heldEtsyIncident.run, journal: heldEtsyIncident.journal, ackDigest: heldEtsyIncident.ackDigest }));
+  const claimLock = paths ? join(privateDirectory(join(paths.temporary, 'be-held-claims')), `${key}.json`) : '';
+  if (approval && paths) {
+    if (action !== 'history' && action !== 'migrate') {
+      const read = githubReader(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace);
+      execution = await admitHeldProduction(request, env, read, paths.workflow, action === 'authorize');
+    }
+    if (action === 'authorize') {
+      writeObserved(diagnostics, claimLock, { version: 1, key, requestDigest, packetDigest, execution });
+      held = await proveHeldEtsyIncident(approval, manualGithubIo(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace),
+        paths.application, signal, diagnostics);
+      writeObserved(diagnostics, join(root, 'origin.json'), { zip: held.receiptZip.toString('base64'), origin: held.origin, execution });
+      application = held.application;
+      schema.held = held;
+      diagnostics?.inheritedHeld(held.origin.id);
+    } else {
+      const saved = object(readEvidence(join(root, 'origin.json')).value, ['zip', 'origin', 'execution']);
+      if (typeof saved.zip !== 'string' || saved.zip.length > 10000) refuse();
+      const zip = Buffer.from(saved.zip, 'base64');
+      if (zip.toString('base64') !== saved.zip) refuse();
+      const origin = verifyHeldEtsyReceipts(zip, packet, diagnostics);
+      if (canonical(origin) !== canonical(saved.origin)) refuse();
+      const ownExecution = saved.execution as NonNullable<typeof execution>;
+      if (ownExecution.run !== request.controller.run || ownExecution.runner !== env.RUNNER_NAME
+        || (execution && canonical(execution) !== canonical(ownExecution))) refuse();
+      if (canonical(readEvidence(claimLock).value) !== canonical({ version: 1, key, requestDigest, packetDigest, execution: ownExecution })) refuse();
+      const claim = readEvidence(join(root, 'claim.json'));
+      const value = object(claim.value, ['version', 'key', 'requestDigest', 'packetDigest', 'journal', 'execution', 'originDigest']);
+      if (value.version !== 1 || value.key !== key || value.requestDigest !== requestDigest || value.packetDigest !== packetDigest
+        || canonical(value.execution) !== canonical(ownExecution) || value.originDigest !== readEvidence(join(root, 'origin.json')).identity.sha256
+        || !Number.isSafeInteger(value.journal) || Number(value.journal) <= 0 || value.journal !== reservation().journal) refuse();
+      application = verifyEtsyArtifact(packet, join(paths.application, 'artifact'));
+      continuation = { approval, origin, claimDigest: claim.identity.sha256 };
+    }
+    schema.heldExecution = execution;
+  }
   const unavailable = async (): Promise<never> => refuse();
   function reservation(): StrictReservation {
     const value = object(readEvidence(reservationPath).value, ['version', 'requestDigest', 'packetDigest', 'journal']);
@@ -255,7 +318,7 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
     if (canonical({ version: value.version, requestDigest: value.requestDigest, packetDigest: value.packetDigest, journal: value.journal }) !== canonical(reservation())
       || value.phase !== phase || canonical(value.intent) !== canonical(intent) || value.description !== intentDescription(intent)
       || !Number.isSafeInteger(value.confirmedAt) || Number(value.confirmedAt) > Date.now()
-      || Number(value.confirmedAt) < packet.window.start || (fresh && Date.now() - Number(value.confirmedAt) > 60000)) refuse();
+      || Number(value.confirmedAt) < window.start || (fresh && Date.now() - Number(value.confirmedAt) > 60000)) refuse();
     return value as unknown as StrictAuthorization;
   }
   if (action === 'history' || action === 'migrate') {
@@ -266,7 +329,7 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
     const database = diagnostics?.trace ? diagnostics.trace.sync('strict.migration-configuration', () => parseMigrationConfig(values)) : parseMigrationConfig(values);
     const migrations = join(artifact.root, 'operator/apps/api/migrations');
     let authorized = false;
-    const operations: EtsyReleaseOperations = {
+    const operations: Omit<EtsyReleaseOperations, 'create'> & { create?: EtsyReleaseOperations['create'] } = {
       verify,
       async currentMain() {
         if (!authorized) refuse();
@@ -292,9 +355,10 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
         catch (cause) { diagnostics?.migrated(report); throw cause; }
         return report;
       },
-      predecessor: unavailable, candidate: unavailable, create: unavailable, promote: unavailable, alias: unavailable,
+      predecessor: unavailable, candidate: unavailable, promote: unavailable, alias: unavailable,
+      ...(approval ? {} : { create: unavailable }),
     };
-    await runEtsyReleasePhase({ packet, packetDigest, phase, operations, signal, diagnostics, durability: {
+    await runEtsyReleasePhase({ packet, packetDigest, phase, operations, signal, diagnostics, continuation, durability: {
       directory: root,
       async intent(current, value) {
         if (diagnostics?.trace) diagnostics.trace.sync('strict.fresh-sql-authorization', () => authorization(current, value, true));
@@ -317,11 +381,11 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
     console.info(JSON.stringify({ status: 'read-only-reconciliation', ...observed, nextAction: 'inspect-retained-evidence' }));
     return;
   }
-  const remote = etsyProviderOperations(packet, packetDigest, artifact, { token: env.VERCEL_TOKEN ?? '', bearer: env.BE_PREVIEW_ACCESS_KEY ?? '',
+  const remote = etsyProviderOperations(packet, approval ? heldEtsyIncident.packetDigest : packetDigest, application, { token: env.VERCEL_TOKEN ?? '', bearer: env.BE_PREVIEW_ACCESS_KEY ?? '',
     predecessorBearer: env.BE_PREVIEW_ACCESS_KEY ?? '', bypass: env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '',
     github: env.GITHUB_TOKEN ?? '' }, signal, fetch, diagnostics);
   let journal: number | undefined;
-  let cli: EtsyCli | undefined;
+  let cli: EtsyCli | Omit<EtsyCli, 'create'> | undefined;
   async function record(description: string, state: 'in_progress' | 'success' = 'in_progress') {
     const work = async () => {
       verify(); await provider.record(journal!, state, description);
@@ -339,11 +403,11 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
     const entry = readEvidence(join(directory, `${phase}.receipt.json`));
     const value = object(entry.value, ['packetDigest', 'phase', 'previous', 'deploymentId', 'completed', 'reportDigest']);
     if (value.packetDigest !== packetDigest || value.phase !== phase || !Number.isSafeInteger(value.completed)
-      || Number(value.completed) < packet.window.start || Number(value.completed) > Date.now()) refuse();
+      || Number(value.completed) < window.start || Number(value.completed) > Date.now()) refuse();
     return { entry, value, description: `strict:${phase}:receipt:${sha256(canonical({ requestDigest, receipt: entry.identity.sha256 }))}` };
   }
   async function confirmPrevious(phase: EtsyReleasePhase) {
-    const previous = etsyReleasePhases[etsyReleasePhases.indexOf(phase) - 1];
+    const previous = phases[phases.indexOf(phase) - 1];
     if (!previous) refuse();
     const proof = receipt(previous), path = join(root, `${previous}.remote.json`);
     if (previous === 'history' || previous === 'sql-apply') {
@@ -391,18 +455,35 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
       journal = await provider.reserve();
       writeObserved(diagnostics, reservationPath, { version: 1, requestDigest, packetDigest, journal });
       await record(`strict:reserved:${requestDigest}`);
+      if (approval && held && execution) {
+        writeObserved(diagnostics, join(root, 'claim.json'), { version: 1, key, requestDigest, packetDigest, journal, execution,
+          originDigest: readEvidence(join(root, 'origin.json')).identity.sha256 });
+        continuation = { approval, origin: held.origin, claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256 };
+      }
       await remote.predecessor(false);
-      await authorize('history', { packetDigest, phase: 'history', previous: null, deploymentId: null });
+      await authorize('history', { packetDigest, phase: 'history', previous: continuation?.claimDigest ?? null,
+        deploymentId: continuation?.origin.id ?? null });
       return;
     }
     journal = reservation().journal;
     if (action !== 'held' && action !== 'deliver') refuse();
-    cli = await isolatedEtsyCli(packet, packetDigest, artifact, input.cli, env.VERCEL_TOKEN ?? '', signal, diagnostics);
-    const operations: EtsyReleaseOperations = { ...remote, verify, history: unavailable, migrate: unavailable,
-      async currentMain() { await provider.currentMain(); return { revision: packet.revision, tree: packet.tree }; },
-      create: () => cli!.create(), promote: id => cli!.promote(id) };
-    const phases: EtsyReleasePhase[] = action === 'held' ? ['held-create', 'pre-sql-check'] : ['post-sql-check', 'promote-only', 'final-domain-ack'];
-    for (const phase of phases) await runEtsyReleasePhase({ packet, packetDigest, phase, operations, signal, diagnostics, durability });
+    if (approval) {
+      if (action === 'deliver') cli = await isolatedEtsyCli(packet, heldEtsyIncident.packetDigest, application, input.cli,
+        env.VERCEL_TOKEN ?? '', signal, diagnostics, true, approval.operator, artifact);
+    } else cli = await isolatedEtsyCli(packet, packetDigest, artifact, input.cli, env.VERCEL_TOKEN ?? '', signal, diagnostics);
+    const operations: Omit<EtsyReleaseOperations, 'create'> & { create?: EtsyReleaseOperations['create'] } = {
+      ...remote, verify, history: unavailable, migrate: unavailable,
+      async currentMain() {
+        await provider.currentMain();
+        if (approval) await confirmHeldEtsyIncident({ read: githubReader(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace) });
+        return { revision: request.controller.revision, tree: request.controller.tree };
+      },
+      ...(approval ? {} : { create: () => (cli as EtsyCli).create() }),
+      promote: id => cli ? cli.promote(id) : unavailable(),
+    };
+    const selected: EtsyReleasePhase[] = action === 'held' ? (approval ? ['pre-sql-check'] : ['held-create', 'pre-sql-check'])
+      : ['post-sql-check', 'promote-only', 'final-domain-ack'];
+    for (const phase of selected) await runEtsyReleasePhase({ packet, packetDigest, phase, operations, signal, diagnostics, durability, continuation });
     if (action === 'held') {
       const prior = receipt('pre-sql-check');
       await provider.confirmRoutineJournal(journal, prior.description);

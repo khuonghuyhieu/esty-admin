@@ -9,13 +9,14 @@ import { readFileSync, realpathSync, existsSync } from 'node:fs';
 import fs from 'node:fs';
 import fsPromises from 'node:fs/promises';
 import { cp, chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import os, { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { rootCertificates } from 'node:tls';
+import { gunzipSync } from 'node:zlib';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
 import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture,
-  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, historicalProviderFixture } from './artifact-fixture.js';
+  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, historicalProviderFixture } from './artifact-fixture.js';
 import { historicalActivationChild } from './historical-activation-fixture.js';
 import { checksContext, runChecks } from '../scripts/ci.js';
 import { ChecksDiagnostics } from '../scripts/checks-diagnostics.js';
@@ -27,7 +28,8 @@ import type { ActivationProvider, DeliveryProvider, RunIdentity } from '../scrip
 import { verifyUploadedArchive } from '../scripts/ci-archive.js';
 import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
 import type { CommandResult } from '../scripts/ci-tools.js';
-import { routineContext, loadRoutineContext, withRoutineDiagnostics, selectRoutine, validateRoutineSelection, confirmRoutineSelection, extractRoutineBundle } from '../scripts/routine-retained.mjs';
+import { routineContext, loadRoutineContext, withRoutineDiagnostics, selectRoutine, validateRoutineSelection, confirmRoutineSelection,
+  extractRoutineBundle, admitHeldProduction, heldClaimStep, heldRunnerPaths } from '../scripts/routine-retained.mjs';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { activationPhases, appendActivationEvent, createActivationJournal, finishActivationJournal, importFrontendJournal,
   readActivationJournal, reserveActivationJournal, saveActivationConfigurationReceipt } from '../scripts/activation-journal.js';
@@ -62,6 +64,145 @@ import { runtimeConfigDigest } from '../src/config/activation-config.js';
 import { historicalHandoffDigest, historicalMetadataReadback, historicalSnapshot, proveHistoricalHandoff,
   proveFailedAuthorization, proveFailedAuthorizations } from '../scripts/historical-release.js';
 import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
+
+function heldProductionFixture() {
+  const f = heldContinuationFixture(), source = readFileSync(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url));
+  const env: NodeJS.ProcessEnv = { GITHUB_ACTIONS: 'true', GITHUB_JOB: 'production', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1',
+    GITHUB_SHA: f.request.controller.revision, GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch',
+    GITHUB_REF: 'refs/heads/main', GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/be-delivery.yml@refs/heads/main`,
+    RUNNER_ENVIRONMENT: 'github-hosted', RUNNER_NAME: 'synthetic-serialized-runner', BE_HELD_INCIDENT: '45106877912' };
+  const run = { id: 123, workflow_id: 404086547, run_attempt: 1, head_sha: f.request.controller.revision, head_branch: 'main',
+    path: '.github/workflows/be-delivery.yml', event: 'workflow_dispatch', status: 'in_progress', conclusion: null,
+    repository: { id: 1430691691, full_name: repository }, head_repository: { id: 1430691691, full_name: repository } };
+  const job = { id: 456, run_id: 123, run_attempt: 1, head_sha: run.head_sha, name: 'BE production delivery',
+    status: 'in_progress', conclusion: null, runner_id: 789, runner_name: env.RUNNER_NAME,
+    steps: [{ name: heldClaimStep, status: 'in_progress', conclusion: null }] };
+  const records: Record<string, any> = {
+    '/actions/runs/123': run,
+    '/commits/main': { sha: run.head_sha, commit: { tree: { sha: f.request.controller.tree } } },
+    [`/contents/.github/workflows/be-delivery.yml?ref=${run.head_sha}`]: {
+      type: 'file', path: '.github/workflows/be-delivery.yml', encoding: 'base64', size: source.length, content: source.toString('base64') },
+    '/actions/runs/123/jobs?filter=all&per_page=100': { total_count: 1, jobs: [job] },
+    '/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1': { total_count: 1, workflow_runs: [run] },
+  };
+  const read = async (path: string) => {
+    assert.ok(Object.hasOwn(records, path), `Unexpected synthetic metadata path: ${path}`);
+    return structuredClone(records[path]);
+  };
+  return { ...f, source, env, records, run, job, read,
+    admit: (audit = true) => admitHeldProduction(f.request, env, read, source, audit) };
+}
+
+test('held continuation admits only the authenticated serialized production job', async t => {
+  const valid = heldProductionFixture();
+  assert.deepEqual(await valid.admit(), { version: 1, run: '123', job: 456, runner: 'synthetic-serialized-runner', runnerId: 789,
+    revision: valid.request.controller.revision, tree: valid.request.controller.tree, workflowDigest: sha256(valid.source),
+    environment: 'be-production', concurrency: 'esty-admin-be-production', cancelInProgress: false });
+  for (const fault of ['main', 'runner', 'attempt', 'job', 'workflow', 'source', 'policy', 'claim-step', 'missing-job', 'truncated-runs']) {
+    await t.test(fault, async () => {
+      const f = heldProductionFixture();
+      if (fault === 'main') f.records['/commits/main'].sha = 'f'.repeat(40);
+      if (fault === 'runner') f.job.runner_name = 'unrelated-runner';
+      if (fault === 'attempt') f.run.run_attempt = 2;
+      if (fault === 'job') f.env.GITHUB_JOB = 'checks';
+      if (fault === 'workflow') f.run.workflow_id = 1;
+      if (fault === 'source') f.request.continuation!.operator.workflowDigest = '0'.repeat(64);
+      if (fault === 'policy') {
+        const index = f.source.indexOf('group: esty-admin-be-production');
+        assert.ok(index >= 0);
+        f.source.write('group: esty-admin-be-pr0duction', index);
+        f.request.continuation!.operator.workflowDigest = sha256(f.source);
+        f.records[`/contents/.github/workflows/be-delivery.yml?ref=${f.run.head_sha}`].content = f.source.toString('base64');
+      }
+      if (fault === 'claim-step') f.job.steps = [];
+      if (fault === 'missing-job') f.records['/actions/runs/123/jobs?filter=all&per_page=100'] = { total_count: 2, jobs: [f.job] };
+      if (fault === 'truncated-runs') f.records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'].total_count = 2;
+      await assert.rejects(f.admit(), /Routine retained release refused/);
+    });
+  }
+});
+
+test('held continuation retains lost-claim fences across approvals runs directories and skipped ordinary jobs', async t => {
+  for (const state of ['in_progress', 'success', 'failure', 'missing', 'skipped']) await t.test(state, async () => {
+    const f = heldProductionFixture(), prior = { ...f.run, id: 120, status: 'completed', conclusion: 'failure',
+      updated_at: new Date(f.now - 10000).toISOString() };
+    f.records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'] = {
+      total_count: 2, workflow_runs: [f.run, prior] };
+    f.records['/actions/runs/120/jobs?filter=all&per_page=100'] = { total_count: 1, jobs: [{
+      ...f.job, id: 450, run_id: 120, status: 'completed', conclusion: 'failure',
+      steps: state === 'missing' ? [] : [{ name: heldClaimStep, status: state === 'in_progress' ? state : 'completed',
+        conclusion: state === 'in_progress' ? null : state }],
+    }] };
+    f.request.continuation!.runId = randomUUID();
+    f.request.continuation!.window = { start: f.now - 500, end: f.now + 300000 };
+    const packetDigest = sha256(canonical(f.request.continuation));
+    Object.assign(f.request.migration!, { packetDigest,
+      recoveryApproval: sha256(canonical({ packet: packetDigest, recovery: f.packet.grants.recovery })),
+      maintenanceApproval: sha256(canonical({ packet: packetDigest, window: f.request.continuation!.window, maintenance: f.packet.grants.maintenance })) });
+    validateReleaseRequest(f.request, { version: 1, requestDigest: sha256(canonical(f.request)) });
+    f.env.RUNNER_TEMP = '/synthetic/fresh-runner-directory';
+    if (state === 'skipped') assert.equal((await f.admit()).job, 456);
+    else await assert.rejects(f.admit(), /held.no-prior-claim-attempt/);
+  });
+});
+
+test('held continuation selector cannot silently enter ordinary CREATE or a direct runner path', () => {
+  const f = routineMetadataFixture(), env = { ...f.env, BE_HELD_INCIDENT: '45106877912', BE_DELIVERY_MODE: 'etsy-strict-cutover',
+    BE_MIGRATION_PACKET_SHA256: 'a'.repeat(64) };
+  const event = { inputs: { ...f.event.inputs, mode: 'etsy-strict-cutover', held_incident: '45106877912' } };
+  assert.equal(routineContext(env, event).heldIncident, '45106877912');
+  assert.throws(() => routineContext({ ...env, BE_HELD_INCIDENT: '' }, event));
+  assert.throws(() => routineContext(env, { inputs: { ...event.inputs, held_incident: 'other' } }));
+  assert.throws(() => routineContext({ ...env, BE_DELIVERY_MODE: 'versioned-migration' },
+    { inputs: { ...event.inputs, mode: 'versioned-migration' } }));
+  assert.throws(() => heldRunnerPaths({ ...env, GITHUB_JOB: 'checks', GITHUB_WORKSPACE: '/tmp/caller', RUNNER_TEMP: '/tmp/caller' }));
+  const ordinary = routineContext(f.env, f.event);
+  assert.equal(Object.hasOwn(ordinary, 'heldIncident'), false);
+});
+
+test('held continuation derives one canonical claim namespace and refuses caller-selected runner directories', async t => {
+  const home = realpathSync(await mkdtemp(join(tmpdir(), 'esty-held-host-')));
+  t.after(() => rm(home, { recursive: true, force: true }));
+  const workspace = join(home, 'work/esty-admin/esty-admin'), temporary = join(home, 'work/_temp');
+  await mkdir(join(workspace, '.github/workflows'), { recursive: true });
+  await mkdir(temporary);
+  await writeFile(join(workspace, '.github/workflows/be-delivery.yml'),
+    readFileSync(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url)), { mode: 0o600 });
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!, arch = Object.getOwnPropertyDescriptor(process, 'arch')!;
+  const user = os.userInfo();
+  t.mock.method(os, 'userInfo', () => ({ ...user, homedir: home }));
+  Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
+  Object.defineProperty(process, 'arch', { value: 'x64', configurable: true });
+  syncBuiltinESMExports();
+  t.after(() => { t.mock.restoreAll(); Object.defineProperty(process, 'platform', platform);
+    Object.defineProperty(process, 'arch', arch); syncBuiltinESMExports(); });
+  const env = { GITHUB_ACTIONS: 'true', GITHUB_JOB: 'production', RUNNER_ENVIRONMENT: 'github-hosted',
+    GITHUB_WORKSPACE: workspace, RUNNER_TEMP: temporary, HOME: '/untrusted/caller/home' };
+  const paths = heldRunnerPaths(env);
+  assert.equal(paths.temporary, temporary);
+  assert.equal(paths.receipts, join(temporary, 'be-receipts'));
+  assert.throws(() => heldRunnerPaths({ ...env, RUNNER_TEMP: join(temporary, 'fresh') }));
+  assert.throws(() => heldRunnerPaths({ ...env, GITHUB_WORKSPACE: join(home, 'other-checkout') }));
+  const claims = join(paths.temporary, 'be-held-claims'); await mkdir(claims, { mode: 0o700 });
+  const fixture = heldContinuationFixture(), path = join(claims, `${fixture.origin.key}.json`);
+  const program = `import {writeReleaseEvidence} from ${JSON.stringify(new URL('../scripts/release-journal.js', import.meta.url).href)};
+try { writeReleaseEvidence(process.argv[1], {lease:process.argv[2]}); console.log('CLAIMED'); }
+catch (error) { if(error.code !== 'EEXIST') throw error; console.log('EXCLUSIVE_STOP'); }`;
+  const compete = (lease: string) => new Promise<string>((resolve, reject) => {
+    const child = childProcess.spawn(process.execPath, ['--input-type=module', '-e', program, path, lease],
+      { env: {}, stdio: ['ignore', 'pipe', 'pipe'], timeout: 5000, killSignal: 'SIGKILL' });
+    let stdout = '', stderr = '';
+    child.stdout!.on('data', bytes => { stdout += bytes; });
+    child.stderr!.on('data', bytes => { stderr += bytes; });
+    child.on('error', reject);
+    child.on('close', code => code === 0 && stderr === '' ? resolve(stdout.trim()) : reject(new Error(`Synthetic claim child failed: ${code}`)));
+  });
+  assert.deepEqual((await Promise.all([compete('first-approved-window'), compete('different-approved-window')])).sort(),
+    ['CLAIMED', 'EXCLUSIVE_STOP']);
+  const retained = readEvidence(path);
+  assert.throws(() => writeReleaseEvidence(path, { lease: 'restart' }), { code: 'EEXIST' });
+  assert.deepEqual(readEvidence(path), retained);
+});
 const oldSchema: RoutineDeliveryApproval = { digest: activationSchema.oldDigest,
   configDigest: runtimeConfigDigest(routineRuntime), requestDigest: sha256('independently-approved-synthetic-request') };
 
@@ -1025,8 +1166,13 @@ test('archive bytes, identities and modes must match; links, traversal, duplicat
   assert.throws(() => verify(Buffer.from('not gzip')));
 });
 
+// Exact historical workflow bytes from the86ac609 public snapshot; never bind old proofs to the current workflow.
+const authorizationWorkflow = gunzipSync(Buffer.from(
+  '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', 'base64'));
+assert.equal(sha256(authorizationWorkflow), 'c9cd73e744ff32998b9874d0782480bc2c2eff1c92d1ec00f1be5d189ef89a53');
+
 interface AuthorizationFixtureInput {
-  artifact: VerifiedArtifact; sourceRoot: string; archive: Buffer;
+  artifact: VerifiedArtifact; archive: Buffer;
   approval: { producer: RunIdentity; archiveDigest: string; operatorDigest: string };
 }
 function authorizationFailureFixture(f: AuthorizationFixtureInput, readOnlyHistory: boolean | 'later' = false) {
@@ -1127,7 +1273,7 @@ function authorizationFailureFixture(f: AuthorizationFixtureInput, readOnlyHisto
     name: failed ? `be-delivery-receipts-${controllerRun}-1` : 'be-tested-122-1', size_in_bytes: bytes.length,
     digest: `sha256:${sha256(bytes)}`, expired: false, created_at: time(failed ? -180 : -420), expires_at: time(86400),
     workflow_run: { id: failed ? controllerRun : 122, head_sha: request.controller.revision, head_branch: 'main', repository_id: 1, head_repository_id: 1 } });
-  const workflow = readFileSync(join(f.sourceRoot, '.github/workflows/be-delivery.yml'));
+  const workflow = authorizationWorkflow;
   const values: Record<string, any> = {
     [`/deployments/${journal}`]: entry, [`/deployments/${journal}/statuses?per_page=100`]: statuses,
     [`/actions/runs/${controllerRun}`]: runValue(true), '/actions/runs/122': runValue(false),
