@@ -1,5 +1,9 @@
 # Current handoff
 
+## Replacement dispatch stopped before reservation
+
+BE CI `45560485470` passed on `aa840e9`. The manual production dispatch `45565670368` then exited at the replacement claim step because of a cold-entry Node module cycle. The retained receipt inventory was empty, the journal scan found no reservation for this run, and history, migration and promotion were skipped. The local module-cycle fix and the owner-approved historical disposition passed compilation, 116 focused tests, isolated operator packaging and independent Luna review. The correction is ready for separately authorized publication and CI. Production still requires a fresh approved controller packet and dispatch. [Failure evidence and local verification](specs/001-connectivity-foundation/plan.md#replacement-dispatch-failure-and-bounded-recovery-proposal).
+
 ## Replacement Etsy candidate — source and local review accepted
 
 T295–T299 are complete for source and local review. The replacement path binds the stopped pre-SQL claim `8047533931`, the original ACK and verified replacement `dpl_8X6ZgDHqFy1F4QjMXhJ4cKJyaRjw`. Independent Luna review raised a P2 on operator identity separation. OMP corrected it, and the compiler and 90 focused tests passed. The coordinator checked the final ten source hashes. [Verification, review and remaining gates](specs/001-connectivity-foundation/plan.md#replacement-source-local-verification-and-review).

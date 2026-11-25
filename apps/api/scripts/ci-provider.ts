@@ -13,8 +13,8 @@ import type { ReleaseDiagnostics, ReleaseRequest } from './ci-delivery.js';
 import { historicalHandoffDigest, historicalRecordId, historicalSnapshot, proveHistoricalHandoff, proveFailedAuthorizations,
   historicalMetadataReadback } from './historical-release.js';
 import type { FailedAuthorizationAdmission, HistoricalAdmission, HistoricalItem, HistoricalIo } from './historical-release.js';
-import { manualGithubIo, validateAuthorizationProducerArchive } from './activation-preflight-disposition.mjs';
-import { heldEtsyIncident, verifyHeldEtsyReceipts, verifyEtsyArtifact, continuationApplication, stoppedEtsyContinuation,
+import { stoppedEtsyContinuation, isFailedReplacementReservation, manualGithubIo, validateAuthorizationProducerArchive } from './activation-preflight-disposition.mjs';
+import { heldEtsyIncident, verifyHeldEtsyReceipts, verifyEtsyArtifact, continuationApplication,
   etsyReplacement, verifyStoppedEtsyContinuation, continuationClaimKey } from './etsy-release.js';
 import type { EtsyContinuationApproval } from './etsy-release.js';
 import { extractRoutineBundle } from './routine-retained.mjs';
@@ -467,11 +467,14 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
         for (let page = 1; ; page++) {
           if (page > 20) throw new Error('Journal exceeds bounded reconciliation window.');
           const entries: unknown = await github(`/deployments?task=${encodeURIComponent(task)}&environment=be-production&per_page=100&page=${page}`);
-          if (!Array.isArray(entries)) throw new Error('Durable intent history is unavailable.');
+          if (!Array.isArray(entries) || entries.length > 100) throw new Error('Durable intent history is unavailable.');
           for (const raw of entries) {
             const entry = object(raw);
             if (!numeric(entry.id) || ids.has(entry.id) || entry.task !== task || entry.environment !== 'be-production') throw new Error('Journal identity differs.');
             ids.add(entry.id);
+            if (approvedRequest?.continuation?.kind === 'replacement-etsy-continuation' && isFailedReplacementReservation(entry)) {
+              throw new Error('Failed replacement dispatch has a durable reservation; no replay.');
+            }
             if (approvedRequest?.continuation && entry.payload && Object.hasOwn(entry.payload, 'heldContinuation')
               && !(approvedRequest.continuation.kind === 'replacement-etsy-continuation' && schema?.held?.stopped
                 && entry.id === stoppedEtsyContinuation.journal

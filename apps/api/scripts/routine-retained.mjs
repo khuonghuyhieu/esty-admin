@@ -7,6 +7,8 @@ import { gunzipSync } from 'node:zlib';
 import { canonical, githubReader } from './activation-retained.mjs';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { tmpdir, userInfo } from 'node:os';
+import { stoppedEtsyContinuation as stopped, failedReplacementDispatch as failedReplacement,
+  validateFailedReplacementReceiptArchive, isFailedReplacementReservation } from './activation-preflight-disposition.mjs';
 
 const diagnosticContext = new AsyncLocalStorage();
 export function withRoutineDiagnostics(diagnostics, body) { return diagnosticContext.run(diagnostics, body); }
@@ -158,7 +160,8 @@ export function heldRunnerPaths(env) {
     application: join(temporary, 'be-held-application'), replacement: join(temporary, 'be-replacement-application'),
     workflow: plainFile(join(root(join(workspace, '.github/workflows')), 'be-delivery.yml'), 256 * 1024, 'held-workflow') };
 }
-export async function admitHeldProduction(request, env, read, sourceBytes, auditClaims = false) {
+/** @param {((id: number, maximum: number) => Promise<Buffer>) | undefined} [download] */
+export async function admitHeldProduction(request, env, read, sourceBytes, auditClaims = false, download = undefined) {
   const approval = request.continuation;
   const replacement = approval?.kind === 'replacement-etsy-continuation';
   const claimStep = replacement ? replacementClaimStep : heldClaimStep;
@@ -210,12 +213,7 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
     ? claim[0].status === 'in_progress' && claim[0].conclusion === null
     : claim[0].status === 'completed' && claim[0].conclusion === 'success'));
   if (auditClaims) {
-    let stopped;
-    if (replacement) {
-      const compiled = basename(dirname(dirname(fileURLToPath(import.meta.url)))) === 'build';
-      ({ stoppedEtsyContinuation: stopped } = await import(new URL(compiled ? './etsy-release.js' : './etsy-release.ts', import.meta.url).href));
-      check('replacement.pinned-prior', canonical(approval.priorContinuation) === canonical(stopped));
-    }
+    if (replacement) check('replacement.pinned-prior', canonical(approval.priorContinuation) === canonical(stopped));
     const seen = new Set();
     let total;
     for (let page = 1; ; page++) {
@@ -239,6 +237,55 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
             && prior.head_sha === stoppedRun.head_sha && prior.status === stoppedRun.status && prior.conclusion === stoppedRun.conclusion);
           continue;
         }
+        if (replacement && String(prior.id) === failedReplacement.run) {
+          const failedRun = object(await read(`/actions/runs/${failedReplacement.run}`));
+          const failedJobs = object(await read(`/actions/runs/${failedReplacement.run}/jobs?filter=all&per_page=100`));
+          check('replacement.failed-dispatch-snapshots', hash(canonical(failedRun)) === failedReplacement.runDigest
+            && hash(canonical(failedJobs)) === failedReplacement.jobsDigest
+            && ['id', 'run_attempt', 'head_sha', 'status', 'conclusion', 'workflow_id', 'path', 'event', 'head_branch']
+              .every(key => prior[key] === failedRun[key]));
+          check('replacement.failed-dispatch-workflow', hash(await workflowAt(failedReplacement.revision)) === failedReplacement.workflowDigest);
+          const failedJob = failedJobs.jobs.find(value => value.id === failedReplacement.job);
+          // The pinned all-jobs snapshot binds every step, including both ingress
+          // paths and skipped history, reattestation, migration and promotion.
+          check('replacement.failed-dispatch-claim', failedRun.run_attempt === failedReplacement.attempt
+            && failedRun.head_sha === failedReplacement.revision && failedRun.status === 'completed' && failedRun.conclusion === 'failure'
+            && failedJob?.status === 'completed' && failedJob.conclusion === 'failure'
+            && failedJob.steps.some(step => step.name === replacementClaimStep && step.status === 'completed' && step.conclusion === 'failure'));
+          const artifacts = object(await read(`/actions/runs/${failedReplacement.run}/artifacts?per_page=100`));
+          check('replacement.failed-dispatch-artifacts', Array.isArray(artifacts.artifacts) && artifacts.artifacts.length < 100
+            && artifacts.total_count === artifacts.artifacts.length
+            && new Set(artifacts.artifacts.map(item => item.id)).size === artifacts.artifacts.length);
+          const found = artifacts.artifacts.filter(item => item.name === `be-delivery-receipts-${failedReplacement.run}-1`);
+          check('replacement.failed-dispatch-receipt', found.length === 1);
+          const artifact = found[0], binding = object(artifact.workflow_run);
+          check('replacement.failed-dispatch-provenance', artifact.id === failedReplacement.artifact && artifact.expired === false
+            && artifact.size_in_bytes === failedReplacement.size && artifact.digest === `sha256:${failedReplacement.zipDigest}`
+            && String(binding.id) === failedReplacement.run && binding.head_sha === failedReplacement.revision
+            && binding.head_branch === 'main' && binding.repository_id === 1430691691 && binding.head_repository_id === 1430691691
+            && timestamp(artifact.created_at) >= timestamp(failedJob.started_at)
+            && timestamp(artifact.created_at) <= timestamp(failedJob.completed_at) && typeof download === 'function');
+          const zip = await download(failedReplacement.artifact, failedReplacement.size);
+          check('replacement.failed-dispatch-receipt-size', zip.length === failedReplacement.size);
+          validateFailedReplacementReceiptArchive(zip, diagnosticContext.getStore());
+          // Absence is established from a complete fresh scan, not an empty
+          // archive. The reservation path repeats this conflict fence before POST.
+          const journals = new Set();
+          for (let journalPage = 1; ; journalPage++) {
+            check('replacement.failed-dispatch-journal-bound', journalPage <= 20);
+            const entries = await read(`/deployments?task=deploy%3Aesty-be-ci&environment=be-production&per_page=100&page=${journalPage}`);
+            check('replacement.failed-dispatch-journal-page', Array.isArray(entries) && entries.length <= 100);
+            for (const entry of entries) {
+              check('replacement.failed-dispatch-journal-identity', Number.isSafeInteger(entry.id) && entry.id > 0 && !journals.has(entry.id)
+                && entry.task === 'deploy:esty-be-ci' && entry.environment === 'be-production'
+                && entry.payload?.project === 'prj_uITHKLUGGE98VxrEcs5FoktBbcls' && id.test(entry.payload?.run ?? ''));
+              journals.add(entry.id);
+              check('replacement.failed-dispatch-unreserved', !isFailedReplacementReservation(entry));
+            }
+            if (entries.length < 100) break;
+          }
+          continue;
+        }
         // A completed run cannot have continued an ACK that did not exist yet.
         if (prior.status === 'completed' && timestamp(prior.updated_at) < 1795405274350) continue;
         const priorSource = await workflowAt(prior.head_sha);
@@ -260,6 +307,7 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
       }
       if (listing.workflow_runs.length < 100) {
         check('held.run-audit-complete', seen.size === total && seen.has(run.id));
+        if (replacement) check('replacement.failed-dispatch-present', seen.has(Number(failedReplacement.run)));
         break;
       }
     }

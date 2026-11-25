@@ -2,6 +2,39 @@ import { createHash } from 'node:crypto';
 import { crc32, gunzipSync, inflateRawSync } from 'node:zlib';
 import { canonical, githubReader, retainedActivation, retainedHistoricalArchive } from './activation-retained.mjs';
 
+// Shared by source-native and compiled admission. Keep module evaluation
+// independent of release entrypoints, which can be awaiting this audit.
+export const stoppedEtsyContinuation = Object.freeze({
+  run: '45539045779', job: 138954376964, journal: 8047533931, receiptArtifact: 14988089821,
+  runId: 'cca60d55-7c86-4e67-94cf-0db2a1ec911a',
+  requestDigest: '7ce8bf925927cf0934886071e3c6917719ec4b0064f10b0b8a367ef260a7e598',
+  approvalDigest: '774ef367d95107e25d368e0a21e44488bfad461cf30b3a6d282f7c27cae8896c',
+  receiptZipDigest: '67c601ffd8982825df453b19771c4d18936f3c42e131d3bf5b9e95c505ac66ec',
+  outcomeHead: '8df10f87b86089ebbb815c843a2a922d7cae39e98bf8e5195df6db5e642ca1b7',
+  runDigest: 'a5a7c134b4a9a83c6fa3e6e3507a41b3259489b64db6702f2619cdce87633097',
+  jobsDigest: 'e411e490d7bc965f43971aaf44278f95379345cc35c501f04f6460a75c9ea099',
+  journalDigest: 'e85895772dbc86ff270eb27bf1ceec83e2744b1268d99ff67f01d45541ae37ce',
+  statusesDigest: 'a5cca767f5c1e88c79e3158fb93c262626ca6552d8a5c66270fc921771224236',
+});
+// Owner-approved disposition of the one cold-entry failure before reservation.
+// Full snapshots bind its failed claim and skipped downstream mutation steps.
+export const failedReplacementDispatch = Object.freeze({
+  run: '45565670368', attempt: 1, job: 139040836327,
+  revision: 'aa840e9ba72d56ee4e8a17cd0c72c88c8fcb9c13',
+  workflowDigest: 'db50ea3f58ee9c84f229e60c25fa88d6503d4afbf31de13c338110fff2b32b17',
+  runDigest: 'c1f60bcadbae35765390200204efb9676037082a0009204a7ff7cc90e80e930d',
+  jobsDigest: '156be15a30ab8ded41e939186a69aaa571728b4d15efcb21973055ae2118f510',
+  artifact: 15000196718, size: 796,
+  zipDigest: '39fed4ee7a7412495939fce2dd0186cbc1657c6fbe893be16eeab42c04fd75cd',
+  archiveDigest: 'c0f4a4442237bdb5321f41d05c73179e65637a0a47a936cf0f208598089c8205',
+  inventoryDigest: 'ec75174e19c29645fc9c7c1a8a383fe1b0bace3768a05c65d43276c9dd488abd',
+});
+export function isFailedReplacementReservation(entry) {
+  const payload = entry?.payload;
+  return String(payload?.run) === failedReplacementDispatch.run
+    || String(payload?.releaseRequest?.controller?.run) === failedReplacementDispatch.run
+    || String(payload?.heldContinuation?.execution?.run) === failedReplacementDispatch.run;
+}
 const pin = retainedActivation, task = 'deploy:esty-be-ci', environment = 'be-production';
 export const failedPreflightRun = '42847325668';
 const oldActivationRun = '36a0c3c3-0a74-4ccf-b6a3-8d5da26e4eed';
@@ -136,6 +169,12 @@ function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diag
   if (hash(canonical(inventory)) !== inventoryLine.trim()) refuse();
   return { files, directories, archiveDigest: hash(compressed), inventoryDigest: inventoryLine.trim() };
 }
+export function validateFailedReplacementReceiptArchive(zip, diagnostics) {
+  const proof = receiptMembers(zip, failedReplacementDispatch.zipDigest, ['', 'continuation'], () => false, diagnostics);
+  if (proof.files.size !== 0 || proof.archiveDigest !== failedReplacementDispatch.archiveDigest
+    || proof.inventoryDigest !== failedReplacementDispatch.inventoryDigest) refuse();
+  return proof;
+}
 // This incident has six outcome records and fourteen strict records, including
 // both terminal snapshots. Never discard the last snapshot to fit a stated count.
 export function validateHeldContinuationReceiptArchive(zip, diagnostics) {
@@ -152,7 +191,7 @@ export function validateHeldContinuationReceiptArchive(zip, diagnostics) {
   return { ...result, outcomes, runId };
 }
 export function validateStoppedContinuationReceiptArchive(zip, diagnostics) {
-  const runId = 'cca60d55-7c86-4e67-94cf-0db2a1ec911a', base = `continuation/${runId}`;
+  const runId = stoppedEtsyContinuation.runId, base = `continuation/${runId}`;
   const outcomes = Array.from({ length: 5 }, (_, index) => `release-outcome-${String(index).padStart(4, '0')}.json`);
   const fixed = ['continuation/reserving.json', 'continuation/reservation.json', 'continuation/origin.json',
     'continuation/claim.json', 'continuation/history.authorized.json', 'continuation/history.remote.json',
@@ -161,7 +200,7 @@ export function validateStoppedContinuationReceiptArchive(zip, diagnostics) {
   const expected = new Set([...outcomes, ...fixed]);
   // This exact receipt's five full requests occupy an 81920-byte tar. Older
   // receipt formats retain their original 65536-byte decompression bound.
-  const result = receiptMembers(zip, '67c601ffd8982825df453b19771c4d18936f3c42e131d3bf5b9e95c505ac66ec',
+  const result = receiptMembers(zip, stoppedEtsyContinuation.receiptZipDigest,
     ['', 'continuation', base], name => expected.has(name), diagnostics, 131072);
   if (result.files.size !== 17 || [...expected].some(name => !result.files.has(name))) refuse();
   return { ...result, outcomes, runId };

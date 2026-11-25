@@ -16,7 +16,8 @@ import { gunzipSync } from 'node:zlib';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
 import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture,
-  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, historicalProviderFixture } from './artifact-fixture.js';
+  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture,
+  failedReplacementFixture, historicalProviderFixture } from './artifact-fixture.js';
 import { historicalActivationChild } from './historical-activation-fixture.js';
 import { checksContext, runChecks } from '../scripts/ci.js';
 import { ChecksDiagnostics } from '../scripts/checks-diagnostics.js';
@@ -49,7 +50,7 @@ import type { MigrationReport } from '../scripts/migrations.js';
 import { canonical as retainedCanonical, githubReader, manualContext, readSelection, retainedActivation, retainedHistoricalArchive,
   selectRetained, validateSelection, verifyRelay, verifySelectedBundle, verifyWorkflowHead } from '../scripts/activation-retained.mjs';
 import { executeManualAction } from '../scripts/manual-activation.mjs';
-import { failedPreflightProof, manualGithubIo, reserveManualActivation,
+import { stoppedEtsyContinuation, failedReplacementDispatch, validateFailedReplacementReceiptArchive, failedPreflightProof, manualGithubIo, reserveManualActivation,
   validatePreflightReceiptArchive, validateHeldProbeArchive } from '../scripts/activation-preflight-disposition.mjs';
 import { verifyHeldAppProbe } from '../scripts/activation-held-proof.js';
 import { heldCorrection, heldCorrectionCapability } from '../scripts/activation-held-correction-contract.mjs';
@@ -64,7 +65,6 @@ import { runtimeConfigDigest } from '../src/config/activation-config.js';
 import { historicalHandoffDigest, historicalMetadataReadback, historicalSnapshot, proveHistoricalHandoff,
   proveFailedAuthorization, proveFailedAuthorizations } from '../scripts/historical-release.js';
 import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
-import { stoppedEtsyContinuation } from '../scripts/etsy-release.js';
 
 function heldProductionFixture(replacement = false) {
   const replaced = replacement ? replacementContinuationFixture() : undefined, f = replaced ?? heldContinuationFixture();
@@ -87,20 +87,245 @@ function heldProductionFixture(replacement = false) {
     '/actions/runs/123/jobs?filter=all&per_page=100': { total_count: 1, jobs: [job] },
     '/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1': { total_count: 1, workflow_runs: [run] },
   };
+  const failed = failedReplacementFixture(), downloads: number[] = [];
+  const download = async (id: number, maximum: number) => {
+    assert.equal(id, failed.artifact.id); assert.equal(maximum, failed.zip.length);
+    downloads.push(id); return Buffer.from(failed.zip);
+  };
   if (replaced) {
     const pin = stoppedEtsyContinuation;
     records[`/actions/runs/${pin.run}`] = replaced.snapshots.run;
     records[`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`] = replaced.snapshots.jobs;
     records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'] = {
-      total_count: 2, workflow_runs: [run, replaced.snapshots.run] };
+      total_count: 3, workflow_runs: [run, replaced.snapshots.run, failed.run] };
+    records[`/actions/runs/${failed.run.id}`] = failed.run;
+    records[`/actions/runs/${failed.run.id}/jobs?filter=all&per_page=100`] = failed.jobs;
+    records[`/actions/runs/${failed.run.id}/artifacts?per_page=100`] = { total_count: 1, artifacts: [failed.artifact] };
+    records[`/contents/.github/workflows/be-delivery.yml?ref=${failed.run.head_sha}`] = {
+      type: 'file', path: '.github/workflows/be-delivery.yml', encoding: 'base64', size: failed.workflow.length, content: failed.workflow.toString('base64') };
+    records['/deployments?task=deploy%3Aesty-be-ci&environment=be-production&per_page=100&page=1'] = failed.journal;
   }
   const read = async (path: string) => {
     assert.ok(Object.hasOwn(records, path), `Unexpected synthetic metadata path: ${path}`);
     return structuredClone(records[path]);
   };
-  return { ...f, source, env, records, run, job, read,
-    admit: (audit = true) => admitHeldProduction(f.request, env, read, source, audit) };
+  return { ...f, source, env, records, run, job, read, failed, downloads, download,
+    admit: (audit = true) => admitHeldProduction(f.request, env, read, source, audit, download) };
 }
+
+test('replacement failed-dispatch disposition requires the exact closed history and fresh absence of reservation', async t => {
+  const listPath = '/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1';
+  const journalPath = '/deployments?task=deploy%3Aesty-be-ci&environment=be-production&per_page=100&page=';
+  const pin = failedReplacementDispatch;
+  const artifactPath = `/actions/runs/${pin.run}/artifacts?per_page=100`;
+  const job = (f: ReturnType<typeof heldProductionFixture>) => f.failed.jobs.jobs.find((value: any) => value.id === pin.job);
+  const valid = heldProductionFixture(true), calls: string[] = [];
+  const io = manualGithubIo('synthetic-token-not-a-credential', AbortSignal.timeout(10000), async (raw, init) => {
+    const url = new URL(String(raw)); calls.push(url.pathname + url.search);
+    assert.equal(init?.method ?? 'GET', 'GET');
+    if (url.hostname === 'retained.blob.core.windows.net') {
+      assert.equal(new Headers(init?.headers).has('authorization'), false);
+      return new Response(valid.failed.zip);
+    }
+    assert.equal(url.hostname, 'api.github.com');
+    const path = url.pathname.replace(`/repos/${repository}`, '') + url.search;
+    if (path === `/actions/artifacts/${pin.artifact}/zip`) return new Response(null, {
+      status: 302, headers: { location: 'https://retained.blob.core.windows.net/receipts' } });
+    return Response.json(await valid.read(path));
+  });
+  assert.equal((await admitHeldProduction(valid.request, valid.env, io.read, valid.source, true, io.download)).job, 456);
+  assert.ok(calls.includes(`/repos/${repository}${journalPath}1`));
+  const archive = validateFailedReplacementReceiptArchive(valid.failed.zip);
+  assert.equal(archive.files.size, 0);
+  assert.deepEqual([...archive.directories], [['', { path: '', mode: 0o700 }], ['continuation', { path: 'continuation', mode: 0o700 }]]);
+  const faults: [string, (f: ReturnType<typeof heldProductionFixture>) => void][] = [
+    ['omitted historical run', f => {
+      const listing = f.records[listPath];
+      listing.workflow_runs = listing.workflow_runs.filter((run: any) => String(run.id) !== pin.run); listing.total_count--;
+    }],
+    ['wrong run', f => { f.failed.run.id++; }],
+    ['rerun', f => { f.failed.run.run_attempt = 2; }],
+    ['different source', f => { f.failed.run.head_sha = 'b'.repeat(40); }],
+    ['unknown outcome', f => { f.failed.run.conclusion = null; }],
+    ['wrong job', f => { job(f).id++; }],
+    ['missing claim step', f => { job(f).steps = job(f).steps.filter((step: any) => step.name !== replacementClaimStep); }],
+    ['downstream reached', f => { job(f).steps.find((step: any) => step.number === 14).conclusion = 'failure'; }],
+    ['different workflow', f => {
+      const bytes = Buffer.concat([f.source, Buffer.from('\n')]);
+      Object.assign(f.records[`/contents/.github/workflows/be-delivery.yml?ref=${pin.revision}`],
+        { content: bytes.toString('base64'), size: bytes.length });
+    }],
+    ['missing artifact', f => { f.records[artifactPath] = { total_count: 0, artifacts: [] }; }],
+    ['duplicate artifact', f => { f.records[artifactPath].artifacts.push(f.failed.artifact); f.records[artifactPath].total_count++; }],
+    ['incomplete artifacts', f => { f.records[artifactPath].total_count++; }],
+    ['wrong artifact', f => { f.failed.artifact.id++; }],
+    ['wrong artifact run', f => { f.failed.artifact.workflow_run.id++; }],
+    ['wrong artifact attempt', f => { f.failed.artifact.name = `be-delivery-receipts-${pin.run}-2`; }],
+    ['expired artifact', f => { f.failed.artifact.expired = true; }],
+    ['out-of-job artifact', f => { f.failed.artifact.created_at = '2026-11-25T07:11:17Z'; }],
+    ['tampered ZIP', f => { f.failed.zip[100] ^= 1; }],
+    ['missing journal', f => { delete f.records[`${journalPath}1`]; }],
+    ['duplicate journal', f => { f.failed.journal.push(f.failed.journal[0]); }],
+    ['unknown journal identity', f => { delete f.failed.journal[0].payload.run; }],
+    ['reserved failed run', f => { f.failed.journal[0].payload.run = pin.run; }],
+    ['reserved request', f => { f.failed.journal[0].payload.releaseRequest.controller.run = pin.run; }],
+    ['reserved execution', f => { f.failed.journal[0].payload.heldContinuation.execution.run = pin.run; }],
+    ['incomplete journal page', f => {
+      f.records[`${journalPath}1`] = Array.from({ length: 100 }, (_, index) => ({
+        ...f.failed.journal[0], id: 9000000000 + index }));
+    }],
+  ];
+  for (const [name, mutate] of faults) await t.test(name, async () => {
+    const f = heldProductionFixture(true); mutate(f);
+    await assert.rejects(f.admit());
+  });
+  await t.test('unavailable archive', async () => {
+    const f = heldProductionFixture(true);
+    await assert.rejects(admitHeldProduction(f.request, f.env, f.read, f.source, true,
+      async () => { throw new Error('Synthetic archive unavailable'); }), /archive unavailable/);
+  });
+  await t.test('archive transport absent', async () => {
+    const f = heldProductionFixture(true);
+    await assert.rejects(admitHeldProduction(f.request, f.env, f.read, f.source, true), /failed-dispatch-provenance/);
+  });
+  await t.test('original path cannot consume replacement disposition', async () => {
+    const f = heldProductionFixture(true), original = heldProductionFixture();
+    f.job.steps = original.job.steps;
+    f.records[listPath] = { total_count: 2, workflow_runs: [f.run, f.failed.run] };
+    await assert.rejects(admitHeldProduction(original.request, original.env, f.read, original.source, true, f.download),
+      /held.no-prior-claim-attempt/);
+    assert.equal((await original.admit()).job, 456);
+    assert.deepEqual(original.downloads, []);
+  });
+  await t.test('complete paginated absence', async () => {
+    const f = heldProductionFixture(true), seen: string[] = [];
+    f.records[`${journalPath}1`] = Array.from({ length: 100 }, (_, index) => ({ ...f.failed.journal[0], id: 9000000000 + index }));
+    f.records[`${journalPath}2`] = f.failed.journal;
+    const read = async (path: string) => { seen.push(path); return f.read(path); };
+    assert.equal((await admitHeldProduction(f.request, f.env, read, f.source, true, f.download)).job, 456);
+    assert.ok(seen.includes(`${journalPath}2`));
+    f.records[`${journalPath}2`].push(f.records[`${journalPath}1`][0]);
+    await assert.rejects(admitHeldProduction(f.request, f.env, read, f.source, true, f.download), /journal-identity/);
+  });
+  await t.test('journal scan bound cannot imply absence', async () => {
+    const f = heldProductionFixture(true); let pages = 0;
+    const read = async (path: string) => {
+      if (!path.startsWith(journalPath)) return f.read(path);
+      const page = Number(path.slice(journalPath.length)); pages++;
+      return Array.from({ length: 100 }, (_, index) => ({ ...f.failed.journal[0], id: 9000000000 + page * 100 + index }));
+    };
+    await assert.rejects(admitHeldProduction(f.request, f.env, read, f.source, true, f.download), /journal-bound/);
+    assert.equal(pages, 20);
+  });
+  await t.test('current workflow can evolve without relabeling historical bytes', async () => {
+    const f = heldProductionFixture(true), source = Buffer.concat([f.source, Buffer.from('\n# Reviewed current-source change.\n')]);
+    f.request.continuation!.operator.workflowDigest = sha256(source);
+    Object.assign(f.records[`/contents/.github/workflows/be-delivery.yml?ref=${f.run.head_sha}`],
+      { content: source.toString('base64'), size: source.length });
+    const execution = await admitHeldProduction(f.request, f.env, f.read, source, true, f.download);
+    assert.equal(execution.workflowDigest, sha256(source));
+  });
+});
+
+test('replacement audit completes from the cold delivery ESM graph without bypassing replay checks', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-cold-replacement-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const delivery = new URL('../scripts/ci-delivery.js', import.meta.url).href;
+  const program = `
+    import assert from 'node:assert/strict';
+    import { readFileSync } from 'node:fs';
+    import { registerHooks, syncBuiltinESMExports } from 'node:module';
+    import net from 'node:net';
+    import tls from 'node:tls';
+    import dgram from 'node:dgram';
+    const fixture = JSON.parse(readFileSync(process.argv[1], 'utf8')), loaded = [];
+    let network = 0;
+    const deny = () => { network++; throw new Error('Unexpected network attempt'); };
+    globalThis.fetch = deny; net.Socket.prototype.connect = deny; tls.connect = deny; dgram.createSocket = deny;
+    syncBuiltinESMExports();
+    process.on('exit', () => { if (network) process.exitCode = 97; });
+    registerHooks({ load(url, context, nextLoad) {
+      const module = nextLoad(url, context); loaded.push(url);
+      if (url !== fixture.delivery) return module;
+      // Preserve the real emitted imports and module body. Model only the
+      // entrypoint's top-level await with the real audit and synthetic inputs.
+      // A warm import before this await would conceal the production cycle.
+      const source = typeof module.source === 'string' ? module.source : Buffer.from(module.source).toString('utf8');
+      return { ...module, source: source + '\\nawait globalThis.coldReplacementAudit();\\n' };
+    } });
+    globalThis.coldReplacementAudit = async () => {
+      const { admitHeldProduction, withRoutineDiagnostics } = await import(fixture.runtime);
+      const checks = [], reads = [];
+      const diagnostics = { check(name, passed) { checks.push({ name, passed }); } };
+      const read = async path => {
+        assert.ok(Object.hasOwn(fixture.records, path), 'Unmapped synthetic read: ' + path);
+        reads.push(path); return structuredClone(fixture.records[path]);
+      };
+      const download = async (id, maximum) => {
+        assert.equal(id, fixture.failedArtifact);
+        const bytes = Buffer.from(fixture.failedZip, 'base64'); assert.equal(bytes.length, maximum); return bytes;
+      };
+      try {
+        const execution = await withRoutineDiagnostics(diagnostics, () =>
+          admitHeldProduction(fixture.request, fixture.env, read, Buffer.from(fixture.source, 'base64'), true, download));
+        console.log(JSON.stringify({ status: 'admitted', execution, checks, reads, loaded, network }));
+      } catch {
+        console.log(JSON.stringify({ status: 'refused', checks, reads, loaded, network }));
+        process.exitCode = 1;
+      }
+    };
+    await import(fixture.delivery);
+  `;
+  for (const scenario of ['compiled', 'source-native', 'wrong-pin', 'reached-claim']) await t.test(scenario, async () => {
+    const f = heldProductionFixture(true);
+    if (scenario === 'wrong-pin') {
+      f.request.continuation!.priorContinuation = structuredClone(stoppedEtsyContinuation);
+      Object.assign(f.request.continuation!.priorContinuation, { journal: 1 });
+    }
+    if (scenario === 'reached-claim') {
+      const prior = { ...f.run, id: 120, status: 'completed', conclusion: 'failure', updated_at: new Date(f.now).toISOString() };
+      const listing = f.records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'];
+      listing.total_count++; listing.workflow_runs.push(prior);
+      f.records['/actions/runs/120/jobs?filter=all&per_page=100'] = { total_count: 1, jobs: [{
+        ...f.job, id: 450, run_id: 120, status: 'completed', conclusion: 'failure',
+        steps: [{ name: heldClaimStep, status: 'completed', conclusion: 'skipped' },
+          { name: replacementClaimStep, status: 'completed', conclusion: 'failure' }],
+      }] };
+    }
+    const runtime = new URL(scenario === 'source-native' ? '../../scripts/routine-retained.mjs' : '../scripts/routine-retained.mjs', import.meta.url).href;
+    const input = join(root, `${scenario}.json`);
+    await writeFile(input, JSON.stringify({ delivery, runtime, request: f.request, env: f.env, records: f.records,
+      source: f.source.toString('base64'), failedArtifact: f.failed.artifact.id, failedZip: f.failed.zip.toString('base64') }));
+    const child = childProcess.spawnSync(process.execPath, ['--input-type=module', '-e', program, input], {
+      env: { PATH: '/usr/bin:/bin', HOME: root }, encoding: 'utf8', timeout: 10000,
+    });
+    assert.equal(child.error, undefined);
+    assert.equal(child.signal, null);
+    assert.equal(child.status, ['compiled', 'source-native'].includes(scenario) ? 0 : 1, child.stderr);
+    const result = JSON.parse(child.stdout);
+    assert.equal(result.network, 0);
+    assert.ok(result.loaded.includes(delivery));
+    assert.ok(result.loaded.includes(new URL('../scripts/etsy-release.js', import.meta.url).href));
+    assert.deepEqual(result.checks.find((check: { name: string }) => check.name === 'replacement.pinned-prior'),
+      { name: 'replacement.pinned-prior', passed: scenario !== 'wrong-pin' });
+    if (scenario === 'wrong-pin') {
+      assert.equal(result.status, 'refused');
+      assert.equal(result.reads.some((path: string) => path.includes('/actions/workflows/')), false);
+    } else {
+      assert.ok(result.checks.some((check: { name: string; passed: boolean }) => check.name === 'replacement.stopped-run-proof' && check.passed));
+      if (scenario === 'reached-claim') {
+        assert.equal(result.status, 'refused');
+        assert.deepEqual(result.checks.at(-1), { name: 'held.no-prior-claim-attempt', passed: false });
+      } else {
+        assert.equal(result.status, 'admitted');
+        assert.equal(result.execution.job, f.job.id);
+        assert.deepEqual(result.checks.find((check: { name: string }) => check.name === 'replacement.failed-dispatch-present'),
+          { name: 'replacement.failed-dispatch-present', passed: true });
+        assert.ok(result.checks.some((check: { name: string; passed: boolean }) => check.name === 'replacement.failed-dispatch-unreserved' && check.passed));
+      }
+    }
+  });
+});
 
 test('held continuation admits only the authenticated serialized production job', async t => {
   const valid = heldProductionFixture();
@@ -242,6 +467,11 @@ test('replacement never launders an existing or unknown durable successor with a
   for (const prior of [
     { id: 999, task: 'deploy:esty-be-ci', environment: 'be-production', payload: { heldContinuation: { unknown: true } } },
     f.snapshots.journal,
+    ...[
+      { run: failedReplacementDispatch.run },
+      { releaseRequest: { controller: { run: failedReplacementDispatch.run } } },
+      { heldContinuation: { execution: { run: failedReplacementDispatch.run } } },
+    ].map(payload => ({ id: 999, task: 'deploy:esty-be-ci', environment: 'be-production', payload })),
   ]) {
     let posts = 0;
     const transport: typeof fetch = async (raw, init) => {
@@ -252,7 +482,7 @@ test('replacement never launders an existing or unknown durable successor with a
       return Response.json([prior]);
     };
     await assert.rejects(createProvider(base.artifact, request.controller, schema, h.credentials,
-      AbortSignal.timeout(10000), transport).reserve(), /durable or uncertain claim/);
+      AbortSignal.timeout(10000), transport).reserve(), /durable or uncertain claim|Failed replacement dispatch has a durable reservation/);
     assert.equal(posts, 0);
   }
 });

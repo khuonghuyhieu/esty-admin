@@ -18,9 +18,10 @@ import { createReleaseJournal, describeRetainedRun, readReleaseJournal, writeRel
 import type { ReleaseBinding, SupersessionApproval } from '../scripts/release-journal.js';
 import { bounded } from '../scripts/bounded.js';
 import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validateEtsyReleasePacket, heldContinuationPhases,
-  heldEtsyIncident, stoppedEtsyContinuation, etsyReplacement, continuationCandidate, continuationClaimKey,
+  heldEtsyIncident, etsyReplacement, continuationCandidate, continuationClaimKey,
   validateEtsyContinuationApproval, verifyHeldEtsyReceipts, verifyStoppedEtsyContinuation } from '../scripts/etsy-release.js';
 import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase, HeldContinuationPhase } from '../scripts/etsy-release.js';
+import { stoppedEtsyContinuation } from '../scripts/activation-preflight-disposition.mjs';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { currentAppMetadata } from '../scripts/activation-configuration.js';
 import { manifestDigest, migrationStatus, runMigrations } from '../scripts/migrations.js';

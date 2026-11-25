@@ -20,7 +20,8 @@ import { activationSchema } from '../src/config/schema-transition.js';
 import { confirmRoutineSelection, loadRoutineContext, readRoutineRequest, readRoutineSelection, routineApproval,
   validateRoutineSelection, verifyRoutineBundle, verifyRoutineTransfer } from './routine-retained.mjs';
 import { githubReader } from './activation-retained.mjs';
-import { heldEtsyIncident, stoppedEtsyContinuation, continuationCandidate, continuationApplication,
+import { stoppedEtsyContinuation } from './activation-preflight-disposition.mjs';
+import { heldEtsyIncident, continuationCandidate, continuationApplication,
   validateEtsyContinuationApproval, validateEtsyReleasePacket } from './etsy-release.js';
 import type { EtsyContinuationApproval } from './etsy-release.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';

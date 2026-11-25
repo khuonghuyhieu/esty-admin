@@ -23,7 +23,7 @@ import { readHiddenPassword } from './hidden-input.mjs';
 import { prepareEtsyConfiguration, setupObject } from './etsy-setup.js';
 import { bounded } from './bounded.js';
 import { activationRuntimeKeys, etsyRuntimeKeys } from '../src/config/activation-config.js';
-import { validateHeldContinuationReceiptArchive, validateStoppedContinuationReceiptArchive } from './activation-preflight-disposition.mjs';
+import { stoppedEtsyContinuation, validateHeldContinuationReceiptArchive, validateStoppedContinuationReceiptArchive } from './activation-preflight-disposition.mjs';
 import { validateReleaseResult } from './ci-delivery.js';
 import { currentAppMetadata } from './activation-configuration.js';
 
@@ -52,18 +52,6 @@ export const heldEtsyIncident = Object.freeze({
   artifactDigest: '06afb0ae722be3afead286181137fddb1c769f9de6416fe8c71ef8ce4b4c08f1',
   sourceDigest: '9423a4a1c7d6810807c1afdaef5cd25e2ae4c55dfec796e78732019e5cca8e02',
   archiveDigest: 'def60b022306a4057c32c8dc22188362123b1ca066db5255bfa0cc4724a8e7a4',
-});
-export const stoppedEtsyContinuation = Object.freeze({
-  run: '45539045779', job: 138954376964, journal: 8047533931, receiptArtifact: 14988089821,
-  runId: 'cca60d55-7c86-4e67-94cf-0db2a1ec911a',
-  requestDigest: '7ce8bf925927cf0934886071e3c6917719ec4b0064f10b0b8a367ef260a7e598',
-  approvalDigest: '774ef367d95107e25d368e0a21e44488bfad461cf30b3a6d282f7c27cae8896c',
-  receiptZipDigest: '67c601ffd8982825df453b19771c4d18936f3c42e131d3bf5b9e95c505ac66ec',
-  outcomeHead: '8df10f87b86089ebbb815c843a2a922d7cae39e98bf8e5195df6db5e642ca1b7',
-  runDigest: 'a5a7c134b4a9a83c6fa3e6e3507a41b3259489b64db6702f2619cdce87633097',
-  jobsDigest: 'e411e490d7bc965f43971aaf44278f95379345cc35c501f04f6460a75c9ea099',
-  journalDigest: 'e85895772dbc86ff270eb27bf1ceec83e2744b1268d99ff67f01d45541ae37ce',
-  statusesDigest: 'a5cca767f5c1e88c79e3158fb93c262626ca6552d8a5c66270fc921771224236',
 });
 export const etsyReplacement = Object.freeze({
   id: 'dpl_8X6ZgDHqFy1F4QjMXhJ4cKJyaRjw', tag: 'etsy-keyring-verification-c507332-45547549808',

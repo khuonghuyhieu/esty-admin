@@ -274,8 +274,8 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
   const claimLock = paths ? join(privateDirectory(join(paths.temporary, 'be-held-claims')), `${key}.json`) : '';
   if (approval && paths) {
     if (action !== 'history' && action !== 'migrate') {
-      const read = githubReader(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace);
-      execution = await admitHeldProduction(request, env, read, paths.workflow, action === 'authorize');
+      const io = manualGithubIo(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace);
+      execution = await admitHeldProduction(request, env, io.read, paths.workflow, action === 'authorize', io.download);
     }
     if (action === 'authorize') {
       writeObserved(diagnostics, claimLock, { version: 1, key, requestDigest, packetDigest, execution });
