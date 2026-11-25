@@ -9,12 +9,13 @@ import { activationSchema } from '../src/config/schema-transition.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
 import { saveMigrationReport } from './migration-report.js';
 import { privateDirectory } from './private-files.mjs';
-import { createProvider, proveHeldEtsyIncident, confirmHeldEtsyIncident } from './ci-provider.js';
+import { createProvider, proveHeldEtsyIncident, confirmHeldEtsyIncident, proveEtsyReplacement, confirmStoppedEtsyContinuation } from './ci-provider.js';
 import type { HeldEtsyAdmission, RoutineDeliveryApproval, RoutineProvider, RunIdentity } from './ci-provider.js';
 import type { ReleaseDiagnostics, ReleaseRequest } from './ci-delivery.js';
 import { decodePhaseInput } from './activation-inputs.js';
 import { etsyProviderOperations, etsyReleasePhases, isolatedEtsyCli, runEtsyReleasePhase, heldContinuationPhases,
-  heldEtsyIncident, validateEtsyContinuationApproval, verifyHeldEtsyReceipts, verifyEtsyArtifact, validateEtsyReleasePacket } from './etsy-release.js';
+  heldEtsyIncident, continuationApplication, continuationCandidate, continuationClaimKey, validateEtsyContinuationApproval,
+  verifyStoppedEtsyContinuation, verifyHeldEtsyReceipts, verifyEtsyArtifact, validateEtsyReleasePacket } from './etsy-release.js';
 import type { HeldContinuationPhase, EtsyCli, EtsyReleaseDurability, EtsyReleaseIntent, EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase } from './etsy-release.js';
 import { admitHeldProduction, heldRunnerPaths } from './routine-retained.mjs';
 import { githubReader } from './activation-retained.mjs';
@@ -228,7 +229,7 @@ function strictBinding(artifact: VerifiedArtifact, request: ReleaseRequest, valu
       || request.migration.maintenanceApproval !== sha256(canonical({ packet: request.migration.packetDigest, window: approval.window,
         maintenance: approval.originalPacket.grants.maintenance }))) refuse();
     verifyRoutineArtifact(artifact, request.controller, { digest: request.schema.targetDigest });
-    return approval.originalPacket;
+    return continuationApplication(approval);
   }
   const digest = request.migration.packetDigest, packet = validateEtsyReleasePacket(value, digest);
   if (packet.target === 'local' || packet.target !== request.target || packet.revision !== request.controller.revision
@@ -257,6 +258,7 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
   diagnostics?.trace?.check('strict.packet-input-digest', env.BE_MIGRATION_PACKET_SHA256 === packetDigest, 'packet-digest-differs-from-approved-request');
   if (env.BE_MIGRATION_PACKET_SHA256 !== packetDigest) refuse();
   const approval = request.continuation, paths = approval ? heldRunnerPaths(env) : undefined;
+  const replacement = approval?.kind === 'replacement-etsy-continuation';
   if (paths && (input.directory !== paths.receipts || action === 'reconcile'
     || sha256(paths.workflow) !== approval!.operator.workflowDigest)) refuse();
   const root = privateDirectory(join(input.directory, approval ? 'continuation' : 'strict'));
@@ -268,7 +270,7 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
   const verify = () => { signal.throwIfAborted(); strictBinding(artifact, request, approval ?? packet); };
   let held: HeldEtsyAdmission | undefined, continuation: HeldContinuationPhase | undefined, application = artifact;
   let execution: Awaited<ReturnType<typeof admitHeldProduction>> | undefined;
-  const key = sha256(canonical({ incident: heldEtsyIncident.run, journal: heldEtsyIncident.journal, ackDigest: heldEtsyIncident.ackDigest }));
+  const key = approval ? continuationClaimKey(approval) : '';
   const claimLock = paths ? join(privateDirectory(join(paths.temporary, 'be-held-claims')), `${key}.json`) : '';
   if (approval && paths) {
     if (action !== 'history' && action !== 'migrate') {
@@ -279,17 +281,27 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
       writeObserved(diagnostics, claimLock, { version: 1, key, requestDigest, packetDigest, execution });
       held = await proveHeldEtsyIncident(approval, manualGithubIo(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace),
         paths.application, signal, diagnostics);
-      writeObserved(diagnostics, join(root, 'origin.json'), { zip: held.receiptZip.toString('base64'), origin: held.origin, execution });
+      if (replacement) held = await proveEtsyReplacement(approval, held,
+        manualGithubIo(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace), paths.replacement, signal, diagnostics);
+      writeObserved(diagnostics, join(root, 'origin.json'), { zip: held.receiptZip.toString('base64'), origin: held.origin, execution,
+        ...(held.stopped ? { stoppedZip: held.stopped.receiptZip.toString('base64') } : {}) });
       application = held.application;
       schema.held = held;
-      diagnostics?.inheritedHeld(held.origin.id);
+      diagnostics?.inheritedHeld(continuationCandidate(approval));
     } else {
-      const saved = object(readEvidence(join(root, 'origin.json')).value, ['zip', 'origin', 'execution']);
+      const saved = object(readEvidence(join(root, 'origin.json')).value, ['zip', 'origin', 'execution', ...(replacement ? ['stoppedZip'] : [])]);
       if (typeof saved.zip !== 'string' || saved.zip.length > 10000) refuse();
       const zip = Buffer.from(saved.zip, 'base64');
       if (zip.toString('base64') !== saved.zip) refuse();
-      const origin = verifyHeldEtsyReceipts(zip, packet, diagnostics);
+      const origin = verifyHeldEtsyReceipts(zip, approval.originalPacket, diagnostics);
       if (canonical(origin) !== canonical(saved.origin)) refuse();
+      let stoppedReceipt: Buffer | undefined;
+      if (replacement) {
+        if (typeof saved.stoppedZip !== 'string' || saved.stoppedZip.length > 20000) refuse();
+        stoppedReceipt = Buffer.from(saved.stoppedZip, 'base64');
+        if (stoppedReceipt.toString('base64') !== saved.stoppedZip
+          || canonical(verifyStoppedEtsyContinuation(stoppedReceipt, diagnostics).origin) !== canonical(origin)) refuse();
+      }
       const ownExecution = saved.execution as NonNullable<typeof execution>;
       if (ownExecution.run !== request.controller.run || ownExecution.runner !== env.RUNNER_NAME
         || (execution && canonical(execution) !== canonical(ownExecution))) refuse();
@@ -299,8 +311,8 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
       if (value.version !== 1 || value.key !== key || value.requestDigest !== requestDigest || value.packetDigest !== packetDigest
         || canonical(value.execution) !== canonical(ownExecution) || value.originDigest !== readEvidence(join(root, 'origin.json')).identity.sha256
         || !Number.isSafeInteger(value.journal) || Number(value.journal) <= 0 || value.journal !== reservation().journal) refuse();
-      application = verifyEtsyArtifact(packet, join(paths.application, 'artifact'));
-      continuation = { approval, origin, claimDigest: claim.identity.sha256 };
+      application = verifyEtsyArtifact(packet, join(replacement ? paths.replacement : paths.application, 'artifact'));
+      continuation = { approval, origin, claimDigest: claim.identity.sha256, ...(stoppedReceipt ? { stoppedReceipt } : {}) };
     }
     schema.heldExecution = execution;
   }
@@ -383,7 +395,7 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
   }
   const remote = etsyProviderOperations(packet, approval ? heldEtsyIncident.packetDigest : packetDigest, application, { token: env.VERCEL_TOKEN ?? '', bearer: env.BE_PREVIEW_ACCESS_KEY ?? '',
     predecessorBearer: env.BE_PREVIEW_ACCESS_KEY ?? '', bypass: env.VERCEL_AUTOMATION_BYPASS_SECRET ?? '',
-    github: env.GITHUB_TOKEN ?? '' }, signal, fetch, diagnostics);
+    github: env.GITHUB_TOKEN ?? '' }, signal, fetch, diagnostics, approval);
   let journal: number | undefined;
   let cli: EtsyCli | Omit<EtsyCli, 'create'> | undefined;
   async function record(description: string, state: 'in_progress' | 'success' = 'in_progress') {
@@ -458,11 +470,12 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
       if (approval && held && execution) {
         writeObserved(diagnostics, join(root, 'claim.json'), { version: 1, key, requestDigest, packetDigest, journal, execution,
           originDigest: readEvidence(join(root, 'origin.json')).identity.sha256 });
-        continuation = { approval, origin: held.origin, claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256 };
+        continuation = { approval, origin: held.origin, claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256,
+          ...(held.stopped ? { stoppedReceipt: held.stopped.receiptZip } : {}) };
       }
       await remote.predecessor(false);
       await authorize('history', { packetDigest, phase: 'history', previous: continuation?.claimDigest ?? null,
-        deploymentId: continuation?.origin.id ?? null });
+        deploymentId: approval ? continuationCandidate(approval) : null });
       return;
     }
     journal = reservation().journal;
@@ -475,7 +488,11 @@ export async function runStrictRoutinePhase(input: { artifact: VerifiedArtifact;
       ...remote, verify, history: unavailable, migrate: unavailable,
       async currentMain() {
         await provider.currentMain();
-        if (approval) await confirmHeldEtsyIncident({ read: githubReader(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace) });
+        if (approval) {
+          const io = { read: githubReader(env.GITHUB_TOKEN ?? '', signal, fetch, diagnostics?.trace) };
+          await confirmHeldEtsyIncident(io);
+          if (replacement) await confirmStoppedEtsyContinuation(io);
+        }
         return { revision: request.controller.revision, tree: request.controller.tree };
       },
       ...(approval ? {} : { create: () => (cli as EtsyCli).create() }),

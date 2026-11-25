@@ -16,20 +16,20 @@ import { gunzipSync } from 'node:zlib';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
 import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture,
-  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, historicalProviderFixture } from './artifact-fixture.js';
+  tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, historicalProviderFixture } from './artifact-fixture.js';
 import { historicalActivationChild } from './historical-activation-fixture.js';
 import { checksContext, runChecks } from '../scripts/ci.js';
 import { ChecksDiagnostics } from '../scripts/checks-diagnostics.js';
 import { checked, command, responseBytes } from '../scripts/ci-tools.js';
 import { acknowledgedId, deliver, deliverActivationCandidate, deliveryContext, runRoutinePhase } from '../scripts/ci-delivery.js';
 import { ReleaseDiagnostics, ReleaseOutcome, approvedRoutineRequest, authenticateRoutineDelivery, validateReleaseRequest, validateReleaseResult } from '../scripts/ci-delivery.js';
-import { createActivationProvider, createProvider, repository } from '../scripts/ci-provider.js';
+import { createActivationProvider, createProvider, repository, confirmStoppedEtsyContinuation, proveEtsyReplacement } from '../scripts/ci-provider.js';
 import type { ActivationProvider, DeliveryProvider, RunIdentity } from '../scripts/ci-provider.js';
 import { verifyUploadedArchive } from '../scripts/ci-archive.js';
 import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
 import type { CommandResult } from '../scripts/ci-tools.js';
 import { routineContext, loadRoutineContext, withRoutineDiagnostics, selectRoutine, validateRoutineSelection, confirmRoutineSelection,
-  extractRoutineBundle, admitHeldProduction, heldClaimStep, heldRunnerPaths } from '../scripts/routine-retained.mjs';
+  extractRoutineBundle, admitHeldProduction, heldClaimStep, replacementClaimStep, heldRunnerPaths } from '../scripts/routine-retained.mjs';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { activationPhases, appendActivationEvent, createActivationJournal, finishActivationJournal, importFrontendJournal,
   readActivationJournal, reserveActivationJournal, saveActivationConfigurationReceipt } from '../scripts/activation-journal.js';
@@ -64,19 +64,21 @@ import { runtimeConfigDigest } from '../src/config/activation-config.js';
 import { historicalHandoffDigest, historicalMetadataReadback, historicalSnapshot, proveHistoricalHandoff,
   proveFailedAuthorization, proveFailedAuthorizations } from '../scripts/historical-release.js';
 import { historicalReleaseEvidence } from '../scripts/historical-release-evidence.js';
+import { stoppedEtsyContinuation } from '../scripts/etsy-release.js';
 
-function heldProductionFixture() {
-  const f = heldContinuationFixture(), source = readFileSync(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url));
+function heldProductionFixture(replacement = false) {
+  const replaced = replacement ? replacementContinuationFixture() : undefined, f = replaced ?? heldContinuationFixture();
+  const source = readFileSync(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url));
   const env: NodeJS.ProcessEnv = { GITHUB_ACTIONS: 'true', GITHUB_JOB: 'production', GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1',
     GITHUB_SHA: f.request.controller.revision, GITHUB_REPOSITORY: repository, GITHUB_EVENT_NAME: 'workflow_dispatch',
     GITHUB_REF: 'refs/heads/main', GITHUB_WORKFLOW_REF: `${repository}/.github/workflows/be-delivery.yml@refs/heads/main`,
-    RUNNER_ENVIRONMENT: 'github-hosted', RUNNER_NAME: 'synthetic-serialized-runner', BE_HELD_INCIDENT: '45106877912' };
+    RUNNER_ENVIRONMENT: 'github-hosted', RUNNER_NAME: 'synthetic-serialized-runner', BE_HELD_INCIDENT: replacement ? '45539045779' : '45106877912' };
   const run = { id: 123, workflow_id: 404086547, run_attempt: 1, head_sha: f.request.controller.revision, head_branch: 'main',
     path: '.github/workflows/be-delivery.yml', event: 'workflow_dispatch', status: 'in_progress', conclusion: null,
     repository: { id: 1430691691, full_name: repository }, head_repository: { id: 1430691691, full_name: repository } };
   const job = { id: 456, run_id: 123, run_attempt: 1, head_sha: run.head_sha, name: 'BE production delivery',
     status: 'in_progress', conclusion: null, runner_id: 789, runner_name: env.RUNNER_NAME,
-    steps: [{ name: heldClaimStep, status: 'in_progress', conclusion: null }] };
+    steps: [{ name: replacement ? replacementClaimStep : heldClaimStep, status: 'in_progress', conclusion: null as string | null }] };
   const records: Record<string, any> = {
     '/actions/runs/123': run,
     '/commits/main': { sha: run.head_sha, commit: { tree: { sha: f.request.controller.tree } } },
@@ -85,6 +87,13 @@ function heldProductionFixture() {
     '/actions/runs/123/jobs?filter=all&per_page=100': { total_count: 1, jobs: [job] },
     '/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1': { total_count: 1, workflow_runs: [run] },
   };
+  if (replaced) {
+    const pin = stoppedEtsyContinuation;
+    records[`/actions/runs/${pin.run}`] = replaced.snapshots.run;
+    records[`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`] = replaced.snapshots.jobs;
+    records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'] = {
+      total_count: 2, workflow_runs: [run, replaced.snapshots.run] };
+  }
   const read = async (path: string) => {
     assert.ok(Object.hasOwn(records, path), `Unexpected synthetic metadata path: ${path}`);
     return structuredClone(records[path]);
@@ -131,7 +140,7 @@ test('held continuation retains lost-claim fences across approvals runs director
     f.records['/actions/runs/120/jobs?filter=all&per_page=100'] = { total_count: 1, jobs: [{
       ...f.job, id: 450, run_id: 120, status: 'completed', conclusion: 'failure',
       steps: state === 'missing' ? [] : [{ name: heldClaimStep, status: state === 'in_progress' ? state : 'completed',
-        conclusion: state === 'in_progress' ? null : state }],
+        conclusion: state === 'in_progress' ? null : state }, { name: replacementClaimStep, status: 'completed', conclusion: 'skipped' }],
     }] };
     f.request.continuation!.runId = randomUUID();
     f.request.continuation!.window = { start: f.now - 500, end: f.now + 300000 };
@@ -158,6 +167,94 @@ test('held continuation selector cannot silently enter ordinary CREATE or a dire
   assert.throws(() => heldRunnerPaths({ ...env, GITHUB_JOB: 'checks', GITHUB_WORKSPACE: '/tmp/caller', RUNNER_TEMP: '/tmp/caller' }));
   const ordinary = routineContext(f.env, f.event);
   assert.equal(Object.hasOwn(ordinary, 'heldIncident'), false);
+});
+
+test('replacement ingress authenticates the exact stopped attempt and refuses every other reached claim', async t => {
+  const valid = heldProductionFixture(true);
+  assert.equal((await valid.admit()).job, 456);
+  for (const fault of ['selector', 'stopped-run', 'stopped-jobs', 'successor-started', 'successor-success', 'successor-unknown', 'successor-skipped']) {
+    await t.test(fault, async () => {
+      const f = heldProductionFixture(true), pin = stoppedEtsyContinuation;
+      if (fault === 'selector') f.env.BE_HELD_INCIDENT = '45106877912';
+      if (fault === 'stopped-run') f.records[`/actions/runs/${pin.run}`].run_attempt = 2;
+      if (fault === 'stopped-jobs') f.records[`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`].total_count++;
+      if (fault.startsWith('successor')) {
+        const prior = { ...f.run, id: 120, status: 'completed', conclusion: 'failure', updated_at: new Date(f.now).toISOString() };
+        const listing = f.records['/actions/workflows/404086547/runs?event=workflow_dispatch&branch=main&per_page=100&page=1'];
+        listing.total_count++; listing.workflow_runs.push(prior);
+        f.records['/actions/runs/120/jobs?filter=all&per_page=100'] = { total_count: 1, jobs: [{
+          ...f.job, id: 450, run_id: 120, status: 'completed', conclusion: 'failure',
+          steps: [{ name: heldClaimStep, status: 'completed', conclusion: 'skipped' },
+            ...(fault === 'successor-unknown' ? [] : [{ name: replacementClaimStep,
+              status: fault === 'successor-started' ? 'in_progress' : 'completed',
+              conclusion: fault === 'successor-started' ? null : fault === 'successor-success' ? 'success' : 'skipped' }])],
+        }] };
+        f.request.continuation!.runId = randomUUID();
+        f.env.RUNNER_TEMP = '/synthetic/new-directory';
+      }
+      if (fault === 'successor-skipped') assert.equal((await f.admit()).job, 456);
+      else await assert.rejects(f.admit(), /Routine retained release refused/);
+    });
+  }
+});
+
+test('replacement refuses journal or status drift and incomplete stopped proof before artifact download', async t => {
+  const f = replacementContinuationFixture(), pin = stoppedEtsyContinuation;
+  const fixture = await artifactFixture(); t.after(fixture.dispose);
+  for (const fault of ['valid', 'journal', 'statuses', 'run', 'jobs', 'missing-artifact']) {
+    await t.test(fault, async () => {
+      const records: Record<string, unknown> = {
+        [`/deployments/${pin.journal}`]: structuredClone(f.snapshots.journal),
+        [`/deployments/${pin.journal}/statuses?per_page=100`]: structuredClone(f.snapshots.statuses),
+        [`/actions/runs/${pin.run}`]: structuredClone(f.snapshots.run),
+        [`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`]: structuredClone(f.snapshots.jobs),
+        [`/actions/runs/${pin.run}/artifacts?per_page=100`]: { total_count: 0, artifacts: [] },
+      };
+      if (fault === 'journal') records[`/deployments/${pin.journal}`] = { ...f.snapshots.journal, id: 1 };
+      if (fault === 'statuses') records[`/deployments/${pin.journal}/statuses?per_page=100`] = f.snapshots.statuses.slice(0, -1);
+      if (fault === 'run') records[`/actions/runs/${pin.run}`] = { ...f.snapshots.run, run_attempt: 2 };
+      if (fault === 'jobs') records[`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`] = { total_count: 0, jobs: [] };
+      const io = { read: async (path: string) => {
+        assert.ok(Object.hasOwn(records, path), `Unexpected synthetic read: ${path}`);
+        return structuredClone(records[path]);
+      }, download: async () => { assert.fail('Rejected proof must never download an artifact'); } };
+      if (fault === 'valid') await confirmStoppedEtsyContinuation(io);
+      else if (fault === 'journal' || fault === 'statuses') await assert.rejects(confirmStoppedEtsyContinuation(io), /statuses changed/);
+      else await assert.rejects(proveEtsyReplacement(f.approval, { origin: f.origin, application: fixture.artifact,
+        receiptZip: f.zip, record: {}, statuses: [], recheck: async () => {} }, io, join(fixture.root, 'unreachable'),
+      AbortSignal.timeout(10000)), /Replacement refused/);
+    });
+  }
+});
+
+test('replacement never launders an existing or unknown durable successor with a fresh approval', async t => {
+  const base = await routineIngressFixture(runtimeConfigDigest(routineRuntime), true); t.after(base.dispose);
+  const f = replacementContinuationFixture(), h = routineProviderFixture(base.artifact);
+  Object.assign(f.approval.operator, { artifactDigest: base.artifact.digest, sourceDigest: base.approval.sourceDigest,
+    archiveDigest: base.approval.archiveDigest, operatorDigest: base.approval.operatorDigest });
+  const digest = sha256(canonical(f.approval)), request = { ...f.request, artifactDigest: base.artifact.digest,
+    sourceDigest: base.approval.sourceDigest, archiveDigest: base.approval.archiveDigest, operatorDigest: base.approval.operatorDigest,
+    migration: { ...f.request.migration!, packetDigest: digest,
+      recoveryApproval: sha256(canonical({ packet: digest, recovery: f.packet.grants.recovery })),
+      maintenanceApproval: sha256(canonical({ packet: digest, window: f.approval.window, maintenance: f.packet.grants.maintenance })) } };
+  const schema: RoutineDeliveryApproval = { digest: request.schema.targetDigest, configDigest: request.configDigest,
+    request, requestDigest: sha256(canonical(request)), strictPacketDigest: digest };
+  for (const prior of [
+    { id: 999, task: 'deploy:esty-be-ci', environment: 'be-production', payload: { heldContinuation: { unknown: true } } },
+    f.snapshots.journal,
+  ]) {
+    let posts = 0;
+    const transport: typeof fetch = async (raw, init) => {
+      if (init?.method === 'POST') { posts++; assert.fail('A prior claim must never create a successor journal'); }
+      const url = new URL(String(raw));
+      assert.equal(url.hostname, 'api.github.com');
+      assert.equal(url.pathname, `/repos/${repository}/deployments`);
+      return Response.json([prior]);
+    };
+    await assert.rejects(createProvider(base.artifact, request.controller, schema, h.credentials,
+      AbortSignal.timeout(10000), transport).reserve(), /durable or uncertain claim/);
+    assert.equal(posts, 0);
+  }
 });
 
 test('held continuation derives one canonical claim namespace and refuses caller-selected runner directories', async t => {

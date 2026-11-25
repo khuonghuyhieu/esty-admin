@@ -1,5 +1,11 @@
 # Current handoff
 
+## Replacement Etsy candidate — source and local review accepted
+
+T295–T299 are complete for source and local review. The replacement path binds the stopped pre-SQL claim `8047533931`, the original ACK and verified replacement `dpl_8X6ZgDHqFy1F4QjMXhJ4cKJyaRjw`. Independent Luna review raised a P2 on operator identity separation. OMP corrected it, and the compiler and 90 focused tests passed. The coordinator checked the final ten source hashes. [Verification, review and remaining gates](specs/001-connectivity-foundation/plan.md#replacement-source-local-verification-and-review).
+
+The affected full suites and synthetic same-ID phase smoke passed before the review correction. Two existing conditional tests skipped. Full carried-history reservation was not verified offline. The owner authorized publication for CI. A fresh production approval remains separate. No migration or promotion was performed in this increment.
+
 ## Held Etsy continuation diagnostics — local review accepted
 
 Actions run `45539045779` verified the artifact and the three-entry database history, recorded continuation claim `8047533931`, and stopped before migration. The authorized candidate `/health/live` request returned HTTP 500 after artifact verification. Filtered Vercel logs for `dpl_9gJ1zDbbbbPtac2FUqHrNReyLck4` recorded `ConfigurationError` at startup stage `config`. The rejected field remains unknown. The continuation journal ends at `strict:unresolved`. CREATE, migration and promotion were not started.

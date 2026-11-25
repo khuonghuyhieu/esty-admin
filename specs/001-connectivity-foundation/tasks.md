@@ -1,5 +1,15 @@
 # Tasks: Connectivity foundation
 
+## Release through the verified replacement Etsy candidate
+
+Owner approved source and local verification on base `c50733256ce58f7adc58599cfd9c0a054bf9262e`. The [bounded replacement-candidate design](plan.md#proposed-release-through-the-verified-replacement-candidate) owns this increment.
+
+- [x] T295 [US9] Verified the exact failed continuation archive and remote commitments. Implemented the closed terminal pre-SQL disposition proof and refusal of missing, changed or uncertain effects.
+- [x] T296 [US9] Implemented explicit replacement-only ingress, append-only successor admission and existing serialized phase integration. The successor binds the exact replacement and separate identities with no CREATE capability.
+- [x] T297 [US9] Extended existing release and CI tests for authentic receipt proof, candidate and history drift, one-shot successor, failure fences, and pre-SQL readiness through same-ID final acceptance under synthetic transport.
+- [x] T298 [US9] Compiler, workflow YAML, 56 Bash syntax checks, 968 affected tests and an emitted synthetic phase journey passed before the review correction. Two existing conditional tests skipped. Full carried-history reservation remains unverified offline.
+- [x] T299 [US9] One independent Luna review reported one P2, corrected by OMP. Compiler and 90 focused tests passed after the correction. Coordinator verified the exact final 10 source hashes and accepted the scoped fix. See [local verification and review](plan.md#replacement-source-local-verification-and-review). The owner authorized publication for CI. Production release requires separate approval.
+
 ## Exact held Etsy continuation — production-only source increment
 
 Actual previous maximum287. [Concrete pre-code contract](plan.md#exact-held-etsy-continuation--concrete-contract-before-code), base86ac609e6d47d819448f02376a87e463ad693b6c. Root resolved serialized-job authority and approved one additional existing receipt-wrapper file. Preserve all earlier task identities/checkmarks/evidence and original held ACK/STOP/packet/window.

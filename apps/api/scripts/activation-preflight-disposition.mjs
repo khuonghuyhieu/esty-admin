@@ -99,13 +99,13 @@ export function validateAuthorizationProducerArchive(bytes, approvedZip, diagnos
   if (canonical(approval) + '\n' !== approvalBytes.toString('utf8')) refuse();
   return { archive: members.get('be-release.tar.gz'), approval, approvalDigest: hash(approvalBytes) };
 }
-function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diagnostics) {
+function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diagnostics, maximumTar = 65536) {
   const members = zipMembers(zip, approvedZip, undefined, 65536, diagnostics), compressed = members.get('be-delivery-receipts.tar.gz');
   const archiveLine = members.get('be-delivery-receipts.archive-sha256').toString('utf8');
   const inventoryLine = members.get('be-delivery-receipts.inventory-sha256').toString('utf8');
   if (!/^[a-f0-9]{64}  [^\r\n]*\/be-delivery-receipts\.tar\.gz\n$/.test(archiveLine)
     || archiveLine.slice(0, 64) !== hash(compressed) || !/^[a-f0-9]{64}\n$/.test(inventoryLine)) refuse();
-  const tar = gunzipSync(compressed, { maxOutputLength: 65536 });
+  const tar = gunzipSync(compressed, { maxOutputLength: maximumTar });
   const files = new Map(), directories = new Map();
   const octal = bytes => { const text = bytes.toString('ascii').replace(/\0.*$/, '').trim(); if (!/^[0-7]+$/.test(text)) refuse(); return Number.parseInt(text, 8); };
   let cursor = 0;
@@ -149,6 +149,21 @@ export function validateHeldContinuationReceiptArchive(zip, diagnostics) {
   const result = receiptMembers(zip, '47fbb0ecc25d77764f11b187d60f7b954b473e15552660886745bbc6f4c1cf64',
     ['', 'strict', base], name => expected.has(name), diagnostics);
   if (result.files.size !== 20 || [...expected].some(name => !result.files.has(name))) refuse();
+  return { ...result, outcomes, runId };
+}
+export function validateStoppedContinuationReceiptArchive(zip, diagnostics) {
+  const runId = 'cca60d55-7c86-4e67-94cf-0db2a1ec911a', base = `continuation/${runId}`;
+  const outcomes = Array.from({ length: 5 }, (_, index) => `release-outcome-${String(index).padStart(4, '0')}.json`);
+  const fixed = ['continuation/reserving.json', 'continuation/reservation.json', 'continuation/origin.json',
+    'continuation/claim.json', 'continuation/history.authorized.json', 'continuation/history.remote.json',
+    'continuation/operator.lock', 'continuation/active.lock',
+    ...['history.intent', 'history.receipt', 'pre-sql-check.intent', 'STOP'].map(name => `${base}/${name}.json`)];
+  const expected = new Set([...outcomes, ...fixed]);
+  // This exact receipt's five full requests occupy an 81920-byte tar. Older
+  // receipt formats retain their original 65536-byte decompression bound.
+  const result = receiptMembers(zip, '67c601ffd8982825df453b19771c4d18936f3c42e131d3bf5b9e95c505ac66ec',
+    ['', 'continuation', base], name => expected.has(name), diagnostics, 131072);
+  if (result.files.size !== 17 || [...expected].some(name => !result.files.has(name))) refuse();
   return { ...result, outcomes, runId };
 }
 export function validateAuthorizationReceiptArchive(zip, approvedZip, diagnostics, readOnlyHistory = false) {

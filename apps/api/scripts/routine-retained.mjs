@@ -84,7 +84,7 @@ function contextShape(value) {
   const continuation = value && Object.hasOwn(value, 'heldIncident');
   const context = object(value, ['version', 'controller', 'producerRun', 'artifactId', 'mode', 'approvalDigest', 'configDigest', 'schemaDigest', 'target', 'packetDigest',
     ...(continuation ? ['heldIncident'] : [])]);
-  check('context.held-incident', !continuation || (value.heldIncident === '45106877912' && value.mode === 'etsy-strict-cutover'));
+  check('context.held-incident', !continuation || (['45106877912', '45539045779'].includes(value.heldIncident) && value.mode === 'etsy-strict-cutover'));
   const controller = object(context.controller, ['revision', 'run']);
   check('context.version', context.version === 1);
   check('context.controller-revision', revision.test(controller.revision ?? ''));
@@ -116,7 +116,7 @@ export function routineContext(env, event) {
   check('context.activation-input-absent', (activationInput ?? '') === '',
     { present: activationInput !== undefined, empty: activationInput === '', [`${activationKind}Value`]: true });
   const heldIncident = inputs.held_incident ?? '';
-  check('context.held-selector', ['', '45106877912'].includes(heldIncident)
+  check('context.held-selector', ['', '45106877912', '45539045779'].includes(heldIncident)
     && heldIncident === (env.BE_HELD_INCIDENT ?? '') && (heldIncident === '' || inputs.mode === 'etsy-strict-cutover'));
   return contextShape({ version: 1, controller: { revision: env.GITHUB_SHA, run: env.GITHUB_RUN_ID },
     producerRun: inputs.release_run_id, artifactId: inputs.release_artifact_id, mode: inputs.mode,
@@ -146,6 +146,7 @@ function runIdentity(value, run, sha, consumer) {
   return data;
 }
 export const heldClaimStep = 'Claim held Etsy incident 45106877912 once';
+export const replacementClaimStep = 'Claim replacement Etsy candidate after 45539045779 once';
 export function heldRunnerPaths(env) {
   check('held.hosted-runtime', process.platform === 'linux' && process.arch === 'x64'
     && env.GITHUB_ACTIONS === 'true' && env.GITHUB_JOB === 'production' && env.RUNNER_ENVIRONMENT === 'github-hosted');
@@ -154,12 +155,15 @@ export function heldRunnerPaths(env) {
   check('held.canonical-workspace', env.GITHUB_WORKSPACE === workspace && root(workspace) === workspace
     && env.RUNNER_TEMP === temporary && root(temporary) === temporary);
   return { workspace, temporary, receipts: join(temporary, 'be-receipts'),
-    application: join(temporary, 'be-held-application'),
+    application: join(temporary, 'be-held-application'), replacement: join(temporary, 'be-replacement-application'),
     workflow: plainFile(join(root(join(workspace, '.github/workflows')), 'be-delivery.yml'), 256 * 1024, 'held-workflow') };
 }
 export async function admitHeldProduction(request, env, read, sourceBytes, auditClaims = false) {
   const approval = request.continuation;
-  check('held.production-context', approval?.kind === 'held-etsy-continuation' && env.BE_HELD_INCIDENT === '45106877912'
+  const replacement = approval?.kind === 'replacement-etsy-continuation';
+  const claimStep = replacement ? replacementClaimStep : heldClaimStep;
+  check('held.production-context', (replacement || approval?.kind === 'held-etsy-continuation')
+    && env.BE_HELD_INCIDENT === (replacement ? '45539045779' : '45106877912')
     && env.GITHUB_JOB === 'production' && env.GITHUB_RUN_ID === request.controller.run && env.GITHUB_RUN_ATTEMPT === '1'
     && env.GITHUB_SHA === request.controller.revision && env.GITHUB_REPOSITORY === repository
     && env.GITHUB_WORKFLOW_REF === `${repository}/${workflow}@refs/heads/main` && env.GITHUB_EVENT_NAME === 'workflow_dispatch'
@@ -186,7 +190,7 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
     && production.includes('\n    environment: be-production\n')
     && production.includes('\n    concurrency:\n      group: esty-admin-be-production\n      cancel-in-progress: false\n')
     && production.includes('\n    permissions:\n      contents: read\n      actions: read\n      deployments: write\n')
-    && production.includes(`\n      - name: ${heldClaimStep}\n`));
+    && production.includes(`\n      - name: ${claimStep}\n`));
   const jobsFor = async identity => {
     const list = object(await read(`/actions/runs/${identity.id}/jobs?filter=all&per_page=100`));
     check('held.complete-production-jobs', Array.isArray(list.jobs) && list.jobs.length > 0 && list.jobs.length < 100
@@ -201,11 +205,17 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
   check('held.active-production-runner', job.status === 'in_progress' && job.conclusion === null
     && Number.isSafeInteger(job.runner_id) && job.runner_id > 0 && job.runner_name === env.RUNNER_NAME
     && typeof env.RUNNER_NAME === 'string' && env.RUNNER_NAME.length > 0);
-  const claim = Array.isArray(job.steps) ? job.steps.filter(step => step.name === heldClaimStep) : [];
+  const claim = Array.isArray(job.steps) ? job.steps.filter(step => step.name === claimStep) : [];
   check('held.current-claim-step', claim.length === 1 && (auditClaims
     ? claim[0].status === 'in_progress' && claim[0].conclusion === null
     : claim[0].status === 'completed' && claim[0].conclusion === 'success'));
   if (auditClaims) {
+    let stopped;
+    if (replacement) {
+      const compiled = basename(dirname(dirname(fileURLToPath(import.meta.url)))) === 'build';
+      ({ stoppedEtsyContinuation: stopped } = await import(new URL(compiled ? './etsy-release.js' : './etsy-release.ts', import.meta.url).href));
+      check('replacement.pinned-prior', canonical(approval.priorContinuation) === canonical(stopped));
+    }
     const seen = new Set();
     let total;
     for (let page = 1; ; page++) {
@@ -221,19 +231,32 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
           && prior.repository?.id === 1430691691 && prior.head_repository?.id === 1430691691);
         seen.add(prior.id);
         if (prior.id === run.id) continue;
+        if (replacement && String(prior.id) === stopped.run) {
+          const stoppedRun = await read(`/actions/runs/${stopped.run}`);
+          const stoppedJobs = await read(`/actions/runs/${stopped.run}/jobs?filter=all&per_page=100`);
+          check('replacement.stopped-run-proof', hash(canonical(stoppedRun)) === stopped.runDigest
+            && hash(canonical(stoppedJobs)) === stopped.jobsDigest && prior.run_attempt === 1
+            && prior.head_sha === stoppedRun.head_sha && prior.status === stoppedRun.status && prior.conclusion === stoppedRun.conclusion);
+          continue;
+        }
         // A completed run cannot have continued an ACK that did not exist yet.
         if (prior.status === 'completed' && timestamp(prior.updated_at) < 1795405274350) continue;
         const priorSource = await workflowAt(prior.head_sha);
-        if (!priorSource.toString('utf8').includes(`\n      - name: ${heldClaimStep}\n`)) {
+        const priorText = priorSource.toString('utf8');
+        const claimNames = [heldClaimStep, replacementClaimStep].filter(name => priorText.includes(`\n      - name: ${name}\n`));
+        if (claimNames.length === 0) {
           check('held.reviewed-no-continuation-workflow', hash(priorSource) === 'c9cd73e744ff32998b9874d0782480bc2c2eff1c92d1ec00f1be5d189ef89a53');
           continue;
         }
         check('held.prior-attempt', prior.run_attempt === 1);
         const priorJob = await jobsFor(prior);
         if (priorJob.status === 'completed' && priorJob.conclusion === 'skipped') continue;
-        const steps = Array.isArray(priorJob.steps) ? priorJob.steps.filter(step => step.name === heldClaimStep) : [];
-        // A missing archive/marker never launders a started or unknown attempt.
-        check('held.no-prior-claim-attempt', steps.length === 1 && steps[0].status === 'completed' && steps[0].conclusion === 'skipped');
+        // A missing archive/marker never launders a started or unknown attempt,
+        // including either ingress on a source that supports both.
+        for (const name of claimNames) {
+          const steps = Array.isArray(priorJob.steps) ? priorJob.steps.filter(step => step.name === name) : [];
+          check('held.no-prior-claim-attempt', steps.length === 1 && steps[0].status === 'completed' && steps[0].conclusion === 'skipped');
+        }
       }
       if (listing.workflow_runs.length < 100) {
         check('held.run-audit-complete', seen.size === total && seen.has(run.id));

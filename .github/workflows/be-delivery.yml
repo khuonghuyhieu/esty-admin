@@ -29,7 +29,7 @@ on:
         required: false
         type: string
       held_incident:
-        description: Empty for ordinary delivery; 45106877912 requires its separately approved one-shot continuation
+        description: Empty for ordinary delivery; 45106877912 for original continuation or 45539045779 for the separately approved exact replacement
         required: false
         default: ''
         type: string
@@ -344,6 +344,18 @@ jobs:
           BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
           VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
         run: *routine-command
+      - name: Claim replacement Etsy candidate after 45539045779 once
+        id: replacement_claim
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT == '45539045779'
+        env:
+          BE_ROUTINE_ACTION: authorize
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: *routine-command
       - name: Inspect exactly strict three-entry history in the SQL-only worker
         id: history
         if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover'
@@ -368,6 +380,18 @@ jobs:
       - name: Reattest the original held ID without CREATE before fresh SQL authorization
         id: held_continuation
         if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT == '45106877912'
+        env:
+          BE_ROUTINE_ACTION: held
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
+          VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: *routine-command
+      - name: Reattest the exact replacement without CREATE before fresh SQL authorization
+        id: replacement_continuation
+        if: env.BE_DELIVERY_MODE == 'etsy-strict-cutover' && env.BE_HELD_INCIDENT == '45539045779'
         env:
           BE_ROUTINE_ACTION: held
           BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}

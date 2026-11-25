@@ -20,7 +20,8 @@ import { activationSchema } from '../src/config/schema-transition.js';
 import { confirmRoutineSelection, loadRoutineContext, readRoutineRequest, readRoutineSelection, routineApproval,
   validateRoutineSelection, verifyRoutineBundle, verifyRoutineTransfer } from './routine-retained.mjs';
 import { githubReader } from './activation-retained.mjs';
-import { heldEtsyIncident, validateEtsyContinuationApproval, validateEtsyReleasePacket } from './etsy-release.js';
+import { heldEtsyIncident, stoppedEtsyContinuation, continuationCandidate, continuationApplication,
+  validateEtsyContinuationApproval, validateEtsyReleasePacket } from './etsy-release.js';
 import type { EtsyContinuationApproval } from './etsy-release.js';
 import { readEvidence, writeReleaseEvidence } from './release-journal.js';
 import { privateDirectory } from './private-files.mjs';
@@ -202,11 +203,6 @@ function releaseMigration(value: unknown, request: ReleaseRequest): asserts valu
 }
 // Serialization checks preserve inherited identity; only raw-origin and production
 // admission grant execution authority. They never count inherited CREATE as ours.
-function heldAcknowledgement(id: unknown): boolean {
-  return releaseString(id, deploymentId) && sha256(`${JSON.stringify({
-    packetDigest: heldEtsyIncident.packetDigest, deploymentId: id,
-  }, null, 2)}\n`) === heldEtsyIncident.ackDigest;
-}
 /** Validates retained/serialized output; never accepts raw provider bodies or exception text. */
 export function validateReleaseResult(value: unknown): ReleaseResult {
   const data = releaseObject(value, ['version', 'request', 'status', 'stage', 'category', 'nextAction', 'effects',
@@ -228,7 +224,7 @@ export function validateReleaseResult(value: unknown): ReleaseResult {
   }
   releaseRequestShape(data.request);
   const inherited = data.request.continuation !== undefined;
-  const known = inherited ? data.deploymentId !== null && heldAcknowledgement(data.deploymentId) : effects.create === 'ACKed';
+  const known = inherited ? data.deploymentId === continuationCandidate(data.request.continuation!) : effects.create === 'ACKed';
   if (!Object.values(effects).every(effect => releaseChoice(effect, ['not-started', 'ACKed', 'unknown']))
     || (inherited ? effects.create !== 'not-started' || (data.deploymentId !== null && !known)
       : (effects.create === 'ACKed') !== (data.deploymentId !== null))
@@ -252,7 +248,7 @@ export function validateReleaseResult(value: unknown): ReleaseResult {
     if (unknown || !known || effects.promotion !== 'ACKed' || data.receiptDigest === null
       || data.stage !== 'receipt' || data.category !== null || !releaseChoice(data.nextAction, ['run-acceptance', 'none'])
       || proof.deploymentId !== data.deploymentId
-      || proof.artifactDigest !== (data.request.continuation?.originalPacket.artifactDigest ?? data.request.artifactDigest)
+      || proof.artifactDigest !== (data.request.continuation ? continuationApplication(data.request.continuation).artifactDigest : data.request.artifactDigest)
       || proof.configDigest !== data.request.configDigest || proof.schemaDigest !== manifestDigest(data.request.schema.target)
       || proof.domain !== 'api.lovora.us' || proof.checks !== 'passed'
       || (data.request.migration && (data.migration === null || data.migration.database_outcome !== 'committed'
@@ -292,7 +288,7 @@ export class ReleaseOutcome {
     this.#effects = { ...prior.effects }; this.#id = prior.deploymentId; this.#migration = prior.migration;
   }
   inheritHeld(id: string): void {
-    if (!this.request.continuation || this.#id !== null || !heldAcknowledgement(id)
+    if (!this.request.continuation || this.#id !== null || id !== continuationCandidate(this.request.continuation)
       || Object.values(this.#effects).some(effect => effect !== 'not-started')) releaseRefusal();
     this.#id = id;
   }
@@ -314,7 +310,7 @@ export class ReleaseOutcome {
   }
   acknowledgeMigration(report: MigrationReport): void {
     if (!report || typeof report !== 'object' || this.#effects.migration !== 'unknown'
-      || report.source_revision !== (this.request.continuation?.originalPacket.revision ?? this.request.producer.revision) || report.target !== this.request.target
+      || report.source_revision !== (this.request.continuation ? continuationApplication(this.request.continuation).revision : this.request.producer.revision) || report.target !== this.request.target
       || report.manifest_digest !== manifestDigest(this.request.schema.target)) releaseRefusal();
     const safe = { result: report.result, database_outcome: report.database_outcome, before: report.before, after: report.after,
       attempted: report.attempted, reporting: report.reporting };
@@ -508,7 +504,8 @@ export class ReleaseDiagnostics {
     const state = this.snapshot();
     return this.#outcome.finish({ stage: 'receipt', category: null, nextAction: 'run-acceptance', receiptDigest: this.#digest,
       evidence: this.#unconfirmed ? 'unconfirmed' : 'confirmed', proof: { deploymentId: state.deploymentId,
-        artifactDigest: this.request.continuation?.originalPacket.artifactDigest ?? this.request.artifactDigest, configDigest: this.request.configDigest,
+        artifactDigest: this.request.continuation ? continuationApplication(this.request.continuation).artifactDigest : this.request.artifactDigest,
+        configDigest: this.request.configDigest,
         schemaDigest: this.request.schema.targetDigest, domain: 'api.lovora.us', checks: 'passed' } });
   }
 }
@@ -550,7 +547,7 @@ export async function approvedRoutineRequest(artifact: VerifiedArtifact, selecti
     const packet = continuation?.originalPacket ?? validateEtsyReleasePacket(packetValue, controls.packetDigest);
     if (continuation) {
       request.continuation = continuation;
-      if (controls.heldIncident !== heldEtsyIncident.run) releaseRefusal();
+      if (controls.heldIncident !== (continuation.kind === 'replacement-etsy-continuation' ? stoppedEtsyContinuation.run : heldEtsyIncident.run)) releaseRefusal();
     } else if (packet.revision !== selected.producer.revision || packet.tree !== selected.producer.tree
       || packet.artifactDigest !== artifact.digest || packet.sourceDigest !== approved.sourceDigest) releaseRefusal();
     if (packet.runtimeDigest !== controls.configDigest || packet.target !== controls.target || packet.targetDigest !== controls.schemaDigest) releaseRefusal();
@@ -840,7 +837,8 @@ async function executeRoutinePhase(input: RoutinePhaseInput, diagnostics: Releas
   diagnostics.at('request', 'unauthorized-context');
   const { artifact, request, env, cli, reports, signal } = input, { mode, action } = routinePhaseContext(env);
   releaseRequestShape(request);
-  if ((env.BE_HELD_INCIDENT ?? '') !== (request.continuation ? heldEtsyIncident.run : '')) releaseRefusal();
+  if ((env.BE_HELD_INCIDENT ?? '') !== (request.continuation
+    ? request.continuation.kind === 'replacement-etsy-continuation' ? stoppedEtsyContinuation.run : heldEtsyIncident.run : '')) releaseRefusal();
   diagnostics.at('artifact', 'identity-mismatch');
   if (request.mode !== mode || request.artifactDigest !== artifact.digest || request.sourceDigest !== artifact.manifest.source.digest
     || request.schema.targetDigest !== artifact.manifest.migrationDigest

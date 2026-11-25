@@ -8,7 +8,7 @@ import type { Socket } from 'node:net';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
-import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, tar } from './artifact-fixture.js';
+import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, tar } from './artifact-fixture.js';
 import { artifactTarget, canonical, readArtifactFile, sha256 } from '../scripts/artifact.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { chmod, writeFile } from 'node:fs/promises';
@@ -18,7 +18,8 @@ import { createReleaseJournal, describeRetainedRun, readReleaseJournal, writeRel
 import type { ReleaseBinding, SupersessionApproval } from '../scripts/release-journal.js';
 import { bounded } from '../scripts/bounded.js';
 import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validateEtsyReleasePacket, heldContinuationPhases,
-  heldEtsyIncident, validateEtsyContinuationApproval, verifyHeldEtsyReceipts } from '../scripts/etsy-release.js';
+  heldEtsyIncident, stoppedEtsyContinuation, etsyReplacement, continuationCandidate, continuationClaimKey,
+  validateEtsyContinuationApproval, verifyHeldEtsyReceipts, verifyStoppedEtsyContinuation } from '../scripts/etsy-release.js';
 import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase, HeldContinuationPhase } from '../scripts/etsy-release.js';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { currentAppMetadata } from '../scripts/activation-configuration.js';
@@ -75,16 +76,18 @@ test('held continuation rejects stale grants, application relabeling and CREATE-
   assert.throws(() => validateReleaseResult({ ...result, deploymentId: 'dpl_wrong' }));
 });
 
-function heldPhaseFixture(t: TestContext) {
-  const f = heldContinuationFixture(), root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-held-phase-'));
+function heldPhaseFixture(t: TestContext, replacement = false) {
+  const replaced = replacement ? replacementContinuationFixture() : undefined, f = replaced ?? heldContinuationFixture();
+  const root = fs.mkdtempSync(join(fs.realpathSync(tmpdir()), 'esty-held-phase-')), candidate = continuationCandidate(f.approval);
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));
   let now = f.now;
   t.mock.method(Date, 'now', () => now);
   const diagnostics = new ReleaseDiagnostics(f.request, root, AbortSignal.timeout(30000));
-  diagnostics.load(); diagnostics.inheritedHeld(f.origin.id);
-  writeReleaseEvidence(join(root, 'claim.json'), { kind: 'synthetic-serialized-claim', key: f.origin.key, request: sha256(canonical(f.request)) });
+  diagnostics.load(); diagnostics.inheritedHeld(candidate);
+  writeReleaseEvidence(join(root, 'claim.json'), { kind: 'synthetic-serialized-claim', key: continuationClaimKey(f.approval), request: sha256(canonical(f.request)) });
   const continuation: HeldContinuationPhase = { approval: f.approval, origin: f.origin,
-    claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256 };
+    claimDigest: readEvidence(join(root, 'claim.json')).identity.sha256,
+    ...(replaced ? { stoppedReceipt: replaced.stoppedZip } : {}) };
   let names = migrationManifest.slice(0, 3).map(entry => entry.name), alias = f.packet.predecessor.id;
   let sql = 0, promotions = 0, remote = continuation.claimDigest;
   const operations: Omit<EtsyReleaseOperations, 'create'> = {
@@ -93,7 +96,7 @@ function heldPhaseFixture(t: TestContext) {
     async history() { return [...names]; },
     async predecessor(pending) { assert.equal(alias, f.packet.predecessor.id); assert.equal(names.length, pending ? 4 : 3); },
     async candidate(id, pending, final) {
-      assert.equal(id, f.origin.id); assert.equal(names.length, pending ? 3 : 4);
+      assert.equal(id, candidate); assert.equal(names.length, pending ? 3 : 4);
       if (final) assert.equal(alias, id);
     },
     async migrate() {
@@ -104,7 +107,7 @@ function heldPhaseFixture(t: TestContext) {
         duration_ms: 0, result: 'success', stage: 'verification', failed_version: null, database_outcome: 'committed',
         before, after: [...names], attempted: [{ ...migrationManifest[3]!, outcome: 'applied_committed' }], reporting: 'written' };
     },
-    async promote(id) { assert.equal(id, f.origin.id); promotions++; alias = id; return { code: 0, aborted: false, stdout: '' }; },
+    async promote(id) { assert.equal(id, candidate); promotions++; alias = id; return { code: 0, aborted: false, stdout: '' }; },
     async alias(id) { assert.equal(alias, id); },
   };
   const durability = {
@@ -190,6 +193,137 @@ test('held continuation fences wrong main, late SQL, altered receipts and unknow
       if (fault === 'sql-unknown') assert.equal(result.effects.migration, 'unknown');
       if (fault === 'promotion-unknown') assert.equal(result.effects.promotion, 'unknown');
       if (fault === 'receipt-loss') assert.equal(result.effects.promotion, 'ACKed');
+    });
+  }
+});
+
+test('replacement proves the authentic terminal pre-SQL no-write disposition without forgiving status', () => {
+  const f = replacementContinuationFixture(), proof = verifyStoppedEtsyContinuation(f.stoppedZip);
+  assert.equal(proof.outcomeHead, stoppedEtsyContinuation.outcomeHead);
+  assert.equal(proof.request.controller.run, stoppedEtsyContinuation.run);
+  assert.equal(proof.origin.id, f.origin.id);
+  assert.equal(proof.descriptions.at(-1), 'strict:unresolved');
+  assert.deepEqual(validateEtsyContinuationApproval(f.approval, f.digest, f.now), f.approval);
+  const changed = Buffer.from(f.stoppedZip); changed[100] = changed[100]! ^ 1;
+  for (const zip of [changed, f.stoppedZip.subarray(0, -1), Buffer.concat([f.stoppedZip, f.stoppedZip]), f.zip]) {
+    assert.throws(() => verifyStoppedEtsyContinuation(zip));
+  }
+  for (const mutate of [
+    (approval: typeof f.approval) => { delete approval.priorContinuation; },
+    (approval: typeof f.approval) => { delete approval.replacement; },
+    (approval: typeof f.approval) => { approval.runId = stoppedEtsyContinuation.runId; },
+    (approval: typeof f.approval) => { Object.assign(approval.replacement!, { id: 'dpl_wrong' }); },
+    (approval: typeof f.approval) => { approval.originalPacket.revision = etsyReplacement.revision; },
+    (approval: typeof f.approval) => { approval.kind = 'held-etsy-continuation'; },
+  ]) {
+    const approval = structuredClone(f.approval); mutate(approval);
+    assert.throws(() => validateEtsyContinuationApproval(approval, sha256(canonical(approval)), f.now));
+  }
+  assert.notEqual(continuationClaimKey(f.approval), f.origin.key);
+});
+
+test('replacement approval rejects reused replacement operator provenance without restricting original continuation', async t => {
+  const f = replacementContinuationFixture();
+  const pinnedOperator = {
+    revision: etsyReplacement.revision, tree: etsyReplacement.tree, producerRun: etsyReplacement.producer,
+    artifactId: String(etsyReplacement.artifactId), artifactDigest: etsyReplacement.artifactDigest,
+    sourceDigest: etsyReplacement.sourceDigest, archiveDigest: etsyReplacement.archiveDigest,
+    operatorDigest: etsyReplacement.operatorDigest,
+  };
+  for (const [name, identity] of Object.entries({
+    revision: { revision: pinnedOperator.revision },
+    artifactId: { artifactId: pinnedOperator.artifactId },
+    artifactDigest: { artifactDigest: pinnedOperator.artifactDigest },
+    fullProvenance: pinnedOperator,
+  })) {
+    await t.test(name, () => {
+      const approval = structuredClone(f.approval);
+      Object.assign(approval.operator, identity);
+      assert.throws(() => validateEtsyContinuationApproval(approval, sha256(canonical(approval)), f.now));
+    });
+  }
+  const original = heldContinuationFixture(f.now);
+  Object.assign(original.approval.operator, pinnedOperator);
+  assert.deepEqual(validateEtsyContinuationApproval(original.approval, sha256(canonical(original.approval)), f.now), original.approval);
+  assert.deepEqual(validateEtsyContinuationApproval(f.approval, f.digest, f.now), f.approval);
+});
+
+test('replacement migrates only the suffix and accepts the same replacement ID with three distinct identities', async t => {
+  const f = heldPhaseFixture(t, true), original = Buffer.from(f.zip), stopped = Buffer.from(f.continuation.stoppedReceipt!);
+  assert.equal(Object.hasOwn(f.operations, 'create'), false);
+  for (const phase of heldContinuationPhases) await f.run(phase);
+  f.diagnostics.verified();
+  const result = f.diagnostics.complete()!;
+  assert.equal(result.status, 'accepted');
+  assert.equal(result.request!.controller.revision, f.approval.operator.revision);
+  assert.equal(result.request!.continuation!.originalPacket.revision, heldEtsyIncident.revision);
+  assert.equal(result.request!.continuation!.replacement!.revision, etsyReplacement.revision);
+  assert.equal(result.proof!.artifactDigest, etsyReplacement.artifactDigest);
+  assert.equal(result.proof!.deploymentId, etsyReplacement.id);
+  assert.deepEqual(result.effects, { create: 'not-started', migration: 'ACKed', promotion: 'ACKed' });
+  assert.deepEqual(f.counts(), { sql: 1, promotions: 1 });
+  assert.deepEqual(f.zip, original); assert.deepEqual(f.continuation.stoppedReceipt, stopped);
+  assert.equal(fs.existsSync(join(f.root, f.approval.runId, 'create-ack.json')), false);
+  for (const id of [f.origin.id, 'dpl_other']) assert.throws(() => validateReleaseResult({ ...result, deploymentId: id }));
+  await assert.rejects(f.run('sql-apply'));
+  assert.deepEqual(f.counts(), { sql: 1, promotions: 1 });
+});
+
+test('replacement preserves proof, history, source-report, deadline and unknown-outcome fences', async t => {
+  for (const fault of ['proof', 'create', 'history', 'main', 'candidate-unready', 'alias', 'deadline', 'report-source', 'sql-unknown', 'promotion-unknown', 'receipt-loss']) {
+    await t.test(fault, async st => {
+      const f = heldPhaseFixture(st, true);
+      if (fault === 'proof') {
+        delete f.continuation.stoppedReceipt;
+        await assert.rejects(f.run('history'));
+        assert.deepEqual(f.counts(), { sql: 0, promotions: 0 }); return;
+      }
+      if (fault === 'create') {
+        await assert.rejects(f.run('held-create'));
+        assert.deepEqual(f.counts(), { sql: 0, promotions: 0 }); return;
+      }
+      if (fault === 'history') {
+        f.operations.history = async () => migrationManifest.map(entry => entry.name);
+        await assert.rejects(f.run('history'));
+      } else {
+        await f.run('history');
+        if (['main', 'candidate-unready', 'alias'].includes(fault)) {
+          if (fault === 'main') f.operations.currentMain = async () => ({ revision: etsyReplacement.revision, tree: etsyReplacement.tree });
+          if (fault === 'candidate-unready') f.operations.candidate = async () => { throw new Error('Synthetic pending readiness refusal'); };
+          if (fault === 'alias') f.operations.alias = async () => { throw new Error('Synthetic predecessor alias drift'); };
+          await assert.rejects(f.run('pre-sql-check'));
+        } else {
+          await f.run('pre-sql-check');
+          if (fault === 'deadline') f.advance(60001);
+          if (fault === 'report-source' || fault === 'sql-unknown') {
+            const migrate = f.operations.migrate;
+            f.operations.migrate = async () => {
+              const report = await migrate();
+              if (fault === 'sql-unknown') throw new Error('Synthetic SQL acknowledgement loss');
+              return { ...report, source_revision: heldEtsyIncident.revision };
+            };
+          }
+          if (['deadline', 'report-source', 'sql-unknown'].includes(fault)) await assert.rejects(f.run('sql-apply'));
+          else {
+            await f.run('sql-apply'); await f.run('post-sql-check');
+            if (fault === 'promotion-unknown') {
+              const promote = f.operations.promote;
+              f.operations.promote = async id => { await promote(id); throw new Error('Synthetic promotion acknowledgement loss'); };
+            } else {
+              const confirmed = f.durability.confirmed;
+              f.durability.confirmed = async (phase, receipt) => {
+                await confirmed(phase, receipt);
+                if (phase === 'promote-only') throw new Error('Synthetic receipt persistence loss');
+              };
+            }
+            await assert.rejects(f.run('promote-only'));
+          }
+        }
+      }
+      const counts = f.counts();
+      await assert.rejects(f.run('sql-apply')); assert.deepEqual(f.counts(), counts);
+      assert.equal(f.diagnostics.failure().effects.create, 'not-started');
+      assert.equal(fs.existsSync(join(f.root, f.approval.runId, 'STOP.json')), true);
     });
   }
 });

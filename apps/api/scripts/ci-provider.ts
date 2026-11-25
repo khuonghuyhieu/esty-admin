@@ -14,7 +14,8 @@ import { historicalHandoffDigest, historicalRecordId, historicalSnapshot, proveH
   historicalMetadataReadback } from './historical-release.js';
 import type { FailedAuthorizationAdmission, HistoricalAdmission, HistoricalItem, HistoricalIo } from './historical-release.js';
 import { manualGithubIo, validateAuthorizationProducerArchive } from './activation-preflight-disposition.mjs';
-import { heldEtsyIncident, verifyHeldEtsyReceipts, verifyEtsyArtifact } from './etsy-release.js';
+import { heldEtsyIncident, verifyHeldEtsyReceipts, verifyEtsyArtifact, continuationApplication, stoppedEtsyContinuation,
+  etsyReplacement, verifyStoppedEtsyContinuation, continuationClaimKey } from './etsy-release.js';
 import type { EtsyContinuationApproval } from './etsy-release.js';
 import { extractRoutineBundle } from './routine-retained.mjs';
 import { join } from 'node:path';
@@ -101,6 +102,7 @@ export function verifyCandidateArchive(content: unknown, uid: string, artifact: 
 export interface HeldEtsyAdmission {
   origin: ReturnType<typeof verifyHeldEtsyReceipts>; application: VerifiedArtifact; receiptZip: Buffer;
   record: Record<string, any>; statuses: Record<string, any>[]; recheck(): Promise<void>;
+  stopped?: { receiptZip: Buffer; record: Record<string, unknown>; statuses: Record<string, unknown>[] };
 }
 const heldJournalDigest = '04ddcd749898e66e53d2140a7e43933c4787d2ea88a4f7c949b0d1e9a60757e0';
 const heldStatusesDigest = '863e91807013518be4cdffc995a4b9d6d1f21cc0e26f5ea26b702e7eceb718b9';
@@ -200,6 +202,96 @@ export async function proveHeldEtsyIncident(approval: EtsyContinuationApproval, 
   };
   await stable();
   return { origin, application, receiptZip, record, statuses: statuses as Record<string, any>[], recheck: stable };
+}
+
+export async function confirmStoppedEtsyContinuation(io: Pick<HistoricalIo, 'read'>): Promise<void> {
+  const pin = stoppedEtsyContinuation;
+  const record = await io.read(`/deployments/${pin.journal}`);
+  const statuses = await io.read(`/deployments/${pin.journal}/statuses?per_page=100`);
+  if (sha256(canonical(record)) !== pin.journalDigest || sha256(canonical(statuses)) !== pin.statusesDigest) {
+    throw new Error('Replacement refused: stopped continuation journal or complete statuses changed.');
+  }
+}
+export async function proveEtsyReplacement(approval: EtsyContinuationApproval, held: HeldEtsyAdmission,
+  io: HistoricalIo, destination: string, signal: AbortSignal, diagnostics?: ReleaseDiagnostics): Promise<HeldEtsyAdmission> {
+  const require = (condition: unknown, name: string): void => {
+    diagnostics?.trace?.check(`replacement.${name}`, Boolean(condition), 'replacement-evidence-mismatch');
+    if (!condition) throw new Error(`Replacement refused: ${name}.`);
+  };
+  require(approval.kind === 'replacement-etsy-continuation', 'explicit-approval');
+  const { proofIo, recheck } = historicalMetadataReadback(io, signal), pin = stoppedEtsyContinuation, candidate = etsyReplacement;
+  const run = object(await proofIo.read(`/actions/runs/${pin.run}`));
+  const jobs = object(await proofIo.read(`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`));
+  const record = object(await proofIo.read(`/deployments/${pin.journal}`));
+  const statuses = await proofIo.read(`/deployments/${pin.journal}/statuses?per_page=100`);
+  if (!Array.isArray(statuses)) throw new Error('Replacement refused: stopped statuses are absent.');
+  require(sha256(canonical(run)) === pin.runDigest && sha256(canonical(jobs)) === pin.jobsDigest
+    && sha256(canonical(record)) === pin.journalDigest && sha256(canonical(statuses)) === pin.statusesDigest, 'exact-stopped-history');
+  const expirations: number[] = [];
+  const archived = async (runId: string, id: number, name: string, revision: string, job: Record<string, unknown>, digest: string, maximum: number) => {
+    const list = object(await proofIo.read(`/actions/runs/${runId}/artifacts?per_page=100`));
+    require(Array.isArray(list.artifacts) && list.artifacts.length < 100 && list.total_count === list.artifacts.length
+      && new Set(list.artifacts.map((item: unknown) => object(item).id)).size === list.artifacts.length, 'complete-artifact-list');
+    const found = list.artifacts.filter((item: unknown) => object(item).name === name);
+    require(found.length === 1, 'unique-artifact');
+    const item = object(found[0]), binding = object(item.workflow_run), expiry = Date.parse(item.expires_at);
+    require(item.id === id && item.expired === false && item.digest === `sha256:${digest}`
+      && numeric(item.size_in_bytes) && item.size_in_bytes <= maximum && expiry > Date.now()
+      && String(binding.id) === runId && binding.head_sha === revision && binding.head_branch === 'main'
+      && binding.repository_id === 1430691691 && binding.head_repository_id === 1430691691
+      && typeof job.started_at === 'string' && typeof job.completed_at === 'string'
+      && Date.parse(item.created_at) >= Date.parse(job.started_at) && Date.parse(item.created_at) <= Date.parse(job.completed_at),
+    'artifact-provenance');
+    expirations.push(expiry);
+    const zip = await proofIo.download(id, maximum);
+    require(zip.length === item.size_in_bytes && sha256(zip) === digest, 'artifact-bytes');
+    return zip;
+  };
+  const production = jobs.jobs.find((job: unknown) => object(job).id === pin.job);
+  const receiptZip = await archived(pin.run, pin.receiptArtifact, `be-delivery-receipts-${pin.run}-1`,
+    run.head_sha, production, pin.receiptZipDigest, 65536);
+  const proof = verifyStoppedEtsyContinuation(receiptZip, diagnostics);
+  require(canonical(proof.origin) === canonical(held.origin) && canonical(record.payload.releaseRequest) === canonical(proof.request)
+    && canonical(statuses.map(status => object(status).description)) === canonical([...proof.descriptions].reverse()),
+  'stopped-local-remote-no-write-proof');
+  const source = object(await proofIo.read(`/commits/${candidate.revision}`));
+  require(source.sha === candidate.revision && object(object(source.commit).tree).sha === candidate.tree, 'replacement-source-tree');
+  const producer = object(await proofIo.read(`/actions/runs/${candidate.producer}`));
+  require(String(producer.id) === candidate.producer && producer.run_attempt === 1 && producer.status === 'completed'
+    && producer.conclusion === 'success' && producer.head_sha === candidate.revision && producer.head_branch === 'main'
+    && producer.path === '.github/workflows/be-delivery.yml' && producer.workflow_id === run.workflow_id
+    && ['push', 'workflow_dispatch'].includes(producer.event)
+    && object(producer.repository).id === 1430691691 && object(producer.head_repository).id === 1430691691
+    && object(producer.repository).full_name === repository && object(producer.head_repository).full_name === repository,
+  'replacement-producer');
+  const producerJobs = object(await proofIo.read(`/actions/runs/${candidate.producer}/jobs?filter=all&per_page=100`));
+  require(Array.isArray(producerJobs.jobs) && producerJobs.total_count === producerJobs.jobs.length && producerJobs.jobs.length === 6
+    && new Set(producerJobs.jobs.map((job: unknown) => object(job).id)).size === 6, 'replacement-producer-jobs');
+  const checks = producerJobs.jobs.filter((job: unknown) => object(job).name === 'BE required checks');
+  require(checks.length === 1 && checks[0].status === 'completed' && checks[0].conclusion === 'success'
+    && String(checks[0].run_id) === candidate.producer && checks[0].head_sha === candidate.revision && checks[0].run_attempt === 1
+    && Array.isArray(checks[0].steps) && checks[0].steps.length > 0 && checks[0].steps.length < 100
+    && new Set(checks[0].steps.map((step: unknown) => object(step).name)).size === checks[0].steps.length
+    && checks[0].steps.every((step: unknown) => object(step).status === 'completed' && object(step).conclusion === 'success')
+    && ['Compile exact API source', 'Build native artifact and require functional plus actual HTTP-to-test-DB checks',
+      'Retain one immutable mode-preserving tested bundle'].every(name => checks[0].steps.some((step: unknown) => object(step).name === name)),
+  'replacement-required-checks');
+  const zip = await archived(candidate.producer, candidate.artifactId, `be-tested-${candidate.producer}-1`,
+    candidate.revision, checks[0], candidate.zipDigest, 64 * 1024 * 1024);
+  const packaged = validateAuthorizationProducerArchive(zip, candidate.zipDigest, diagnostics?.trace);
+  require(canonical(packaged.approval) === canonical({ version: 1, mode: 'release',
+    producer: { run: candidate.producer, revision: candidate.revision, tree: candidate.tree },
+    artifactDigest: candidate.artifactDigest, sourceDigest: candidate.sourceDigest, archiveDigest: candidate.archiveDigest,
+    operatorDigest: candidate.operatorDigest, schemaDigest: approval.originalPacket.targetDigest }), 'replacement-packaged-approval');
+  await extractRoutineBundle(packaged.archive, candidate.archiveDigest, destination, true);
+  const application = verifyEtsyArtifact(continuationApplication(approval), join(destination, 'artifact'));
+  const stable = async () => {
+    await held.recheck(); await recheck();
+    require(expirations.every(expiry => expiry > Date.now()), 'unexpired-evidence');
+    signal.throwIfAborted();
+  };
+  await stable();
+  return { ...held, application, recheck: stable, stopped: { receiptZip, record, statuses: statuses.map(object) } };
 }
 
 export function createProvider(artifact: VerifiedArtifact, run: RunIdentity, schema: RoutineDeliveryApproval,
@@ -311,15 +403,19 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
       || (approvedRequest !== undefined && canonical(payload.releaseRequest) !== canonical(approvedRequest))
       || payload.project !== artifactTarget.project) throw new Error('Routine journal identity differs.');
     if (approvedRequest?.continuation) {
-      const expected = { version: 1, kind: 'held-etsy-continuation', incident: heldEtsyIncident.run,
-        key: sha256(canonical({ incident: heldEtsyIncident.run, journal: heldEtsyIncident.journal, ackDigest: heldEtsyIncident.ackDigest })),
-        originalJournal: heldEtsyIncident.journal, originalPacket: heldEtsyIncident.packetDigest,
-        ackDigest: heldEtsyIncident.ackDigest, receiptZipDigest: heldEtsyIncident.receiptZipDigest,
-        approvalDigest: schema.strictPacketDigest, execution: schema.heldExecution };
+      const expected = continuationMarker(approvedRequest.continuation);
       if (!schema.heldExecution || canonical(payload.heldContinuation) !== canonical(expected)) {
         throw new Error('Held continuation linked execution marker differs.');
       }
     }
+  }
+  function continuationMarker(approval: EtsyContinuationApproval) {
+    return { version: 1, kind: approval.kind, incident: heldEtsyIncident.run,
+      key: continuationClaimKey(approval), originalJournal: heldEtsyIncident.journal, originalPacket: heldEtsyIncident.packetDigest,
+      ackDigest: heldEtsyIncident.ackDigest, receiptZipDigest: heldEtsyIncident.receiptZipDigest,
+      approvalDigest: schema!.strictPacketDigest, execution: schema!.heldExecution,
+      ...(approval.kind === 'replacement-etsy-continuation' ? { stoppedDisposition: stoppedEtsyContinuation,
+        replacement: etsyReplacement } : {}) };
   }
   async function historicalPredecessor(admission: HistoricalAdmission): Promise<void> {
     const expected = admission.marker.predecessor;
@@ -376,7 +472,10 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
             const entry = object(raw);
             if (!numeric(entry.id) || ids.has(entry.id) || entry.task !== task || entry.environment !== 'be-production') throw new Error('Journal identity differs.');
             ids.add(entry.id);
-            if (approvedRequest?.continuation && entry.payload && Object.hasOwn(entry.payload, 'heldContinuation')) {
+            if (approvedRequest?.continuation && entry.payload && Object.hasOwn(entry.payload, 'heldContinuation')
+              && !(approvedRequest.continuation.kind === 'replacement-etsy-continuation' && schema?.held?.stopped
+                && entry.id === stoppedEtsyContinuation.journal
+                && canonical(entry) === canonical(schema.held.stopped.record))) {
               throw new Error('Held continuation already has a durable or uncertain claim; no replay.');
             }
             if (schema && (entry.payload?.requestDigest === schema.requestDigest
@@ -417,8 +516,15 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
         predicate('held.original-history-binding', original !== undefined && held !== undefined
           && canonical(original.entry) === canonical(held.record) && canonical(original.status) === canonical(held.statuses[0]),
         'Held original journal is absent or changed.');
+        if (approvedRequest.continuation.kind === 'replacement-etsy-continuation') {
+          const stopped = before.find(item => item.entry.id === stoppedEtsyContinuation.journal);
+          predicate('replacement.stopped-history-binding', held?.stopped !== undefined && stopped !== undefined
+            && canonical(stopped.entry) === canonical(held.stopped.record)
+            && canonical(stopped.status) === canonical(held.stopped.statuses[0]), 'Stopped continuation is absent or changed.');
+        } else if (held?.stopped) throw new Error('Replacement disposition cannot authorize the original continuation route.');
       } else if (held) throw new Error('Held admission requires its separately typed continuation request.');
-      const remaining = held ? before.filter(item => item.entry.id !== heldEtsyIncident.journal) : before;
+      const remaining = held ? before.filter(item => item.entry.id !== heldEtsyIncident.journal
+        && (!held.stopped || item.entry.id !== stoppedEtsyContinuation.journal)) : before;
       const historical = !activation && before.some(item => historicalRecordId(item.entry.id));
       predicate('held.complete-historical-lineage', !held || historical, 'Held continuation requires the complete original historical lineage.');
       for (const { entry, status } of before) {
@@ -473,10 +579,7 @@ function providerImplementation(artifact: VerifiedArtifact, run: RunIdentity,
               project: artifactTarget.project, ...(activation ? { activationPacket: activation.packetDigest, activationRun: activation.packet.runId }
                 : { configDigest: expectedConfigDigest, requestDigest: schema!.requestDigest }),
               ...(approvedRequest ? { releaseRequest: approvedRequest } : {}),
-              ...(held ? { heldContinuation: { version: 1, kind: 'held-etsy-continuation', incident: heldEtsyIncident.run,
-                key: held.origin.key, originalJournal: heldEtsyIncident.journal, originalPacket: heldEtsyIncident.packetDigest,
-                ackDigest: held.origin.ackDigest, receiptZipDigest: heldEtsyIncident.receiptZipDigest,
-                approvalDigest: schema!.strictPacketDigest, execution: schema!.heldExecution } } : {}),
+              ...(held ? { heldContinuation: continuationMarker(approvedRequest!.continuation!) } : {}),
               ...(admission ? { historicalHandoff: admission.marker } : {}),
               ...(noEffectDispositions.length ? { noEffectDispositions } : {}),
               ...(schema?.strictPacketDigest ? { migrationPacket: schema.strictPacketDigest }
