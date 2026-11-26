@@ -11,6 +11,17 @@ const deploymentPattern = /^dpl_[A-Za-z0-9]{16,64}$/;
 const mainUrl = `https://api.github.com/repos/${repository}/git/ref/heads/main`;
 const origin = "https://app.lovora.us";
 
+// Only code-owned labels and an HTTP status reach the CLI failure log.
+class EvidenceError extends Error {
+  constructor(phase, reason, httpStatus) {
+    super("FE delivery evidence unavailable or rejected; no hosted acceptance recorded");
+    this.diagnostic = {
+      outcome: "failed", phase, reason,
+      ...(Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? { httpStatus } : {}),
+    };
+  }
+}
+
 /** @param {Record<string, string | undefined>} environment */
 export function productionIdentity(environment = process.env) {
   if (environment.VERCEL !== "1" || environment.VERCEL_ENV !== "production") return null;
@@ -28,16 +39,16 @@ export function productionIdentity(environment = process.env) {
 
 export function classifyStatus(event, currentMain) {
   if (event?.repository?.full_name !== repository || event.context !== statusContext) return { outcome: "skipped", reason: "unrelated-status" };
-  if (!revisionPattern.test(event.sha ?? "") || !Array.isArray(event.branches)) throw new Error("Invalid FE status identity");
+  if (!revisionPattern.test(event.sha ?? "") || !Array.isArray(event.branches)) throw new EvidenceError("status-validation", "invalid-identity");
   if (!event.branches.some(branch => branch.name === "main" && branch.commit?.sha === event.sha)) return { outcome: "skipped", reason: "not-main" };
-  if (!revisionPattern.test(currentMain ?? "")) throw new Error("Current main identity is unavailable");
-  if (event.sha !== currentMain) return { outcome: "skipped", reason: "stale-source" };
   if (event.state === "pending") return { outcome: "skipped", reason: "pending-deployment" };
-  if (event.state !== "success") throw new Error("Native FE deployment status is not successful");
+  if (!revisionPattern.test(currentMain ?? "")) throw new EvidenceError("status-validation", "main-unavailable");
+  if (event.sha !== currentMain) return { outcome: "skipped", reason: "stale-source" };
+  if (event.state !== "success") throw new EvidenceError("status-validation", "unsuccessful-deployment");
   let url;
-  try { url = new URL(event.target_url); } catch { throw new Error("Invalid native deployment status URL"); }
+  try { url = new URL(event.target_url); } catch { throw new EvidenceError("status-validation", "invalid-deployment-url"); }
   const match = /^\/khuonghuyhieu0705s-projects\/esty-admin\/([A-Za-z0-9]{16,64})$/.exec(url.pathname);
-  if (url.origin !== "https://vercel.com" || url.username || url.password || url.search || url.hash || !match) throw new Error("Native deployment status targets another project");
+  if (url.origin !== "https://vercel.com" || url.username || url.password || url.search || url.hash || !match) throw new EvidenceError("status-validation", "wrong-deployment-target");
   return { outcome: "run", revision: event.sha, deploymentId: `dpl_${match[1]}` };
 }
 
@@ -62,22 +73,35 @@ async function get(url, fetcher, signal) {
   return fetcher(url, { method: "GET", credentials: "omit", redirect: "manual", cache: "no-store", signal, headers: { Accept: url === mainUrl ? "application/vnd.github+json" : "text/html" } });
 }
 
-async function currentMain(fetcher, signal) {
-  const response = await get(mainUrl, fetcher, signal);
-  if (response.status !== 200) { await response.body?.cancel(); throw new Error("Cannot verify current public main revision"); }
-  const data = JSON.parse(await readBounded(response));
-  if (!revisionPattern.test(data.object?.sha ?? "")) throw new Error("Invalid current main response");
-  return data.object.sha;
+async function currentMain(fetcher, signal, phase = "main-lookup") {
+  let response;
+  try { response = await get(mainUrl, fetcher, signal); }
+  catch { throw new EvidenceError(phase, "transport-error"); }
+  if (response.status !== 200) {
+    try { await response.body?.cancel(); }
+    catch { /* Cancellation cannot replace the observed HTTP refusal. */ }
+    throw new EvidenceError(phase, "http-status", response.status);
+  }
+  try {
+    const data = JSON.parse(await readBounded(response));
+    if (!revisionPattern.test(data.object?.sha ?? "")) throw new Error("Invalid current main response");
+    return data.object.sha;
+  } catch { throw new EvidenceError(phase, "invalid-response", response.status); }
+}
+
+async function statusIdentity(event, fetcher, signal) {
+  // Pending is not acceptance: validate its local identity without a ref request.
+  if (event?.repository?.full_name !== repository || event.context !== statusContext || event.state === "pending") return classifyStatus(event);
+  return classifyStatus(event, await currentMain(fetcher, signal));
 }
 
 export async function inspectStatus(event, fetcher = fetch) {
-  if (event?.repository?.full_name !== repository || event.context !== statusContext) return { outcome: "skipped", reason: "unrelated-status" };
-  return classifyStatus(event, await currentMain(fetcher, AbortSignal.timeout(10_000)));
+  return statusIdentity(event, fetcher, AbortSignal.timeout(10_000));
 }
 
 export async function smokeProduction(event, fetcher = fetch) {
   const signal = AbortSignal.timeout(20_000);
-  const identity = classifyStatus(event, await currentMain(fetcher, signal));
+  const identity = await statusIdentity(event, fetcher, signal);
   if (identity.outcome !== "run") throw new Error("FE smoke is not eligible; no acceptance recorded");
   const paths = ["/", "/privacy", "/login"];
   for (const path of paths) {
@@ -99,7 +123,7 @@ export async function smokeProduction(event, fetcher = fetch) {
       await delay(500, undefined, { signal });
     }
   }
-  if (await currentMain(fetcher, signal) !== identity.revision) throw new Error("Main advanced during FE smoke; acceptance withheld");
+  if (await currentMain(fetcher, signal, "main-recheck") !== identity.revision) throw new EvidenceError("main-recheck", "stale-source");
   return { outcome: "passed", revision: identity.revision, deploymentId: identity.deploymentId, paths, scope: "public-documents-only-not-session-acceptance" };
 }
 
@@ -114,5 +138,9 @@ async function main() {
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  main().catch(() => { console.error("FE delivery evidence unavailable or rejected; no hosted acceptance recorded"); process.exitCode = 1; });
+  main().catch(error => {
+    const phase = process.argv[2] === "classify" ? "eligibility" : process.argv[2] === "smoke" ? "smoke" : "cli";
+    console.error(JSON.stringify(error instanceof EvidenceError ? error.diagnostic : { outcome: "failed", phase, reason: "invalid-input-or-evidence" }));
+    process.exitCode = 1;
+  });
 }

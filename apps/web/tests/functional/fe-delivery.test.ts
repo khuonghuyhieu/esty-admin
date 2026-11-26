@@ -1,5 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { spawnSync } from "node:child_process";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { requirePassingTests, runBuildStages } from "../../scripts/fe-build.mjs";
 import { classifyStatus, inspectStatus, productionIdentity, smokeProduction } from "../../scripts/fe-delivery.mjs";
 
@@ -62,15 +66,71 @@ test("unrelated, pending, non-main and stale statuses are not smoke acceptance",
   assert.equal(classifyStatus({ ...event, state: "pending" }, revision).outcome, "skipped");
   assert.equal(classifyStatus({ ...event, branches: [] }, revision).outcome, "skipped");
   assert.equal(classifyStatus(event, "b".repeat(40)).outcome, "skipped");
-  assert.deepEqual(await inspectStatus({}, async () => { throw new Error("Unrelated status must not cause network work"); }), { outcome: "skipped", reason: "unrelated-status" });
+  let requests = 0;
+  const noNetwork = async () => { requests++; throw new Error("Ineligible status must not cause network work"); };
+  assert.deepEqual(await inspectStatus({}, noNetwork), { outcome: "skipped", reason: "unrelated-status" });
+  assert.deepEqual(await inspectStatus({ ...event, state: "pending" }, noNetwork), { outcome: "skipped", reason: "pending-deployment" });
+  await assert.rejects(inspectStatus({ ...event, state: "pending", sha: "invalid" }, noNetwork));
+  await assert.rejects(inspectStatus({ ...event, state: "pending", branches: null }, noNetwork));
+  assert.deepEqual(await inspectStatus({ ...event, state: "pending", branches: [] }, noNetwork), { outcome: "skipped", reason: "not-main" });
+  await assert.rejects(smokeProduction({ ...event, state: "pending" }, noNetwork), /not eligible/);
+  assert.equal(requests, 0);
 });
 
-test("failed or malformed native status and another project's URL fail closed", () => {
-  for (const state of ["failure", "error", "", "neutral"]) assert.throws(() => classifyStatus({ ...event, state }, revision));
+test("failed or malformed native status and another project's URL fail closed", async () => {
+  for (const state of ["failure", "error", "", "neutral"]) {
+    assert.throws(() => classifyStatus({ ...event, state }, revision));
+    await assert.rejects(inspectStatus({ ...event, state }, fixture().fetcher));
+  }
   for (const target_url of [event.target_url.replace("esty-admin/", "esty-admin-api/"), `${event.target_url}?bypass=anything`, event.target_url.replace("https://", "https://user@"), "https://example.com"]) {
     assert.throws(() => classifyStatus({ ...event, target_url }, revision));
+    const transport = fixture();
+    await assert.rejects(inspectStatus({ ...event, target_url }, transport.fetcher));
+    assert.equal(transport.requested.some(url => url.startsWith("https://app.lovora.us")), false);
   }
   assert.throws(() => classifyStatus(event, undefined));
+});
+
+test("failed current-main lookup emits bounded CLI diagnostics without provider data", async () => {
+  const directory = await mkdtemp(join(tmpdir(), "fe-delivery-diagnostics-"));
+  const eventPath = join(directory, "event.json");
+  const outputPath = join(directory, "output");
+  const preloadPath = join(directory, "transport.mjs");
+  const canary = "PRIVATE_PAYLOAD_HEADER_URL_CANARY";
+  try {
+    await writeFile(eventPath, JSON.stringify(event));
+    for (const scenario of [
+      { transport: `return new Response("${canary}", { status: 403, headers: { "x-private": "${canary}", location: "https://example.com/${canary}" } });`, reason: "http-status", httpStatus: 403 },
+      { transport: `return new Response("${canary}", { status: 200 });`, reason: "invalid-response", httpStatus: 200 },
+      { transport: `return Response.json({ object: { sha: "${canary}" } });`, reason: "invalid-response", httpStatus: 200 },
+      { transport: `return new Response(new ReadableStream({ cancel() { throw new Error("${canary}"); } }), { status: 403 });`, reason: "http-status", httpStatus: 403 },
+      { transport: `throw Object.assign(new Error("${canary}"), { phase: "${canary}", reason: "${canary}", status: 403 });`, reason: "transport-error" },
+      {
+        command: "smoke", phase: "main-recheck", reason: "http-status", httpStatus: 403,
+        transport: `if (String(input).startsWith("https://api.github.com/")) {
+          if (++mainReads === 1) return Response.json({ object: { sha: "${revision}" } });
+          return new Response("${canary}", { status: 403 });
+        }
+        return new Response("<!doctype html><html></html>", { headers: {
+          "content-type": "text/html", "x-lovora-revision": "${revision}", "x-lovora-deployment": "${deploymentId}",
+        } });`,
+      },
+    ]) {
+      await writeFile(preloadPath, `let mainReads = 0; globalThis.fetch = async input => { ${scenario.transport} };`);
+      const result = spawnSync(process.execPath, ["--import", preloadPath, new URL("../../scripts/fe-delivery.mjs", import.meta.url).pathname, scenario.command ?? "classify"], {
+        env: { PATH: process.env.PATH, GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath },
+        encoding: "utf8", timeout: 10_000,
+      });
+      assert.equal(result.status, 1);
+      assert.equal(result.stdout, "");
+      assert.equal(`${result.stdout}${result.stderr}`.includes(canary), false);
+      assert.deepEqual(JSON.parse(result.stderr), {
+        outcome: "failed", phase: scenario.phase ?? "main-lookup", reason: scenario.reason,
+        ...(scenario.httpStatus ? { httpStatus: scenario.httpStatus } : {}),
+      });
+      await assert.rejects(readFile(outputPath), { code: "ENOENT" });
+    }
+  } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
 function fixture(options: { wrongDeployment?: boolean; redirect?: boolean; oversized?: boolean; advance?: boolean; stale?: boolean } = {}) {
@@ -83,6 +143,7 @@ function fixture(options: { wrongDeployment?: boolean; redirect?: boolean; overs
     assert.equal(init?.credentials, "omit");
     assert.equal(init?.cache, "no-store");
     assert.equal(init?.method, "GET");
+    assert.deepEqual(init?.headers, { Accept: url.startsWith("https://api.github.com/") ? "application/vnd.github+json" : "text/html" });
     assert.ok(init?.signal);
     if (url === "https://api.github.com/repos/khuonghuyhieu/esty-admin/git/ref/heads/main") {
       mainReads++;
@@ -99,6 +160,7 @@ function fixture(options: { wrongDeployment?: boolean; redirect?: boolean; overs
 
 test("public smoke binds actual responses to the status deployment and both current-main observations", async () => {
   const transport = fixture();
+  assert.deepEqual(await inspectStatus(event, transport.fetcher), { outcome: "run", revision, deploymentId });
   assert.deepEqual(await smokeProduction(event, transport.fetcher), { outcome: "passed", revision, deploymentId, paths: ["/", "/privacy", "/login"], scope: "public-documents-only-not-session-acceptance" });
   assert.equal(transport.requested.filter(url => url.startsWith("https://app.lovora.us")).length, 3);
 });
@@ -113,6 +175,7 @@ for (const options of [{ wrongDeployment: true }, { redirect: true }, { oversize
 
 test("a stale source never probes production and cannot become a successful smoke", async () => {
   const transport = fixture({ stale: true });
+  assert.deepEqual(await inspectStatus(event, transport.fetcher), { outcome: "skipped", reason: "stale-source" });
   await assert.rejects(smokeProduction(event, transport.fetcher));
   assert.equal(transport.requested.some(url => url.startsWith("https://app.lovora.us")), false);
 });
