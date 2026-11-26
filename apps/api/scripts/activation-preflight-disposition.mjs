@@ -163,8 +163,8 @@ export function validateAuthorizationProducerArchive(bytes, approvedZip, diagnos
   if (canonical(approval) + '\n' !== approvalBytes.toString('utf8')) refuse();
   return { archive: members.get('be-release.tar.gz'), approval, approvalDigest: hash(approvalBytes) };
 }
-function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diagnostics, maximumTar = 65536, longNames = []) {
-  const members = zipMembers(zip, approvedZip, undefined, 65536, diagnostics), compressed = members.get('be-delivery-receipts.tar.gz');
+function receiptMembers(zip, approvedZip, expectedDirectories, acceptsFile, diagnostics, maximumTar = 65536, longNames = [], maximumZip = 65536) {
+  const members = zipMembers(zip, approvedZip, undefined, maximumZip, diagnostics), compressed = members.get('be-delivery-receipts.tar.gz');
   const archiveLine = members.get('be-delivery-receipts.archive-sha256').toString('utf8');
   const inventoryLine = members.get('be-delivery-receipts.inventory-sha256').toString('utf8');
   if (!/^[a-f0-9]{64}  [^\r\n]*\/be-delivery-receipts\.tar\.gz\n$/.test(archiveLine)
@@ -258,6 +258,45 @@ export function validateCommittedContinuationReceiptArchive(zip, diagnostics) {
   if (result.files.size !== 30 || [...expected].some(name => !result.files.has(name))
     || result.archiveDigest !== pin.archiveDigest || result.inventoryDigest !== pin.inventoryDigest) refuse();
   return { ...result, outcomes, runId: pin.runId };
+}
+
+// Completed promotion consumes the stopped lineage, not its migration effects.
+// These are public immutable GitHub records and the actual retained receipt bytes.
+export const completedEtsyRecovery = Object.freeze({
+  journal: 8064470721, run: '45662757729', job: 139377368666, artifact: 15045209630,
+  runId: '8f04b40e-050f-43a9-8893-a08a8a2fd35e',
+  requestDigest: 'f16cf4a2eed1ce451e6df9f619d078247bcfb6e390ecf683155784bc7b46256f',
+  approvalDigest: '82b31a3d9271640dcef684efb3e128084a03e39d66e2c98c21c1494876915832',
+  workflowDigest: 'eb33cd2a2ef8885b1adb46db2126179021bc2758d4aad20bca7f46404c40b6bd',
+  runDigest: '59003217f97e8cbc466a6d86de7d9b0dbb9a35afbc11f0bf8bab6cda30492d6a',
+  jobsDigest: 'b217a1df29e067968beffd1744886fced3ec540dfd904adef0949a58ac960e9c',
+  zipDigest: '4a5c4fd9553ab80652644f04fb9435fd9a724b2f468dbccc2ada9632d67008db',
+  archiveDigest: 'a01dc1bb2f7791ce106531bad1f111b3fd1566d3459f6d967e4e92a39cdbe9c9',
+  inventoryDigest: '5e01950ae1f0683ce4a9fa68b71377f73261eafddb8e42e27d73107defb899cf',
+  outcomeHead: '8abded8d30edf5c5975dfaf16e07f7f4803ddbbf65fa0bb968886530488fa4cf',
+  lineage: [
+    [8064470721, '3c1bf1c1b480cfa5f2c49bf139d3c4199ff9b122eca180421ff5b3bb13f1c6c8', 'ef6658e16d9f848c7a40c33e8ef71653bd2a42eca4e3fc60973925fa3c9a2f88'],
+    [8062283972, 'af17631d080bf7157e2eeceba5986fdf0d21854818263ce6594e4d62cb3e3018', '9bfa8124953c52c24892290b84abd5a4ef672b3259cd21e7e44237fc46ca7542'],
+    [8052686808, 'aac14a3378462adb88f255a6bbe6838f944ed0185946c2caf1e824d2e609e26d', 'f4134c6a71d75c10136605a2afd5435049be145dbddea3f0ff42573ddbddbd5a'],
+    [8047533931, 'e85895772dbc86ff270eb27bf1ceec83e2744b1268d99ff67f01d45541ae37ce', 'a5cca767f5c1e88c79e3158fb93c262626ca6552d8a5c66270fc921771224236'],
+    [7989854763, '04ddcd749898e66e53d2140a7e43933c4787d2ea88a4f7c949b0d1e9a60757e0', '863e91807013518be4cdffc995a4b9d6d1f21cc0e26f5ea26b702e7eceb718b9'],
+  ],
+});
+export function validateCompletedRecoveryReceiptArchive(zip, diagnostics) {
+  const pin = completedEtsyRecovery, base = `continuation/${pin.runId}`;
+  const outcomes = Array.from({ length: 8 }, (_, index) => `release-outcome-${String(index).padStart(4, '0')}.json`);
+  const fixed = ['claim', 'origin', 'reservation', 'reserving', 'history.authorized', 'history.remote',
+    'promote-only.remote', 'final-domain-ack.remote', 'committed-receipt-0', 'committed-receipt-1']
+    .map(name => `continuation/${name}.json`);
+  fixed.push('continuation/operator.lock', ...['history.intent', 'history.receipt', 'promote-only.intent',
+    'promote-only.receipt', 'final-domain-ack.intent', 'final-domain-ack.receipt', 'migration-report',
+    'promote-intent', 'promotion-observed'].map(name => `${base}/${name}.json`));
+  const expected = new Set([...outcomes, ...fixed]);
+  const result = receiptMembers(zip, pin.zipDigest, ['', 'continuation', base], name => expected.has(name),
+    diagnostics, 524288, [], 131072);
+  if (result.files.size !== 28 || [...expected].some(name => !result.files.has(name))
+    || result.archiveDigest !== pin.archiveDigest || result.inventoryDigest !== pin.inventoryDigest) refuse();
+  return { ...result, outcomes };
 }
 function stoppedReceiptArchive(zip, stopped, diagnostics) {
   const runId = stopped.runId, base = `continuation/${runId}`;

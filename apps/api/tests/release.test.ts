@@ -9,6 +9,11 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { assertSourceApproval } from '../scripts/release-core.js';
 import { parseDeployConfig, vercelDeployment } from '../scripts/vercel-deploy.js';
 import { artifactFixture, fileTree, routineIngressFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, readinessContinuationFixture, promoteRecoveryFixture, tar } from './artifact-fixture.js';
+import { historicalProviderFixture } from './artifact-fixture.js';
+import { gunzipSync } from 'node:zlib';
+import completedRecoverySnapshot from './completed-recovery-fixture.json' with { type: 'json' };
+import completedRecoveryReceipt from '../config/completed-etsy-recovery-receipt.json' with { type: 'json' };
+import { createProvider } from '../scripts/ci-provider.js';
 import { artifactTarget, canonical, readArtifactFile, sha256 } from '../scripts/artifact.js';
 import type { VerifiedArtifact } from '../scripts/artifact.js';
 import { chmod, writeFile } from 'node:fs/promises';
@@ -22,7 +27,7 @@ import { etsyReleasePhases, etsyProviderOperations, runEtsyReleasePhase, validat
   validateEtsyContinuationApproval, verifyHeldEtsyReceipts, verifyStoppedEtsyContinuation, verifyStoppedReadinessContinuation,
   verifyCommittedEtsyContinuation, promoteRecoveryPhases } from '../scripts/etsy-release.js';
 import type { EtsyReleaseOperations, EtsyReleasePacket, EtsyReleasePhase, HeldContinuationPhase } from '../scripts/etsy-release.js';
-import { stoppedEtsyContinuation, stoppedReadinessContinuation, committedEtsyContinuation } from '../scripts/activation-preflight-disposition.mjs';
+import { stoppedEtsyContinuation, stoppedReadinessContinuation, committedEtsyContinuation, completedEtsyRecovery } from '../scripts/activation-preflight-disposition.mjs';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { currentAppMetadata } from '../scripts/activation-configuration.js';
 import { manifestDigest, migrationStatus, runMigrations } from '../scripts/migrations.js';
@@ -30,11 +35,191 @@ import { ChecksDiagnostics, safeReleaseError } from '../scripts/checks-diagnosti
 import type { MigrationReport } from '../scripts/migrations.js';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { readEvidence } from '../scripts/release-journal.js';
-import { ReleaseDiagnostics, ReleaseOutcome, approvedRoutineRequest, validateReleaseResult } from '../scripts/ci-delivery.js';
-import { historicalHandoffDigest } from '../scripts/historical-release.js';
+import { ReleaseDiagnostics, ReleaseOutcome, approvedRoutineRequest, validateReleaseResult, deliver } from '../scripts/ci-delivery.js';
+import { historicalHandoffDigest, proveCompletedRecovery, proveFailedAuthorizations, proveHistoricalHandoff } from '../scripts/historical-release.js';
 import { rootCertificates } from 'node:tls';
 import approvedTarget from '../config/hosted-target.example.json' with { type: 'json' };
 
+
+function completedRecoveryFixture(artifact: VerifiedArtifact, fault = '') {
+  const data = JSON.parse(gunzipSync(Buffer.from(completedRecoverySnapshot.data, 'base64'), { maxOutputLength: 1048576 }).toString('utf8'));
+  const h = historicalProviderFixture(artifact), pin = completedEtsyRecovery, app = etsyReadinessReplacement;
+  const reads = new Map<string, number>(), effects = { posts: 0, predecessorHttp: 0, artifactReads: 0 };
+  let aliases = 0;
+  if (fault.startsWith('missing:')) data.journals = data.journals.filter((row: any) => row.id !== Number(fault.slice(8)));
+  if (fault === 'duplicate') data.journals.push(structuredClone(data.journals[1]));
+  if (fault === 'unknown') {
+    data.journals.unshift({ id: 999, payload: {}, task: 'deploy:esty-be-ci', environment: 'be-production' });
+    data.records['/deployments/999/statuses?per_page=100'] = [{ id: 999, state: 'error', description: 'unresolved' }];
+  }
+  if (fault === 'replay') data.journals[1].payload.requestDigest = h.schema.requestDigest;
+  if (fault === 'controller') data.journals[0].payload.revision = app.revision;
+  if (fault === 'no-effects') data.journals[0].payload.noEffectDispositions[0].recordDigest = '0'.repeat(64);
+  const transport: typeof fetch = async (raw, init) => {
+    const url = new URL(String(raw)), method = init?.method ?? 'GET', path = url.pathname.replace('/repos/khuonghuyhieu/esty-admin', '');
+    if (method !== 'GET' && method !== 'OPTIONS') effects.posts++;
+    if (url.hostname === 'api.github.com' && method === 'GET') {
+      if (path.includes('/artifacts')) {
+        effects.artifactReads++;
+        if (fault === 'unavailable') return new Response(null, { status: 404 });
+      }
+      if (path === '/deployments') {
+        const rows = structuredClone(data.journals), current = h.reservation();
+        if (current) rows.unshift({ id: 44, sha: h.run.revision, task: 'deploy:esty-be-ci',
+          environment: 'be-production', production_environment: true, payload: current.payload });
+        return Response.json(rows);
+      }
+      if (path === `/actions/artifacts/${pin.artifact}/zip`) return new Response(null, { status: 404 });
+      const key = path + (path.endsWith('/statuses') ? '?per_page=100' : url.search);
+      if (Object.hasOwn(data.records, key)) {
+        reads.set(key, (reads.get(key) ?? 0) + 1);
+        const value = structuredClone(data.records[key]);
+        if (path === `/deployments/${pin.journal}/statuses`) {
+          if (fault === 'unresolved') value[0].state = 'error';
+          if (fault === 'incomplete') value.pop();
+          if (fault === 'terminal') value[0].description = `strict:accepted:${'0'.repeat(64)}`;
+        }
+        if (fault === 'history-drift' && path === '/deployments/8062283972/statuses' && reads.get(key)! > 1) value[0].id++;
+        if (fault === 'run' && path === `/actions/runs/${pin.run}`) value.conclusion = 'failure';
+        if (fault === 'jobs' && path.endsWith('/jobs')) value.jobs.find((job: any) => job.id === pin.job).conclusion = 'failure';
+        if (fault === 'workflow' && path.startsWith('/contents/')) value.content = Buffer.from('changed').toString('base64');
+        if (fault === 'expired' && path.endsWith('/artifacts')) value.artifacts.find((row: any) => row.id === pin.artifact).expired = true;
+        return Response.json(path.endsWith('/statuses') && url.searchParams.get('per_page') === '1' ? value.slice(0, 1) : value);
+      }
+      if (path === `/commits/${app.revision}`) return Response.json({ sha: app.revision,
+        commit: { tree: { sha: fault === 'source-tree' ? '0'.repeat(40) : app.tree } } });
+      if (fault === 'main' && path === '/commits/main') return Response.json({ sha: '0'.repeat(40), commit: { tree: { sha: h.run.tree } } });
+    }
+    if (url.hostname === 'api.vercel.com' && path === `/v13/deployments/${app.id}`) return Response.json({
+      id: app.id, projectId: artifactTarget.project, ownerId: artifactTarget.owner, target: 'production',
+      readyState: 'READY', regions: ['icn1'], meta: {
+        sourceCommit: fault === 'app-controller' ? data.journals[0].sha : app.revision,
+        sourceDigest: app.sourceDigest, artifactSha256: fault === 'app-artifact' ? '0'.repeat(64) : app.artifactDigest } });
+    const response = await h.transport(raw, init);
+    if (url.hostname === 'api.vercel.com' && path === '/v4/aliases/api.lovora.us') {
+      aliases++;
+      const alias = await response.json() as any;
+      if (alias.deploymentId === 'dpl_previous') alias.deploymentId = app.id;
+      if (fault === 'alias' || (fault === 'alias-drift' && aliases > 1)) alias.deploymentId = 'dpl_foreign';
+      return Response.json(alias);
+    }
+    if (url.hostname === 'api.lovora.us' && h.counts().promotions === 0) {
+      effects.predecessorHttp++;
+      if (response.headers.has('x-activation-config-digest')) response.headers.set('x-activation-config-digest',
+        fault === 'runtime' ? '0'.repeat(64) : '2735b4ec8d3d26b9a5e14f81954c25729159b96b62bc6d508754d7b4f337064a');
+      if (fault === 'schema' && path === '/health/ready' && response.status === 200) {
+        return Response.json({ status: 'degraded', reason: 'migrations_pending' }, { status: 503, headers: response.headers });
+      }
+    }
+    return response;
+  };
+  return { ...h, transport, data, effects, reads };
+}
+
+test('ordinary release and follow-on retain genuine recovery authority after Actions receipt expiry or removal', async t => {
+  t.mock.method(Date, 'now', () => Date.parse('2027-01-26T00:00:00Z'));
+  const { Client, Pool } = await import('pg');
+  let sql = 0;
+  const noSql = () => { sql++; throw new Error('Ordinary release must not open SQL'); };
+  t.mock.method(Client.prototype, 'connect', noSql); t.mock.method(Pool.prototype, 'connect', noSql);
+  const f = await routineIngressFixture(undefined, true);
+  try {
+    for (const availability of ['expired', 'unavailable']) await t.test(availability, async () => {
+      const h = completedRecoveryFixture(f.artifact, availability), signal = AbortSignal.timeout(30000);
+      const provider = createProvider(f.artifact, h.run, h.schema, h.credentials, signal, h.transport);
+      const id = await deliver({ artifact: f.artifact, run: h.run, schema: h.schema, provider, cli: h.cli,
+        signal, receipt: h.receipt });
+      assert.equal(id, 'dpl_candidate');
+      assert.deepEqual(h.counts(), { creates: 1, promotions: 1 }); assert.equal(sql, 0);
+      assert.equal(h.effects.artifactReads, 0);
+      const payload = h.reservation()!.payload, marker = payload.historicalHandoff as any;
+      assert.equal(marker.predecessorRecord, 8064470721);
+      assert.deepEqual(marker.predecessor, { id: etsyReadinessReplacement.id, revision: etsyReadinessReplacement.revision,
+        tree: etsyReadinessReplacement.tree, artifactDigest: etsyReadinessReplacement.artifactDigest,
+        sourceDigest: etsyReadinessReplacement.sourceDigest, configDigest: '2735b4ec8d3d26b9a5e14f81954c25729159b96b62bc6d508754d7b4f337064a' });
+      assert.equal(payload.noEffectDispositions, undefined);
+      assert.equal(h.statuses[0]!.description, 'accepted:dpl_candidate');
+      assert.equal(h.receipts.find(row => row.phase === 'accepted')!.artifact, f.artifact.digest);
+      assert.ok(h.effects.predecessorHttp >= 8);
+      assert.equal((payload.releaseRequest as any).migration, null);
+      assert.deepEqual((payload.releaseRequest as any).schema.before, migrationManifest);
+
+      // A later routine request follows the new accepted application, not the old recovery controller.
+      const entry = { id: 9000000, sha: h.run.revision, task: 'deploy:esty-be-ci', environment: 'be-production',
+        production_environment: true, payload };
+      const items = [entry, ...h.data.journals].map((row: any) => ({ entry: row,
+        status: row === entry ? h.statuses[0] : h.data.records[`/deployments/${row.id}/statuses?per_page=100`][0] }));
+      const io = { async read(path: string) {
+        assert.ok(!path.includes('/artifacts'), 'Follow-on admission cannot depend on temporary artifacts');
+        if (path === '/deployments/9000000/statuses?per_page=100') return structuredClone(h.statuses);
+        assert.ok(Object.hasOwn(h.data.records, path), `Unmapped public read: ${path}`);
+        return structuredClone(h.data.records[path]);
+      }, async download(): Promise<Buffer> { assert.fail('Retired Actions receipt download'); } };
+      const next = { ...h.request, controller: { ...h.run, run: '124' } };
+      const completed = await proveCompletedRecovery(items, next, io, signal);
+      const refused = await proveFailedAuthorizations(items, f.artifact, io, signal, completed);
+      assert.deepEqual([...refused.keys()].sort(), [7975129763, 7981567842, 7982617877]);
+      assert.ok([...refused.values()].every(row => row.consumed));
+      const admission = await proveHistoricalHandoff(items, next, io, signal, refused, completed);
+      assert.equal(admission.marker.predecessorRecord, 9000000);
+      assert.equal(admission.marker.predecessor.id, 'dpl_candidate');
+      assert.equal(admission.marker.predecessor.artifactDigest, f.artifact.digest);
+      await admission.recheck(); await completed!.recheck(); await admission.dispose();
+      const followOn = completedRecoveryFixture(f.artifact, availability);
+      followOn.run.run = '124';
+      followOn.schema.requestDigest = sha256(canonical(followOn.request));
+      followOn.data.journals.unshift(entry);
+      followOn.data.records['/deployments/9000000/statuses?per_page=100'] = structuredClone(h.statuses);
+      const followOnTransport: typeof fetch = async (raw, init) => {
+        const url = new URL(String(raw));
+        if (url.hostname === 'api.github.com' && url.pathname.endsWith(`/commits/${followOn.run.revision}`)) {
+          return Response.json({ sha: followOn.run.revision, commit: { tree: { sha: followOn.run.tree } } });
+        }
+        const response = await followOn.transport(raw, init);
+        if (url.hostname === 'api.vercel.com' && url.pathname === '/v4/aliases/api.lovora.us') {
+          const alias = await response.json() as any;
+          return Response.json({ ...alias, deploymentId: 'dpl_candidate' });
+        }
+        if (url.hostname === 'api.lovora.us' && response.headers.has('x-activation-config-digest')) {
+          response.headers.set('x-activation-config-digest', h.schema.configDigest);
+        }
+        return response;
+      };
+      assert.equal(await createProvider(f.artifact, followOn.run, followOn.schema, followOn.credentials,
+        signal, followOnTransport).reserve(), 44);
+      assert.deepEqual(followOn.reservation()!.payload.historicalHandoff, admission.marker);
+      assert.deepEqual(followOn.counts(), { creates: 0, promotions: 0 });
+      assert.equal(followOn.effects.posts, 1); assert.equal(followOn.effects.artifactReads, 0); assert.equal(sql, 0);
+    });
+  } finally { await f.dispose(); }
+});
+
+test('completed recovery refuses unproven lineage, damaged durable evidence and predecessor drift before any mutation', async t => {
+  t.mock.method(Date, 'now', () => Date.parse('2026-11-26T00:00:00Z'));
+  const f = await routineIngressFixture(undefined, true);
+  try {
+    for (const fault of ['missing:8064470721', 'missing:8062283972', 'missing:8052686808', 'missing:8047533931',
+      'missing:7989854763', 'duplicate', 'unknown', 'replay', 'controller', 'no-effects', 'unresolved', 'incomplete',
+      'terminal', 'history-drift', 'run', 'jobs', 'workflow', 'durable-changed', 'durable-missing',
+      'source-tree', 'main', 'app-controller', 'app-artifact', 'alias', 'alias-drift', 'runtime', 'schema']) {
+      await t.test(fault, async () => {
+        const original = completedRecoveryReceipt.zipBase64;
+        try {
+          if (fault === 'durable-missing') Reflect.deleteProperty(completedRecoveryReceipt, 'zipBase64');
+          if (fault === 'durable-changed') {
+            const changed = Buffer.from(original, 'base64'); changed[100] = changed[100]! ^ 1;
+            completedRecoveryReceipt.zipBase64 = changed.toString('base64');
+          }
+          const h = completedRecoveryFixture(f.artifact, fault);
+          await assert.rejects(createProvider(f.artifact, h.run, h.schema, h.credentials,
+            AbortSignal.timeout(30000), h.transport).reserve());
+          assert.equal(h.effects.posts, 0); assert.deepEqual(h.counts(), { creates: 0, promotions: 0 });
+          assert.equal(h.reservation(), undefined);
+        } finally { completedRecoveryReceipt.zipBase64 = original; }
+      });
+    }
+  } finally { await f.dispose(); }
+});
 
 test('held continuation verifies the complete authentic origin without reopening its historical window', () => {
   const f = heldContinuationFixture();

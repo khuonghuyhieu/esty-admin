@@ -25,7 +25,7 @@ import { bounded } from './bounded.js';
 import { activationRuntimeKeys, etsyRuntimeKeys } from '../src/config/activation-config.js';
 import { stoppedEtsyContinuation, stoppedReadinessContinuation, committedEtsyContinuation, validateHeldContinuationReceiptArchive,
   validateStoppedContinuationReceiptArchive, validateReadinessContinuationReceiptArchive,
-  validateCommittedContinuationReceiptArchive } from './activation-preflight-disposition.mjs';
+  validateCommittedContinuationReceiptArchive, completedEtsyRecovery, validateCompletedRecoveryReceiptArchive } from './activation-preflight-disposition.mjs';
 import { validateReleaseResult } from './ci-delivery.js';
 import { currentAppMetadata } from './activation-configuration.js';
 
@@ -429,6 +429,93 @@ export function verifyCommittedEtsyContinuation(zip: Buffer, diagnostics?: Relea
   descriptions.push('strict:unresolved');
   return { request, origin, execution, report, outcomeHead: previous, descriptions,
     archiveDigest: archive.archiveDigest, inventoryDigest: archive.inventoryDigest };
+}
+
+export function verifyCompletedEtsyRecovery(zip: Buffer) {
+  const pin = completedEtsyRecovery, archive = validateCompletedRecoveryReceiptArchive(zip);
+  const bytes = (name: string): Buffer => {
+    const member = archive.files.get(name);
+    heldRequire(member !== undefined, 'recovery-required-member');
+    return member.bytes;
+  };
+  const json = (name: string) => setupObject(JSON.parse(bytes(name).toString('utf8')));
+  const saved = json('continuation/origin.json'), parts = saved.committedReceipts;
+  heldRequire(Array.isArray(parts) && parts.length === 2, 'recovery-committed-parts');
+  const encoded = parts.map((digest, index) => {
+    const name = `continuation/committed-receipt-${index}.json`, part = json(name);
+    heldRequire(sha256(bytes(name)) === digest && part.part === index && typeof part.data === 'string', 'recovery-committed-part');
+    return part.data;
+  }).join('');
+  const committedZip = Buffer.from(encoded, 'base64');
+  heldRequire(committedZip.toString('base64') === encoded, 'recovery-committed-encoding');
+  const committed = verifyCommittedEtsyContinuation(committedZip);
+  const first = validateReleaseResult(json(archive.outcomes[0]!).result), request = first.request;
+  heldRequire(request?.continuation?.kind === 'promote-etsy-recovery'
+    && sha256(canonical(request)) === pin.requestDigest && request.controller.run === pin.run,
+  'recovery-request');
+  const approval = validateEtsyContinuationApproval(request.continuation, pin.approvalDigest, request.continuation.window.start);
+  const app = continuationApplication(approval), id = etsyReadinessReplacement.id;
+  heldRequire(equal(saved.origin, committed.origin) && equal(approval.committedContinuation, committedEtsyContinuation)
+    && equal(committed.report, json(`continuation/${pin.runId}/migration-report.json`)), 'recovery-committed-report');
+  const execution = setupObject(saved.execution), reservation = {
+    version: 1, requestDigest: pin.requestDigest, packetDigest: pin.approvalDigest, journal: pin.journal };
+  heldRequire(execution.run === pin.run && execution.job === pin.job && execution.revision === request.controller.revision
+    && execution.tree === request.controller.tree && execution.workflowDigest === pin.workflowDigest
+    && execution.environment === 'be-production' && execution.concurrency === 'esty-admin-be-production'
+    && execution.cancelInProgress === false && approval.operator.workflowDigest === pin.workflowDigest,
+  'recovery-protected-execution');
+  heldRequire(equal(json('continuation/claim.json'), { ...reservation, key: continuationClaimKey(approval), execution,
+    originDigest: sha256(bytes('continuation/origin.json')), aliasAtClaim: approval.originalPacket.predecessor.id })
+    && equal(json('continuation/reservation.json'), reservation)
+    && equal(json('continuation/reserving.json'), { requestDigest: pin.requestDigest, packetDigest: pin.approvalDigest }),
+  'recovery-reservation');
+  const base = `continuation/${pin.runId}`, descriptions = [`strict:reserved:${pin.requestDigest}`];
+  let previous = sha256(bytes('continuation/claim.json')), completedAt = approval.window.start;
+  for (const phase of ['history', 'promote-only', 'final-domain-ack']) {
+    const intent = { packetDigest: pin.approvalDigest, phase, previous, deploymentId: id };
+    heldRequire(equal(json(`${base}/${phase}.intent.json`), intent), 'recovery-phase-intent');
+    descriptions.push(`strict:${phase}:intent:${sha256(canonical({ requestDigest: pin.requestDigest, intent }))}`);
+    const receipt = json(`${base}/${phase}.receipt.json`);
+    heldRequire(equal(receipt, { ...intent, completed: receipt.completed,
+      reportDigest: sha256(bytes(`${base}/migration-report.json`)) })
+      && Number.isSafeInteger(receipt.completed) && Number(receipt.completed) >= completedAt
+      && Number(receipt.completed) < approval.window.end, 'recovery-phase-receipt');
+    completedAt = Number(receipt.completed);
+    previous = sha256(bytes(`${base}/${phase}.receipt.json`));
+    const description = `strict:${phase}:receipt:${sha256(canonical({ requestDigest: pin.requestDigest, receipt: previous }))}`;
+    heldRequire(equal(json(`continuation/${phase}.remote.json`), { requestDigest: pin.requestDigest,
+      journal: pin.journal, receiptDigest: previous, description }), 'recovery-remote-receipt');
+    descriptions.push(description);
+  }
+  descriptions.push(`strict:accepted:${previous}`);
+  heldRequire(equal(json(`${base}/promote-intent.json`), { packetDigest: pin.approvalDigest, deploymentId: id })
+    && equal(json(`${base}/promotion-observed.json`), { packetDigest: pin.approvalDigest, deploymentId: id, submission: 'acknowledged' })
+    && equal(json('continuation/operator.lock'), { packetDigest: pin.approvalDigest, runId: pin.runId, lease: approval.lease }),
+  'recovery-same-deployment-promotion');
+  const stages = ['artifact', 'artifact', 'reserve', 'history', 'promote', 'promote', 'receipt', 'receipt'];
+  const report = committed.report, migration = { result: report.result, database_outcome: report.database_outcome,
+    before: report.before, after: report.after, attempted: report.attempted, reporting: report.reporting };
+  let prior: string | null = null, terminalPrior: string | null = null;
+  for (const [index, name] of archive.outcomes.entries()) {
+    const event = exactObject(json(name), ['requestDigest', 'previous', 'result', 'terminal']);
+    const result = validateReleaseResult(event.result), accepted = index >= 6;
+    heldRequire(event.requestDigest === pin.requestDigest && event.previous === prior && event.terminal === accepted
+      && equal(result.request, request) && result.stage === stages[index] && result.status === (accepted ? 'accepted' : 'unknown')
+      && result.category === (accepted ? null : 'outcome-unknown') && result.evidence === 'confirmed'
+      && result.deploymentId === id && equal(result.migration, index === 0 ? null : migration)
+      && equal(result.effects, { create: 'not-started', migration: index === 0 ? 'not-started' : 'ACKed',
+        promotion: index < 4 ? 'not-started' : index === 4 ? 'unknown' : 'ACKed' })
+      && result.receiptDigest === (index === 7 ? terminalPrior : prior)
+      && equal(result.proof, accepted ? { deploymentId: id, artifactDigest: app.artifactDigest,
+        configDigest: request.configDigest, schemaDigest: request.schema.targetDigest, domain: 'api.lovora.us', checks: 'passed' } : null),
+    'recovery-honest-outcomes');
+    if (index === 6) terminalPrior = prior;
+    prior = sha256(bytes(name));
+  }
+  heldRequire(prior === pin.outcomeHead && request.schema.targetDigest === manifestDigest(migrationManifest),
+    'recovery-final-head-schema');
+  return { request, execution, descriptions, predecessor: { id, revision: app.revision, tree: app.tree,
+    artifactDigest: app.artifactDigest, sourceDigest: app.sourceDigest, configDigest: request.configDigest } };
 }
 export class EtsyReleaseStop extends Error {
   constructor() { super('ETSY_SETUP_STOP: durable intent or outcome requires owner disposition; do not retry mutations.'); }

@@ -7,7 +7,7 @@ import type { VerifiedArtifact } from './artifact.js';
 import { verifyActivationArtifact } from './activation-journal.js';
 import type { ActivationPacket } from './activation-journal.js';
 import { failedPreflightProof, validateRetainedArtifactArchive, validateAuthorizationProducerArchive,
-  validateAuthorizationReceiptArchive } from './activation-preflight-disposition.mjs';
+  validateAuthorizationReceiptArchive, completedEtsyRecovery } from './activation-preflight-disposition.mjs';
 import { retainedActivation, retainedHistoricalArchive } from './activation-retained.mjs';
 import { extractRoutineBundle, verifyRoutineBundle } from './routine-retained.mjs';
 import { verifyHistoricalFinalAcceptance, validateHistoricalPreimages, validateHistoricalRecord } from './activation-held-proof.js';
@@ -16,6 +16,8 @@ import { historicalReleaseEvidence as evidence } from './historical-release-evid
 import type { ReleaseRequest } from './ci-delivery.js';
 import { validateReleaseRequest, validateReleaseResult } from './ci-delivery.js';
 import type { ChecksDiagnostics } from './checks-diagnostics.js';
+import { verifyCompletedEtsyRecovery } from './etsy-release.js';
+import completedRecoveryReceipt from '../config/completed-etsy-recovery-receipt.json' with { type: 'json' };
 
 export const historicalHandoffDigest = sha256(canonical({ evidence, retention: retainedHistoricalArchive }));
 export interface HistoricalItem { entry: Record<string, unknown>; status: Record<string, unknown> }
@@ -59,10 +61,14 @@ function bindPredecessor(request: ReleaseRequest, expected: HistoricalPredecesso
     artifactDigest: expected.artifactDigest, configDigest: expected.configDigest }), 'approved-predecessor');
 }
 interface ConsumedHandoff { id: number; predecessor: HistoricalPredecessor; request: ReleaseRequest }
+export interface CompletedRecoveryAdmission {
+  consumed: ConsumedHandoff; resolved: ReadonlySet<number>; recheck(): Promise<void>;
+}
 async function consumedPredecessor(items: readonly HistoricalItem[], io: HistoricalIo,
-  refused: ReadonlyMap<number, FailedAuthorizationAdmission>): Promise<ConsumedHandoff | undefined> {
+  refused: ReadonlyMap<number, FailedAuthorizationAdmission>, completed?: CompletedRecoveryAdmission): Promise<ConsumedHandoff | undefined> {
   const marked = items.filter(item => !historicalRecordId(item.entry.id) && item.entry.payload !== null
-    && typeof item.entry.payload === 'object' && Object.hasOwn(item.entry.payload, 'historicalHandoff'));
+    && typeof item.entry.payload === 'object' && Object.hasOwn(item.entry.payload, 'historicalHandoff')
+    && !completed?.resolved.has(Number(item.entry.id)));
   let previous: ConsumedHandoff | undefined;
   for (const item of [...marked].reverse()) {
     const id = item.entry.id, p = object(item.entry.payload), marker = object(p.historicalHandoff);
@@ -87,6 +93,11 @@ async function consumedPredecessor(items: readonly HistoricalItem[], io: Histori
     if (noEffect) {
       requireProof(noEffect.marker.recordDigest === sha256(historicalSnapshot([item])), 'refused-lineage-binding');
       continue; // A verified refusal retains its predecessor; it never consumes a successful handoff.
+    }
+    if (completed?.consumed.id === id) {
+      requireProof(equal(request, completed.consumed.request), 'completed-consumed-request');
+      previous = completed.consumed;
+      continue;
     }
     const statuses: unknown = await io.read(`/deployments/${id}/statuses?per_page=100`);
     requireProof(Array.isArray(statuses) && statuses.length > 0 && statuses.length < 100 && equal(statuses[0], item.status), 'consumed-status-readback');
@@ -132,8 +143,48 @@ export function historicalMetadataReadback(io: HistoricalIo, signal: AbortSignal
   return { proofIo, recheck };
 }
 
+// Admission is scoped to this completed recovery, never a general forgiveness of
+// unresolved history. Its committed migration remains an acknowledged 3→4 change.
+export async function proveCompletedRecovery(items: readonly HistoricalItem[], request: ReleaseRequest,
+  io: HistoricalIo, signal: AbortSignal): Promise<CompletedRecoveryAdmission | undefined> {
+  const pin = completedEtsyRecovery;
+  if (!items.some(item => item.entry.id === pin.journal)) return undefined;
+  requireProof(request.mode === 'current-schema-only' && request.migration === null, 'completed-ordinary-only');
+  const { proofIo, recheck } = historicalMetadataReadback(io, signal);
+  let position = -1;
+  for (const [rawId, recordDigest, statusesDigest] of pin.lineage) {
+    const id = Number(rawId), matches = items.filter(item => item.entry.id === id), item = matches[0];
+    requireProof(matches.length === 1 && item !== undefined && items.indexOf(item) > position, 'completed-full-lineage');
+    position = items.indexOf(item);
+    const record = await proofIo.read(`/deployments/${id}`), statuses = await proofIo.read(`/deployments/${id}/statuses?per_page=100`);
+    requireProof(equal(record, item.entry) && sha256(canonical(record)) === recordDigest
+      && Array.isArray(statuses) && statuses.length > 0 && statuses.length < 100 && equal(statuses[0], item.status)
+      && sha256(canonical(statuses)) === statusesDigest, 'completed-immutable-history');
+  }
+  const run = object(await proofIo.read(`/actions/runs/${pin.run}`));
+  const jobs = object(await proofIo.read(`/actions/runs/${pin.run}/jobs?filter=all&per_page=100`));
+  requireProof(sha256(canonical(run)) === pin.runDigest && sha256(canonical(jobs)) === pin.jobsDigest
+    && run.status === 'completed' && run.conclusion === 'success', 'completed-protected-run');
+  // Source-retained bytes outlive Actions retention; all remote execution and
+  // lineage proofs remain mandatory. The raw verifier pins the entire ZIP.
+  requireProof(typeof completedRecoveryReceipt.zipBase64 === 'string'
+    && completedRecoveryReceipt.zipBase64.length <= 174764, 'completed-durable-receipt'); // Base64 bound for a 128 KiB ZIP.
+  const verified = verifyCompletedEtsyRecovery(Buffer.from(completedRecoveryReceipt.zipBase64, 'base64'));
+  const entry = items.find(item => item.entry.id === pin.journal)!;
+  const statuses = await proofIo.read(`/deployments/${pin.journal}/statuses?per_page=100`) as Record<string, unknown>[];
+  const workflow = object(await proofIo.read(`/contents/.github/workflows/be-delivery.yml?ref=${verified.request.controller.revision}`));
+  requireProof(equal(object(entry.entry.payload).releaseRequest, verified.request)
+    && run.head_sha === verified.request.controller.revision && workflow.encoding === 'base64' && typeof workflow.content === 'string'
+    && sha256(Buffer.from(workflow.content, 'base64')) === pin.workflowDigest
+    && equal([...statuses].reverse().map(row => row.description), verified.descriptions), 'completed-final-binding');
+  bindPredecessor(request, verified.predecessor, verified.request.schema.target);
+  return { consumed: { id: pin.journal, request: verified.request, predecessor: verified.predecessor },
+    resolved: new Set(pin.lineage.slice(1).map(row => Number(row[0]))), recheck };
+}
+
 export async function proveHistoricalHandoff(items: readonly HistoricalItem[], request: ReleaseRequest, io: HistoricalIo,
-  signal: AbortSignal, refused: ReadonlyMap<number, FailedAuthorizationAdmission> = new Map()): Promise<HistoricalAdmission> {
+  signal: AbortSignal, refused: ReadonlyMap<number, FailedAuthorizationAdmission> = new Map(),
+  completed?: CompletedRecoveryAdmission): Promise<HistoricalAdmission> {
   validateHistoricalPreimages(); signal.throwIfAborted();
   requireProof(request.historicalHandoffDigest === historicalHandoffDigest && request.target === retainedActivation.target, 'request-evidence-binding');
   const accepted = items.filter(item => item.entry.id === evidence.accepted.id), failed = items.filter(item => item.entry.id === evidence.failed.id);
@@ -143,7 +194,7 @@ export async function proveHistoricalHandoff(items: readonly HistoricalItem[], r
   const retention = retainedHistoricalArchive, releasePath = `/releases/tags/${retention.tag}`;
   const api = `https://api.github.com/repos/${retention.repository}`;
   const { proofIo, recheck } = historicalMetadataReadback(io, signal);
-  const consumed = await consumedPredecessor(items, proofIo, refused);
+  const consumed = await consumedPredecessor(items, proofIo, refused, completed);
   if (consumed) {
     bindPredecessor(request, consumed.predecessor, consumed.request.schema.target);
     return { marker: { version: 1, evidenceDigest: historicalHandoffDigest, predecessorRecord: consumed.id,
@@ -466,7 +517,7 @@ export async function proveFailedAuthorization(item: HistoricalItem, current: Ve
 }
 
 export async function proveFailedAuthorizations(items: readonly HistoricalItem[], current: VerifiedArtifact,
-  io: HistoricalIo, signal: AbortSignal): Promise<Map<number, FailedAuthorizationAdmission>> {
+  io: HistoricalIo, signal: AbortSignal, completed?: CompletedRecoveryAdmission): Promise<Map<number, FailedAuthorizationAdmission>> {
   const journals = new Set<unknown>();
   for (const item of items) {
     requireProof(!journals.has(item.entry.id), 'authorization-unique-records');
@@ -530,12 +581,12 @@ export async function proveFailedAuthorizations(items: readonly HistoricalItem[]
     }
   }
   for (const item of items) {
-    if (item.status.state === 'success' || historicalRecordId(item.entry.id)) continue;
+    if (item.status.state === 'success' || historicalRecordId(item.entry.id) || completed?.resolved.has(Number(item.entry.id))) continue;
     requireProof(positive(item.entry.id) && (item.status.state === 'error' || item.status.state === 'in_progress'), 'authorization-unresolved-prior');
     if (!admissions.has(item.entry.id)) admissions.set(item.entry.id, await proveFailedAuthorization(item, current, proofIo, signal));
   }
   for (const [index, item] of items.entries()) {
-    if (item.status.state === 'success' || historicalRecordId(item.entry.id)) continue;
+    if (item.status.state === 'success' || historicalRecordId(item.entry.id) || completed?.resolved.has(Number(item.entry.id))) continue;
     const payload = object(item.entry.payload), own = admissions.get(Number(item.entry.id))!;
     if (!Object.hasOwn(payload, 'noEffectDispositions')) continue;
     const carried = payload.noEffectDispositions;
@@ -564,7 +615,7 @@ export async function proveFailedAuthorizations(items: readonly HistoricalItem[]
   if (admissions.size) {
     // Validate all carriers, refused origins and subsequent accepted predecessor links
     // together before returning any exception capability to the provider.
-    await consumedPredecessor(items, proofIo, admissions);
+    await consumedPredecessor(items, proofIo, admissions, completed);
     await recheck();
   }
   return admissions;
