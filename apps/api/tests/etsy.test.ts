@@ -333,14 +333,27 @@ const config = parseEtsyConfig({ ETSY_ENABLED: 'true', APP_FOUNDATION_ENABLED: '
 const signal = (): AbortSignal => AbortSignal.timeout(8000);
 const tokenResponse = { access_token: '9223372036854775807.synthetic', refresh_token: 'synthetic-refresh', token_type: 'Bearer', expires_in: 3600, scope: 'shops_r' };
 
-test('callback envelope rejects ambiguous, oversized and secret-reflecting inputs', () => {
-  const stateValue = 'a'.repeat(43);
-  assert.deepEqual(callbackInput(`state=${stateValue}&code=code`), { state: stateValue, code: 'code' });
-  assert.deepEqual(callbackInput(`state=${stateValue}&error=access_denied&error_uri=https%3A%2F%2Fevil.example`), { state: stateValue, code: null });
+test('callback envelope requires the exact decoded Etsy issuer and rejects ambiguous or secret-reflecting inputs', () => {
+  const stateValue = 'a'.repeat(43), issuer = 'https%3A%2F%2Fopenapi.etsy.com';
+  for (const iss of ['https://openapi.etsy.com', issuer]) {
+    assert.deepEqual(callbackInput(`state=${stateValue}&code=code&iss=${iss}`), { state: stateValue, code: 'code' });
+    assert.deepEqual(callbackInput(`state=${stateValue}&error=access_denied&iss=${iss}&error_description=private-synthetic&error_uri=https%3A%2F%2Fevil.example`),
+      { state: stateValue, code: null });
+    assert.deepEqual(callbackInput(`state=${stateValue}&error=access_denied&iss=${iss}`), { state: stateValue, code: null });
+  }
+  for (const outcome of ['code=code', 'error=access_denied']) {
+    for (const suffix of ['', '&iss=', '&iss=https://api.etsy.com', '&iss=https://openapi.etsy.com/',
+      '&iss=https://OPENAPI.etsy.com', '&iss=https://openapi.etsy.com:443', '&iss=http://openapi.etsy.com',
+      '&iss=https://openapi.etsy.com.evil.example', '&iss=https://openapi.etsy.com%00',
+      `&iss=${issuer}&iss=${issuer}`, `&iss=${issuer}&%69ss=${issuer}`, `&iss=${issuer}&unknown=x`]) {
+      assert.throws(() => callbackInput(`state=${stateValue}&${outcome}${suffix}`), { code: 'invalid_request' });
+    }
+  }
   for (const value of ['', `state=${stateValue}`, `state=${stateValue}&code=`, `state=${stateValue}&code=code&error=denied`,
     `state=${stateValue}&state=${stateValue}&code=code`, `state=${stateValue}&code=code&workspace=x`,
-    `state=${stateValue}&code=has+space`, `state=${stateValue}&code=%ZZ`, `state=${stateValue}&error=${'x'.repeat(4096)}`]) {
-    assert.throws(() => callbackInput(value), { code: 'invalid_request' });
+    `state=${stateValue}&code=has+space`, `state=${stateValue}&code=%ZZ`, `state=${stateValue}&error=${'x'.repeat(4096)}`,
+    `state=${'a'.repeat(42)}&code=code`, `state=${stateValue}&error=`, `state=${stateValue}&error=x&error=x`]) {
+    assert.throws(() => callbackInput(`${value}&iss=${issuer}`), { code: 'invalid_request' });
   }
 });
 
@@ -542,11 +555,35 @@ test('owned PostgreSQL and actual Nest HTTP enforce Etsy invitation, callback an
     const consent = new URL(starts.find(response => response.status === 303)!.headers.get('location')!);
     const oauthState = consent.searchParams.get('state')!;
     const before = state.tokenCalls;
-    const duplicate = await fetch(`${fixture.origin}/integrations/etsy/callback?state=${oauthState}&state=${oauthState}&code=code`, { headers: { Host: 'api.lovora.us' } });
+    for (const outcome of ['code=private-synthetic-code', 'error=access_denied']) {
+      for (const suffix of ['', '&iss=', '&iss=https://wrong.example', '&iss=https://openapi.etsy.com&iss=https://openapi.etsy.com',
+        '&iss=https://openapi.etsy.com&unknown=x', '&iss=https://openapi.etsy.com&' + (outcome.startsWith('code=') ? 'error=denied' : 'code=code')]) {
+        const refused = await fetch(`${fixture.origin}/integrations/etsy/callback?state=${oauthState}&${outcome}${suffix}`,
+          { headers: { Host: 'api.lovora.us' }, redirect: 'manual' });
+        assert.equal(refused.status, 400);
+        assert.equal(refused.headers.get('location'), null);
+        assert.match(refused.headers.get('cache-control') ?? '', /no-store/);
+        assert.doesNotMatch(await refused.text(), new RegExp(`${oauthState}|private-synthetic-code|wrong\\.example`));
+        assert.equal(state.tokenCalls, before);
+      }
+    }
+    const duplicate = await fetch(`${fixture.origin}/integrations/etsy/callback?state=${oauthState}&state=${oauthState}&code=code&iss=https://openapi.etsy.com`,
+      { headers: { Host: 'api.lovora.us' } });
     assert.equal(duplicate.status, 400);
+    assert.equal(state.tokenCalls, before);
+    assert.equal((await admin.query("SELECT count(*)::integer AS count FROM app_private.etsy_authorization_attempts WHERE state='pending'")).rows[0].count, 1);
+    state.handler = (request, _response, body) => {
+      if (request.url === '/v3/public/oauth/token') {
+        assert.equal(body.get('grant_type'), 'authorization_code');
+        assert.equal(body.get('redirect_uri'), config.callbackUrl);
+        assert.equal(createHash('sha256').update(body.get('code_verifier') ?? '').digest('base64url'), consent.searchParams.get('code_challenge'));
+      }
+      return false;
+    };
     const callbacks = await Promise.all([fixture.callback(oauthState), fixture.callback(oauthState)]);
     assert.deepEqual(callbacks.map(response => response.status).sort(), [303, 400]);
     assert.equal(state.tokenCalls - before, 1);
+    state.handler = undefined;
     const count = calls.length;
     assert.equal((await current()).state, 'active');
     assert.equal((await api('/invitations')).status, 200);
@@ -681,18 +718,30 @@ test('owned PostgreSQL and actual Nest HTTP enforce Etsy invitation, callback an
 
   await t.test('denial, expiry, cancellation, scope denial and credential corruption never activate', async () => {
     const denied = await start();
-    const response = await fetch(`${fixture.origin}/integrations/etsy/callback?state=${denied.oauthState}&error=access_denied&error_description=private-synthetic`, {
-      headers: { Host: 'api.lovora.us' }, redirect: 'manual' });
+    const before = state.tokenCalls;
+    const denialUrl = `${fixture.origin}/integrations/etsy/callback?${new URLSearchParams({
+      state: denied.oauthState, error: 'access_denied', iss: 'https://openapi.etsy.com',
+      error_description: 'private-synthetic', error_uri: 'https://wrong.example/private-synthetic',
+    })}`;
+    const response = await fetch(denialUrl, { headers: { Host: 'api.lovora.us' }, redirect: 'manual' });
     assert.equal(response.status, 303);
     assert.equal(response.headers.get('location'), 'https://website.example/');
     assert.equal((await current()).state, 'reconnect_required');
+    const denial = await admin.query(`SELECT a.state AS attempt,i.state AS invitation FROM app_private.etsy_authorization_attempts a
+      JOIN app_private.etsy_connection_invitations i ON i.id=a.invitation_id WHERE a.state_hash=$1`,
+    [createHash('sha256').update(denied.oauthState).digest('hex')]);
+    assert.deepEqual(denial.rows, [{ attempt: 'denied', invitation: 'declined' }]);
+    assert.equal((await fetch(denialUrl, { headers: { Host: 'api.lovora.us' }, redirect: 'manual' })).status, 400);
+    assert.equal(state.tokenCalls, before);
     const expired = await start();
     await admin.query("UPDATE app_private.etsy_authorization_attempts SET created_at=created_at-interval '301 seconds',expires_at=expires_at-interval '301 seconds' WHERE state='pending'");
     assert.equal((await fixture.callback(expired.oauthState)).status, 400);
+    assert.equal(state.tokenCalls, before);
     await disconnect();
     const cancelled = await start();
     await disconnect();
     assert.equal((await fixture.callback(cancelled.oauthState)).status, 400);
+    assert.equal(state.tokenCalls, before);
     const missing = await start();
     state.handler = (request, response) => {
       if (request.url?.endsWith('/oauth/token')) { response.end('{"access_token":"7.synthetic","refresh_token":"synthetic-refresh","token_type":"Bearer","expires_in":3600}'); return true; }

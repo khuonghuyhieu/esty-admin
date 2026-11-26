@@ -152,7 +152,7 @@ export function etsyRecipientFixture(config: EtsyConfig, admin: Pool, workspace:
     codes.set(code, input.codeChallenge as string);
     provider.callback++;
     try {
-      const response = await fetch(`${config.callbackUrl}?${new URLSearchParams({ state: input.state as string, code })}`, {
+      const response = await fetch(`${config.callbackUrl}?${new URLSearchParams({ state: input.state as string, code, iss: 'https://openapi.etsy.com' })}`, {
         redirect: 'manual', signal: AbortSignal.timeout(10000), headers: { Connection: 'close' } });
       await response.body?.cancel();
       return { status: response.status, location: response.headers.get('location') };
@@ -339,7 +339,7 @@ export async function etsyFixture(t: TestContext, etsyConfig: EtsyConfig) {
         Origin: etsyConfig.invitationOrigin, 'Content-Type': 'application/json' }, body: JSON.stringify({ secret }) });
     },
     async callback(stateValue: string, code = 'synthetic-code') {
-      return fetch(`${origin}/integrations/etsy/callback?state=${stateValue}&code=${code}`, { redirect: 'manual', headers: { Host: 'api.lovora.us' } });
+      return fetch(`${origin}/integrations/etsy/callback?${new URLSearchParams({ state: stateValue, code, iss: 'https://openapi.etsy.com' })}`, { redirect: 'manual', headers: { Host: 'api.lovora.us' } });
     },
   };
 }

@@ -9,11 +9,13 @@ export function callbackInput(raw: string): { state: string; code: string | null
   if (Buffer.byteLength(raw) > 4096 || /%(?![a-f0-9]{2})/i.test(raw)) throw new AppError('invalid_request');
   const params = new URLSearchParams(raw), keys = [...params.keys()];
   if (new Set(keys).size !== keys.length || !/^[A-Za-z0-9_-]{43}$/.test(params.get('state') ?? '')) throw new AppError('invalid_request');
+  // RFC 9207: the sole provider's decoded issuer is required, never an endpoint selector.
+  if (params.get('iss') !== 'https://openapi.etsy.com') throw new AppError('invalid_request');
   if (params.has('code')) {
-    if (keys.length !== 2 || !/^[\x21-\x7e]{1,2048}$/.test(params.get('code') ?? '')) throw new AppError('invalid_request');
+    if (keys.length !== 3 || !/^[\x21-\x7e]{1,2048}$/.test(params.get('code') ?? '')) throw new AppError('invalid_request');
     return { state: params.get('state')!, code: params.get('code')! };
   }
-  if (!params.get('error') || keys.some(key => !['state', 'error', 'error_description', 'error_uri'].includes(key))) throw new AppError('invalid_request');
+  if (!params.get('error') || keys.some(key => !['state', 'error', 'iss', 'error_description', 'error_uri'].includes(key))) throw new AppError('invalid_request');
   return { state: params.get('state')!, code: null };
 }
 
