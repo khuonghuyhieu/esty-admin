@@ -9,6 +9,8 @@ import { classifyStatus, inspectStatus, productionIdentity, smokeProduction } fr
 
 const revision = "a".repeat(40);
 const deploymentId = "dpl_CTzBFEjNpsXwDFDLdTz4itKQU4fa";
+const jobCredentials = { kind: "github-actions", token: "ghs_FE_TEST_TOKEN_CANARY" } as const;
+const statelessCredentials = { kind: "github-actions", token: "ghs_123_header-with-hyphen.payload_with_underscore.signature-with-hyphen" } as const;
 const environment = {
   VERCEL: "1", VERCEL_ENV: "production", VERCEL_TARGET_ENV: "production",
   VERCEL_PROJECT_ID: "prj_y2YXhPreVpIDZMSKsmzp7gwIMYLA", VERCEL_GIT_PROVIDER: "github",
@@ -70,6 +72,8 @@ test("unrelated, pending, non-main and stale statuses are not smoke acceptance",
   const noNetwork = async () => { requests++; throw new Error("Ineligible status must not cause network work"); };
   assert.deepEqual(await inspectStatus({}, noNetwork), { outcome: "skipped", reason: "unrelated-status" });
   assert.deepEqual(await inspectStatus({ ...event, state: "pending" }, noNetwork), { outcome: "skipped", reason: "pending-deployment" });
+  assert.deepEqual(await inspectStatus({ ...event, state: "pending" }, noNetwork, jobCredentials), { outcome: "skipped", reason: "pending-deployment" });
+  assert.deepEqual(await inspectStatus({ ...event, state: "pending" }, noNetwork, { kind: "github-actions", token: "" }), { outcome: "skipped", reason: "pending-deployment" });
   await assert.rejects(inspectStatus({ ...event, state: "pending", sha: "invalid" }, noNetwork));
   await assert.rejects(inspectStatus({ ...event, state: "pending", branches: null }, noNetwork));
   assert.deepEqual(await inspectStatus({ ...event, state: "pending", branches: [] }, noNetwork), { outcome: "skipped", reason: "not-main" });
@@ -91,6 +95,15 @@ test("failed or malformed native status and another project's URL fail closed", 
   assert.throws(() => classifyStatus(event, undefined));
 });
 
+test("invalid job tokens fail before any request instead of falling back to anonymous", async () => {
+  let requests = 0;
+  const noNetwork = async () => { requests++; throw new Error("Invalid credentials must not cause network work"); };
+  for (const token of ["", " ", "token\ninjection", "token\r\nAuthorization: injected", "token\tvalue", "token\u0000value", "token:value", "token=value", "x".repeat(4097)]) {
+    await assert.rejects(inspectStatus(event, noNetwork, { kind: "github-actions", token }));
+  }
+  assert.equal(requests, 0);
+});
+
 test("failed current-main lookup emits bounded CLI diagnostics without provider data", async () => {
   const directory = await mkdtemp(join(tmpdir(), "fe-delivery-diagnostics-"));
   const eventPath = join(directory, "event.json");
@@ -101,10 +114,15 @@ test("failed current-main lookup emits bounded CLI diagnostics without provider 
     await writeFile(eventPath, JSON.stringify(event));
     for (const scenario of [
       { transport: `return new Response("${canary}", { status: 403, headers: { "x-private": "${canary}", location: "https://example.com/${canary}" } });`, reason: "http-status", httpStatus: 403 },
+      { transport: `return new Response("${canary}", { status: 302, headers: { location: "https://app.lovora.us/${canary}" } });`, reason: "http-status", httpStatus: 302 },
+      { transport: `return new Response("${canary}", { status: 307, headers: { location: "https://api.github.com/other/${canary}" } });`, reason: "http-status", httpStatus: 307 },
       { transport: `return new Response("${canary}", { status: 200 });`, reason: "invalid-response", httpStatus: 200 },
       { transport: `return Response.json({ object: { sha: "${canary}" } });`, reason: "invalid-response", httpStatus: 200 },
       { transport: `return new Response(new ReadableStream({ cancel() { throw new Error("${canary}"); } }), { status: 403 });`, reason: "http-status", httpStatus: 403 },
       { transport: `throw Object.assign(new Error("${canary}"), { phase: "${canary}", reason: "${canary}", status: 403 });`, reason: "transport-error" },
+      { transport: `throw new Error("${canary}");`, environment: { FE_GITHUB_TOKEN: "" }, phase: "github-credentials", reason: "invalid-job-token" },
+      { transport: `throw new Error("${canary}");`, environment: { GITHUB_REPOSITORY: "other/repo" }, phase: "github-credentials", reason: "wrong-job-context" },
+      { transport: `throw new Error("${canary}");`, environment: { GITHUB_ACTIONS: "false" }, phase: "github-credentials", reason: "wrong-job-context" },
       {
         command: "smoke", phase: "main-recheck", reason: "http-status", httpStatus: 403,
         transport: `if (String(input).startsWith("https://api.github.com/")) {
@@ -116,14 +134,33 @@ test("failed current-main lookup emits bounded CLI diagnostics without provider 
         } });`,
       },
     ]) {
-      await writeFile(preloadPath, `let mainReads = 0; globalThis.fetch = async input => { ${scenario.transport} };`);
+      await writeFile(preloadPath, `
+        import assert from "node:assert/strict";
+        let mainReads = 0;
+        globalThis.fetch = async (input, init) => {
+          const url = String(input);
+          const main = url === "https://api.github.com/repos/khuonghuyhieu/esty-admin/git/ref/heads/main";
+          assert.equal(init.redirect, "manual");
+          assert.equal(init.credentials, "omit");
+          assert.deepEqual(init.headers, main
+            ? { Accept: "application/vnd.github+json", Authorization: "Bearer ${jobCredentials.token}" }
+            : { Accept: "text/html" });
+          if (!main) assert.ok(["https://app.lovora.us/", "https://app.lovora.us/privacy", "https://app.lovora.us/login"].includes(url));
+          ${scenario.transport}
+        };
+      `);
       const result = spawnSync(process.execPath, ["--import", preloadPath, new URL("../../scripts/fe-delivery.mjs", import.meta.url).pathname, scenario.command ?? "classify"], {
-        env: { PATH: process.env.PATH, GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath },
+        env: {
+          NODE_ENV: "test", PATH: process.env.PATH, GITHUB_EVENT_PATH: eventPath, GITHUB_OUTPUT: outputPath,
+          GITHUB_ACTIONS: "true", GITHUB_REPOSITORY: event.repository.full_name, GITHUB_EVENT_NAME: "status",
+          FE_GITHUB_TOKEN: jobCredentials.token, ...scenario.environment,
+        },
         encoding: "utf8", timeout: 10_000,
       });
       assert.equal(result.status, 1);
       assert.equal(result.stdout, "");
       assert.equal(`${result.stdout}${result.stderr}`.includes(canary), false);
+      assert.equal(`${result.stdout}${result.stderr}`.includes(jobCredentials.token), false);
       assert.deepEqual(JSON.parse(result.stderr), {
         outcome: "failed", phase: scenario.phase ?? "main-lookup", reason: scenario.reason,
         ...(scenario.httpStatus ? { httpStatus: scenario.httpStatus } : {}),
@@ -133,7 +170,7 @@ test("failed current-main lookup emits bounded CLI diagnostics without provider 
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-function fixture(options: { wrongDeployment?: boolean; redirect?: boolean; oversized?: boolean; advance?: boolean; stale?: boolean } = {}) {
+function fixture(options: { wrongDeployment?: boolean; redirect?: boolean; oversized?: boolean; advance?: boolean; stale?: boolean; githubToken?: string } = {}) {
   const requested: string[] = [];
   let mainReads = 0;
   const fetcher: typeof fetch = async (input, init) => {
@@ -143,7 +180,9 @@ function fixture(options: { wrongDeployment?: boolean; redirect?: boolean; overs
     assert.equal(init?.credentials, "omit");
     assert.equal(init?.cache, "no-store");
     assert.equal(init?.method, "GET");
-    assert.deepEqual(init?.headers, { Accept: url.startsWith("https://api.github.com/") ? "application/vnd.github+json" : "text/html" });
+    assert.deepEqual(init?.headers, url === "https://api.github.com/repos/khuonghuyhieu/esty-admin/git/ref/heads/main"
+      ? { Accept: "application/vnd.github+json", ...(options.githubToken ? { Authorization: `Bearer ${options.githubToken}` } : {}) }
+      : { Accept: "text/html" });
     assert.ok(init?.signal);
     if (url === "https://api.github.com/repos/khuonghuyhieu/esty-admin/git/ref/heads/main") {
       mainReads++;
@@ -159,24 +198,29 @@ function fixture(options: { wrongDeployment?: boolean; redirect?: boolean; overs
 }
 
 test("public smoke binds actual responses to the status deployment and both current-main observations", async () => {
-  const transport = fixture();
-  assert.deepEqual(await inspectStatus(event, transport.fetcher), { outcome: "run", revision, deploymentId });
-  assert.deepEqual(await smokeProduction(event, transport.fetcher), { outcome: "passed", revision, deploymentId, paths: ["/", "/privacy", "/login"], scope: "public-documents-only-not-session-acceptance" });
-  assert.equal(transport.requested.filter(url => url.startsWith("https://app.lovora.us")).length, 3);
+  for (const credentials of [undefined, jobCredentials, statelessCredentials]) {
+    const transport = fixture({ githubToken: credentials?.token });
+    assert.deepEqual(await inspectStatus(event, transport.fetcher, credentials), { outcome: "run", revision, deploymentId });
+    const result = await smokeProduction(event, transport.fetcher, credentials);
+    assert.deepEqual(result, { outcome: "passed", revision, deploymentId, paths: ["/", "/privacy", "/login"], scope: "public-documents-only-not-session-acceptance" });
+    if (credentials) assert.equal(JSON.stringify(result).includes(credentials.token), false);
+    assert.equal(transport.requested.filter(url => url.startsWith("https://app.lovora.us")).length, 3);
+    assert.equal(transport.requested.filter(url => url.startsWith("https://api.github.com")).length, 3);
+  }
 });
 
 for (const options of [{ wrongDeployment: true }, { redirect: true }, { oversized: true }, { advance: true }]) {
   test(`public smoke refuses ${Object.keys(options)[0]} without accepting a status-only success`, async () => {
-    const transport = fixture(options);
-    await assert.rejects(smokeProduction(event, transport.fetcher));
+    const transport = fixture({ ...options, githubToken: jobCredentials.token });
+    await assert.rejects(smokeProduction(event, transport.fetcher, jobCredentials));
     if (options.wrongDeployment) assert.equal(transport.requested.filter(url => url.startsWith("https://app.lovora.us")).length, 6);
   });
 }
 
 test("a stale source never probes production and cannot become a successful smoke", async () => {
-  const transport = fixture({ stale: true });
-  assert.deepEqual(await inspectStatus(event, transport.fetcher), { outcome: "skipped", reason: "stale-source" });
-  await assert.rejects(smokeProduction(event, transport.fetcher));
+  const transport = fixture({ stale: true, githubToken: jobCredentials.token });
+  assert.deepEqual(await inspectStatus(event, transport.fetcher, jobCredentials), { outcome: "skipped", reason: "stale-source" });
+  await assert.rejects(smokeProduction(event, transport.fetcher, jobCredentials));
   assert.equal(transport.requested.some(url => url.startsWith("https://app.lovora.us")), false);
 });
 

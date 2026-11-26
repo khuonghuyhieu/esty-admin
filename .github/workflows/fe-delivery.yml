@@ -27,8 +27,10 @@ jobs:
         with:
           node-version: 24.22.1
           package-manager-cache: false
-      - name: Classify the exact native status without credentials
+      - name: Classify the exact native status with the read-only job token
         id: event
+        env:
+          FE_GITHUB_TOKEN: ${{ github.token }}
         run: node apps/web/scripts/fe-delivery.mjs classify
 
   smoke:
@@ -48,4 +50,6 @@ jobs:
           package-manager-cache: false
       # Native Vercel already deployed. This job never builds, deploys, promotes or proves Owner admission.
       - name: Verify public documents from the exact production source and deployment
+        env:
+          FE_GITHUB_TOKEN: ${{ github.token }}
         run: node apps/web/scripts/fe-delivery.mjs smoke

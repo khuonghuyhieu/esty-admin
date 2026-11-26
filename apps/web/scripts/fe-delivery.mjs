@@ -11,6 +11,10 @@ const deploymentPattern = /^dpl_[A-Za-z0-9]{16,64}$/;
 const mainUrl = `https://api.github.com/repos/${repository}/git/ref/heads/main`;
 const origin = "https://app.lovora.us";
 
+/** @typedef {{ kind: "anonymous" } | { kind: "github-actions", token: string }} GitHubCredentials */
+/** @type {GitHubCredentials} */
+const anonymousCredentials = { kind: "anonymous" };
+
 // Only code-owned labels and an HTTP status reach the CLI failure log.
 class EvidenceError extends Error {
   constructor(phase, reason, httpStatus) {
@@ -20,6 +24,33 @@ class EvidenceError extends Error {
       ...(Number.isInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? { httpStatus } : {}),
     };
   }
+}
+
+/**
+ * Only the workflow's ephemeral job token is accepted, never a user-secret input.
+ * @param {Record<string, string | undefined>} environment
+ * @returns {GitHubCredentials}
+ */
+function githubCredentials(environment) {
+  if (environment.GITHUB_ACTIONS === "true") {
+    if (environment.GITHUB_REPOSITORY !== repository || environment.GITHUB_EVENT_NAME !== "status") {
+      throw new EvidenceError("github-credentials", "wrong-job-context");
+    }
+    return { kind: "github-actions", token: environment.FE_GITHUB_TOKEN ?? "" };
+  }
+  if (environment.FE_GITHUB_TOKEN !== undefined) throw new EvidenceError("github-credentials", "wrong-job-context");
+  return anonymousCredentials;
+}
+
+/** @param {GitHubCredentials} credentials */
+function mainHeaders(credentials) {
+  if (credentials.kind === "anonymous") return { Accept: "application/vnd.github+json" };
+  // RFC 6750 b64token syntax only; GitHub token contents and claims are opaque.
+  if (credentials.kind !== "github-actions" || typeof credentials.token !== "string"
+    || credentials.token.length > 4096 || !/^[A-Za-z0-9._~+\/-]+=*$/.test(credentials.token)) {
+    throw new EvidenceError("github-credentials", "invalid-job-token");
+  }
+  return { Accept: "application/vnd.github+json", Authorization: `Bearer ${credentials.token}` };
 }
 
 /** @param {Record<string, string | undefined>} environment */
@@ -70,12 +101,14 @@ async function readBounded(response) {
 }
 
 async function get(url, fetcher, signal) {
-  return fetcher(url, { method: "GET", credentials: "omit", redirect: "manual", cache: "no-store", signal, headers: { Accept: url === mainUrl ? "application/vnd.github+json" : "text/html" } });
+  return fetcher(url, { method: "GET", credentials: "omit", redirect: "manual", cache: "no-store", signal, headers: { Accept: "text/html" } });
 }
 
-async function currentMain(fetcher, signal, phase = "main-lookup") {
+async function currentMain(fetcher, signal, credentials, phase = "main-lookup") {
+  const headers = mainHeaders(credentials);
   let response;
-  try { response = await get(mainUrl, fetcher, signal); }
+  // Authorization is constructed only for this exact URL; redirects are never followed.
+  try { response = await fetcher(mainUrl, { method: "GET", credentials: "omit", redirect: "manual", cache: "no-store", signal, headers }); }
   catch { throw new EvidenceError(phase, "transport-error"); }
   if (response.status !== 200) {
     try { await response.body?.cancel(); }
@@ -89,19 +122,29 @@ async function currentMain(fetcher, signal, phase = "main-lookup") {
   } catch { throw new EvidenceError(phase, "invalid-response", response.status); }
 }
 
-async function statusIdentity(event, fetcher, signal) {
+async function statusIdentity(event, fetcher, signal, credentials) {
   // Pending is not acceptance: validate its local identity without a ref request.
   if (event?.repository?.full_name !== repository || event.context !== statusContext || event.state === "pending") return classifyStatus(event);
-  return classifyStatus(event, await currentMain(fetcher, signal));
+  return classifyStatus(event, await currentMain(fetcher, signal, credentials));
 }
 
-export async function inspectStatus(event, fetcher = fetch) {
-  return statusIdentity(event, fetcher, AbortSignal.timeout(10_000));
+/**
+ * @param {object} event
+ * @param {typeof fetch} fetcher
+ * @param {GitHubCredentials} credentials
+ */
+export async function inspectStatus(event, fetcher = fetch, credentials = anonymousCredentials) {
+  return statusIdentity(event, fetcher, AbortSignal.timeout(10_000), credentials);
 }
 
-export async function smokeProduction(event, fetcher = fetch) {
+/**
+ * @param {object} event
+ * @param {typeof fetch} fetcher
+ * @param {GitHubCredentials} credentials
+ */
+export async function smokeProduction(event, fetcher = fetch, credentials = anonymousCredentials) {
   const signal = AbortSignal.timeout(20_000);
-  const identity = await statusIdentity(event, fetcher, signal);
+  const identity = await statusIdentity(event, fetcher, signal, credentials);
   if (identity.outcome !== "run") throw new Error("FE smoke is not eligible; no acceptance recorded");
   const paths = ["/", "/privacy", "/login"];
   for (const path of paths) {
@@ -123,7 +166,7 @@ export async function smokeProduction(event, fetcher = fetch) {
       await delay(500, undefined, { signal });
     }
   }
-  if (await currentMain(fetcher, signal, "main-recheck") !== identity.revision) throw new EvidenceError("main-recheck", "stale-source");
+  if (await currentMain(fetcher, signal, credentials, "main-recheck") !== identity.revision) throw new EvidenceError("main-recheck", "stale-source");
   return { outcome: "passed", revision: identity.revision, deploymentId: identity.deploymentId, paths, scope: "public-documents-only-not-session-acceptance" };
 }
 
@@ -132,7 +175,8 @@ async function main() {
   const raw = await readFile(process.env.GITHUB_EVENT_PATH, "utf8");
   if (Buffer.byteLength(raw) > 256 * 1024) throw new Error("Status event exceeds its bound");
   const event = JSON.parse(raw);
-  const result = process.argv[2] === "classify" ? await inspectStatus(event) : await smokeProduction(event);
+  const credentials = githubCredentials(process.env);
+  const result = process.argv[2] === "classify" ? await inspectStatus(event, fetch, credentials) : await smokeProduction(event, fetch, credentials);
   if (process.argv[2] === "classify" && process.env.GITHUB_OUTPUT) await appendFile(process.env.GITHUB_OUTPUT, `outcome=${result.outcome}\n`);
   console.log(JSON.stringify(result));
 }
