@@ -1,5 +1,79 @@
 # Implementation plan: Connectivity foundation
 
+## Required-checks CI summary — source/local cleanup
+
+**Authority and problem:** the owner paused real Etsy consent and authorized this CI-only increment on existing `main`, coordinator-reported clean base `c5793e9`. The current summary reports step outcomes but does not show the measured stages already retained by `ChecksDiagnostics`. No speedup, reordered checks, additional collection, workflow, dependency or production action is part of this change.
+
+**Solution:** retain the existing summary entrypoint and outcome events. Only the checks summary receives `${{ job.status }}` and explicitly labels it as the CI result **before diagnostic uploads**, not final deployment acceptance. A fixed table projects setup/install, codegen, compile, public tools, native build, functional tests, operator staging, native HTTP-to-test-DB and verified transfer. The existing `required-checks` parent is shown separately as the inner total, never added to its child timings. Checkout, Node setup and upload have no stage receipt and are explicitly not timed. No historical run duration is injected into a current summary.
+
+Receipt projection accepts only exact stage names, expected parent relationships and numbered stage files. Reads are bounded to 512 directory entries, 64 KiB per file and 1 MiB per directory; symlink/non-regular receipt files are refused. Durations must be integer milliseconds in `[0, 2700000]`, the existing 45-minute checks-job bound. Only fixed labels, statuses and numeric seconds are rendered, never command/error/output fields. Missing, malformed, duplicate, invalid or interrupted receipts show unavailable timing; an authoritative skipped step shows not-run. Receipt status remains distinct from GitHub step outcome. Advisory data cannot override the job result, turn missing evidence into success, or change existing best-effort summary failure behavior.
+
+**Reference, owner-supplied rather than re-fetched:** successful run `45660995992` measured 156 s workflow / 143 s checks job / 98.178 s inner checks, including public tools 11.213, native build 16.708, functional tests 40.597, operator staging 1.376, native HTTP/DB 24.736 and transfer 3.511 s; `npm ci` measured 3 s. These are distinct overlapping scopes, not additive wall-time components. No separate semantics-preserving performance change was established or implemented.
+
+### Local verification and handback
+
+- On Node 24.22.1, `node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json` exited 0.
+- `node --test --test-name-pattern='checks timing summary|required-checks|end-to-end executable workflow summary' apps/api/build/tests/ci.test.js`: **35 passed, 0 failed, 0 skipped**. Existing diagnostic failure/abort/storage/redaction coverage remains passing. Added actual receipt/CLI coverage distinguishes failed, skipped and unknown outcomes; missing/malformed/oversized/symlink/duplicate/wrong-parent/wrong-ID/unknown-stage receipts; string, negative, fractional, excessive, nonfinite and null durations; running receipts and the inclusive duration bound.
+- Separate source-native CLI smoke ran `public-command` with a synthetic Node child exiting 7: wrapper exit 1 and retained child exit 7. Source `summary` then exited 0, showed GitHub failure, a measured failed install and not-run dependent stages. After corrupting the actual install receipt, it still exited 0 and retained GitHub failure, with timing unavailable. Temporary smoke inputs were removed.
+- Installed `js-yaml` parsing and `/bin/bash -n` validated **6 jobs / 59 run blocks**. Parsed comparison against `c5793e9` proved the sole workflow change is the checks-summary `CHECKS_JOB_STATUS` input; all check names/IDs, conditions, required outcomes, PR/push behavior, artifact paths/retention and other jobs are structurally identical. `actionlint` is absent and was not run. Final handback includes `git diff --check` and its recorded exit status.
+- Local verification preceded hosted CI. Independent review found no actionable issues in the three-file delta.
+
+### CI summary pull request
+
+[PR #8](https://github.com/khuonghuyhieu/esty-admin/pull/8) contains the three-file timing summary change on top of `5765f84`. The compiler and all 35 focused tests passed again against the exact source published in the PR. This is the next distinct revision for hosted routine-release verification after owner merge and successful push CI.
+
+The [PR CI run](https://github.com/khuonghuyhieu/esty-admin/actions/runs/45942093586) passed. `BE required checks` took 2m16s, the summary step succeeded, and production was skipped. GitHub reported the PR mergeable at verification time.
+
+The owner merged PR #8 as `0b79c9ceb5075581434800513d541cf9005f2089`. The [main push run](https://github.com/khuonghuyhieu/esty-admin/actions/runs/45942574454) succeeded and published unexpired artifact `15173487644` for the exact merge SHA. No `be-production` deployment was present for this revision at readback. The window to exercise a missing artifact before this CI run finished has passed.
+
+## Routine BE release from a checked revision
+
+[Requirements and acceptance](spec.md#routine-be-release-from-a-checked-revision) · [Task sequence](tasks.md#routine-be-release-from-a-checked-revision)
+
+**Dispatch and candidate selection.** Extend the existing manual `BE delivery` workflow for `current-schema-only`. Use the dispatch SHA on `refs/heads/main` as the only selector. An unprivileged job resolves exactly one non-expired tested artifact from a trusted successful post-merge push run on that SHA. Verify run, job, repository, workflow, source/tree and immutable artifact provenance using the existing retained-bundle verifier. Exclude failed runs, PR artifacts and stale source. Refuse missing, ambiguous or mismatched evidence. Use the same-run handoff to freeze the candidate and publish its full SHA, CI/run and artifact links, archive digest and target before the production gate. A later update to `main` must never select a replacement candidate automatically. Existing current-main checks apply.
+
+**Approval and execution.** The protected `be-production` environment is the independent release authority. Approval gates the production job for the exact candidate already shown in that run. A trusted CI artifact provides build provenance, while the review of the pinned candidate provides permission to deploy. An artifact sidecar cannot authorize its own release. Source and configuration must support an independently restricted reviewer policy and eligible `main` source before this path can be enabled. The pre-approval job receives no production credentials. The protected job rechecks the frozen same-run candidate and bundle integrity before reservation, retains serialization and the unresolved-journal fences, and verifies the same deployed ID and final HTTPS domain. Per-release controller and approval SHA variables are removed from this routine path only. Stable schema/config/target checks remain, and the route exposes no SQL mutation capability.
+
+**Delivery and measurement.** Keep the implementation in one focused review. Preserve producer checks and separate migration, activation and recovery admission. Scope local tests to trusted unique resolution, candidate substitution and branch drift, approval and credential separation, terminal failure before mutation, and an emitted unchanged-schema journey. Verify the actual GitHub policy and two real releases only under the separate operational grant. Capture preparation, approval wait and dispatch-to-domain times separately from existing GitHub timestamps. Run `45853015349` was 6m43s overall with 4m07s in bundle verification, while the same step took 32s in run `45829463453`. This change targets operator effort. A latency change requires a repeatable measured bottleneck and remains outside this increment.
+
+### T300–T301 local evidence
+
+The five-file increment resolves the candidate in an unprivileged job and verifies the frozen handoff again in `be-production`. The unchanged-schema route requires `BE_ROUTINE_MAIN_ENABLED=true`. T302 must verify the effective trusted-main and reviewer rules and stable repository policy before enabling it.
+
+Node 24.22.1 compilation, workflow structure and predicates, and operator staging passed. An initial run of the three affected suites had 37 failures. After the corrections and isolated harness setup, a focused rerun passed 91 tests and the coordinator reran all three affected suites (`ci`, `release`, and `artifact`) with 1,188 passed, zero failed, and four skipped. The emitted synthetic journey resolved and verified the exact bundle, created and promoted the same deployment once, and verified the final-domain contract through mocked transport. It had no SQL mutation capability or real network calls. Independent review found no actionable issues in the scoped delta.
+
+T302 and T303 remain open. Hosted runner behavior, effective approval policy, provider effects and two consecutive real releases remain unverified. `actionlint` was unavailable.
+
+### T302 policy preflight
+
+The GitHub API reported `protected: false` and no effective rules for `main` at `8828705c0d9b9a0399fbca012b9a9e453b8a944c`. The `be-production` environment allows only the `main` branch and returned no `required_reviewers` rule. The current CLI identity has no repository admin permission, and both variable-list endpoints returned HTTP 403. The stable repository variables and the enable flag could not be verified. The increment remains local pending policy verification because publishing it before enablement would disable the existing unchanged-schema route.
+
+Before enabling, verify effective `main` rules for reviewed changes and required checks, a designated `be-production` reviewer who can approve the exact candidate, and no approval bypass. Verify that the unprivileged job can read the stable repository-level policy (`BE_RELEASE_TARGET`, `BE_DELIVERY_CONFIG_SHA256`, and `BE_DELIVERY_SCHEMA_SHA256`) and that it agrees with production. Keep `BE_ROUTINE_MAIN_ENABLED` off until these conditions are confirmed. The hosted refusal check remains open.
+
+After the owner's settings update, GitHub reports `main` protected with `BE required checks` sourced from GitHub Actions and enforced for everyone. The owner's submitted settings show the PR requirement and no mandatory PR approval for the solo-maintainer workflow. The full branch protection endpoint returned HTTP 404 for the CLI identity, so the PR settings were observed in the owner-provided UI evidence. GitHub reports `be-production` limited to `main`, with `khuonghuyhieu` as a required reviewer, self-review permitted, and administrator bypass disabled. Repository variable access still returns HTTP 403. Stable policy, publication, and hosted refusal verification remain open.
+
+The owner reported adding the repository target and configuration digest and aligning the repository schema digest with `be-production`. The accepted release in run `45853015349` independently establishes the expected schema digest. Direct variable readback still returns HTTP 403. The exact five-file implementation patch applies cleanly to the published base in a temporary index, leaving the separate CI summary changes out. The current GitHub CLI identity has no push permission and the default SSH identity is the company account. Publication through a PR and hosted refusal verification remain open.
+
+Using the existing isolated personal GitHub CLI profile, the coordinator confirmed repository push permission, the `main` PR requirement with zero required approvals, strict checks, and enforcement for admins. Repository and `be-production` values match for the target, configuration digest, and schema digest. The enable flag is off. The reviewed increment is ready for PR publication, and the hosted refusal check remains open.
+
+[PR #7](https://github.com/khuonghuyhieu/esty-admin/pull/7) contains only the five reviewed files at `3a3f0fa28237052dd231caf0cab87a44b1c5b3f9`. The push used the repository's existing personal SSH identity after the personal CLI's HTTPS credential was refused for lacking the workflow scope. The CI summary and planning changes remain local. Production enablement and the hosted refusal check remain open.
+
+The [PR CI run](https://github.com/khuonghuyhieu/esty-admin/actions/runs/45935377378) passed `BE required checks` in 2m49s and `BE completion`; production was skipped. The PR is ready for review. Merge remains an owner action.
+
+The owner merged PR #7 as `5765f8432a8df4ce451e83641408f6e8ca686248`. The [main push run](https://github.com/khuonghuyhieu/esty-admin/actions/runs/45935688479) is the producer for that revision. The repository enable flag is absent. No production dispatch has been authorized by the merge.
+
+The push run completed successfully. `BE required checks` took 2m13s, `BE completion` passed, and GitHub reports one unexpired artifact named `be-tested-45935688479-1` with ID `15169394812` for the exact merge SHA. Hosted refusal verification and routine release enablement remain open.
+
+The owner enabled `BE_ROUTINE_MAIN_ENABLED`. During [the hosted negative run](https://github.com/khuonghuyhieu/esty-admin/actions/runs/45936872961), `current-schema-only` with an intentionally wrong manual artifact ID stopped at `context.no-manual-selectors` before artifact lookup or download. GitHub skipped production, pending deployments were empty, and the list of production deployments for the dispatch SHA remained empty. This proves refusal of a manual artifact override on the hosted controller. A missing or mismatched artifact returned by the automatic resolver was covered locally and has not been exercised on GitHub. T302 remains open for that evidence. No production release was approved.
+
+### T303 hosted releases
+
+[Run `45937269950`](https://github.com/khuonghuyhieu/esty-admin/actions/runs/45937269950), attempt 1, completed successfully with one recorded approval from the owner. The production journal binds the merge SHA `5765f8432a8df4ce451e83641408f6e8ca686248` to the successful push run `45935688479`, artifact `15169394812`, deployment `dpl_8qfv4syac9zDPbsD5B4wgapyuwKo`, and final verification at `https://api.lovora.us`. Dispatch to domain acceptance took 5m02s. Candidate verification took 2m39s. Candidate completion to production job start took 23s, including approval and scheduling.
+
+[Run `45943237559`](https://github.com/khuonghuyhieu/esty-admin/actions/runs/45943237559), attempt 1, completed successfully with one recorded approval from the owner. The journal binds merge SHA `0b79c9ceb5075581434800513d541cf9005f2089` to push run `45942574454`, artifact `15173487644`, deployment `dpl_BJadAS3HBiYYxrbUvKUEYjkgMX88`, and final verification at `https://api.lovora.us`. Dispatch to domain acceptance took 9m02s. Candidate verification took 4m57s. Candidate completion to production job start took 12s, including approval and scheduling.
+
+Both accepted receipts acknowledge creation and promotion of the same deployment ID for their run, with migration not started. Both runs used automatic selection without per-release values. The GitHub variable metadata showed zero `BE_` variable updates in either repository or `be-production` during the observation window. Approval-only time and manual preparation time were not independently measured. The two dispatch-to-domain durations do not establish a speedup.
+
 ## Exact held Etsy continuation — concrete contract before code
 
 ### Authority and verified inputs

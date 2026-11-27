@@ -1,5 +1,14 @@
 # Tasks: Connectivity foundation
 
+## Routine BE release from a checked revision
+
+[Requirements](spec.md#routine-be-release-from-a-checked-revision) · [Implementation plan](plan.md#routine-be-release-from-a-checked-revision). FR-069–071 and SC-038–039 extend US9 for `current-schema-only`.
+
+- [x] T300 [US9] Implement candidate resolution and the pinned handoff ahead of the protected production job in the existing BE delivery workflow. Keep the required-check behavior and the migration, activation and recovery contracts intact.
+- [x] T301 [US9] Run affected compiler, workflow and release checks and a synthetic unchanged-schema journey. Cover unique exact provenance, missing/expired/ambiguous or wrong artifact, changed candidate/main, refusal before mutation, and the protected route's exact deployment and domain verification. Local verification and independent review are recorded in the plan.
+- [ ] T302 [US9] Under the operational authorization, confirm effective protected-main and production reviewer rules, review and publish the isolated increment, and verify that a missing or mismatched artifact is refused without production effects.
+- [x] T303 [US9] Verify two consecutive authorized releases from distinct commits. The plan records one Run and one approval each, zero per-release edits or copied IDs/digests, exact commit/artifact/deployment/domain provenance, and dispatch-to-domain timings. The approval-only and manual preparation intervals were not independently measured.
+
 ## Release through the verified replacement Etsy candidate
 
 Owner approved source and local verification on base `c50733256ce58f7adc58599cfd9c0a054bf9262e`. The [bounded replacement-candidate design](plan.md#proposed-release-through-the-verified-replacement-candidate) owns this increment.
