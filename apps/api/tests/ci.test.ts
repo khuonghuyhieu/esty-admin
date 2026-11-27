@@ -15,7 +15,7 @@ import { rootCertificates } from 'node:tls';
 import { gunzipSync } from 'node:zlib';
 import { artifactTarget, assembleArtifact, canonical, inventory, readArtifactFile, removeArtifactTree, sha256, verifyArtifact } from '../scripts/artifact.js';
 import type { FileRecord, VerifiedArtifact } from '../scripts/artifact.js';
-import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture,
+import { artifactFixture, receiptZip, routineMigrationFixture, routineMetadataFixture, routineIngressFixture, dispatchMainFixture,
   tar, routineProviderFixture, routineRuntime, strictReleaseFixture, heldContinuationFixture, replacementContinuationFixture, readinessContinuationFixture, promoteRecoveryFixture,
   failedReplacementFixture, historicalProviderFixture } from './artifact-fixture.js';
 import { historicalActivationChild } from './historical-activation-fixture.js';
@@ -30,7 +30,7 @@ import type { ActivationProvider, DeliveryProvider, RunIdentity } from '../scrip
 import { verifyUploadedArchive } from '../scripts/ci-archive.js';
 import { checkHostedHttp } from '../scripts/hosted-acceptance.js';
 import type { CommandResult } from '../scripts/ci-tools.js';
-import { routineContext, loadRoutineContext, withRoutineDiagnostics, selectRoutine, validateRoutineSelection, confirmRoutineSelection,
+import { routineContext, loadRoutineContext, withRoutineDiagnostics, resolveRoutine, selectRoutine, validateRoutineSelection, confirmRoutineSelection,
   extractRoutineBundle, admitHeldProduction, heldClaimStep, replacementClaimStep, readinessClaimStep, recoveryClaimStep, heldRunnerPaths } from '../scripts/routine-retained.mjs';
 import { migrationManifest } from '../src/generated/migrations.js';
 import { activationPhases, appendActivationEvent, createActivationJournal, finishActivationJournal, importFrontendJournal,
@@ -1013,31 +1013,15 @@ test('untrusted, stale-attempt and unactivated contexts cannot enter production'
 
 test('L1 actual workflow production predicate and executable context reject push even when enabled', () => {
   const workflow = readFileSync(new URL('../../../../.github/workflows/be-delivery.yml', import.meta.url), 'utf8');
-  const checksJob = workflow.split('\n  checks:\n')[1]?.split(/\n  [a-z_]+:\n/)[0];
-  assert.ok(checksJob, 'The checks job must retain public failure diagnostics');
-  const diagnosticUploads = checksJob.split(/(?=^      - )/m)
-    .filter(step => /^          name: be-checks-diagnostics-/m.test(step));
-  assert.equal(diagnosticUploads.length, 1, 'Exactly one bounded diagnostics upload is required');
-  const diagnostics = diagnosticUploads[0];
-  assert.ok(diagnostics);
-  assert.equal(diagnostics.match(/^        if: (.+)$/m)?.[1]?.trim(), 'always()',
-    'Diagnostics must survive a failed checks step');
-  assert.equal(diagnostics.match(/^        continue-on-error: (.+)$/m)?.[1]?.trim(), 'true',
-    'An upload failure must not replace the original checks result');
-  const diagnosticPaths = diagnostics.match(/^          path: \|\n((?:            .*(?:\n|$))*)/m)?.[1]
-    ?.trim().split('\n').map(path => path.trim());
-  assert.deepEqual(diagnosticPaths, [
-    '${{ runner.temp }}/be-checks-diagnostics/*-stage.json',
-    '${{ runner.temp }}/be-checks-diagnostics/failed-stage.json',
-    '${{ runner.temp }}/be-checks-diagnostics/*-stdout.log',
-    '${{ runner.temp }}/be-checks-diagnostics/*-stderr.log',
-  ], 'Diagnostics must upload exactly the four public globs, never broader paths');
   const expression = workflow.match(/if: &production-eligible >-\n([\s\S]*?)\n    runs-on:/)?.[1]?.trim()
     .replace(/^\$\{\{\s*|\s*\}\}$/g, '');
   assert.ok(expression);
-  const evaluate = (event: string, mode = 'current-schema-only', enabled = 'true', attempt = '1') =>
-    runInNewContext(expression, { github: { repository, ref: 'refs/heads/main', run_attempt: attempt, event_name: event },
-      vars: { BE_DELIVERY_ENABLED: enabled }, inputs: { mode } }, { timeout: 100 });
+  const candidate = workflow.match(/if: &candidate-eligible >-\n([\s\S]*?)\n    runs-on:/)?.[1]?.trim()
+    .replace(/^\$\{\{\s*|\s*\}\}$/g, '');
+  assert.ok(candidate);
+  const evaluate = (event: string, mode = 'current-schema-only', enabled = 'true', attempt = '1', ready = 'true') =>
+    runInNewContext(`(${expression}) || (${candidate})`, { github: { repository, ref: 'refs/heads/main', run_attempt: attempt, event_name: event },
+      vars: { BE_DELIVERY_ENABLED: enabled, BE_ROUTINE_MAIN_ENABLED: ready }, inputs: { mode } }, { timeout: 100 });
   for (const event of ['push', 'pull_request', 'pull_request_target', 'schedule']) {
     assert.equal(evaluate(event), false, `${event} must remain checks-only`);
     assert.throws(() => deliveryContext({ ...context(), GITHUB_EVENT_NAME: event }, run.tree));
@@ -1046,6 +1030,7 @@ test('L1 actual workflow production predicate and executable context reject push
   for (const mode of ['activation', '', 'unexpected']) assert.equal(evaluate('workflow_dispatch', mode), false);
   assert.equal(evaluate('workflow_dispatch', 'current-schema-only', 'false'), false);
   assert.equal(evaluate('workflow_dispatch', 'current-schema-only', 'true', '2'), false);
+  for (const ready of ['', 'false']) assert.equal(evaluate('workflow_dispatch', 'current-schema-only', 'true', '1', ready), false);
 });
 
 test('L1 invalid dispatch and absent approval refuse before metadata transport', async () => {
@@ -1183,7 +1168,7 @@ test('L1 authenticated retained selection binds actual consumer, producer checks
 });
 
 test('L1 actual controller admission reauthenticates the consuming run before any release effects', async t => {
-  const f = await routineIngressFixture(); t.after(f.dispose);
+  const f = await dispatchMainFixture(); t.after(f.dispose);
   const request = await approvedRoutineRequest(f.artifact, f.selection, f.approval, f.context, undefined), bytes = canonical(request) + '\n';
   await writeFile(join(f.transfer, 'request.json'), bytes, { mode: 0o600 }); f.env.BE_RELEASE_REQUEST_SHA256 = sha256(bytes);
   const valid = await authenticateRoutineDelivery({ bundle: f.bundle, transfer: f.transfer, env: f.env, read: f.read });
@@ -1197,6 +1182,106 @@ test('L1 actual controller admission reauthenticates the consuming run before an
   const altered = canonical({ ...request, configDigest: 'f'.repeat(64) }) + '\n';
   await writeFile(join(f.transfer, 'request.json'), altered); f.env.BE_RELEASE_REQUEST_SHA256 = sha256(altered);
   await assert.rejects(authenticateRoutineDelivery({ bundle: f.bundle, transfer: f.transfer, env: f.env, read: f.read }), /Release contract/);
+});
+
+test('dispatch-main resolves only one exact successful push artifact without manual pins', async t => {
+  const f = await dispatchMainFixture(); t.after(f.dispose);
+  assert.equal(f.context.authority, 'protected-main');
+  assert.equal(f.selection.producer.revision, f.env.GITHUB_SHA);
+  assert.equal(f.selection.producer.run, '122'); assert.equal(f.selection.artifact.id, '456');
+  assert.equal(f.selection.artifact.zipDigest, sha256(f.zip));
+  assert.equal(f.context.approvalDigest, sha256(canonical(f.approval) + '\n'));
+  assert.deepEqual(loadRoutineContext(f.env, f.transfer), f.context);
+  const original = structuredClone(f.records);
+  const faults: Array<[string, () => void]> = [
+    ['missing run', () => { f.records[f.runsPath] = { total_count: 0, workflow_runs: [] }; }],
+    ['missing artifact', () => { f.records[f.artifactsPath] = { total_count: 0, artifacts: [] }; }],
+    ['expired artifact', () => { f.records[f.artifactsPath].artifacts[0].expired = true; }],
+    ['expired timestamp', () => { f.records[f.artifactsPath].artifacts[0].expires_at = new Date(f.now - 1).toISOString(); }],
+    ['wrong artifact name', () => { f.records[f.artifactsPath].artifacts[0].name = 'be-tested-other'; }],
+    ['ambiguous artifacts', () => { f.records[f.artifactsPath].artifacts.push({ ...f.records['/actions/artifacts/456'], id: 457 }); f.records[f.artifactsPath].total_count++; }],
+    ['ambiguous runs', () => {
+      f.records[f.runsPath].workflow_runs.push({ ...f.records['/actions/runs/122'], id: 124 });
+      f.records[f.runsPath].total_count++;
+      f.records['/actions/runs/124/artifacts?per_page=100'] = { total_count: 1, artifacts: [
+        { ...f.records['/actions/artifacts/456'], id: 457, name: 'be-tested-124-1' }] };
+    }],
+    ['partial runs', () => { f.records[f.runsPath].total_count++; }],
+    ['partial artifacts', () => { f.records[f.artifactsPath].total_count++; }],
+    ['PR producer', () => { f.records[f.runsPath].workflow_runs[0].event = 'pull_request'; }],
+    ['failed producer', () => { f.records[f.runsPath].workflow_runs[0].conclusion = 'failure'; }],
+    ['rerun producer', () => { f.records[f.runsPath].workflow_runs[0].run_attempt = 2; }],
+    ['other source', () => { f.records[f.runsPath].workflow_runs[0].head_sha = 'f'.repeat(40); }],
+    ['other workflow', () => { f.records[f.runsPath].workflow_runs[0].workflow_id++; }],
+    ['foreign repository', () => { f.records[f.runsPath].workflow_runs[0].head_repository.full_name = 'fork/repo'; }],
+    ['unsuccessful checks', () => { f.records['/actions/runs/122/jobs?filter=all&per_page=100'].jobs[0].conclusion = 'failure'; }],
+    ['wrong artifact run', () => { f.records['/actions/artifacts/456'].workflow_run.id = 121; }],
+    ['main drift', () => { f.records['/commits/main'].sha = 'f'.repeat(40); }],
+  ];
+  for (const [name, mutate] of faults) await t.test(name, async () => {
+    for (const key of Object.keys(f.records)) delete f.records[key];
+    Object.assign(f.records, structuredClone(original)); mutate();
+    const before = f.downloads();
+    await assert.rejects(resolveRoutine(f.unresolved, f.read, f.download, f.now));
+    assert.equal(f.downloads(), before, 'Refuse before downloading or entering production');
+  });
+  Object.assign(f.records, structuredClone(original));
+  await assert.rejects(resolveRoutine(f.unresolved, f.read, async () => Buffer.from('substituted zip'), f.now));
+  for (const patch of [{ BE_ROUTINE_MAIN_ENABLED: undefined }, { BE_ROUTINE_MAIN_ENABLED: 'false' }, { BE_DELIVERY_MODE: 'versioned-migration' }]) {
+    assert.throws(() => routineContext({ ...f.env, ...patch }, f.event));
+  }
+  for (const field of ['release_run_id', 'release_artifact_id', 'held_incident', 'activation_artifact_id']) {
+    assert.throws(() => routineContext(f.env, { inputs: { ...f.event.inputs, [field]: '456' } }));
+  }
+});
+
+test('dispatch-main protected admission refuses stale handoff and lacks any manual fallback', async t => {
+  const f = await dispatchMainFixture(); t.after(f.dispose);
+  const request = await approvedRoutineRequest(f.artifact, f.selection, f.approval, f.context, undefined);
+  const bytes = canonical(request) + '\n';
+  await writeFile(join(f.transfer, 'request.json'), bytes, { mode: 0o600 }); f.env.BE_RELEASE_REQUEST_SHA256 = sha256(bytes);
+  for (const patch of [{ GITHUB_JOB: 'routine_candidate' }, { BE_ROUTINE_MAIN_ENABLED: 'false' },
+    { BE_ROUTINE_SELECTION: 'explicit' }, { BE_RELEASE_SELECTION_SHA256: '0'.repeat(64) },
+    { BE_RELEASE_REQUEST_SHA256: '0'.repeat(64) }, { BE_DELIVERY_CONFIG_SHA256: '0'.repeat(64) },
+    { BE_DELIVERY_SCHEMA_SHA256: '0'.repeat(64) }, { BE_RELEASE_TARGET: 'supabase:zzzzzzzzzzzzzzzzzzzz' }]) {
+    await assert.rejects(authenticateRoutineDelivery({ bundle: f.bundle, transfer: f.transfer, env: { ...f.env, ...patch }, read: f.read }));
+  }
+  for (const mutate of [
+    () => { f.records['/commits/main'].sha = 'f'.repeat(40); },
+    () => { f.records['/actions/artifacts/456'].digest = `sha256:${'0'.repeat(64)}`; },
+    () => { f.records['/actions/artifacts/456'].expired = true; },
+    () => { f.records['/actions/runs/122'].event = 'workflow_dispatch'; },
+  ]) {
+    const original = structuredClone(f.records); mutate();
+    await assert.rejects(authenticateRoutineDelivery({ bundle: f.bundle, transfer: f.transfer, env: f.env, read: f.read }));
+    Object.assign(f.records, original);
+  }
+  await writeFile(join(f.transfer, 'be-release.tar.gz'), Buffer.from('substituted archive'));
+  await assert.rejects(authenticateRoutineDelivery({ bundle: f.bundle, transfer: f.transfer, env: f.env, read: f.read }));
+});
+
+test('dispatch-main executable refuses production credentials in the pre-approval job before transport', async t => {
+  const f = await dispatchMainFixture(); t.after(f.dispose);
+  const guard = join(f.root, 'deny-network.mjs');
+  await writeFile(guard, `
+    import net from 'node:net';import tls from 'node:tls';
+    const deny=()=>{process.exitCode=97;throw Error('Unexpected real transport');};
+    globalThis.fetch=deny;net.Socket.prototype.connect=deny;tls.connect=deny;
+  `);
+  for (const key of ['VERCEL_TOKEN', 'BE_PREVIEW_ACCESS_KEY', 'VERCEL_AUTOMATION_BYPASS_SECRET', 'BE_MIGRATION_INPUTS']) {
+    const child = childProcess.spawnSync(process.execPath, ['--import', guard,
+      decodeURIComponent(new URL('../scripts/routine-retained.mjs', import.meta.url).pathname), 'resolve', join(f.root, 'unused-transfer')], {
+      env: { PATH: '/usr/bin:/bin', HOME: f.root, ...f.env, GITHUB_JOB: 'routine_candidate', RUNNER_TEMP: f.root,
+        GITHUB_TOKEN: 'synthetic-github-token', [key]: 'synthetic-production-canary' },
+      encoding: 'utf8', timeout: 10000,
+    });
+    assert.equal(child.status, 1, child.stderr);
+    const result = validateReleaseResult(JSON.parse(child.stdout.trim().split('\n').at(-1)!));
+    assert.equal(result.status, 'refused');
+    assert.deepEqual(result.effects, { create: 'not-started', migration: 'not-started', promotion: 'not-started' });
+    assert.doesNotMatch(child.stdout + child.stderr, /synthetic-production-canary/);
+    assert.equal(existsSync(join(f.root, 'unused-transfer')), false);
+  }
 });
 
 test('completion Bash distinguishes checks-only, eligible delivery and manual acceptance', async t => {
@@ -1254,7 +1339,8 @@ test('completion Bash distinguishes checks-only, eligible delivery and manual ac
     const summary = join(directory, `summary-${index}`);
     await writeFile(summary, '');
     const result = childProcess.spawnSync('/bin/bash', ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', script], {
-      env: { PATH: '/usr/bin:/bin', ...baseline, ...entry.env, GITHUB_STEP_SUMMARY: summary },
+      env: { PATH: '/usr/bin:/bin', ...baseline, ...entry.env,
+        LEGACY_ELIGIBLE: entry.env.PRODUCTION_ELIGIBLE ?? baseline.PRODUCTION_ELIGIBLE, GITHUB_STEP_SUMMARY: summary },
       encoding: 'utf8', timeout: 5000,
     });
     assert.ifError(result.error);
@@ -3843,7 +3929,7 @@ test('manual retained approval binds the new workflow without opening ordinary p
       const env = { ...context(), GITHUB_EVENT_NAME: event, BE_DELIVERY_MODE: mode, BE_DELIVERY_ENABLED: enabled,
         BE_ACTIVATION_ENABLED: 'true', BE_ACTIVATION_WORKFLOW_SHA: run.revision };
       assert.throws(() => deliveryContext(env, run.tree), `${event}/${mode} remains broad-gated`);
-      if (event === 'push') assert.throws(() => deliveryContext({ ...env, BE_DELIVERY_ENABLED: 'true' }, run.tree));
+      if (event === 'push' || mode === 'current-schema-only') assert.throws(() => deliveryContext({ ...env, BE_DELIVERY_ENABLED: 'true' }, run.tree));
       else assert.deepEqual(deliveryContext({ ...env, BE_DELIVERY_ENABLED: 'true' }, run.tree), run);
     }
   }

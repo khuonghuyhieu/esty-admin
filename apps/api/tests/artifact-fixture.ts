@@ -10,7 +10,7 @@ import type { FileRecord, SourceIdentity, ToolEvidence, VerifiedArtifact } from 
 import { migrationManifest } from '../src/generated/migrations.js';
 import { readFile } from 'node:fs/promises';
 import { crc32, gzipSync, gunzipSync } from 'node:zlib';
-import { routineContext, selectRoutine } from '../scripts/routine-retained.mjs';
+import { routineContext, selectRoutine, resolveRoutine } from '../scripts/routine-retained.mjs';
 import { activationRuntimeKeys, runtimeConfigDigest } from '../src/config/activation-config.js';
 import { manifestDigest } from '../scripts/migrations.js';
 import { heldEtsyIncident, verifyHeldEtsyReceipts, etsyReplacement, etsyReadinessReplacement, continuationApplication } from '../scripts/etsy-release.js';
@@ -230,6 +230,38 @@ export async function routineIngressFixture(configDigest = 'c'.repeat(64), stric
   await writeFile(eventPath, JSON.stringify(metadata.event), { mode: 0o600 });
   Object.assign(metadata.env, { GITHUB_EVENT_PATH: eventPath, BE_RELEASE_SELECTION_SHA256: sha256(selectionBytes) });
   return { ...metadata, artifact, sourceRoot, bundle, transfer, selection, approval, archive, root: base.root, dispose: base.dispose };
+}
+
+export async function dispatchMainFixture() {
+  const f = await routineIngressFixture(runtimeConfigDigest(routineRuntime));
+  Object.assign(f.env, { BE_ROUTINE_SELECTION: 'dispatch-main', BE_ROUTINE_MAIN_ENABLED: 'true', GITHUB_JOB: 'production' });
+  delete f.env.BE_RELEASE_CONTROLLER_SHA; delete f.env.BE_RELEASE_APPROVAL_SHA256;
+  f.event.inputs.release_run_id = ''; f.event.inputs.release_artifact_id = '';
+  await writeFile(f.env.GITHUB_EVENT_PATH!, JSON.stringify(f.event), { mode: 0o600 });
+  for (const id of ['122', '123']) Object.assign(f.records[`/actions/runs/${id}`], {
+    workflow_id: 404086547, repository: { id: 1430691691, full_name: 'khuonghuyhieu/esty-admin' },
+    head_repository: { id: 1430691691, full_name: 'khuonghuyhieu/esty-admin' },
+  });
+  const zip = receiptZip([['be-release.tar.gz', f.archive], ['be-release-approval.json', Buffer.from(canonical(f.approval) + '\n')]]);
+  const artifact = f.records['/actions/artifacts/456'];
+  Object.assign(artifact, { digest: `sha256:${sha256(zip)}`, size_in_bytes: zip.length });
+  Object.assign(artifact.workflow_run, { repository_id: 1430691691, head_repository_id: 1430691691 });
+  const runsPath = `/actions/workflows/404086547/runs?event=push&branch=main&head_sha=${f.env.GITHUB_SHA}&status=success&per_page=100`;
+  const artifactsPath = '/actions/runs/122/artifacts?per_page=100';
+  f.records[runsPath] = { total_count: 1, workflow_runs: [f.records['/actions/runs/122']] };
+  f.records[artifactsPath] = { total_count: 1, artifacts: [artifact] };
+  let downloads = 0;
+  const download = async (id: number, maximum: number) => {
+    if (id !== 456 || zip.length > maximum) throw new Error('Unexpected synthetic artifact download.');
+    downloads++; return zip;
+  };
+  const unresolved = routineContext(f.env, f.event);
+  const resolved = await resolveRoutine(unresolved, f.read, download, f.now);
+  const selectionBytes = canonical(resolved.selection) + '\n';
+  await writeFile(join(f.transfer, 'selection.json'), selectionBytes, { mode: 0o600 });
+  f.env.BE_RELEASE_SELECTION_SHA256 = sha256(selectionBytes);
+  return { ...f, context: resolved.selection.context, selection: resolved.selection, unresolved,
+    zip, download, downloads: () => downloads, runsPath, artifactsPath };
 }
 
 export async function strictReleaseFixture(configDigest = runtimeConfigDigest(routineRuntime), migrationInputDigest = '1'.repeat(64),

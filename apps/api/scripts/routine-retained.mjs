@@ -9,7 +9,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { tmpdir, userInfo } from 'node:os';
 import { stoppedEtsyContinuation as stopped, stoppedReadinessContinuation as readinessStopped,
   committedEtsyContinuation as committed, failedReplacementDispatch as failedReplacement,
-  validateFailedReplacementReceiptArchive, isFailedReplacementReservation } from './activation-preflight-disposition.mjs';
+  validateFailedReplacementReceiptArchive, isFailedReplacementReservation, manualGithubIo,
+  validateAuthorizationProducerArchive } from './activation-preflight-disposition.mjs';
 
 const diagnosticContext = new AsyncLocalStorage();
 export function withRoutineDiagnostics(diagnostics, body) { return diagnosticContext.run(diagnostics, body); }
@@ -85,25 +86,29 @@ function root(path) {
 }
 function contextShape(value) {
   const continuation = value && Object.hasOwn(value, 'heldIncident');
+  const automatic = value?.authority === 'protected-main';
   const context = object(value, ['version', 'controller', 'producerRun', 'artifactId', 'mode', 'approvalDigest', 'configDigest', 'schemaDigest', 'target', 'packetDigest',
-    ...(continuation ? ['heldIncident'] : [])]);
+    ...(continuation ? ['heldIncident'] : []), ...(automatic ? ['authority'] : [])]);
+  check('context.protected-main-mode', !automatic || (context.mode === 'current-schema-only' && !continuation));
   check('context.held-incident', !continuation || (['45106877912', '45539045779', '45578212592', '45646286338'].includes(value.heldIncident) && value.mode === 'etsy-strict-cutover'));
   const controller = object(context.controller, ['revision', 'run']);
   check('context.version', context.version === 1);
   check('context.controller-revision', revision.test(controller.revision ?? ''));
   check('context.controller-run', id.test(controller.run ?? ''));
-  check('context.producer-run', id.test(context.producerRun ?? ''));
-  check('context.artifact-id', id.test(context.artifactId ?? ''));
+  const unresolved = automatic && context.producerRun === null && context.artifactId === null && context.approvalDigest === null;
+  check('context.producer-run', unresolved || id.test(context.producerRun ?? ''));
+  check('context.artifact-id', unresolved || id.test(context.artifactId ?? ''));
   check('context.distinct-producer', context.producerRun !== controller.run);
   check('context.mode', modes.includes(context.mode));
   for (const field of ['approvalDigest', 'configDigest', 'schemaDigest']) {
-    check(`context.${field}`, typeof context[field] === 'string' && hex.test(context[field]));
+    check(`context.${field}`, (unresolved && field === 'approvalDigest') || (typeof context[field] === 'string' && hex.test(context[field])));
   }
   check('context.target', typeof context.target === 'string' && /^supabase:[a-z]{20}$/.test(context.target));
   check('context.packet-digest', context.mode === 'current-schema-only' ? context.packetDigest === null : hex.test(context.packetDigest ?? ''));
   return context;
 }
-export function routineContext(env, event) {
+/** Resolved identities are accepted only from the independently hashed same-run handoff. */
+export function routineContext(env, event, resolved = undefined) {
   const inputs = object(object(event).inputs);
   for (const [key, expected] of Object.entries({ GITHUB_ACTIONS: 'true', GITHUB_REPOSITORY: repository,
     GITHUB_REF: 'refs/heads/main', GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_RUN_ATTEMPT: '1',
@@ -111,8 +116,14 @@ export function routineContext(env, event) {
     BE_DELIVERY_ENVIRONMENT: 'be-production' })) {
     check(`context.${key}`, env[key] === expected, { present: env[key] !== undefined, actualContext: env[key], expectedContext: expected });
   }
-  check('context.controller-sha-binding', env.BE_RELEASE_CONTROLLER_SHA === env.GITHUB_SHA,
-    { actualRevision: env.GITHUB_SHA, expectedRevision: env.BE_RELEASE_CONTROLLER_SHA });
+  const automatic = env.BE_ROUTINE_SELECTION === 'dispatch-main';
+  if (automatic) {
+    check('context.protected-main-enabled', env.BE_ROUTINE_MAIN_ENABLED === 'true' && inputs.mode === 'current-schema-only');
+    check('context.no-manual-selectors', [inputs.release_run_id, inputs.release_artifact_id].every(value => (value ?? '') === ''));
+  } else {
+    check('context.controller-sha-binding', env.BE_RELEASE_CONTROLLER_SHA === env.GITHUB_SHA,
+      { actualRevision: env.GITHUB_SHA, expectedRevision: env.BE_RELEASE_CONTROLLER_SHA });
+  }
   check('context.mode-binding', env.BE_DELIVERY_MODE === inputs.mode, { actualMode: inputs.mode, expectedMode: env.BE_DELIVERY_MODE });
   const activationInput = inputs.activation_artifact_id;
   const activationKind = activationInput === null ? 'null' : Array.isArray(activationInput) ? 'array' : typeof activationInput;
@@ -122,16 +133,27 @@ export function routineContext(env, event) {
   check('context.held-selector', ['', '45106877912', '45539045779', '45578212592', '45646286338'].includes(heldIncident)
     && heldIncident === (env.BE_HELD_INCIDENT ?? '') && (heldIncident === '' || inputs.mode === 'etsy-strict-cutover'));
   return contextShape({ version: 1, controller: { revision: env.GITHUB_SHA, run: env.GITHUB_RUN_ID },
-    producerRun: inputs.release_run_id, artifactId: inputs.release_artifact_id, mode: inputs.mode,
-    approvalDigest: env.BE_RELEASE_APPROVAL_SHA256, configDigest: env.BE_DELIVERY_CONFIG_SHA256,
+    producerRun: automatic ? resolved?.producerRun ?? null : inputs.release_run_id,
+    artifactId: automatic ? resolved?.artifactId ?? null : inputs.release_artifact_id, mode: inputs.mode,
+    approvalDigest: automatic ? resolved?.approvalDigest ?? null : env.BE_RELEASE_APPROVAL_SHA256,
+    ...(automatic ? { authority: 'protected-main' } : {}), configDigest: env.BE_DELIVERY_CONFIG_SHA256,
     schemaDigest: env.BE_DELIVERY_SCHEMA_SHA256, target: env.BE_RELEASE_TARGET,
     packetDigest: inputs.mode === 'current-schema-only' ? null : env.BE_MIGRATION_PACKET_SHA256,
     ...(heldIncident ? { heldIncident } : {}) });
 }
-export function loadRoutineContext(env) {
+/** @param {string | undefined} [transfer] */
+export function loadRoutineContext(env, transfer = undefined) {
   const bytes = plainFile(env.GITHUB_EVENT_PATH, 1024 * 1024, 'event-file');
   const event = observed('event-json.parse', () => JSON.parse(bytes.toString('utf8')));
-  return observed('context.validate', () => routineContext(env, event));
+  let resolved;
+  if (env.BE_ROUTINE_SELECTION === 'dispatch-main' && transfer !== undefined) {
+    const selected = plainFile(join(root(transfer), 'selection.json'), 65536, 'selection-file');
+    check('selection.file-digest', hex.test(env.BE_RELEASE_SELECTION_SHA256 ?? '') && hash(selected) === env.BE_RELEASE_SELECTION_SHA256);
+    const value = JSON.parse(selected.toString('utf8'));
+    check('selection.canonical-json', canonical(value) + '\n' === selected.toString('utf8'));
+    resolved = value.context;
+  }
+  return observed('context.validate', () => routineContext(env, event, resolved));
 }
 function runIdentity(value, run, sha, consumer) {
   const data = object(value);
@@ -330,6 +352,48 @@ export async function admitHeldProduction(request, env, read, sourceBytes, audit
     environment: 'be-production', concurrency: 'esty-admin-be-production', cancelInProgress: false };
 }
 
+// Discovery has no production authority. Only the subsequent protected job can
+// authorize the frozen handoff; CI's sidecar is build provenance, not permission.
+export async function resolveRoutine(context, read, download, now = Date.now()) {
+  contextShape(context);
+  check('resolve.unselected-main', context.authority === 'protected-main' && context.producerRun === null);
+  const consumer = runIdentity(await read(`/actions/runs/${context.controller.run}`),
+    context.controller.run, context.controller.revision, true);
+  check('resolve.trusted-workflow', consumer.repository.id === 1430691691 && consumer.workflow_id === 404086547);
+  const listing = object(await read(`/actions/workflows/${consumer.workflow_id}/runs?event=push&branch=main&head_sha=${context.controller.revision}&status=success&per_page=100`));
+  check('resolve.complete-runs', Array.isArray(listing.workflow_runs) && listing.total_count === listing.workflow_runs.length
+    && listing.workflow_runs.length < 100 && new Set(listing.workflow_runs.map(run => run.id)).size === listing.workflow_runs.length);
+  const eligible = [];
+  for (const run of listing.workflow_runs) {
+    // Ignore unsuccessful/non-push evidence; never fall back to a different SHA.
+    if (run.event !== 'push' || run.status !== 'completed' || run.conclusion !== 'success' || run.run_attempt !== 1) continue;
+    check('resolve.run-id', Number.isSafeInteger(run.id) && run.id > 0);
+    runIdentity(run, String(run.id), context.controller.revision, false);
+    check('resolve.run-workflow', run.workflow_id === consumer.workflow_id && run.repository.id === consumer.repository.id);
+    const artifacts = object(await read(`/actions/runs/${run.id}/artifacts?per_page=100`));
+    check('resolve.complete-artifacts', Array.isArray(artifacts.artifacts) && artifacts.total_count === artifacts.artifacts.length
+      && artifacts.artifacts.length < 100 && new Set(artifacts.artifacts.map(item => item.id)).size === artifacts.artifacts.length);
+    for (const artifact of artifacts.artifacts) {
+      if (artifact.name !== `be-tested-${run.id}-1` || artifact.expired !== false || timestamp(artifact.expires_at) <= now) continue;
+      check('resolve.artifact-id', Number.isSafeInteger(artifact.id) && artifact.id > 0);
+      eligible.push({ run: String(run.id), artifact: String(artifact.id) });
+    }
+  }
+  check('resolve.unique-candidate', eligible.length === 1, { actual: eligible.length, expected: 1 });
+  const candidate = eligible[0];
+  // Metadata authentication precedes any download. The temporary digest is never
+  // an approval and cannot leave this function as a handoff.
+  const provisional = { ...context, producerRun: candidate.run, artifactId: candidate.artifact, approvalDigest: '0'.repeat(64) };
+  const selected = await selectRoutine(provisional, read, now);
+  const zip = await download(Number(candidate.artifact), maximumArchive);
+  const transfer = validateAuthorizationProducerArchive(zip, selected.artifact.zipDigest, diagnosticContext.getStore());
+  const controls = { ...provisional, approvalDigest: transfer.approvalDigest };
+  const selection = validateRoutineSelection({ ...selected, context: controls }, controls, now);
+  routineApproval(transfer.approval, controls.approvalDigest, selection);
+  check('resolve.inner-archive', hash(transfer.archive) === transfer.approval.archiveDigest);
+  return { selection, ...transfer };
+}
+
 export async function selectRoutine(context, read, now = Date.now()) {
   contextShape(context);
   const transport = read;
@@ -341,8 +405,12 @@ export async function selectRoutine(context, read, now = Date.now()) {
   check('selection.main-revision', main.sha === context.controller.revision);
   check('selection.main-tree', revision.test(object(object(main.commit).tree).sha ?? ''));
   const tree = main.commit.tree.sha;
-  runIdentity(await read(`/actions/runs/${context.controller.run}`), context.controller.run, context.controller.revision, true);
+  const consumer = runIdentity(await read(`/actions/runs/${context.controller.run}`), context.controller.run, context.controller.revision, true);
   const producer = runIdentity(await read(`/actions/runs/${context.producerRun}`), context.producerRun, context.controller.revision, false);
+  if (context.authority === 'protected-main') {
+    check('selection.push-only', producer.event === 'push' && producer.workflow_id === 404086547 && producer.repository.id === 1430691691
+      && consumer.workflow_id === producer.workflow_id && consumer.repository.id === producer.repository.id);
+  }
   const jobs = object(await read(`/actions/runs/${context.producerRun}/jobs?filter=all&per_page=100`));
   check('selection.jobs-complete', Array.isArray(jobs.jobs) && jobs.total_count === jobs.jobs.length && jobs.jobs.length <= 100);
   const checks = jobs.jobs.filter(job => job.name === 'BE required checks');
@@ -564,20 +632,39 @@ export function emitRoutineResult(value, env = process.env, diagnostics = diagno
 }
 let entryStage = 'request', entryCategory = 'unauthorized-context';
 async function main(args, env) {
-  const [action, transfer, bundle, controller] = args, context = loadRoutineContext(env);
+  const [action, transfer, bundle, controller] = args;
+  const context = loadRoutineContext(env, action === 'resolve' || action === 'select' ? undefined : transfer);
+  check('entry.current-schema-route', context.mode !== 'current-schema-only' || context.authority === 'protected-main');
+  if (context.authority === 'protected-main' && ['resolve', 'consume'].includes(action)) {
+    check('entry.unprivileged-candidate-job', env.GITHUB_JOB === 'routine_candidate');
+    check('entry.no-production-credentials', ['VERCEL_TOKEN', 'BE_PREVIEW_ACCESS_KEY', 'VERCEL_AUTOMATION_BYPASS_SECRET',
+      'BE_MIGRATION_INPUTS', 'VERCEL_CONFIGURATION_TOKEN', 'ACTIVATION_ROLE_INPUTS', 'ACTIVATION_BOOTSTRAP_INPUTS',
+      'ACTIVATION_MIGRATION_INPUTS', 'ACTIVATION_BRIDGE_INPUTS', 'ACTIVATION_APP_INPUTS'].every(key => env[key] === undefined));
+  }
   entryStage = 'artifact'; entryCategory = 'identity-mismatch';
-  if (action === 'select' && args.length === 2) {
-    const selection = await selectRoutine(context, githubReader(env.GITHUB_TOKEN, AbortSignal.timeout(120000), fetch, diagnosticContext.getStore()));
+  if (['select', 'resolve'].includes(action) && args.length === 2) {
+    const io = manualGithubIo(env.GITHUB_TOKEN, AbortSignal.timeout(120000), fetch, diagnosticContext.getStore());
+    const resolved = action === 'resolve' ? await resolveRoutine(context, io.read, io.download) : undefined;
+    check('entry.selection-route', Boolean(resolved) === (context.authority === 'protected-main'));
+    const selection = resolved?.selection ?? await selectRoutine(context, io.read);
     mkdirSync(transfer, { mode: 0o700 }); root(transfer);
+    if (resolved) {
+      writeFileSync(join(transfer, 'be-release.tar.gz'), resolved.archive, { flag: 'wx', mode: 0o600 });
+      writeFileSync(join(transfer, 'be-release-approval.json'), canonical(resolved.approval) + '\n', { flag: 'wx', mode: 0o600 });
+    }
     const bytes = canonical(selection) + '\n'; writeFileSync(join(transfer, 'selection.json'), bytes, { flag: 'wx', mode: 0o600 });
     check('selection.output-channel', Boolean(env.GITHUB_OUTPUT));
-    appendFileSync(env.GITHUB_OUTPUT, `artifact_id=${context.artifactId}\nrun_id=${context.producerRun}\nselection_sha=${hash(bytes)}\n`);
+    appendFileSync(env.GITHUB_OUTPUT, `artifact_id=${selection.context.artifactId}\nrun_id=${selection.context.producerRun}\nselection_sha=${hash(bytes)}\n`);
   } else if (['consume', 'consume-relay'].includes(action) && args.length === 4) {
     const selection = readRoutineSelection(transfer, env.BE_RELEASE_SELECTION_SHA256, context);
+    if (context.authority === 'protected-main' && action === 'consume-relay') {
+      check('entry.protected-job', env.GITHUB_JOB === 'production');
+      await confirmRoutineSelection(selection, context, githubReader(env.GITHUB_TOKEN, AbortSignal.timeout(120000), fetch, diagnosticContext.getStore()));
+    }
     const { approval, archive } = verifyRoutineTransfer(transfer, selection, context, action === 'consume-relay');
     await extractRoutineBundle(archive, approval.archiveDigest, bundle);
     const artifact = await verifyRoutineBundle(bundle, approval, selection, context, controller);
-    // Import only after the independently approved archive, full inventory and controller source matched.
+    // Import only after the trusted archive, full inventory and controller source matched.
     const { approvedRoutineRequest, validateReleaseRequest } = await import(pathToFileURL(join(bundle, 'runner/apps/api/build/scripts/ci-delivery.js')).href);
     check('request.packet-size', context.packetDigest === null
       || (typeof env.BE_MIGRATION_PACKET_JSON === 'string' && Buffer.byteLength(env.BE_MIGRATION_PACKET_JSON) <= 65536));
@@ -592,6 +679,17 @@ async function main(args, env) {
       writeFileSync(join(transfer, 'request.json'), bytes, { flag: 'wx', mode: 0o600 });
       check('request.output-channel', Boolean(env.GITHUB_OUTPUT));
       appendFileSync(env.GITHUB_OUTPUT, `request_sha=${hash(bytes)}\n`);
+      if (context.authority === 'protected-main') {
+        check('candidate.summary-channel', Boolean(env.GITHUB_STEP_SUMMARY));
+        appendFileSync(env.GITHUB_STEP_SUMMARY, `## Candidate awaiting independent production approval\n\n`
+          + `Commit: [${selection.producer.revision}](https://github.com/${repository}/commit/${selection.producer.revision})\n\n`
+          + `CI: [${selection.producer.run}](https://github.com/${repository}/actions/runs/${selection.producer.run}) / checks ${selection.checksJobId}\n\n`
+          + `Artifact: [${selection.artifact.id}](https://github.com/${repository}/actions/runs/${selection.producer.run}/artifacts/${selection.artifact.id})\n\n`
+          + `ZIP SHA-256: \`${selection.artifact.zipDigest}\`\n\nArchive SHA-256: \`${approval.archiveDigest}\`\n\n`
+          + `Target: \`${context.target}\` / https://api.lovora.us\n\n`
+          + `Configuration: \`${context.configDigest}\`\n\nSchema: \`${context.schemaDigest}\`\n\n`
+          + `Request SHA-256: \`${hash(bytes)}\`\n\nNo production credentials or SQL capability; this summary is not approval.\n`);
+      }
     }
   } else refuse('entry.action-arguments');
   console.info(JSON.stringify({ version: 1, event: 'phase-confirmed', phase: 'retained-selection', releaseAccepted: false }));
