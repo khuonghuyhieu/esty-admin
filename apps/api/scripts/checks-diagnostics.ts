@@ -390,6 +390,72 @@ export class ChecksDiagnostics {
   }
 }
 
+// Receipt data is advisory: only fixed labels and bounded scalar measurements reach the summary.
+function checksTimingSummary(directory: string, outcomes: ReadonlyMap<string, string>): string[] {
+  const setup = resolve(directory, '..', 'be-setup-diagnostics'), checks = resolve(directory, '..', 'be-checks-diagnostics');
+  const stages = [
+    ['install', 'Setup / install', join(setup, 'install'), 'install'],
+    ['codegen', 'Codegen', join(setup, 'codegen'), 'codegen'],
+    ['compile', 'Compile', join(setup, 'compile'), 'compile'],
+    ['required-checks', 'Inner checks total', checks, 'native-functional-integration-package'],
+    ['public-tools', 'Public tools', checks, 'native-functional-integration-package'],
+    ['native-build', 'Native build', checks, 'native-functional-integration-package'],
+    ['functional-tests', 'Functional tests', checks, 'native-functional-integration-package'],
+    ['operator-staging', 'Operator staging', checks, 'native-functional-integration-package'],
+    ['native-http-database-tests', 'Native HTTP → test DB', checks, 'native-functional-integration-package'],
+    ['verified-transfer', 'Verified transfer', checks, 'native-functional-integration-package'],
+  ] as const;
+  type Timing = { status: 'passed' | 'failed' | 'running'; durationMs?: number };
+  const receipts = new Map<string, Map<string, Timing | null>>();
+  for (const path of new Set(stages.map(row => row[2]))) {
+    const selected = new Map<string, Timing | null>();
+    try {
+      const info = fs.lstatSync(path);
+      if (!info.isDirectory() || info.isSymbolicLink()) throw new Error('Unavailable receipt directory.');
+      const entries = fs.opendirSync(path);
+      try {
+        let count = 0, bytes = 0;
+        for (let entry = entries.readSync(); entry; entry = entries.readSync()) {
+          if (++count > 512) throw new Error('Receipt entry bound.');
+          if (!/^(?:00[1-9]|0[1-9][0-9]|1[01][0-9]|12[0-8])-stage\.json$/.test(entry.name)) continue;
+          const fd = fs.openSync(join(path, entry.name), fs.constants.O_RDONLY | fs.constants.O_NOFOLLOW | fs.constants.O_NONBLOCK);
+          let row;
+          try {
+            const info = fs.fstatSync(fd);
+            if (!info.isFile() || info.size > 65536 || (bytes += info.size) > MiB) throw new Error('Receipt byte bound.');
+            const buffer = Buffer.alloc(info.size + 1), size = fs.readSync(fd, buffer, 0, buffer.length, null);
+            if (size !== info.size) throw new Error('Receipt changed while reading.');
+            row = JSON.parse(buffer.subarray(0, size).toString('utf8'));
+          } finally { fs.closeSync(fd); }
+          if (!row || typeof row !== 'object' || !stages.some(stage => stage[2] === path && stage[0] === row.stage)) continue;
+          const parents = path === checks && row.stage !== 'required-checks' ? ['required-checks'] : [];
+          const valid = row.id === entry.name.slice(0, 3) && JSON.stringify(row.parents) === JSON.stringify(parents)
+            && ['passed', 'failed', 'running'].includes(row.status)
+            && Number.isSafeInteger(row.durationMs) && row.durationMs >= 0 && row.durationMs <= 45 * 60 * 1000;
+          selected.set(row.stage, selected.has(row.stage) || !valid ? null
+            : { status: row.status, ...(row.status === 'running' ? {} : { durationMs: row.durationMs }) });
+        }
+      } finally { entries.closeSync(); }
+    } catch {
+      // Missing, malformed, ambiguous or unreadable evidence cannot imply success or not-run.
+      selected.clear();
+    }
+    receipts.set(path, selected);
+  }
+  const lines = ['', '#### Measured stages (advisory)', '',
+    '| Stage | GitHub step outcome | Receipt status | Duration (s) |',
+    '| --- | --- | --- | ---: |'];
+  for (const [stage, label, path, step] of stages) {
+    const outcome = outcomes.get(step) ?? 'unknown', timing = receipts.get(path)?.get(stage);
+    const status = outcome === 'skipped' ? 'not-run' : timing?.status ?? 'unavailable';
+    const duration = outcome !== 'skipped' && timing?.durationMs !== undefined ? (timing.durationMs / 1000).toFixed(3) : 'unavailable';
+    lines.push(`| ${label} | ${outcome} | ${status} | ${duration} |`);
+  }
+  lines.push('', 'Durations come from existing stage receipts, not job wall time. Inner checks total includes its child stages; do not sum it with them.',
+    'Checkout, Node setup and artifact upload are not timed here. Unavailable receipts do not prove a stage did not run; GitHub outcomes remain authoritative.');
+  return lines;
+}
+
 // Canonical workflow uses this builtin-only entry before compilation; never provider/SQL commands.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const [action, directory, name, ...args] = process.argv.slice(2);
@@ -407,14 +473,21 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     } else if (action === 'summary') {
       diagnostics = new ChecksDiagnostics(directory, { scope: 'release', runId: process.env.GITHUB_RUN_ID });
       const lines = [`### BE ${name} diagnostic outcomes (not release approval)`];
+      const outcomes = new Map<string, string>();
+      if (name === 'checks') {
+        const status = /^(?:success|failure|cancelled)$/.test(process.env.CHECKS_JOB_STATUS ?? '') ? process.env.CHECKS_JOB_STATUS : 'unknown';
+        lines.push(`CI result before diagnostic uploads: **${status}** (GitHub job.status; not deployment acceptance).`);
+      }
       for (const argument of args) {
         const match = argument.match(/^([a-z][a-z0-9-]{0,64})=(success|failure|cancelled|skipped|unknown)$/);
         if (!match) throw new Error('Invalid public step outcome.');
         const [, step, outcome] = match;
+        outcomes.set(step!, outcome!);
         diagnostics.event(`workflow.${step}`, outcome === 'success' ? 'passed' : outcome === 'skipped' ? 'not-run' : 'failed',
           outcome === 'skipped' ? 'prerequisite-failed-or-mode-not-selected' : `github-step-${outcome}`);
         lines.push(`- ${step}: ${outcome}`);
       }
+      if (name === 'checks') lines.push(...checksTimingSummary(directory, outcomes));
       lines.push('Provider/SQL payloads are omitted. Missing logs or upload failure are not evidence of no effect; inspect retained receipts.');
       if (process.env.GITHUB_STEP_SUMMARY) {
         try { fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, lines.join('\n') + '\n'); }

@@ -5021,6 +5021,110 @@ test('end-to-end executable workflow summary distinguishes failure skipped depen
   }
 });
 
+test('checks timing summary consumes actual stage receipts without replacing GitHub failure or skipped outcomes', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-summary-')); t.after(() => rm(root, { recursive: true, force: true }));
+  t.mock.method(console, 'info', () => {}); t.mock.method(console, 'error', () => {});
+  const checks = new ChecksDiagnostics(join(root, 'be-checks-diagnostics'));
+  await assert.rejects(checks.stage('required-checks', async () => {
+    await checks.stage('public-tools', () => {});
+    await checks.stage('native-build', () => {});
+    await checks.stage('functional-tests', () => { throw new Error('privateSummaryCanary12345'); });
+  }));
+  const invoke = async (status: string, verify: string) => {
+    const summary = join(root, `summary-${status}-${verify}`);
+    const child = childProcess.spawnSync(process.execPath, [new URL('../scripts/checks-diagnostics.js', import.meta.url).pathname,
+      'summary', join(root, 'be-release-diagnostics'), 'checks', 'install=success', 'codegen=success', 'compile=success',
+      `native-functional-integration-package=${verify}`, 'tested-artifact-upload=skipped'], {
+      env: { PATH: '/usr/bin:/bin', CHECKS_JOB_STATUS: status, GITHUB_STEP_SUMMARY: summary }, encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(child.status, 0, child.stderr);
+    return await readFile(summary, 'utf8');
+  };
+  const failed = await invoke('failure', 'failure');
+  assert.match(failed, /CI result[^:\n]*: \*\*failure\*\*/);
+  assert.match(failed, /\| Public tools \| failure \| passed \| \d+\.\d{3} \|/);
+  assert.match(failed, /\| Functional tests \| failure \| failed \| \d+\.\d{3} \|/);
+  assert.match(failed, /\| Operator staging \| failure \| unavailable \| unavailable \|/);
+  assert.match(failed, /\| Setup \/ install \| success \| unavailable \| unavailable \|/);
+  assert.match(failed, /tested-artifact-upload: skipped/);
+  assert.doesNotMatch(failed, /privateSummaryCanary12345/);
+  const skipped = await invoke('cancelled', 'skipped');
+  assert.match(skipped, /CI result[^:\n]*: \*\*cancelled\*\*/);
+  assert.match(skipped, /\| Public tools \| skipped \| not-run \| unavailable \|/);
+  const unknown = await invoke('privateSummaryCanary12345', 'unknown');
+  assert.match(unknown, /CI result[^:\n]*: \*\*unknown\*\*/);
+  assert.doesNotMatch(unknown, /privateSummaryCanary12345/);
+});
+
+test('checks timing summary projects all allowlisted stages and rejects unsafe or incomplete timing receipts', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'esty-checks-timing-')); t.after(() => rm(root, { recursive: true, force: true }));
+  const cases = ['valid', 'missing', 'malformed', 'oversized', 'symlink', 'duplicate', 'wrong-parent', 'wrong-id',
+    'unknown-stage', 'string-duration', 'negative', 'fraction', 'too-large', 'nonfinite', 'null-duration', 'running', 'upper-bound'] as const;
+  for (const fault of cases) await t.test(fault, async () => {
+    const directory = join(root, fault), checks = join(directory, 'be-checks-diagnostics'), summary = join(directory, 'summary');
+    await mkdir(checks, { recursive: true });
+    const receipts: Array<[string, string, string, number]> = [
+      ['be-setup-diagnostics/install', '001', 'install', 3000],
+      ['be-setup-diagnostics/codegen', '001', 'codegen', 400],
+      ['be-setup-diagnostics/compile', '001', 'compile', 500],
+      ['be-checks-diagnostics', '001', 'required-checks', 98178],
+      ['be-checks-diagnostics', '002', 'public-tools', 11213],
+      ['be-checks-diagnostics', '003', 'native-build', 16708],
+      ['be-checks-diagnostics', '004', 'functional-tests', 40597],
+      ['be-checks-diagnostics', '005', 'operator-staging', 1376],
+      ['be-checks-diagnostics', '006', 'native-http-database-tests', 24736],
+      ['be-checks-diagnostics', '007', 'verified-transfer', 3511],
+    ];
+    for (const [path, id, stage, durationMs] of receipts) {
+      await mkdir(join(directory, path), { recursive: true });
+      await writeFile(join(directory, path, `${id}-stage.json`), JSON.stringify({
+        id, stage, parents: path === 'be-checks-diagnostics' && stage !== 'required-checks' ? ['required-checks'] : [],
+        status: 'passed', durationMs, error: 'privateTimingCanary12345', command: { binary: 'privateTimingCanary12345' },
+      }));
+    }
+    const path = join(checks, '004-stage.json'), row = JSON.parse(await readFile(path, 'utf8'));
+    if (fault === 'missing') await rm(path);
+    else if (fault === 'malformed') await writeFile(path, '{"privateTimingCanary12345":');
+    else if (fault === 'oversized') await writeFile(path, ' '.repeat(65537));
+    else if (fault === 'symlink') { await rm(path); await symlink(join(checks, '002-stage.json'), path); }
+    else if (fault === 'duplicate') await writeFile(join(checks, '008-stage.json'), JSON.stringify({ ...row, id: '008' }));
+    else {
+      if (fault === 'wrong-parent') row.parents = ['privateTimingCanary12345'];
+      if (fault === 'wrong-id') row.id = '003';
+      if (fault === 'unknown-stage') row.stage = 'functional-tests-privateTimingCanary12345';
+      if (fault === 'string-duration') row.durationMs = 'privateTimingCanary12345';
+      if (fault === 'negative') row.durationMs = -1;
+      if (fault === 'fraction') row.durationMs = 1.5;
+      if (fault === 'too-large') row.durationMs = 2700001;
+      if (fault === 'null-duration') row.durationMs = null;
+      if (fault === 'running') { row.status = 'running'; row.durationMs = 0; }
+      if (fault === 'upper-bound') row.durationMs = 2700000;
+      await writeFile(path, fault === 'nonfinite' ? JSON.stringify(row).replace('40597', '1e309') : JSON.stringify(row));
+    }
+    const child = childProcess.spawnSync(process.execPath, [new URL('../scripts/checks-diagnostics.js', import.meta.url).pathname,
+      'summary', join(directory, 'be-release-diagnostics'), 'checks', 'install=success', 'codegen=success', 'compile=success',
+      'native-functional-integration-package=success', 'tested-artifact-upload=success'], {
+      env: { PATH: '/usr/bin:/bin', CHECKS_JOB_STATUS: 'success', GITHUB_STEP_SUMMARY: summary }, encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(child.status, 0, child.stderr);
+    const text = await readFile(summary, 'utf8');
+    assert.match(text, /CI result[^:\n]*: \*\*success\*\*/);
+    assert.doesNotMatch(text + child.stdout + child.stderr, /privateTimingCanary12345/);
+    if (fault === 'valid') {
+      const rows = text.split('\n').filter(line => line.startsWith('| ')).slice(2).map(line => line.split('|').slice(1, -1).map(cell => cell.trim()));
+      assert.deepEqual(rows, [
+        ['Setup / install', 'success', 'passed', '3.000'], ['Codegen', 'success', 'passed', '0.400'],
+        ['Compile', 'success', 'passed', '0.500'], ['Inner checks total', 'success', 'passed', '98.178'],
+        ['Public tools', 'success', 'passed', '11.213'], ['Native build', 'success', 'passed', '16.708'],
+        ['Functional tests', 'success', 'passed', '40.597'], ['Operator staging', 'success', 'passed', '1.376'],
+        ['Native HTTP → test DB', 'success', 'passed', '24.736'], ['Verified transfer', 'success', 'passed', '3.511'],
+      ]);
+    } else if (fault === 'upper-bound') assert.match(text, /\| Functional tests \| success \| passed \| 2700\.000 \|/);
+    else if (fault === 'running') assert.match(text, /\| Functional tests \| success \| running \| unavailable \|/);
+    else assert.match(text, /\| Functional tests \| success \| unavailable \| unavailable \|/);
+  });
+});
+
 test('end-to-end preflight diagnostics preserve the existing Unicode character bound', async t => {
   const f = await fixture(); t.after(f.dispose);
   const root = await mkdtemp(join(tmpdir(), 'esty-e2e-preflight-')); t.after(() => rm(root, { recursive: true, force: true }));

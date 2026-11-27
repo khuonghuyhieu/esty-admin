@@ -108,6 +108,7 @@ jobs:
         if: always()
         continue-on-error: true
         env:
+          CHECKS_JOB_STATUS: ${{ job.status }}
           INSTALL: ${{ steps.install.outcome }}
           CODEGEN: ${{ steps.codegen.outcome }}
           COMPILE: ${{ steps.compile.outcome }}
