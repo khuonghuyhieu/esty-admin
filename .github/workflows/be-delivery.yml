@@ -21,11 +21,11 @@ on:
         required: false
         type: string
       release_run_id:
-        description: Successful prior BE checks run for routine delivery
+        description: Successful prior BE checks run for migration/recovery only; leave empty for current-schema-only
         required: false
         type: string
       release_artifact_id:
-        description: Immutable be-tested artifact from that producer run
+        description: Immutable be-tested artifact for migration/recovery only; leave empty for current-schema-only
         required: false
         type: string
       held_incident:
@@ -169,14 +169,14 @@ jobs:
       ${{ github.repository == 'khuonghuyhieu/esty-admin' &&
       github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
       github.event_name == 'workflow_dispatch' && vars.BE_DELIVERY_ENABLED == 'true' &&
-      (inputs.mode == 'current-schema-only' || inputs.mode == 'versioned-migration' || inputs.mode == 'etsy-strict-cutover') }}
+      (inputs.mode == 'versioned-migration' || inputs.mode == 'etsy-strict-cutover') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: be-production
     permissions:
       contents: read
       actions: read
-    outputs:
+    outputs: &routine-outputs
       artifact_id: ${{ steps.relay.outputs.artifact-id }}
       selection_sha: ${{ steps.select.outputs.selection_sha }}
       request_sha: ${{ steps.consume.outputs.request_sha }}
@@ -185,14 +185,17 @@ jobs:
       BE_DELIVERY_ENVIRONMENT: be-production
       BE_DELIVERY_MODE: ${{ inputs.mode }}
       BE_HELD_INCIDENT: ${{ inputs.held_incident }}
-      BE_RELEASE_CONTROLLER_SHA: ${{ vars.BE_RELEASE_CONTROLLER_SHA }}
-      BE_RELEASE_APPROVAL_SHA256: ${{ vars.BE_RELEASE_APPROVAL_SHA256 }}
+      BE_ROUTINE_SELECTION: ${{ inputs.mode == 'current-schema-only' && 'dispatch-main' || 'explicit' }}
+      # T302 alone may enable this after separately verifying main and reviewer restrictions.
+      BE_ROUTINE_MAIN_ENABLED: ${{ vars.BE_ROUTINE_MAIN_ENABLED }}
+      BE_RELEASE_CONTROLLER_SHA: ${{ inputs.mode != 'current-schema-only' && vars.BE_RELEASE_CONTROLLER_SHA || '' }}
+      BE_RELEASE_APPROVAL_SHA256: ${{ inputs.mode != 'current-schema-only' && vars.BE_RELEASE_APPROVAL_SHA256 || '' }}
       BE_RELEASE_TARGET: ${{ vars.BE_RELEASE_TARGET }}
       BE_DELIVERY_CONFIG_SHA256: ${{ vars.BE_DELIVERY_CONFIG_SHA256 }}
       BE_DELIVERY_SCHEMA_SHA256: ${{ vars.BE_DELIVERY_SCHEMA_SHA256 }}
       BE_MIGRATION_PACKET_JSON: ${{ vars.BE_MIGRATION_PACKET_JSON }}
       BE_MIGRATION_PACKET_SHA256: ${{ vars.BE_MIGRATION_PACKET_SHA256 }}
-    steps:
+    steps: &routine-retrieval-steps
       - name: Check out the actual published controller without persisted credentials
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -207,9 +210,15 @@ jobs:
         id: select
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: node apps/api/scripts/routine-retained.mjs select "$RUNNER_TEMP/be-transfer"
+        run: |
+          if [[ "$BE_ROUTINE_SELECTION" == dispatch-main ]]; then
+            node apps/api/scripts/routine-retained.mjs resolve "$RUNNER_TEMP/be-transfer"
+          else
+            node apps/api/scripts/routine-retained.mjs select "$RUNNER_TEMP/be-transfer"
+          fi
       - name: Download only the selected producer run and artifact
         id: download
+        if: inputs.mode != 'current-schema-only'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
           artifact-ids: ${{ steps.select.outputs.artifact_id }}
@@ -218,12 +227,12 @@ jobs:
           github-token: ${{ github.token }}
           path: ${{ runner.temp }}/be-transfer
           merge-multiple: true
-      - name: Check independent approval and archive before safe extraction and full closure verification
+      - name: Verify provenance, policy and archive before safe extraction and full closure verification
         id: consume
         env:
           BE_RELEASE_SELECTION_SHA256: ${{ steps.select.outputs.selection_sha }}
         run: node apps/api/scripts/routine-retained.mjs consume "$RUNNER_TEMP/be-transfer" "$RUNNER_TEMP/be-consume" "$GITHUB_WORKSPACE"
-      - name: Relay unchanged approved bytes and bounded request receipts
+      - name: Relay unchanged verified bytes and bounded request receipts
         id: relay
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
@@ -273,10 +282,34 @@ jobs:
             printf '%s\n' 'Diagnostic upload failed or did not run. Missing logs do not prove no effect.' >> "$GITHUB_STEP_SUMMARY" || true
           fi
 
+  routine_candidate:
+    name: Resolve the exact dispatch-main candidate before approval
+    if: &candidate-eligible >-
+      ${{ github.repository == 'khuonghuyhieu/esty-admin' &&
+      github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
+      github.event_name == 'workflow_dispatch' && vars.BE_DELIVERY_ENABLED == 'true' &&
+      vars.BE_ROUTINE_MAIN_ENABLED == 'true' && inputs.mode == 'current-schema-only' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+    outputs: *routine-outputs
+    # Repository-scoped stable policy only; no environment and no production secrets.
+    env: *routine-expectations
+    steps: *routine-retrieval-steps
+
   production:
     name: BE production delivery
-    needs: routine_retrieval
-    if: *production-eligible
+    needs: [routine_retrieval, routine_candidate]
+    if: >-
+      ${{ !cancelled() && github.repository == 'khuonghuyhieu/esty-admin' &&
+      github.ref == 'refs/heads/main' && github.run_attempt == '1' &&
+      github.event_name == 'workflow_dispatch' && vars.BE_DELIVERY_ENABLED == 'true' &&
+      ((inputs.mode == 'current-schema-only' && vars.BE_ROUTINE_MAIN_ENABLED == 'true' &&
+      needs.routine_candidate.result == 'success' && needs.routine_retrieval.result == 'skipped') ||
+      ((inputs.mode == 'versioned-migration' || inputs.mode == 'etsy-strict-cutover') &&
+      needs.routine_retrieval.result == 'success' && needs.routine_candidate.result == 'skipped')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: be-production
@@ -305,14 +338,15 @@ jobs:
         id: download
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
         with:
-          artifact-ids: ${{ needs.routine_retrieval.outputs.artifact_id }}
+          artifact-ids: ${{ needs.routine_candidate.outputs.artifact_id || needs.routine_retrieval.outputs.artifact_id }}
           path: ${{ runner.temp }}/be-transfer
           merge-multiple: true
       - name: Reverify approved relay and exact controller/operator before executing bundle code
         id: consume
         env:
-          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
-          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
+          GITHUB_TOKEN: ${{ github.token }}
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_candidate.outputs.selection_sha || needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_candidate.outputs.request_sha || needs.routine_retrieval.outputs.request_sha }}
         run: node apps/api/scripts/routine-retained.mjs consume-relay "$RUNNER_TEMP/be-transfer" "$RUNNER_TEMP/be-consume" "$GITHUB_WORKSPACE"
       - name: Bootstrap independently verified public CLI before provider secrets
         id: tools
@@ -429,8 +463,8 @@ jobs:
         id: routine_delivery
         env:
           BE_ROUTINE_ACTION: deliver
-          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_retrieval.outputs.selection_sha }}
-          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_retrieval.outputs.request_sha }}
+          BE_RELEASE_SELECTION_SHA256: ${{ needs.routine_candidate.outputs.selection_sha || needs.routine_retrieval.outputs.selection_sha }}
+          BE_RELEASE_REQUEST_SHA256: ${{ needs.routine_candidate.outputs.request_sha || needs.routine_retrieval.outputs.request_sha }}
           GITHUB_TOKEN: ${{ github.token }}
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           BE_PREVIEW_ACCESS_KEY: ${{ secrets.BE_PREVIEW_ACCESS_KEY }}
@@ -876,7 +910,7 @@ jobs:
 
   completion:
     name: BE completion
-    needs: [checks, routine_retrieval, production, manual_retrieval, manual_activation]
+    needs: [checks, routine_retrieval, routine_candidate, production, manual_retrieval, manual_activation]
     if: ${{ always() }}
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -886,8 +920,9 @@ jobs:
         env:
           MANUAL_ACTIVATION: ${{ github.event_name == 'workflow_dispatch' && inputs.mode == 'activation' }}
           MANUAL_ROUTINE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode != 'activation' }}
-          ROUTINE_RETRIEVAL_RESULT: ${{ needs.routine_retrieval.result }}
-          PRODUCTION_ELIGIBLE: *production-eligible
+          ROUTINE_RETRIEVAL_RESULT: ${{ inputs.mode == 'current-schema-only' && needs.routine_candidate.result || needs.routine_retrieval.result }}
+          LEGACY_ELIGIBLE: *production-eligible
+          CANDIDATE_ELIGIBLE: *candidate-eligible
           CHECKS_RESULT: ${{ needs.checks.result }}
           DELIVERY_RESULT: ${{ needs.production.result }}
           DELIVERY_ACCEPTED: ${{ needs.production.outputs.accepted }}
@@ -896,6 +931,8 @@ jobs:
           ACTIVATION_ACCEPTED: ${{ needs.manual_activation.outputs.accepted }}
         shell: bash
         run: |
+          PRODUCTION_ELIGIBLE="${LEGACY_ELIGIBLE-}"
+          if [[ "${CANDIDATE_ELIGIBLE:-false}" == true ]]; then PRODUCTION_ELIGIBLE=true; fi
           trap 'code=$?; printf "BE completion command ended: exit=%s; checks=%s retrieval=%s production=%s accepted=%s\n" "$code" "$CHECKS_RESULT" "$ROUTINE_RETRIEVAL_RESULT" "$DELIVERY_RESULT" "$DELIVERY_ACCEPTED" | tee -a "$GITHUB_STEP_SUMMARY" || true' EXIT
           if [[ "$MANUAL_ACTIVATION" == true ]]; then
             if [[ "$RETRIEVAL_RESULT" != success || "$ACTIVATION_RESULT" != success || "$ACTIVATION_ACCEPTED" != true ]]; then

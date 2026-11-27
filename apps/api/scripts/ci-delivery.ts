@@ -538,11 +538,15 @@ export function deliveryContext(env: NodeJS.ProcessEnv, tree: string): RunIdenti
     || env.BE_DELIVERY_ENABLED !== 'true' || env.BE_DELIVERY_ENVIRONMENT !== 'be-production'
     || !/^[a-f0-9]{40}$/.test(env.GITHUB_SHA ?? '') || !/^[a-f0-9]{40}$/.test(tree)
     || !/^[1-9][0-9]*$/.test(env.GITHUB_RUN_ID ?? '')) throw new Error('Production workflow context is not authorized.');
+  if (env.BE_DELIVERY_MODE === 'current-schema-only'
+    && (env.BE_ROUTINE_SELECTION !== 'dispatch-main' || env.BE_ROUTINE_MAIN_ENABLED !== 'true'
+      || env.GITHUB_JOB !== 'production')) throw new Error('Protected main candidate approval is required.');
   return { revision: env.GITHUB_SHA!, tree, run: env.GITHUB_RUN_ID! };
 }
 
-/** Builds nonsecret expectations from separately approved producer/config/schema/packet inputs.
- * The resulting request is persisted by the verified checkout before the operator receives credentials. */
+/** Builds a request from authenticated producer evidence and independent stable policy.
+ * Construction is not deployment permission: protected review (or explicit migration
+ * approval) and authenticated ingress must precede production effects. */
 export async function approvedRoutineRequest(artifact: VerifiedArtifact, selection: unknown, approval: unknown,
   context: unknown, packetValue: unknown): Promise<ReleaseRequest> {
   const selected = validateRoutineSelection(selection, context), controls = selected.context;
@@ -583,7 +587,7 @@ export async function approvedRoutineRequest(artifact: VerifiedArtifact, selecti
 }
 
 async function prepareRoutineDelivery(input: { bundle: string; transfer: string; env: NodeJS.ProcessEnv }) {
-  const context = loadRoutineContext(input.env);
+  const context = loadRoutineContext(input.env, input.transfer);
   const selection = readRoutineSelection(input.transfer, input.env.BE_RELEASE_SELECTION_SHA256, context);
   const { approval } = verifyRoutineTransfer(input.transfer, selection, context, true);
   const artifact = await verifyRoutineBundle(input.bundle, approval, selection, context, undefined);
@@ -595,6 +599,9 @@ async function prepareRoutineDelivery(input: { bundle: string; transfer: string;
 }
 export async function authenticateRoutineDelivery(input: { bundle: string; transfer: string; env: NodeJS.ProcessEnv;
   read(path: string): Promise<unknown> }): Promise<{ artifact: VerifiedArtifact; request: ReleaseRequest }> {
+  if (input.env.BE_DELIVERY_MODE === 'current-schema-only'
+    && (input.env.BE_ROUTINE_SELECTION !== 'dispatch-main' || input.env.BE_ROUTINE_MAIN_ENABLED !== 'true'
+      || input.env.GITHUB_JOB !== 'production')) releaseRefusal();
   const prepared = await prepareRoutineDelivery(input);
   await confirmRoutineSelection(prepared.selection, prepared.context, input.read);
   return { artifact: prepared.artifact, request: prepared.request };
